@@ -2,6 +2,8 @@
 
 A powerful, flexible parsing library for Dart that supports **CFG Parsing**, **state machines**, **parse forests**, and **parser code generation**. Build anything from simple tokenizers to complex expression parsers with minimal boilerplate.
 
+> Note: This library and its tooling were developed with the help of AI-assisted generation.
+
 **Key Features:**
 - 🎯 **Pattern-based DSL** — Define grammars using Dart-native operators (`>>`, `|`, `*`, `+`, `?`)
 - 🔍 **Multiple parsing methods** — Recognition, parse tree enumeration, full parse forests (SPPF)
