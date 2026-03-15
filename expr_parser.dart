@@ -1,5 +1,5 @@
 /// Auto-generated standalone parser for grammar
-/// Generated: 2026-03-16 04:04:34.479555
+/// Generated: 2026-03-16 04:55:12.619329
 
 // --- BEGIN GLUSH RUNTIME ---
 import 'dart:async';
@@ -99,18 +99,20 @@ class Concat<T> extends GlushList<T> {
 // --- $filename ---
 /// Mark class for tracking parse positions
 
-class Mark {
+sealed class Mark {}
+
+class NamedMark extends Mark {
   final String name;
   final int position;
 
-  Mark(this.name, this.position);
+  NamedMark(this.name, this.position);
 
   List<Object> toList() => [name, position];
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Mark &&
+      other is NamedMark &&
           runtimeType == other.runtimeType &&
           name == other.name &&
           position == other.position;
@@ -119,7 +121,30 @@ class Mark {
   int get hashCode => name.hashCode ^ position.hashCode;
 
   @override
-  String toString() => 'Mark($name, $position)';
+  String toString() => 'NamedMark($name, $position)';
+}
+
+class StringMark extends Mark {
+  final String value;
+  final int position;
+
+  StringMark(this.value, this.position);
+
+  List<Object> toList() => [value, position];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StringMark &&
+          runtimeType == other.runtimeType &&
+          value == other.value &&
+          position == other.position;
+
+  @override
+  int get hashCode => value.hashCode ^ position.hashCode;
+
+  @override
+  String toString() => 'StringMark($value, $position)';
 }
 
 // --- $filename ---
@@ -2056,11 +2081,38 @@ final class ParseForestSuccess<T> extends ParseOutcome<T> {
 // ---------------------------------------------------------------------------
 
 class ParserResult {
-  final List<Mark> marks;
+  final List<Mark> _rawMarks;
 
-  ParserResult(this.marks);
+  ParserResult(this._rawMarks);
 
-  List<List<Object?>> toList() => marks.map((m) => m.toList()).toList();
+  List<String> get marks {
+    final result = <String>[];
+    String? currentStringMark;
+
+    for (final mark in _rawMarks) {
+      if (mark is NamedMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        currentStringMark = (currentStringMark ?? '') + mark.value;
+      }
+    }
+
+    if (currentStringMark != null) {
+      result.add(currentStringMark);
+    }
+    
+    return result;
+  }
+
+  List<List<Object?>> toList() => _rawMarks.map((m) {
+    if (m is NamedMark) return m.toList();
+    if (m is StringMark) return m.toList();
+    return [];
+  }).toList();
 }
 
 /// Represents a single parse tree derivation
@@ -3283,7 +3335,7 @@ class SMParser {
     }
 
     if (pattern is Marker) {
-      return Mark(pattern.name, tree.start);
+      return NamedMark(pattern.name, tree.start);
     }
 
     if (pattern is Alt) {
@@ -3669,10 +3721,19 @@ class Step {
     for (final action in state.actions) {
       if (action is TokenAction) {
         if (action.pattern.match(token)) {
-          frame.nextStates.add(action.nextState);
+          // If token matches, add a StringMark with the captured token if not ExactToken
+          // So ranges and 'any' tokens are captured into the marks array too
+          var newMarks = frame.marks;
+          if (token != null && action.pattern is Token && (action.pattern as Token).choice is! ExactToken) {
+            final strMark = StringMark(String.fromCharCode(token!), position);
+            newMarks = (newMarks ?? GlushList.empty<Mark>()).add(strMark);
+          }
+          final nextFrame = Frame(Context(frame.caller, newMarks));
+          nextFrame.nextStates.add(action.nextState);
+          nextFrames.add(nextFrame);
         }
       } else if (action is MarkAction) {
-        final mark = Mark(action.name, position);
+        final mark = NamedMark(action.name, position);
         final markCtx = Context(
           frame.caller,
           (frame.marks ?? GlushList.empty<Mark>()).add(mark),
@@ -3770,9 +3831,9 @@ class Step {
 GrammarInterface _createGrammarGrammar() {
   return Grammar(() {
     late Rule expr, term, factor;
-    expr = Rule("expr", () => (Call(expr) >> (Token(ExactToken(43)) | Token(ExactToken(45))) >> Call(term)) | Call(term));
-    term = Rule("term", () => (Call(term) >> (Token(ExactToken(42)) | Token(ExactToken(47))) >> Call(factor)) | Call(factor));
-    factor = Rule("factor", () => (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))) | (Token(RangeToken(48, 57))).plus());
+    expr = Rule("expr", () => (Marker("add") >> Call(expr) >> Token(ExactToken(43)) >> Call(term)) | (Marker("sub") >> Call(expr) >> Token(ExactToken(45)) >> Call(term)) | Call(term));
+    term = Rule("term", () => (Marker("mul") >> Call(term) >> Token(ExactToken(42)) >> Call(factor)) | (Marker("div") >> Call(term) >> Token(ExactToken(47)) >> Call(factor)) | Call(factor));
+    factor = Rule("factor", () => (Marker("group") >> Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))) | (Marker("number") >> (Token(RangeToken(48, 57))).plus()));
 
     return expr;
   });
@@ -3785,4 +3846,10 @@ late final SMParser _grammarParser = SMParser(_createGrammarGrammar());
 /// Returns the parse outcome containing the parse forest or error information
 Iterable<ParseDerivation> parseGrammar(String input) {
   return _grammarParser.enumerateAllParses(input);
+}
+
+/// Parse input text using the grammar grammar
+/// Returns the marks from the grammar
+ParseOutcome<Object?> parseGrammarMarks(String input) {
+  return _grammarParser.parse(input);
 }

@@ -41,6 +41,12 @@ class GrammarCodeGenerator {
     buffer.writeln('Iterable<ParseDerivation> parse${grammarName}(String input) {');
     buffer.writeln('  return _${grammarFile.name}Parser.enumerateAllParses(input);');
     buffer.writeln('}');
+    buffer.writeln();
+    buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
+    buffer.writeln('/// Returns the marks from the grammar');
+    buffer.writeln('ParseOutcome<Object?> parse${grammarName}Marks(String input) {');
+    buffer.writeln('  return _${grammarFile.name}Parser.parse(input);');
+    buffer.writeln('}');
 
     return buffer.toString();
   }
