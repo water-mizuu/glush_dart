@@ -454,35 +454,6 @@ final grammar = Grammar(() {
 });
 ```
 
-### Mark Applications
-
-**Common uses:**
-- **Syntax highlighting:** Mark token boundaries
-- **Error recovery:** Know exactly where parsing failed
-- **Semantic actions:** Capture operator positions for AST
-- **Location tracking:** Line/column info for error messages
-
-Example with location info:
-
-```dart
-class Token {
-  final String value;
-  final int line;
-  final int column;
-
-  Token(this.value, this.line, this.column);
-}
-
-// Use marks to build position-aware AST:
-final opToken = Marker('op_start') >>
-    Pattern.string('+') >>
-    Marker('op_end')
-      .withAction<Token>((_, marks) {
-        // marks contains the marked positions
-        return Token('+', line, column);
-      });
-```
-
 ---
 
 ## Semantic Actions
