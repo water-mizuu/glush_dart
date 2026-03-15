@@ -1,0 +1,14 @@
+﻿Analyzing expr_parser.dart...
+
+  error - expr_parser.dart:2727:26 - Expected an identifier. - missing_identifier
+  error - expr_parser.dart:2727:26 - Expected to find ';'. - expected_token
+  error - expr_parser.dart:2727:27 - Undefined name '$1'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - expr_parser.dart:2728:29 - Expected an identifier. - missing_identifier
+  error - expr_parser.dart:2728:29 - Expected to find ';'. - expected_token
+  error - expr_parser.dart:2728:30 - Undefined name '$2'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+warning - expr_parser.dart:1041:7 - The value of the field '_actionIdCounter' isn't used. Try removing the field, or using it. - unused_field
+warning - expr_parser.dart:1279:11 - The value of the local variable 'childStr' isn't used. Try removing the variable or using it. - unused_local_variable
+warning - expr_parser.dart:1482:11 - The value of the local variable 'prefix' isn't used. Try removing the variable or using it. - unused_local_variable
+warning - expr_parser.dart:1796:11 - The value of the local variable 'childStr' isn't used. Try removing the variable or using it. - unused_local_variable
+
+10 issues found.
