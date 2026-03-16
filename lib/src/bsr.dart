@@ -97,7 +97,7 @@ class BsrSet {
     if (inProgress[key] == true) return null;
 
     inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule.name);
+    final symNode = nodeManager.symbolic(start, end, rule);
 
     final childGroups =
         _patternChildGroups(rule.body(), input, start, end, nodeManager, memo, inProgress);
@@ -123,20 +123,24 @@ class BsrSet {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
         return [
-          [nodeManager.terminal(start, end, input.codeUnitAt(start))]
+          [nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]
         ];
       }
       return [];
     }
 
     if (pattern is Eps) {
-      return start == end ? [[]] : [];
+      return start == end
+          ? [
+              [nodeManager.epsilon(start, pattern)]
+            ]
+          : [];
     }
 
     if (pattern is Marker) {
       if (start == end) {
         return [
-          [nodeManager.marker(start, pattern.name)]
+          [nodeManager.marker(start, pattern)]
         ];
       }
       return [];
@@ -163,7 +167,9 @@ class BsrSet {
 
         for (final l in leftGroups) {
           for (final r in rightGroups) {
-            result.add([...l, ...r]);
+            final node = nodeManager.intermediate(start, end, pattern, 'Seq');
+            node.addFamily(Family([...l, ...r]));
+            result.add([node]);
           }
         }
       }
@@ -189,7 +195,96 @@ class BsrSet {
     }
 
     if (pattern is Action) {
-      return _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
+      final childGroups =
+          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
+      return childGroups.map((children) {
+        final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
+        node.addFamily(Family(children));
+        return [node];
+      }).toList();
+    }
+
+    if (pattern is Plus) {
+      final result = <List<ForestNode>>[];
+      for (int mid = start + 1; mid <= end; mid++) {
+        final headGroups =
+            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
+        if (headGroups.isEmpty) continue;
+
+        final tailGroups =
+            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
+        if (tailGroups.isEmpty) continue;
+
+        for (final h in headGroups) {
+          for (final t in tailGroups) {
+            final node = nodeManager.intermediate(start, end, pattern, 'Plus');
+            node.addFamily(Family([...h, ...t]));
+            result.add([node]);
+          }
+        }
+      }
+      final singleGroups =
+          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
+      for (final s in singleGroups) {
+        final node = nodeManager.intermediate(start, end, pattern, 'Plus');
+        node.addFamily(Family(s));
+        result.add([node]);
+      }
+
+      return result;
+    }
+
+    if (pattern is Star) {
+      final result = <List<ForestNode>>[];
+      for (int mid = start + 1; mid <= end; mid++) {
+        final headGroups =
+            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
+        if (headGroups.isEmpty) continue;
+
+        final tailGroups =
+            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
+        if (tailGroups.isEmpty) continue;
+
+        for (final h in headGroups) {
+          for (final t in tailGroups) {
+            final node = nodeManager.intermediate(start, end, pattern, 'Star');
+            node.addFamily(Family([...h, ...t]));
+            result.add([node]);
+          }
+        }
+      }
+      if (start == end) {
+        final node = nodeManager.intermediate(start, end, pattern, 'Star');
+        node.addFamily(Family([nodeManager.epsilon(start, pattern)]));
+        result.add([node]);
+      }
+
+      return result;
+    }
+
+    if (pattern is Conj) {
+      if (start + 1 == end &&
+          pattern.left.match(input.codeUnitAt(start)) &&
+          pattern.right.match(input.codeUnitAt(start))) {
+        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
+        return [
+          [termNode]
+        ];
+      }
+      return [];
+    }
+
+    if (pattern is And || pattern is Not) {
+      if (start == end) {
+        return [
+          [nodeManager.epsilon(start, pattern)]
+        ];
+      }
+      return [];
+    }
+
+    if (pattern is PrecedenceLabeledPattern) {
+      return _patternChildGroups(pattern.pattern, input, start, end, nodeManager, memo, inProgress);
     }
 
     return [];

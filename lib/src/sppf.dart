@@ -2,13 +2,15 @@
 library glush.sppf;
 
 import 'mark.dart';
+import 'patterns.dart';
 
 /// Base class for all forest nodes
-abstract class ForestNode {
+sealed class ForestNode {
   final int start;
   final int end;
+  final Pattern pattern;
 
-  ForestNode(this.start, this.end);
+  ForestNode(this.start, this.end, this.pattern);
 
   @override
   bool operator ==(Object other) =>
@@ -16,17 +18,18 @@ abstract class ForestNode {
       other is ForestNode &&
           runtimeType == other.runtimeType &&
           start == other.start &&
-          end == other.end;
+          end == other.end &&
+          pattern == other.pattern;
 
   @override
-  int get hashCode => start.hashCode ^ end.hashCode;
+  int get hashCode => start.hashCode ^ end.hashCode ^ pattern.hashCode;
 }
 
 /// Terminal node (matches a token)
 class TerminalNode extends ForestNode {
   final int token;
 
-  TerminalNode(super.start, super.end, this.token);
+  TerminalNode(super.start, super.end, super.pattern, this.token);
 
   @override
   bool operator ==(Object other) =>
@@ -43,7 +46,7 @@ class TerminalNode extends ForestNode {
 class MarkerNode extends ForestNode {
   final String name;
 
-  MarkerNode(int position, this.name) : super(position, position);
+  MarkerNode(int position, Pattern pattern, this.name) : super(position, position, pattern);
 
   @override
   bool operator ==(Object other) =>
@@ -61,7 +64,7 @@ class SymbolicNode extends ForestNode {
   final String symbol;
   final List<Family> families = [];
 
-  SymbolicNode(super.start, super.end, this.symbol);
+  SymbolicNode(super.start, super.end, super.pattern, this.symbol);
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -85,7 +88,7 @@ class IntermediateNode extends ForestNode {
   final String description;
   final List<Family> families = [];
 
-  IntermediateNode(super.start, super.end, this.description);
+  IntermediateNode(super.start, super.end, super.pattern, this.description);
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -141,7 +144,7 @@ class Family {
 
 /// Epsilon node (empty parse)
 class EpsilonNode extends ForestNode {
-  EpsilonNode(int position) : super(position, position);
+  EpsilonNode(int position, Pattern pattern) : super(position, position, pattern);
 
   @override
   String toString() => 'ε[$start]';
@@ -155,64 +158,64 @@ class ForestNodeManager {
   final List<IntermediateNode> _intermediateNodes = [];
   final List<MarkerNode> _markerNodes = [];
 
-  String _makeCacheKey(String type, int start, int end, [String detail = '']) {
-    return '$type:$start:$end:$detail';
+  String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
+    return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
   }
 
   /// Get or create a terminal node
-  TerminalNode terminal(int start, int end, int token) {
-    final key = _makeCacheKey('term', start, end, token.toString());
+  TerminalNode terminal(int start, int end, Pattern pattern, int token) {
+    final key = _makeCacheKey('term', start, end, pattern, token.toString());
     if (_nodeCache[key] case TerminalNode node) {
       return node;
     }
-    final node = TerminalNode(start, end, token);
+    final node = TerminalNode(start, end, pattern, token);
     _nodeCache[key] = node;
     _terminalNodes.add(node);
     return node;
   }
 
   /// Get or create a symbolic node
-  SymbolicNode symbolic(int start, int end, String symbol) {
-    final key = _makeCacheKey('sym', start, end, symbol);
+  SymbolicNode symbolic(int start, int end, Rule rule) {
+    final key = _makeCacheKey('sym', start, end, rule, rule.name);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
-    final node = SymbolicNode(start, end, symbol);
+    final node = SymbolicNode(start, end, rule, rule.name);
     _nodeCache[key] = node;
     _symbolicNodes.add(node);
     return node;
   }
 
   /// Get or create an intermediate node
-  IntermediateNode intermediate(int start, int end, String description) {
-    final key = _makeCacheKey('inter', start, end, description);
+  IntermediateNode intermediate(int start, int end, Pattern pattern, String description) {
+    final key = _makeCacheKey('inter', start, end, pattern, description);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
-    final node = IntermediateNode(start, end, description);
+    final node = IntermediateNode(start, end, pattern, description);
     _nodeCache[key] = node;
     _intermediateNodes.add(node);
     return node;
   }
 
   /// Get or create an epsilon node
-  EpsilonNode epsilon(int position) {
-    final key = _makeCacheKey('eps', position, position);
+  EpsilonNode epsilon(int position, Pattern pattern) {
+    final key = _makeCacheKey('eps', position, position, pattern);
     if (_nodeCache[key] case EpsilonNode node) {
       return node;
     }
-    final node = EpsilonNode(position);
+    final node = EpsilonNode(position, pattern);
     _nodeCache[key] = node;
     return node;
   }
 
   /// Get or create a marker node
-  MarkerNode marker(int position, String name) {
-    final key = _makeCacheKey('mark', position, position, name);
+  MarkerNode marker(int position, Marker pattern) {
+    final key = _makeCacheKey('mark', position, position, pattern, pattern.name);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
-    final node = MarkerNode(position, name);
+    final node = MarkerNode(position, pattern, pattern.name);
     _nodeCache[key] = node;
     _markerNodes.add(node);
     return node;
@@ -305,17 +308,27 @@ class ParseForest {
           yield* _extractFamilyTrees(node, family);
         }
       }
-    } else if (node is TerminalNode || node is EpsilonNode || node is MarkerNode) {
+    } else if (node is IntermediateNode) {
+      if (node.families.isEmpty) {
+        yield ParseTree(node, const []);
+        return;
+      }
+      for (final family in node.families) {
+        if (family.children.isEmpty) {
+          yield ParseTree(node, const []);
+        } else {
+          yield* _extractFamilyTrees(node, family);
+        }
+      }
+    } else {
       yield ParseTree(node, const []);
     }
   }
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(SymbolicNode parent, Family family) sync* {
+  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
     // Collect sub-iterables for each child position
-    final childOptions = family.children
-        .map((child) => _extractTrees(child).toList())
-        .toList();
+    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
     // Yield the Cartesian product of the child options as ParseTree nodes
     for (final combination in _cartesianProduct(childOptions)) {
       yield ParseTree(parent, combination);
@@ -335,7 +348,6 @@ class ParseForest {
     }
   }
 
-
   @override
   String toString() {
     return 'ParseForest(root=$root, nodes=${countNodes()}, families=${countFamilies()})';
@@ -354,6 +366,15 @@ class ParseTree {
     final prefix = '  ' * indent;
     final str = '$prefix$node\n';
     return str + children.map((c) => c.toTreeString(indent + 1)).join('');
+  }
+
+  String toPrecedenceString(String input) {
+    final mapped = children.map((c) => c.toPrecedenceString(input)).join("");
+    if (mapped.isEmpty) {
+      return input.substring(node.start, node.end);
+    }
+
+    return switch (children.length) { > 1 => "($mapped)", 1 => mapped, _ => throw Error() };
   }
 
   @override

@@ -205,6 +205,11 @@ class GrammarCodeGenerator {
       return '(${_generatePatternCode(pattern.inner, precedenceLevels)})';
     }
 
+    if (pattern is ConjunctionPattern) {
+      final parts = pattern.patterns.map((p) => _generatePatternCode(p, precedenceLevels)).toList();
+      return parts.join(' & ');
+    }
+
     throw ArgumentError('Unknown pattern type: ${pattern.runtimeType}');
   }
 

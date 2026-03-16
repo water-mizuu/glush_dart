@@ -12,3 +12,4 @@ export 'src/sppf.dart';
 export 'src/grammar_file_format.dart';
 export 'src/grammar_file_parser.dart';
 export 'src/grammar_codegen.dart';
+export 'src/evaluator.dart';

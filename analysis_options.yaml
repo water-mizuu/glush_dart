@@ -133,8 +133,8 @@
 #     - use_to_close_resource
 #     - void_checks
 
-# analyzer:
-#   errors:
-#     missing_required_param: error
-#     missing_return: error
-#     todo: ignore
+analyzer:
+  errors:
+    missing_required_param: error
+    missing_return: error
+    todo: ignore

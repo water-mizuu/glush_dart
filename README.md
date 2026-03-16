@@ -7,10 +7,8 @@ A powerful, flexible parsing library for Dart that supports **CFG Parsing**, **s
 **Key Features:**
 - 🎯 **Pattern-based DSL** — Define grammars using Dart-native operators (`>>`, `|`, `*`, `+`, `?`)
 - 🔍 **Multiple parsing methods** — Recognition, parse tree enumeration, full parse forests (SPPF)
-- 📍 **Mark collection** — Track parse positions and capture spans with named and string marks
+- 📍 **Mark collection & Evaluation** — Track positions and capture spans; evaluate results elegantly with the `Evaluator` class
 - ⚙️ **Semantic actions** — Attach callbacks to patterns to evaluate or transform results during parsing
-- 📊 **Operator precedence** — Support both natural (recursive structure) and explicit (precedence levels) precedence
-- 🔧 **Code generation** — Generate standalone Dart parsers from grammar definitions
 - 🌳 **Parse forest support** — Handle ambiguous grammars efficiently with SPPF (Shared Packed Parse Forest)
 - ✨ **Lookahead predicates** — Use AND (`&`) and NOT (`!`) for contextual matching without consuming input
 - ⚡ **No external dependencies** — Pure Dart implementation
@@ -453,6 +451,36 @@ final grammar = Grammar(() {
   return Call(Rule('kw', () => keyword));
 });
 ```
+
+### Evaluator — Elegant Mark-based Evaluation
+
+The `Evaluator` class provides a concise, recursive DSL for evaluating the list of marks returned by `parse()`. It's often the simplest way to build an interpreter for your grammar.
+
+```dart
+final evaluator = Evaluator<num>(($) {
+  return {
+    'add': () => $<num>() + $<num>(),
+    'sub': () => $<num>() - $<num>(),
+    'mul': () => $<num>() * $<num>(),
+    'div': () => $<num>() / $<num>(),
+    'group': () => $<num>(),
+    'number': () => num.parse($<String>()),
+  };
+});
+
+final result = parser.parse('1+2*(3+4)');
+if (result is ParseSuccess) {
+  // evaluate() returns (result, remaining_marks)
+  final (value, _) = evaluator.evaluate(result.result.marks);
+  print('Result: $value'); // 15
+}
+```
+
+**How it works:**
+- The factory function receives a `consume` helper (aliased to `$` here).
+- Calling `$<T>()` recursively evaluates the next mark in the list.
+- If the next mark is a handler key, that handler is executed and its result returned.
+- If the next mark is a raw value (like from a regex or string), it's returned directly as `T`.
 
 ---
 
@@ -1102,6 +1130,12 @@ extension Action<T> on Pattern {
 // Markers
 class Marker extends Pattern {
   Marker(String name);
+}
+
+// Evaluator
+class Evaluator<T> {
+  Evaluator(Map<String, dynamic Function()> Function(R Function<R>() consume) factory);
+  (T, List<String>) evaluate(List<String> marks);
 }
 
 // Precedence

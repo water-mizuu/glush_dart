@@ -49,6 +49,7 @@ enum _TokenType {
   caret, // ^
   lbrace, // {
   rbrace, // }
+  ampersand, // &
   eof,
 }
 
@@ -104,6 +105,7 @@ class _Tokenizer {
         '^': _TokenType.caret,
         '{': _TokenType.lbrace,
         '}': _TokenType.rbrace,
+        '&': _TokenType.ampersand,
       };
 
       if (tokenMap.containsKey(ch)) {
@@ -379,14 +381,27 @@ class GrammarFileParser {
 
   /// Parse: expr expr expr
   PatternExpr _parseSequence() {
-    final parts = [_parseRepetition()];
+    final parts = [_parseConjunction()];
 
     while (_isSequenceContinuation()) {
-      parts.add(_parseRepetition());
+      parts.add(_parseConjunction());
     }
 
     if (parts.length == 1) return parts[0];
     return SequencePattern(parts);
+  }
+
+  /// Parse: expr & expr & expr
+  PatternExpr _parseConjunction() {
+    final parts = [_parseRepetition()];
+
+    while (_peek().type == _TokenType.ampersand) {
+      _advance(); // consume &
+      parts.add(_parseRepetition());
+    }
+
+    if (parts.length == 1) return parts[0];
+    return ConjunctionPattern(parts);
   }
 
   bool _isSequenceContinuation() {

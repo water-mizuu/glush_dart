@@ -114,6 +114,16 @@ class AlternationPattern extends PatternExpr {
   String toString() => patterns.join(' | ');
 }
 
+/// Conjunction pattern (e.g., expr & term)
+class ConjunctionPattern extends PatternExpr {
+  final List<PatternExpr> patterns;
+
+  ConjunctionPattern(this.patterns);
+
+  @override
+  String toString() => patterns.join(' & ');
+}
+
 /// Repetition pattern (e.g., expr*, term+, number?)
 class RepetitionPattern extends PatternExpr {
   final PatternExpr pattern;

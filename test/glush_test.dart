@@ -46,7 +46,7 @@ void main() {
     test('repetition works', () {
       final token = Token(ExactToken(97));
       expect(token.plus(), isA<Plus>());
-      expect(token.star(), isA<Alt>());
+      expect(token.star(), isA<Star>());
       expect(token.maybe(), isA<Alt>());
     });
   });
@@ -162,7 +162,7 @@ void main() {
   group('Enumeration vs Forest Extraction', () {
     /// Helper: extract label from ParseDerivation for structure comparison
     String _derivationShape(ParseDerivation d) {
-      if (d.children.isEmpty) return d.symbol;
+      if (d.children.isEmpty) return d.symbol.toString();
       return '${d.symbol}(${d.children.map(_derivationShape).join(',')})';
     }
 
@@ -364,17 +364,18 @@ void main() {
 
     test('counts match for more complex ambiguity S->SSS|SS|s', () {
       final grammar = Grammar(() {
-        late final s;
+        late final Rule s;
         s = Rule('S', () {
           return Token.char('s') | // s
-              (Call(s) >> Call(s)) | // SS
-              (Call(s) >> Call(s) >> Call(s)); // SSS
+              (Marker('2') >> s() >> s()).withAction((_, c) => [...c]) | // SS
+              (Marker('3') >> s() >> s() >> s()).withAction((_, c) => [...c]) |
+              (Marker('4') >> s() >> s() >> s() >> s()).withAction((_, c) => [...c]); // SSS
         });
         return s;
       });
 
       final parser = SMParser(grammar);
-      const testInput = 'ssss';
+      const testInput = 'sssss';
       final derivationCount = parser.countAllParses(testInput);
       final derivations = parser.enumerateAllParses(testInput).toList();
 
@@ -390,7 +391,10 @@ void main() {
         // 1. SSS -> s+s+s
         // 2. SS -> (s+s)+s
         // 3. SS -> s+(s+s)
-        expect(derivations.length, equals(10));
+        expect(derivations.length, equals(44));
+        for (final structure in forestResult.forest.extract().toList()) {
+          print(structure.toPrecedenceString(testInput));
+        }
       }
     });
   });

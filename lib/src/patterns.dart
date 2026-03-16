@@ -3,8 +3,9 @@ library glush.patterns;
 
 import 'errors.dart';
 
-abstract class Pattern {
+sealed class Pattern {
   Pattern();
+  factory Pattern.char(String char) = Token.char;
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
       return Eps();
@@ -98,7 +99,8 @@ abstract class Pattern {
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
   ///   - childResults: list of evaluated semantic values from children
-  Action<T> withAction<T>(T Function(String span, List<dynamic> childResults) callback) {
+  Action<T> withAction<T>(
+      T Function(String span, List<dynamic> childResults) callback) {
     return Action<T>(this, callback);
   }
 
@@ -106,24 +108,27 @@ abstract class Pattern {
 
   /// Repetition operators
   Plus plus() => Plus(this);
+  Star star() => Star(this);
+
   Pattern plusRewrite() {
     late Rule inner;
     inner = Rule(
         "__${_customIds++}",
         () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+            (inner() >> this).withAction(
+                (_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
             this);
 
     return inner();
   }
 
-  Pattern star() => plus().maybe();
-  Pattern starRerwrite() {
+  Pattern starRewrite() {
     late Rule inner;
     inner = Rule(
         "__${_customIds++}",
         () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+            (inner() >> this).withAction(
+                (_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
             Eps());
 
     return inner();
@@ -141,10 +146,8 @@ abstract class Pattern {
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
   Not not() => Not(this);
 
-  /// Unary operator for positive lookahead: &pattern
+  /// Unary operator for positive lookahead: ~pattern
   And operator ~() => And(this);
-
-  /// Unary operator for negative lookahead: !pattern (as prefix unary)
 }
 
 /// Sealed class hierarchy for token choice — replaces the former dynamic field.
@@ -169,7 +172,7 @@ final class ExactToken extends TokenChoice {
   @override
   bool matches(int? token) => token == value;
   @override
-  String toString() => value.toString();
+  String toString() => String.fromCharCode(value);
 }
 
 /// Matches a code-point within an inclusive range
@@ -209,7 +212,8 @@ class Token extends Pattern {
 
   Token(this.choice);
   Token.char(String char) //
-      : choice = ExactToken(char.codeUnits.first);
+      : assert(char.length == 1),
+        choice = ExactToken(char.codeUnits.first);
   Token.charRange(String from, String to)
       : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
 
@@ -514,6 +518,49 @@ class Plus extends Pattern {
   String toString() => 'plus($child)';
 }
 
+/// Repetition (zero or more)
+class Star extends Pattern {
+  final Pattern child;
+
+  Star(Pattern c) : child = c.consume();
+
+  @override
+  Star copy() => Star(child);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    child.calculateEmpty(emptyRules);
+    setEmpty(true);
+    return true;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => child.firstSet();
+  @override
+  Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  void eachPair(void Function(Pattern, Pattern) callback) {
+    child.eachPair(callback);
+    for (final a in child.lastSet()) {
+      for (final b in child.firstSet()) {
+        callback(a, b);
+      }
+    }
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    child.collectRules(rules);
+  }
+
+  @override
+  String toString() => 'star($child)';
+}
+
 /// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming
 /// Example: &('a' >> 'b') >> 'a' will only match 'a' if followed by 'b'
 class And extends Pattern {
@@ -607,9 +654,9 @@ class Rule extends Pattern {
 
   Rule(this.name, this._code);
 
-  RuleCall call() {
+  RuleCall call({int? minPrecedenceLevel}) {
     final name = '${this.name}_${calls.length}';
-    final call = RuleCall(name, this);
+    final call = RuleCall(name, this, minPrecedenceLevel: minPrecedenceLevel);
     calls.add(call);
     return call;
   }
@@ -655,7 +702,8 @@ class RuleCall extends Pattern {
   RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   @override
-  RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
+  RuleCall copy() =>
+      RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -678,7 +726,8 @@ class RuleCall extends Pattern {
   }
 
   @override
-  String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
+  String toString() =>
+      minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
 /// Lazy call to a rule (defers the call until needed), with optional precedence constraint
@@ -715,8 +764,9 @@ class Call extends Pattern {
   }
 
   @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
+  String toString() => minPrecedenceLevel != null
+      ? '<${rule.name}^$minPrecedenceLevel>'
+      : '<${rule.name}>';
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.
@@ -776,7 +826,8 @@ class PrecedenceLabeledPattern extends Pattern {
   PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
 
   @override
-  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() =>
+      PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
