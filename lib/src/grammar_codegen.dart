@@ -69,12 +69,12 @@ class GrammarCodeGenerator {
     buffer.writeln('}');
     buffer.writeln();
     buffer.writeln('/// Lazy-initialized parser for ${grammarFile.name}');
-    buffer.writeln(
-        'late final SMParser _${grammarFile.name}Parser = SMParser(_create${grammarName}Grammar());');
+    buffer.writeln('late final SMParser _${grammarFile.name}Parser = '
+        'SMParser(_create${grammarName}Grammar());');
     buffer.writeln();
     buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
-    buffer
-        .writeln('/// Returns the parse outcome containing the parse forest or error information');
+    buffer.writeln('/// Returns the parse outcome containing the ' //
+        'parse forest or error information');
     buffer.writeln('ParseOutcome parse${grammarName}(String input) {');
     buffer.writeln('  return _${grammarFile.name}Parser.parse(input);');
     buffer.writeln('}');
@@ -166,7 +166,10 @@ class GrammarCodeGenerator {
     }
 
     if (pattern is SequencePattern) {
-      final parts = pattern.patterns.map((p) => _generatePatternCode(p, precedenceLevels)).toList();
+      final parts = pattern.patterns //
+          .map((p) => _generatePatternCode(p, precedenceLevels))
+          .toList();
+
       return parts.join(' >> ');
     }
 
@@ -176,7 +179,7 @@ class GrammarCodeGenerator {
         // Check if this pattern has a precedence level and wrap with .atLevel()
         if (precedenceLevels.containsKey(p)) {
           final level = precedenceLevels[p]!;
-          final wrappedCode = (p is SequencePattern) ? '($code)' : code;
+          final wrappedCode = code.contains(" ") ? '($code)' : code;
           return '$wrappedCode.atLevel($level)';
         }
         // Add parens if the part is a sequence
@@ -241,6 +244,9 @@ class GrammarCodeGenerator {
 
   /// Get the variable name for a rule (lowercase)
   String _getRuleVariable(String ruleName) {
+    if (ruleName == "_") {
+      return "__underscore";
+    }
     return ruleName[0].toLowerCase() + ruleName.substring(1);
   }
 }

@@ -17,26 +17,12 @@ import 'sppf.dart';
 ///
 /// Records that [rule] was successfully parsed over the input span
 /// [[leftExtent], [rightExtent]).
-final class BsrEntry {
-  final Rule rule;
-  final int leftExtent;
-  final int rightExtent;
+typedef BsrEntry = (Rule rule, int leftExtent, int rightExtent);
 
-  const BsrEntry(this.rule, this.leftExtent, this.rightExtent);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BsrEntry &&
-          rule == other.rule &&
-          leftExtent == other.leftExtent &&
-          rightExtent == other.rightExtent;
-
-  @override
-  int get hashCode => rule.hashCode ^ leftExtent.hashCode ^ rightExtent.hashCode;
-
-  @override
-  String toString() => 'BSR(${rule.name}, $leftExtent:$rightExtent)';
+extension BsrEntryMethods on BsrEntry {
+  Rule get rule => $1;
+  int get leftExtent => $2;
+  int get rightExtent => $3;
 }
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
@@ -48,11 +34,11 @@ class BsrSet {
 
   /// Add a rule-completion entry.
   void add(Rule rule, int leftExtent, int rightExtent) {
-    _entries.add(BsrEntry(rule, leftExtent, rightExtent));
+    _entries.add((rule, leftExtent, rightExtent));
   }
 
   /// Returns true if [rule] was proven to match [[left], [right]).
-  bool contains(Rule rule, int left, int right) => _entries.contains(BsrEntry(rule, left, right));
+  bool contains(Rule rule, int left, int right) => _entries.contains((rule, left, right));
 
   /// Returns all entries for the given rule.
   Iterable<BsrEntry> entriesForRule(Rule rule) => _entries.where((e) => e.rule == rule);

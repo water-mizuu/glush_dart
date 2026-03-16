@@ -100,9 +100,6 @@ class StateMachine {
   late final List<State> _initialStates;
 
   final Map<Object, State> _stateMapping = {};
-  final Map<String, dynamic Function(String, List<dynamic>)> _actionCallbacks = {};
-  final Map<Pattern, String> _patternActions = {}; // Maps child patterns to action IDs
-  int _actionIdCounter = 0;
 
   StateMachine(this.grammar) {
     _buildStateMachine();
@@ -152,9 +149,6 @@ class StateMachine {
 
   void _extractActions(Pattern pattern) {
     if (pattern is Action) {
-      final actionId = '_action_${_actionIdCounter++}';
-      _actionCallbacks[actionId] = pattern.callback;
-      _patternActions[pattern.child] = actionId;
       _extractActions(pattern.child);
     } else if (pattern is Alt) {
       _extractActions(pattern.left);
@@ -186,12 +180,6 @@ class StateMachine {
 
   void _connect(State state, Pattern terminal) {
     if (terminal is Action) {
-      // Extract action callback and register it with the child pattern
-      final actionId = '_action_${_actionIdCounter++}';
-      _actionCallbacks[actionId] = terminal.callback;
-      // Mark the child pattern as having this action
-      _patternActions[terminal.child] = actionId;
-      // Now process the child pattern normally
       _connect(state, terminal.child);
     } else if (terminal is RuleCall) {
       final returnState = _getOrCreateState(terminal);
@@ -230,8 +218,4 @@ class StateMachine {
   }
 
   List<State> get initialStates => _initialStates;
-
-  Map<String, dynamic Function(String, List<dynamic>)> get actionCallbacks => _actionCallbacks;
-
-  Map<Pattern, String> get patternActions => _patternActions;
 }

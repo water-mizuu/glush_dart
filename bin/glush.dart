@@ -4,18 +4,18 @@ import 'helper.dart';
 
 void main() async {
   const grammarText = r'''
-    expr = $add expr _ '+' _ term | $sub expr _ '-' _ term | term;
-    term = $mul term _ '*' _ factor | $div term _ '/' _ factor | factor;
-    factor = $group '(' _ expr _ ')'
+    expr = $add expr __ '+' __ term | $sub expr __ '-' __ term | term;
+    term = $mul term __ '*' __ factor | $div term __ '/' __ factor | factor;
+    factor = $group '(' __ expr __ ')'
            | $number [0-9]+;
-    _ = [ \t\n\r]*;
+    __ = [ \t\n\r]*;
   ''';
 
   // Test the spawnProcessParser function
   final processParser = await spawnProcessParser(grammarText);
   print('Parser spawned successfully!');
 
-  final result = await processParser.parse('1+2*(3+4)');
+  final result = await processParser.parse('1 + 2 * ( 3 + 4 )');
   print('Parse result: $result');
 
   final markEvaluator = Evaluator<num>((consume) {

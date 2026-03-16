@@ -39,7 +39,6 @@ void main() {
             throw Exception(results);
           }) |
           (Call(expr) >> Pattern.char('-') >> Call(term)).withAction((span, results) {
-            print(results);
             if (results case [[num l, '-'], num r]) {
               return l - r;
             }
@@ -131,7 +130,7 @@ void main() {
   // // Complex example
   const input2 = '(5-1)*2+3';
   print('\n\n' + '=' * 70);
-  print('Complex Input: "$input2" (expected: ((5-1)*2)+3 = 11)\n');
+  print('Complex Input: "$input2" (expected: $input2 = 11)\n');
   print('-' * 70);
   print('Method 1 - parse():');
   _methodParse(markerGrammar, input2);
@@ -188,9 +187,7 @@ void _methodEnumerateAllParses(GrammarInterface grammar, String input) {
       print('  Parse ${i + 1}:');
       print('    Tree: ${parse.toTreeString(input)}');
       final value = parser.evaluateParseDerivation(parse, input);
-      final result = _evaluateCleanStructure(value);
       print('    Raw structure: $value');
-      print('    Evaluated result: $result');
     }
   } else {
     print('No parses found.');
@@ -210,9 +207,6 @@ void _methodEnumerateAllParsesWithResults(GrammarInterface grammar, String input
       print('  Parse ${i + 1}:');
       print('    Result: ${parse.tree.toTreeString(input)}');
       var value = parse.value;
-      if (value is! num) {
-        value = _evaluateCleanStructure(value);
-      }
       print('    Evaluated result: $value');
     }
   } else {
@@ -260,9 +254,6 @@ void _methodEnumerateForestWithResults(GrammarInterface grammar, String input) {
       print('Total parse trees from forest: ${results.length}');
       for (final (i, parseResult) in results.indexed) {
         var value = parseResult.value;
-        if (value is! num) {
-          value = _evaluateCleanStructure(value);
-        }
         print('  Parse ${i + 1}: Result = $value');
       }
     } else {
@@ -271,66 +262,4 @@ void _methodEnumerateForestWithResults(GrammarInterface grammar, String input) {
   } else if (result is ParseError) {
     print('Parse failed at position ${result.position}');
   }
-}
-
-// ============================================================================
-// EVALUATOR HELPER: Evaluate raw parse structures (without marks/actions)
-// ============================================================================
-/// Recursively evaluates a parse structure into a numeric result.
-/// Handles nested lists with operators and operands.
-dynamic _evaluateCleanStructure(dynamic value) {
-  // If it's already a number, return it
-  if (value is num) {
-    return value;
-  }
-
-  // If it's a string, try to parse as number or return as-is
-  if (value is String) {
-    final parsed = num.tryParse(value);
-    return parsed ?? value;
-  }
-
-  // If it's a list, evaluate the structure
-  if (value is List) {
-    if (value.isEmpty) {
-      return null;
-    }
-
-    // Recursively evaluate all elements
-    final evaluated = value.map(_evaluateCleanStructure).toList();
-
-    // Try to interpret as: [operand, operator, operand, ...]
-    // For binary operators
-    if (evaluated.length >= 3) {
-      // Check for pattern: [num, operator, num]
-      if (evaluated[0] is num && evaluated[1] is String && evaluated[2] is num) {
-        final left = evaluated[0] as num;
-        final op = evaluated[1] as String;
-        final right = evaluated[2] as num;
-
-        final result = switch (op) {
-          '+' => left + right,
-          '-' => left - right,
-          '*' => left * right,
-          '/' => left / right,
-          _ => evaluated,
-        };
-
-        // Continue evaluating with remaining elements (for left-associativity)
-        if (evaluated.length > 3) {
-          return _evaluateCleanStructure([result, ...evaluated.sublist(3)]);
-        }
-        return result;
-      }
-    }
-
-    // If it's a single-element list, unwrap and evaluate
-    if (evaluated.length == 1) {
-      return evaluated[0];
-    }
-
-    return evaluated;
-  }
-
-  return value;
 }

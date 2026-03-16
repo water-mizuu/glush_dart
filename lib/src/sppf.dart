@@ -153,10 +153,10 @@ class EpsilonNode extends ForestNode {
 /// Forest node manager (deduplicates and caches nodes)
 class ForestNodeManager {
   final Map<String, ForestNode> _nodeCache = {};
-  final List<SymbolicNode> _symbolicNodes = [];
-  final List<TerminalNode> _terminalNodes = [];
-  final List<IntermediateNode> _intermediateNodes = [];
-  final List<MarkerNode> _markerNodes = [];
+  final Set<SymbolicNode> _symbolicNodes = {};
+  final Set<TerminalNode> _terminalNodes = {};
+  final Set<IntermediateNode> _intermediateNodes = {};
+  final Set<MarkerNode> _markerNodes = {};
 
   String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
     return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
@@ -221,10 +221,10 @@ class ForestNodeManager {
     return node;
   }
 
-  List<SymbolicNode> get symbolicNodes => _symbolicNodes;
-  List<TerminalNode> get terminalNodes => _terminalNodes;
-  List<IntermediateNode> get intermediateNodes => _intermediateNodes;
-  List<MarkerNode> get markerNodes => _markerNodes;
+  Set<SymbolicNode> get symbolicNodes => _symbolicNodes;
+  Set<TerminalNode> get terminalNodes => _terminalNodes;
+  Set<IntermediateNode> get intermediateNodes => _intermediateNodes;
+  Set<MarkerNode> get markerNodes => _markerNodes;
 }
 
 /// Parse forest representation
