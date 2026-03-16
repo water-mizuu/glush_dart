@@ -1,0 +1,6 @@
+Summary of work (past ~1h):
+- Rewrote BsrSet.toForest using a post-order state machine (New/Pushed/Done) to fix SPPF extraction.
+- Unified ParseForest API; updated SMParser callers (sync/async/iterative).
+- Implemented value-based equality for _BsrTask memoization.
+- Debugged recursive derivation failures in Seq split-point logic.
+- Fixed async parser closure/scope errors.

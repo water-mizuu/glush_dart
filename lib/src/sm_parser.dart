@@ -238,10 +238,12 @@ class SMParser {
   late final List<Frame> _initialFrames;
   late PredicateLookaheadBuffer _predicateBuffer;
 
-  SMParser(GrammarInterface grammar)
+  final bool fastMode;
+
+  SMParser(GrammarInterface grammar, {this.fastMode = false})
       : stateMachine = StateMachine(grammar),
         grammar = grammar {
-    const initialContext = Context(RootCallerKey(), null);
+    final initialContext = Context(RootCallerKey(), fastMode ? null : GlushList.empty<Mark>());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -249,29 +251,51 @@ class SMParser {
     _predicateBuffer = PredicateLookaheadBuffer();
   }
 
-  bool recognize(String input) {
+  bool recognize(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames);
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) return false;
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: false);
     return lastStep.accept;
   }
 
-  ParseOutcome<T> parse<T>(String input) {
+  bool recognizeIterative(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames);
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) return false;
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: true);
+    return lastStep.accept;
+  }
+
+  ParseOutcome<T> parse<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError<T>(position);
@@ -279,7 +303,32 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      return ParseSuccess<T>(ParserResult(lastStep.marks));
+    } else {
+      return ParseError<T>(position);
+    }
+  }
+
+  ParseOutcome<T> parseIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return ParseError<T>(position);
+      }
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       return ParseSuccess<T>(ParserResult(lastStep.marks));
@@ -293,20 +342,29 @@ class SMParser {
   /// Internally uses BSR (Binarised Shared Representation) recorded during
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
-  ParseOutcome<T> parseWithForest<T>(String input) {
+  ParseOutcome<T> parseWithForest<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
-    final bsrOutcome = parseToBsr(input);
+    final bsrOutcome = parseToBsr(input, fastMode: useFast);
     if (bsrOutcome is BsrParseError) {
       return ParseError<T>(bsrOutcome.position);
     }
 
     final bsrSuccess = bsrOutcome as BsrParseSuccess;
-    final bsrSet = bsrSuccess.bsrSet;
-    final startRule = stateMachine.grammar.startCall.rule;
-    final nodeManager = ForestNodeManager();
-    final root = bsrSet.buildSppf(startRule, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
-    final forest = ParseForest(nodeManager, effectiveRoot, bsrOutcome.marks);
+    final forest = bsrSuccess.bsrSet.toForest(stateMachine.grammar.startCall.rule, input, bsrSuccess.marks);
+    return ParseForestSuccess<T>(forest);
+  }
+
+  ParseOutcome<T> parseWithForestIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    final bsrOutcome = parseToBsrIterative(input, fastMode: useFast);
+    if (bsrOutcome is BsrParseError) {
+      return ParseError<T>(bsrOutcome.position);
+    }
+
+    final bsrSuccess = bsrOutcome as BsrParseSuccess;
+    final forest = bsrSuccess.bsrSet.toForest(stateMachine.grammar.startCall.rule, input, bsrSuccess.marks);
     return ParseForestSuccess<T>(forest);
   }
 
@@ -397,12 +455,8 @@ class SMParser {
               final marksStep = _processToken(null, allInput.length, marksFrames, bsr: null);
 
               // Build SPPF from the recorded BSR
-              final startRule = stateMachine.grammar.startCall.rule;
-              final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(startRule, fullInput, nodeManager);
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startRule);
-              final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
+              final forest = bsr.toForest(stateMachine.grammar.startCall.rule, fullInput, marksStep.marks);
               completer.complete(ParseForestSuccess<T>(forest));
             } else {
               completer.complete(ParseError<T>(globalPosition));
@@ -424,13 +478,15 @@ class SMParser {
   /// Builds the SPPF by exhaustively walking the grammar structure after
   /// parsing, without BSR pruning. Provided for performance
   /// comparison against [parseWithForest] (the BSR-backed variant).
-  ParseOutcome<T> parseWithForestDirect<T>(String input) {
+  ParseOutcome<T> parseWithForestDirect<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: null);
+      final stepResult =
+          _processToken(codepoint, position, frames, bsr: null, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError<T>(position);
@@ -438,7 +494,40 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: null);
+    final lastStep =
+        _processToken(null, position, frames, bsr: null, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      final startRule = stateMachine.grammar.startCall.rule;
+      final nodeManager = ForestNodeManager();
+      _buildForestNode(startRule, input, 0, input.length, nodeManager, {}, {});
+
+      final root = nodeManager.symbolic(0, input.length, startRule);
+      final forest = ParseForest(nodeManager, root, lastStep.marks);
+      return ParseForestSuccess<T>(forest);
+    } else {
+      return ParseError<T>(position);
+    }
+  }
+
+  ParseOutcome<T> parseWithForestDirectIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, bsr: null, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return ParseError<T>(position);
+      }
+      position++;
+    }
+
+    final lastStep =
+        _processToken(null, position, frames, bsr: null, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       final startRule = stateMachine.grammar.startCall.rule;
@@ -457,14 +546,16 @@ class SMParser {
   ///
   /// Returns [BsrParseSuccess] with the [BsrSet] on success, or
   /// [BsrParseError] if the input does not conform to the grammar.
-  BsrParseOutcome parseToBsr(String input) {
+  BsrParseOutcome parseToBsr(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     final bsr = BsrSet();
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: bsr);
+      final stepResult = _processToken(codepoint, position, frames,
+          bsr: bsr, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -472,7 +563,33 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: bsr);
+    final lastStep = _processToken(null, position, frames, bsr: bsr, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      return BsrParseSuccess(bsr, lastStep.marks);
+    } else {
+      return BsrParseError(position);
+    }
+  }
+
+  BsrParseOutcome parseToBsrIterative(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    final bsr = BsrSet();
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult = _processToken(codepoint, position, frames,
+          bsr: bsr, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return BsrParseError(position);
+      }
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, bsr: bsr, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -1134,117 +1251,87 @@ class SMParser {
   }
 
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
-    final symbolRegistry = grammar.symbolRegistry;
+    // Post-order traversal using two stacks
+    final workStack = <(ParseDerivation, bool)>[(tree, false)];
+    final valueStack = <dynamic>[];
 
-    switch (symbolRegistry[tree.symbol]) {
-      case Token pattern:
-        if (tree.start + 1 == tree.end && pattern.match(input.codeUnitAt(tree.start))) {
-          final evaluated = tree.getMatchedText(input);
-          return evaluated;
+    while (workStack.isNotEmpty) {
+      final (current, processed) = workStack.removeLast();
+
+      if (processed) {
+        // All children processed, evaluate this node
+        final childrenValues = <dynamic>[];
+        for (int i = 0; i < current.children.length; i++) {
+          childrenValues.insert(0, valueStack.removeLast());
         }
-      case Marker pattern:
-        return NamedMark(pattern.name, tree.start);
-      case Eps():
-        return "";
-      case Alt():
-        // One of the alternatives matched - evaluate that child
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+
+        final pattern = grammar.symbolRegistry[current.symbol];
+        print('  Evaluating node ${current.symbol} (pattern: ${pattern.runtimeType}) with children: $childrenValues');
+        if (pattern == null) {
+          throw StateError("Symbol ${current.symbol} not found in grammar.");
         }
-        return null;
-      case Seq():
-        // Sequence: evaluate left and right children
-        final results = <dynamic>[];
-        for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input);
-          results.add(childValue);
-        }
-        return results;
-      case Conj():
-        // Conjunction: both patterns match the same token
-        final codeUnit = input.codeUnitAt(tree.start);
-        return String.fromCharCode(codeUnit);
-      case Plus():
-      case Star():
-        // One/Zero or more: collect all child results into a list.
-        // We avoid flattening sequences (lists) from the body match.
-        final results = <dynamic>[];
-        if (tree.children.isNotEmpty) {
-          // First child is the 'head' element
-          results.add(_evaluateParseDerivation(tree.children[0], input));
-          // Second child (if any) is the rest of the repetition (tail)
-          if (tree.children.length > 1) {
-            final rest = _evaluateParseDerivation(tree.children[1], input);
-            if (rest is List) {
-              results.addAll(rest);
-            } else if (rest != "") {
-              results.add(rest);
-            }
+
+        if (pattern is Action) {
+          final span = current.getMatchedText(input);
+          // Pass marks from the derivation if we had them, otherwise empty
+          valueStack.add(actionCallback(action: pattern, span: span, children: childrenValues));
+        } else if (pattern is Token) {
+          valueStack.add(current.getMatchedText(input));
+        } else if (pattern is Marker) {
+          valueStack.add(NamedMark(pattern.name, current.start));
+        } else if (pattern is Eps) {
+          valueStack.add("");
+        if (pattern is Alt || pattern is Rule || pattern is RuleCall || pattern is Call || pattern is PrecedenceLabeledPattern) {
+          if (childrenValues.isNotEmpty) {
+            final val = childrenValues[0];
+            print('    Node ${current.symbol}: evaluating ${pattern.runtimeType} -> taking child[0]: $val');
+            valueStack.add(val);
+          } else {
+            print('    Node ${current.symbol}: evaluating ${pattern.runtimeType} -> NO CHILDREN, adding null');
+            valueStack.add(null);
           }
         }
-        return results;
-      case And():
-        // Positive lookahead: zero-width, return empty list
-        return [];
-      case Not():
-        // Negative lookahead: zero-width, return empty list
-        return [];
-      case Rule():
-        // Evaluate the rule's body
-        return _evaluateParseDerivation(
-          tree.children.isNotEmpty
-              ? tree.children[0]
-              : ParseDerivation(Eps().symbolId, tree.start, tree.end, []),
-          input,
-        );
-      case RuleCall _:
-        // Recursively evaluate the referenced rule
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+        } else if (pattern is Seq || pattern is Plus || pattern is Star) {
+          if (pattern is Seq) {
+            valueStack.add(childrenValues);
+          } else {
+            // Repetition: reconstruct list
+            final results = <dynamic>[];
+            if (childrenValues.isNotEmpty) {
+              results.add(childrenValues[0]);
+              if (childrenValues.length > 1) {
+                final rest = childrenValues[1];
+                if (rest is List) {
+                  results.addAll(rest);
+                } else if (rest != null && rest != "") {
+                  results.add(rest);
+                }
+              }
+            }
+            valueStack.add(results);
+          }
+        } else {
+          valueStack.add(childrenValues.length == 1 ? childrenValues[0] : childrenValues);
         }
-        return null;
-      case Call _:
-        // Recursively evaluate the referenced rule
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+      } else {
+        workStack.add((current, true));
+        for (final child in current.children.reversed) {
+          workStack.add((child, false));
         }
-        return null;
-      case Action<dynamic> action:
-        // Evaluate the child and apply the semantic action
-        assert(tree.children.length == 1, "Action Nodes should only have one child.");
-
-        final childResults = <dynamic>[];
-        for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input);
-          childResults.add(childValue);
-        }
-        final span = tree.getMatchedText(input);
-        if (childResults.length == 1 && childResults.single is List) {
-          return action.callback(span, childResults.single);
-        }
-        return action.callback(span, childResults);
-      case PrecedenceLabeledPattern():
-        // Unwrap and evaluate the child pattern
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
-        }
-        return null;
-      case null:
-        throw StateError("Tried to evaluate using an invalid symbol.");
+      }
     }
 
-    return null;
+    return valueStack.single;
   }
 
-  Step _processToken(int? token, int position, List<Frame> frames, {BsrSet? bsr}) {
-    final step = Step(this, token, position, bsr: bsr, buffer: _predicateBuffer);
-
-    for (final frame in frames) {
-      step._processFrame(frame);
+  /// Helper to invoke action callback with proper unwrapping logic
+  dynamic actionCallback({required Action action, required String span, required List<dynamic> children}) {
+    if (children.length == 1 && children.single is List) {
+      return action.callback(span, children.single);
     }
-
-    return step;
+    return action.callback(span, children);
   }
+
 
   /// Check if a pattern matches at a given position in the input without consuming.
   /// Used for AND/NOT lookahead predicates.
@@ -1460,6 +1547,25 @@ class SMParser {
 
     return false;
   }
+
+  Step _processToken(int? token, int position, List<Frame> frames,
+      {BsrSet? bsr, bool fastMode = false, bool iterative = true}) {
+    final step = Step(this, token, position,
+        bsr: bsr, buffer: _predicateBuffer, fastMode: fastMode);
+    if (iterative) {
+      step._processIterative(frames);
+    } else {
+      step._processRecursive(frames);
+    }
+    return step;
+  }
+}
+
+/// Helper to convert a [ParseTree] (from the forest) into a [ParseDerivation]
+/// (the simpler tree structure used for evaluation).
+ParseDerivation parseTreeToDerivation(ParseTree tree, String input) {
+  final children = tree.children.map((c) => parseTreeToDerivation(c, input)).toList();
+  return ParseDerivation(tree.node.pattern.symbolId!, tree.node.start, tree.node.end, children);
 }
 
 // ---------------------------------------------------------------------------
@@ -1492,6 +1598,16 @@ class Context {
   final int? callStart;
 
   const Context(this.caller, this.marks, [this.callStart]);
+
+  @override
+  int get hashCode => Object.hash(caller, marks, callStart);
+
+  @override
+  bool operator ==(Object other) =>
+      other is Context &&
+      caller == other.caller &&
+      marks == other.marks &&
+      callStart == other.callStart;
 }
 
 /// Frame for managing parsing states
@@ -1515,6 +1631,10 @@ class Caller extends CallerKey {
   /// The input position at which the associated rule was invoked.
   /// Set once at CallAction time; used by ReturnAction to record BSR entries.
   int? callStart;
+
+  /// Results (marks) produced by the rule, grouped by end position.
+  /// This ensures that completions at different positions are not pruned.
+  final Map<int, Set<GlushList<Mark>?>> completions = {};
 
   void addReturn(Context context, State nextState) {
     final key = (context.caller, nextState);
@@ -1543,37 +1663,63 @@ class Step {
   /// Predicate lookahead buffer for checking patterns without full input access
   final PredicateLookaheadBuffer buffer;
 
+  final bool fastMode;
   final List<Frame> nextFrames = [];
   final Map<Rule, Caller> _callers = {};
-  final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
-  Step(this.parser, this.token, this.position, {this.bsr, required this.buffer});
+  Step(this.parser, this.token, this.position, {this.bsr, required this.buffer, this.fastMode = false});
 
   bool get accept => _acceptedContexts.isNotEmpty;
 
   List<Mark> get marks {
+    if (fastMode || _acceptedContexts.isEmpty) return [];
     final markList = _acceptedContexts[0].marks;
     if (markList == null) return [];
     return markList.toList().cast<Mark>();
   }
 
-  void _withFrame(Context context, void Function(Frame) callback) {
-    final frame = Frame(context);
-    callback(frame);
-    if (frame.nextStates.isNotEmpty) {
-      nextFrames.add(frame);
+  void _processIterative(List<Frame> frames) {
+    final visited = <(Context, State)>{};
+    final worklist = <_ProcessFrame>[];
+    for (final frame in frames) {
+      worklist.add(_ProcessFrame(frame, null));
+    }
+
+    while (worklist.isNotEmpty) {
+      final work = worklist.removeLast();
+      final frame = work.frame;
+      
+      if (work.startState != null) {
+        final state = work.startState!;
+        if (!visited.add((frame.context, state))) continue;
+        _processStateIterative(frame, state, worklist);
+      } else {
+        for (final state in frame.nextStates) {
+          if (!visited.add((frame.context, state))) continue;
+          _processStateIterative(frame, state, worklist);
+        }
+      }
     }
   }
 
-  void _process(Frame frame, State state) {
+  void _processRecursive(List<Frame> frames) {
+    final visited = <(Context, State)>{};
+    for (final frame in frames) {
+      for (final state in frame.nextStates) {
+        _processStateRecursive(frame, state, visited);
+      }
+    }
+  }
+
+  void _processStateRecursive(Frame frame, State state, Set<(Context, State)> visited) {
+    if (!visited.add((frame.context, state))) return;
+
     for (final action in state.actions) {
       if (action is TokenAction) {
         if (action.pattern.match(token)) {
-          // If token matches, add a StringMark with the captured token if not ExactToken
-          // So ranges and 'any' tokens are captured into the marks array too
           var newMarks = frame.marks;
-          if (token != null &&
+          if (!fastMode && token != null &&
               action.pattern is Token &&
               (action.pattern as Token).choice is! ExactToken) {
             final strMark = StringMark(String.fromCharCode(token!), position);
@@ -1584,31 +1730,22 @@ class Step {
           nextFrames.add(nextFrame);
         }
       } else if (action is MarkAction) {
-        final mark = NamedMark(action.name, position);
-        final markCtx = Context(
-          frame.caller,
-          (frame.marks ?? GlushList.empty<Mark>()).add(mark),
-        );
-        _withFrame(markCtx, (markFrame) {
-          _process(markFrame, action.nextState);
-        });
-      } else if (action is PredicateAction) {
-        // Predicate checking (lookahead without consumption)
-        // Buffer ensures we have the data needed for lookahead
-        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
-
-        // For AND (&pattern), continue if pattern matches
-        // For NOT (!pattern), continue if pattern does NOT match
-        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
-
-        if (shouldContinue) {
-          // Predicate succeeded - process next state through standard frame mechanism
-          // Zero-width: processed with the same token in this frame step
-          _withFrame(frame.context, (predFrame) {
-            _process(predFrame, action.nextState);
-          });
+        if (fastMode) {
+          _processStateRecursive(frame, action.nextState, visited);
+        } else {
+          final mark = NamedMark(action.name, position);
+          final markCtx = Context(
+            frame.caller,
+            (frame.marks ?? GlushList.empty<Mark>()).add(mark),
+          );
+          _processStateRecursive(Frame(markCtx), action.nextState, visited);
         }
-        // If predicate failed, we simply don't add the next state (backtrack)
+      } else if (action is PredicateAction) {
+        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
+        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
+        if (shouldContinue) {
+          _processStateRecursive(frame, action.nextState, visited);
+        }
       } else if (action is CallAction) {
         final rule = action.rule;
         final isExecuted = _callers.containsKey(rule);
@@ -1616,49 +1753,51 @@ class Step {
 
         caller.addReturn(frame.context, action.returnState);
 
+        // Retrigger completions for all end positions
+        for (final entry in caller.completions.entries) {
+          for (final completionMarks in entry.value) {
+            final combinedMarks = (fastMode || frame.marks == null)
+                ? completionMarks
+                : GlushList.branched<Mark>([frame.marks!])
+                    .addList(completionMarks ?? GlushList.empty<Mark>());
+
+            final nextContext = Context(frame.caller, combinedMarks);
+            _processStateRecursive(Frame(nextContext), action.returnState, visited);
+          }
+        }
+
         if (!isExecuted) {
-          // Store callStart on the Caller so ReturnAction can emit BSR entries.
           caller.callStart = position;
-          final callCtx = Context(caller, GlushList.empty<Mark>(), position);
-          _withFrame(callCtx, (callFrame) {
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
-              _process(callFrame, firstState);
-            }
-          });
+          final callCtx = Context(caller, fastMode ? null : GlushList.empty<Mark>(), position);
+          final callFrame = Frame(callCtx);
+          for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            _processStateRecursive(callFrame, firstState, visited);
+          }
         }
       } else if (action is ReturnAction) {
         final rule = action.rule;
-
         if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+          print('      Guard failed');
           continue;
         }
 
-        // Record BSR rule-completion entry BEFORE the ambiguity guard,
-        // so every distinct (rule, callStart, position) span is captured.
-        // The _returnedCallers guard below is only for parsing-state correctness.
         final callStart = frame.context.callStart ??
             (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
         if (bsr != null && callStart != null) {
           bsr!.add(rule, callStart, position);
         }
-
         final caller = frame.caller;
-
-        // Simple ambiguity handling: only process each caller once
-        final shouldProcess = _returnedCallers.add(caller);
-        if (!shouldProcess) continue;
-
         if (caller is Caller) {
-          caller.forEach((ccaller, nextState, marks) {
-            final combinedMarks = marks == null
-                ? frame.marks
-                : GlushList.branched<Mark>([marks]).addList(frame.marks ?? GlushList.empty<Mark>());
+          if (caller.completions.putIfAbsent(position, () => {}).add(frame.marks)) {
+            caller.forEach((ccaller, nextState, prevMarks) {
+              final combinedMarks = (fastMode || prevMarks == null)
+                  ? frame.marks
+                  : GlushList.branched<Mark>([prevMarks]).addList(frame.marks ?? GlushList.empty<Mark>());
 
-            final nextContext = Context(ccaller, combinedMarks);
-            _withFrame(nextContext, (nextFrame) {
-              _process(nextFrame, nextState);
+              final nextContext = Context(ccaller, combinedMarks);
+              _processStateRecursive(Frame(nextContext), nextState, visited);
             });
-          });
+          }
         }
       } else if (action is AcceptAction) {
         _acceptedContexts.add(frame.context);
@@ -1666,11 +1805,101 @@ class Step {
     }
   }
 
-  void _processFrame(Frame frame) {
-    _withFrame(frame.copy().context, (nextFrame) {
-      for (final state in frame.nextStates) {
-        _process(nextFrame, state);
+  void _processStateIterative(Frame frame, State state, List<_ProcessFrame> worklist) {
+    for (final action in state.actions) {
+      if (action is TokenAction) {
+        if (action.pattern.match(token)) {
+          var newMarks = frame.marks;
+          if (!fastMode && token != null &&
+              action.pattern is Token &&
+              (action.pattern as Token).choice is! ExactToken) {
+            final strMark = StringMark(String.fromCharCode(token!), position);
+            newMarks = (newMarks ?? GlushList.empty<Mark>()).add(strMark);
+          }
+          final nextFrame = Frame(Context(frame.caller, newMarks));
+          nextFrame.nextStates.add(action.nextState);
+          nextFrames.add(nextFrame);
+        }
+      } else if (action is MarkAction) {
+        if (fastMode) {
+          worklist.add(_ProcessFrame(frame, action.nextState));
+        } else {
+          final mark = NamedMark(action.name, position);
+          final markCtx = Context(
+            frame.caller,
+            (frame.marks ?? GlushList.empty<Mark>()).add(mark),
+          );
+          worklist.add(_ProcessFrame(Frame(markCtx), action.nextState));
+        }
+      } else if (action is PredicateAction) {
+        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
+        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
+        if (shouldContinue) {
+          worklist.add(_ProcessFrame(frame, action.nextState));
+        }
+      } else if (action is CallAction) {
+        final rule = action.rule;
+        final isExecuted = _callers.containsKey(rule);
+        final caller = _callers.putIfAbsent(rule, Caller.new);
+
+        caller.addReturn(frame.context, action.returnState);
+
+        // Retrigger completions
+        for (final entry in caller.completions.entries) {
+          for (final completionMarks in entry.value) {
+            final combinedMarks = (fastMode || frame.marks == null)
+                ? completionMarks
+                : GlushList.branched<Mark>([frame.marks!])
+                    .addList(completionMarks ?? GlushList.empty<Mark>());
+
+            final nextContext = Context(frame.caller, combinedMarks);
+            worklist.add(_ProcessFrame(Frame(nextContext), action.returnState));
+          }
+        }
+
+        if (!isExecuted) {
+          caller.callStart = position;
+          final callCtx = Context(caller, fastMode ? null : GlushList.empty<Mark>(), position);
+          final callFrame = Frame(callCtx);
+          for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            worklist.add(_ProcessFrame(callFrame, firstState));
+          }
+        }
+      } else if (action is ReturnAction) {
+        final rule = action.rule;
+        if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+          continue;
+        }
+
+        final callStart = frame.context.callStart ??
+            (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
+        if (bsr != null && callStart != null) {
+          bsr!.add(rule, callStart, position);
+        }
+
+        final caller = frame.caller;
+        if (caller is Caller) {
+          if (caller.completions.putIfAbsent(position, () => {}).add(frame.marks)) {
+            caller.forEach((ccaller, nextState, prevMarks) {
+              final combinedMarks = (fastMode || prevMarks == null)
+                  ? frame.marks
+                  : GlushList.branched<Mark>([prevMarks]).addList(frame.marks ?? GlushList.empty<Mark>());
+
+              final nextContext = Context(ccaller, combinedMarks);
+              worklist.add(_ProcessFrame(Frame(nextContext), nextState));
+            });
+          }
+        }
+      } else if (action is AcceptAction) {
+        print('    AcceptAction hit! context: ${frame.context.caller}');
+        _acceptedContexts.add(frame.context);
       }
-    });
+    }
   }
+}
+
+class _ProcessFrame {
+  final Frame frame;
+  final State? startState;
+  _ProcessFrame(this.frame, this.startState);
 }

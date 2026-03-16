@@ -40,22 +40,39 @@ sealed class GlushList<T> {
   void forEach(void Function(T) callback);
 
   bool get isEmpty;
+
+  final int _hash;
+  GlushList._(this._hash);
+
+  @override
+  int get hashCode => _hash;
 }
 
 class EmptyList<T> extends GlushList<T> {
-  EmptyList._();
+  EmptyList._() : super._(0);
 
   @override
   void forEach(void Function(T) callback) {}
 
   @override
   bool get isEmpty => true;
+
+  @override
+  bool operator ==(Object other) => other is EmptyList<T>;
 }
 
 class BranchedList<T> extends GlushList<T> {
   final List<GlushList<T>> alternatives;
 
-  BranchedList._(this.alternatives);
+  static int _computeHash(List<GlushList<dynamic>> alternatives) {
+    int hash = 0;
+    for (final alt in alternatives) {
+      hash ^= alt.hashCode;
+    }
+    return hash;
+  }
+
+  BranchedList._(this.alternatives) : super._(_computeHash(alternatives));
 
   @override
   void forEach(void Function(T) callback) {
@@ -66,13 +83,24 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => alternatives.every((a) => a.isEmpty);
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! BranchedList<T>) return false;
+    if (_hash != other._hash) return false;
+    if (alternatives.length != other.alternatives.length) return false;
+    for (int i = 0; i < alternatives.length; i++) {
+      if (alternatives[i] != other.alternatives[i]) return false;
+    }
+    return true;
+  }
 }
 
 class Push<T> extends GlushList<T> {
   final GlushList<T> parent;
   final T data;
 
-  Push._(this.parent, this.data);
+  Push._(this.parent, this.data) : super._(Object.hash(parent, data));
 
   @override
   void forEach(void Function(T) callback) {
@@ -82,13 +110,20 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! Push<T>) return false;
+    if (_hash != other._hash) return false;
+    return data == other.data && parent == other.parent;
+  }
 }
 
 class Concat<T> extends GlushList<T> {
   final GlushList<T> left;
   final GlushList<T> right;
 
-  Concat._(this.left, this.right);
+  Concat._(this.left, this.right) : super._(Object.hash(left, right));
 
   @override
   void forEach(void Function(T) callback) {
@@ -98,6 +133,13 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! Concat<T>) return false;
+    if (_hash != other._hash) return false;
+    return left == other.left && right == other.right;
+  }
 }
 
 // --- $filename ---
@@ -1650,7 +1692,7 @@ class MarkerNode extends ForestNode {
   int get hashCode => super.hashCode ^ name.hashCode;
 
   @override
-  String toString() => 'Marker(\$name)[$start]';
+  String toString() => 'Marker($name)[$start]';
 }
 
 /// Symbolic node (non-terminal)
@@ -1832,24 +1874,28 @@ class ParseForest {
   /// Count total nodes in the forest
   int countNodes() {
     final visited = <ForestNode>{};
-    _countNodesRecursive(root, visited);
+    _countNodesIterative(root, visited);
     return visited.length;
   }
 
-  void _countNodesRecursive(ForestNode node, Set<ForestNode> visited) {
-    if (visited.contains(node)) return;
-    visited.add(node);
+  void _countNodesIterative(ForestNode startNode, Set<ForestNode> visited) {
+    final stack = [startNode];
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
 
-    if (node is SymbolicNode) {
-      for (final family in node.families) {
-        for (final child in family.children) {
-          _countNodesRecursive(child, visited);
+      if (node is SymbolicNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
-      }
-    } else if (node is IntermediateNode) {
-      for (final family in node.families) {
-        for (final child in family.children) {
-          _countNodesRecursive(child, visited);
+      } else if (node is IntermediateNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
     }
@@ -1858,87 +1904,129 @@ class ParseForest {
   /// Count total families (derivations) in the forest
   int countFamilies() {
     final visited = <ForestNode>{};
-    return _countFamiliesRecursive(root, visited);
+    return _countFamiliesIterative(root, visited);
   }
 
-  int _countFamiliesRecursive(ForestNode node, Set<ForestNode> visited) {
-    if (visited.contains(node)) return 0;
-    visited.add(node);
+  int _countFamiliesIterative(ForestNode startNode, Set<ForestNode> visited) {
+    int totalCount = 0;
+    final stack = [startNode];
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
 
-    int count = 0;
-    if (node is SymbolicNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
+      if (node is SymbolicNode) {
+        totalCount += node.families.length;
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
-      }
-    } else if (node is IntermediateNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
+      } else if (node is IntermediateNode) {
+        totalCount += node.families.length;
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
     }
-    return count;
+    return totalCount;
   }
 
   /// Lazily yields all parse trees contained in the forest.
-  Iterable<ParseTree> extract() sync* {
-    yield* _extractTrees(root);
+  Iterable<ParseTree> extract() {
+    return _extractTreesIterative(root);
   }
 
-  Iterable<ParseTree> _extractTrees(ForestNode node) sync* {
-    if (node is SymbolicNode) {
-      if (node.families.isEmpty) {
-        yield ParseTree(node, const []);
-        return;
-      }
-      for (final family in node.families) {
-        if (family.children.isEmpty) {
-          yield ParseTree(node, const []);
-        } else {
-          yield* _extractFamilyTrees(node, family);
+  Iterable<ParseTree> _extractTreesIterative(ForestNode startNode) sync* {
+    final memo = <ForestNode, List<ParseTree>>{};
+    final stack = <ForestNode>[startNode];
+    final postOrder = <ForestNode>[];
+    final visited = <ForestNode>{};
+    
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
+      postOrder.add(node);
+      
+      if (node is SymbolicNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
+        }
+      } else if (node is IntermediateNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
-    } else if (node is IntermediateNode) {
-      if (node.families.isEmpty) {
-        yield ParseTree(node, const []);
-        return;
-      }
-      for (final family in node.families) {
-        if (family.children.isEmpty) {
-          yield ParseTree(node, const []);
+    }
+    
+    for (int i = postOrder.length - 1; i >= 0; i--) {
+      final node = postOrder[i];
+      final result = <ParseTree>[];
+      if (node is SymbolicNode) {
+        if (node.families.isEmpty) {
+          result.add(ParseTree(node, const []));
         } else {
-          yield* _extractFamilyTrees(node, family);
+          for (final family in node.families) {
+            result.addAll(_getFamilyTrees(node, family, (n) => memo[n]!));
+          }
         }
+      } else if (node is IntermediateNode) {
+        if (node.families.isEmpty) {
+          result.add(ParseTree(node, const []));
+        } else {
+          for (final family in node.families) {
+            result.addAll(_getFamilyTrees(node, family, (n) => memo[n]!));
+          }
+        }
+      } else {
+        result.add(ParseTree(node, const []));
       }
-    } else {
-      yield ParseTree(node, const []);
+      memo[node] = result;
     }
+
+    yield* memo[startNode]!;
   }
 
-  /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
-    // Collect sub-iterables for each child position
-    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
-    // Yield the Cartesian product of the child options as ParseTree nodes
-    for (final combination in _cartesianProduct(childOptions)) {
-      yield ParseTree(parent, combination);
+  List<ParseTree> _getFamilyTrees(ForestNode parent, Family family, List<ParseTree> Function(ForestNode) getTrees) {
+    if (family.children.isEmpty) {
+      return [ParseTree(parent, const [])];
     }
+    
+    final childOptions = family.children.map((child) => getTrees(child)).toList();
+    return _cartesianProduct(childOptions).map((combination) => ParseTree(parent, combination)).toList();
   }
 
-  /// Lazily yields every combination (one item from each of [lists] in order).
   Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
     if (lists.isEmpty) {
       yield const [];
       return;
     }
-    for (final head in lists.first) {
-      for (final tail in _cartesianProduct(lists.sublist(1))) {
-        yield [head, ...tail];
+
+    final indices = List<int>.filled(lists.length, 0);
+    final n = lists.length;
+
+    while (true) {
+      final combination = List<ParseTree>.generate(n, (i) => lists[i][indices[i]]);
+      yield combination;
+
+      int i = n - 1;
+      while (i >= 0) {
+        indices[i]++;
+        if (indices[i] < lists[i].length) {
+          break;
+        }
+        indices[i] = 0;
+        i--;
       }
+
+      if (i < 0) break;
     }
   }
 
@@ -2022,11 +2110,14 @@ class BsrSet {
 
   /// Add a rule-completion entry.
   void add(Rule rule, int leftExtent, int rightExtent) {
-    _entries.add(BsrEntry(rule, leftExtent, rightExtent));
+    final entry = BsrEntry(rule, leftExtent, rightExtent);
+    _entries.add(entry);
   }
 
-  /// Returns true if [rule] was proven to match [[left], [right]).
-  bool contains(Rule rule, int left, int right) => _entries.contains(BsrEntry(rule, left, right));
+  /// Check if a rule was completed over [leftExtent, rightExtent).
+  bool contains(Rule rule, int leftExtent, int rightExtent) {
+    return _entries.contains(BsrEntry(rule, leftExtent, rightExtent));
+  }
 
   /// Returns all entries for the given rule.
   Iterable<BsrEntry> entriesForRule(Rule rule) => _entries.where((e) => e.rule == rule);
@@ -2042,232 +2133,272 @@ class BsrSet {
   /// [inputLength], using only spans that are proven in this BSR set.
   ///
   /// Returns null if the start rule has no proven entry for [0, inputLength].
-  SymbolicNode? buildSppf(
-    Rule startRule,
-    String input,
-    ForestNodeManager nodeManager,
-  ) {
-    final memo = <String, SymbolicNode?>{};
-    final inProgress = <String, bool>{};
-    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress);
-  }
+  ParseForest toForest(Rule startRule, String input, [List<Mark>? marks]) {
+    final nodeManager = ForestNodeManager();
+    final memoNodes = <_BsrTask, SymbolicNode?>{};
+    final memoGroups = <_BsrTask, List<List<ForestNode>>>{};
+    final taskStates = <_BsrTask, int>{}; // 0 = New, 1 = Pushed, 2 = Done
+    final stack = <_BsrTask>[];
 
-  // ---------------------------------------------------------------------------
-  // Internal SPPF construction (BSR-guided grammar walk)
-  // ---------------------------------------------------------------------------
+    final startTask = _BsrTask(0, startRule, 0, input.length);
+    stack.add(startTask);
 
-  SymbolicNode? _buildNode(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    // Fast-fail: only build SPPF for spans the BSR proves are reachable.
-    if (!contains(rule, start, end)) return null;
+    while (stack.isNotEmpty) {
+      final task = stack.last;
+      final state = taskStates[task] ?? 0;
 
-    final key = '${rule.name}:$start:$end';
-    if (memo.containsKey(key)) return memo[key];
-    if (inProgress[key] == true) return null;
+      if (state == 1) {
+        // Second visit: children are processed, collect results
+        if (task.type == 0) {
+          final symNode = nodeManager.symbolic(task.start, task.end, task.rule!);
+          final groups = memoGroups[_BsrTask(1, task.rule!.body(), task.start, task.end)];
+          if (groups != null) {
+            for (final children in groups) {
+              symNode.addFamily(Family(children));
+            }
+          }
+          memoNodes[task] = symNode.families.isNotEmpty ? symNode : null;
+        } else {
+          final p = task.pattern!;
+          final result = <List<ForestNode>>[];
+          if (p is Alt) {
+            result.addAll(memoGroups[_BsrTask(1, p.left, task.start, task.end)] ?? []);
+            result.addAll(memoGroups[_BsrTask(1, p.right, task.start, task.end)] ?? []);
+            memoGroups[task] = result;
+          } else if (p is Seq) {
+            if (task.start == 0 && task.end == input.length) {
+              print('DEBUG: Tracing Seq split for 0:${input.length}');
+            }
+            for (int mid = task.start; mid <= task.end; mid++) {
+              final lefts = memoGroups[_BsrTask(1, p.left, task.start, mid)];
+              final rights = memoGroups[_BsrTask(1, p.right, mid, task.end)];
+              
+              if (task.start == 0 && task.end == input.length && mid == 2) {
+                 print('DEBUG: Mid 2 lefts: ${lefts?.length}, rights: ${rights?.length}');
+              }
 
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule);
-
-    final childGroups =
-        _patternChildGroups(rule.body(), input, start, end, nodeManager, memo, inProgress);
-    for (final children in childGroups) {
-      symNode.addFamily(Family(children));
-    }
-
-    inProgress[key] = false;
-    final result = symNode.families.isNotEmpty ? symNode : null;
-    memo[key] = result;
-    return result;
-  }
-
-  List<List<ForestNode>> _patternChildGroups(
-    Pattern pattern,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    if (pattern is Token) {
-      if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        return [
-          [nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Eps) {
-      return start == end
-          ? [
-              [nodeManager.epsilon(start, pattern)]
-            ]
-          : [];
-    }
-
-    if (pattern is Marker) {
-      if (start == end) {
-        return [
-          [nodeManager.marker(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Alt) {
-      final left =
-          _patternChildGroups(pattern.left, input, start, end, nodeManager, memo, inProgress);
-      final right =
-          _patternChildGroups(pattern.right, input, start, end, nodeManager, memo, inProgress);
-      return [...left, ...right];
-    }
-
-    if (pattern is Seq) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start; mid <= end; mid++) {
-        final leftGroups =
-            _patternChildGroups(pattern.left, input, start, mid, nodeManager, memo, inProgress);
-        if (leftGroups.isEmpty) continue;
-
-        final rightGroups =
-            _patternChildGroups(pattern.right, input, mid, end, nodeManager, memo, inProgress);
-        if (rightGroups.isEmpty) continue;
-
-        for (final l in leftGroups) {
-          for (final r in rightGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Seq');
-            node.addFamily(Family([...l, ...r]));
-            result.add([node]);
+              if (lefts != null && rights != null) {
+                for (final l in lefts) {
+                  for (final r in rights) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Seq');
+                    node.addFamily(Family([...l, ...r]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Call || p is RuleCall) {
+            final rule = (p as dynamic).rule as Rule;
+            final child = memoNodes[_BsrTask(0, rule, task.start, task.end)];
+            if (child != null) {
+              result.add([child]);
+            }
+            memoGroups[task] = result;
+          } else if (p is Action) {
+            final groups = memoGroups[_BsrTask(1, p.child, task.start, task.end)];
+            if (groups != null) {
+              for (final children in groups) {
+                final intermediateNode = nodeManager.intermediate(task.start, task.end, p, 'Action');
+                intermediateNode.addFamily(Family(children));
+                result.add([intermediateNode]);
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Plus) {
+            for (int mid = task.start + 1; mid <= task.end; mid++) {
+              final heads = memoGroups[_BsrTask(1, p.child, task.start, mid)];
+              final tails = memoGroups[_BsrTask(1, p, mid, task.end)];
+              if (heads != null && tails != null) {
+                for (final h in heads) {
+                  for (final t in tails) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Plus');
+                    node.addFamily(Family([...h, ...t]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            final singles = memoGroups[_BsrTask(1, p.child, task.start, task.end)];
+            if (singles != null) {
+              for (final s in singles) {
+                final node = nodeManager.intermediate(task.start, task.end, p, 'Plus');
+                node.addFamily(Family(s));
+                result.add([node]);
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Star) {
+            final result = <List<ForestNode>>[];
+            for (int mid = task.start + 1; mid <= task.end; mid++) {
+              final heads = memoGroups[_BsrTask(1, p.child, task.start, mid)];
+              final tails = memoGroups[_BsrTask(1, p, mid, task.end)];
+              if (heads != null && tails != null) {
+                for (final h in heads) {
+                  for (final t in tails) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Star');
+                    node.addFamily(Family([...h, ...t]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            if (task.start == task.end) {
+              final node = nodeManager.intermediate(task.start, task.end, p, 'Star');
+              node.addFamily(Family([nodeManager.epsilon(task.start, p)]));
+              result.add([node]);
+            }
+            memoGroups[task] = result;
+          } else if (p is PrecedenceLabeledPattern) {
+            memoGroups[task] = memoGroups[_BsrTask(1, p.pattern, task.start, task.end)] ?? [];
           }
         }
+        taskStates[task] = 2; // Done
+        stack.removeLast();
+        continue;
       }
-      return result;
-    }
 
-    if (pattern is Call) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+      if (state == 2) {
+        // Already done
+        stack.removeLast();
+        continue;
+      }
 
-    if (pattern is RuleCall) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+      // First visit: determine match and push children
+      taskStates[task] = 1;
 
-    if (pattern is Action) {
-      final childGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      return childGroups.map((children) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
-        node.addFamily(Family(children));
-        return [node];
-      }).toList();
-    }
+      if (task.type == 0) {
+        final rule = task.rule!;
+        if (!contains(rule, task.start, task.end)) {
+          memoNodes[task] = null;
+          taskStates[task] = 2;
+          stack.removeLast();
+          continue;
+        }
+        stack.add(_BsrTask(1, rule.body(), task.start, task.end));
+      } else {
+        final p = task.pattern!;
+        final start = task.start;
+        final end = task.end;
 
-    if (pattern is Plus) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
+        if (p is Token) {
+          if (start + 1 == end && p.match(input.codeUnitAt(start))) {
+            memoGroups[task] = [
+              [nodeManager.terminal(start, end, p, input.codeUnitAt(start))]
+            ];
+          } else {
+            memoGroups[task] = [];
           }
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Eps) {
+          memoGroups[task] = start == end ? [[nodeManager.epsilon(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Marker) {
+          memoGroups[task] = start == end ? [[nodeManager.marker(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Alt) {
+          stack.add(_BsrTask(1, p.left, start, end));
+          stack.add(_BsrTask(1, p.right, start, end));
+        } else if (p is Seq) {
+          for (int mid = start; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.left, start, mid));
+            stack.add(_BsrTask(1, p.right, mid, end));
+          }
+        } else if (p is Call || p is RuleCall) {
+          final rule = (p as dynamic).rule as Rule;
+          stack.add(_BsrTask(0, rule, start, end));
+        } else if (p is Action) {
+          stack.add(_BsrTask(1, p.child, start, end));
+        } else if (p is Plus) {
+          for (int mid = start + 1; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.child, start, mid));
+            stack.add(_BsrTask(1, p, mid, end));
+          }
+          stack.add(_BsrTask(1, p.child, start, end));
+        } else if (p is Star) {
+          for (int mid = start + 1; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.child, start, mid));
+            stack.add(_BsrTask(1, p, mid, end));
+          }
+        } else if (p is Conj) {
+          if (start + 1 == end &&
+              p.left.match(input.codeUnitAt(start)) &&
+              p.right.match(input.codeUnitAt(start))) {
+            memoGroups[task] = [
+              [nodeManager.terminal(start, end, p, input.codeUnitAt(start))]
+            ];
+          } else {
+            memoGroups[task] = [];
+          }
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is And || p is Not) {
+          memoGroups[task] = start == end ? [[nodeManager.epsilon(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is PrecedenceLabeledPattern) {
+          stack.add(_BsrTask(1, p.pattern, start, end));
+        } else {
+          memoGroups[task] = [];
+          taskStates[task] = 2;
+          stack.removeLast();
         }
       }
-      final singleGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      for (final s in singleGroups) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-        node.addFamily(Family(s));
-        result.add([node]);
-      }
-
-      return result;
     }
 
-    if (pattern is Star) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
+    final root = memoNodes[startTask];
+    if (root == null) {
+      print('DEBUG: Trace failure for ${startRule.name}:0:${input.length}');
+      final bodyTask = _BsrTask(1, startRule.body(), 0, input.length);
+      final bodyGroups = memoGroups[bodyTask];
+      print('DEBUG: Body ${startRule.body().runtimeType} for 0:${input.length} groups: ${bodyGroups?.length}');
 
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Star');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
-        }
+      if (bodyGroups == null || bodyGroups.isEmpty) {
+         final body = startRule.body();
+         if (body is Alt) {
+            final lGroups = memoGroups[_BsrTask(1, body.left, 0, input.length)];
+            final rGroups = memoGroups[_BsrTask(1, body.right, 0, input.length)];
+            print('DEBUG: Alt left groups: ${lGroups?.length}, right groups: ${rGroups?.length}');
+         }
       }
-      if (start == end) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Star');
-        node.addFamily(Family([nodeManager.epsilon(start, pattern)]));
-        result.add([node]);
-      }
-
-      return result;
+      throw StateError("Failed to reconstruct forest root for ${startRule.name}");
     }
-
-    if (pattern is Conj) {
-      if (start + 1 == end &&
-          pattern.left.match(input.codeUnitAt(start)) &&
-          pattern.right.match(input.codeUnitAt(start))) {
-        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-        return [
-          [termNode]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is And || pattern is Not) {
-      if (start == end) {
-        return [
-          [nodeManager.epsilon(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      return _patternChildGroups(pattern.pattern, input, start, end, nodeManager, memo, inProgress);
-    }
-
-    return [];
+    return ParseForest(nodeManager, root, marks ?? []);
   }
 
   @override
   String toString() => 'BsrSet(${_entries.length} entries)';
+}
+
+class _BsrTask {
+  final int type; // 0 = Rule, 1 = Pattern
+  final Rule? rule;
+  final Pattern? pattern;
+  final int start;
+  final int end;
+
+  _BsrTask(this.type, dynamic target, this.start, this.end)
+      : rule = target is Rule ? target : null,
+        pattern = target is Pattern ? target : null;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _BsrTask &&
+          type == other.type &&
+          rule == other.rule &&
+          pattern == other.pattern &&
+          start == other.start &&
+          end == other.end;
+
+  @override
+  int get hashCode => Object.hash(type, rule, pattern, start, end);
+
+  @override
+  String toString() => type == 0 ? '${rule!.name}:$start:$end' : 'p:${pattern.hashCode}:$start:$end';
 }
 
 // ---------------------------------------------------------------------------
@@ -2530,10 +2661,12 @@ class SMParser {
   late final List<Frame> _initialFrames;
   late PredicateLookaheadBuffer _predicateBuffer;
 
-  SMParser(GrammarInterface grammar)
+  final bool fastMode;
+
+  SMParser(GrammarInterface grammar, {this.fastMode = false})
       : stateMachine = StateMachine(grammar),
         grammar = grammar {
-    const initialContext = Context(RootCallerKey(), null);
+    final initialContext = Context(RootCallerKey(), fastMode ? null : GlushList.empty<Mark>());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -2541,29 +2674,51 @@ class SMParser {
     _predicateBuffer = PredicateLookaheadBuffer();
   }
 
-  bool recognize(String input) {
+  bool recognize(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames);
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) return false;
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: false);
     return lastStep.accept;
   }
 
-  ParseOutcome<T> parse<T>(String input) {
+  bool recognizeIterative(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames);
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) return false;
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: true);
+    return lastStep.accept;
+  }
+
+  ParseOutcome<T> parse<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError<T>(position);
@@ -2571,7 +2726,32 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      return ParseSuccess<T>(ParserResult(lastStep.marks));
+    } else {
+      return ParseError<T>(position);
+    }
+  }
+
+  ParseOutcome<T> parseIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return ParseError<T>(position);
+      }
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       return ParseSuccess<T>(ParserResult(lastStep.marks));
@@ -2585,20 +2765,29 @@ class SMParser {
   /// Internally uses BSR (Binarised Shared Representation) recorded during
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
-  ParseOutcome<T> parseWithForest<T>(String input) {
+  ParseOutcome<T> parseWithForest<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
-    final bsrOutcome = parseToBsr(input);
+    final bsrOutcome = parseToBsr(input, fastMode: useFast);
     if (bsrOutcome is BsrParseError) {
       return ParseError<T>(bsrOutcome.position);
     }
 
     final bsrSuccess = bsrOutcome as BsrParseSuccess;
-    final bsrSet = bsrSuccess.bsrSet;
-    final startRule = stateMachine.grammar.startCall.rule;
-    final nodeManager = ForestNodeManager();
-    final root = bsrSet.buildSppf(startRule, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
-    final forest = ParseForest(nodeManager, effectiveRoot, bsrOutcome.marks);
+    final forest = bsrSuccess.bsrSet.toForest(stateMachine.grammar.startCall.rule, input, bsrSuccess.marks);
+    return ParseForestSuccess<T>(forest);
+  }
+
+  ParseOutcome<T> parseWithForestIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    final bsrOutcome = parseToBsrIterative(input, fastMode: useFast);
+    if (bsrOutcome is BsrParseError) {
+      return ParseError<T>(bsrOutcome.position);
+    }
+
+    final bsrSuccess = bsrOutcome as BsrParseSuccess;
+    final forest = bsrSuccess.bsrSet.toForest(stateMachine.grammar.startCall.rule, input, bsrSuccess.marks);
     return ParseForestSuccess<T>(forest);
   }
 
@@ -2689,12 +2878,8 @@ class SMParser {
               final marksStep = _processToken(null, allInput.length, marksFrames, bsr: null);
 
               // Build SPPF from the recorded BSR
-              final startRule = stateMachine.grammar.startCall.rule;
-              final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(startRule, fullInput, nodeManager);
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startRule);
-              final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
+              final forest = bsr.toForest(stateMachine.grammar.startCall.rule, fullInput, marksStep.marks);
               completer.complete(ParseForestSuccess<T>(forest));
             } else {
               completer.complete(ParseError<T>(globalPosition));
@@ -2716,13 +2901,15 @@ class SMParser {
   /// Builds the SPPF by exhaustively walking the grammar structure after
   /// parsing, without BSR pruning. Provided for performance
   /// comparison against [parseWithForest] (the BSR-backed variant).
-  ParseOutcome<T> parseWithForestDirect<T>(String input) {
+  ParseOutcome<T> parseWithForestDirect<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: null);
+      final stepResult =
+          _processToken(codepoint, position, frames, bsr: null, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError<T>(position);
@@ -2730,7 +2917,40 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: null);
+    final lastStep =
+        _processToken(null, position, frames, bsr: null, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      final startRule = stateMachine.grammar.startCall.rule;
+      final nodeManager = ForestNodeManager();
+      _buildForestNode(startRule, input, 0, input.length, nodeManager, {}, {});
+
+      final root = nodeManager.symbolic(0, input.length, startRule);
+      final forest = ParseForest(nodeManager, root, lastStep.marks);
+      return ParseForestSuccess<T>(forest);
+    } else {
+      return ParseError<T>(position);
+    }
+  }
+
+  ParseOutcome<T> parseWithForestDirectIterative<T>(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult =
+          _processToken(codepoint, position, frames, bsr: null, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return ParseError<T>(position);
+      }
+      position++;
+    }
+
+    final lastStep =
+        _processToken(null, position, frames, bsr: null, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       final startRule = stateMachine.grammar.startCall.rule;
@@ -2749,14 +2969,16 @@ class SMParser {
   ///
   /// Returns [BsrParseSuccess] with the [BsrSet] on success, or
   /// [BsrParseError] if the input does not conform to the grammar.
-  BsrParseOutcome parseToBsr(String input) {
+  BsrParseOutcome parseToBsr(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
     _predicateBuffer.initializeFromString(input);
     final bsr = BsrSet();
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: bsr);
+      final stepResult = _processToken(codepoint, position, frames,
+          bsr: bsr, fastMode: useFast, iterative: false);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -2764,7 +2986,33 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: bsr);
+    final lastStep = _processToken(null, position, frames, bsr: bsr, fastMode: useFast, iterative: false);
+
+    if (lastStep.accept) {
+      return BsrParseSuccess(bsr, lastStep.marks);
+    } else {
+      return BsrParseError(position);
+    }
+  }
+
+  BsrParseOutcome parseToBsrIterative(String input, {bool? fastMode}) {
+    final useFast = fastMode ?? this.fastMode;
+    _predicateBuffer.initializeFromString(input);
+    final bsr = BsrSet();
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult = _processToken(codepoint, position, frames,
+          bsr: bsr, fastMode: useFast, iterative: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return BsrParseError(position);
+      }
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, bsr: bsr, fastMode: useFast, iterative: true);
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -3426,117 +3674,87 @@ class SMParser {
   }
 
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
-    final symbolRegistry = grammar.symbolRegistry;
+    // Post-order traversal using two stacks
+    final workStack = <(ParseDerivation, bool)>[(tree, false)];
+    final valueStack = <dynamic>[];
 
-    switch (symbolRegistry[tree.symbol]) {
-      case Token pattern:
-        if (tree.start + 1 == tree.end && pattern.match(input.codeUnitAt(tree.start))) {
-          final evaluated = tree.getMatchedText(input);
-          return evaluated;
+    while (workStack.isNotEmpty) {
+      final (current, processed) = workStack.removeLast();
+
+      if (processed) {
+        // All children processed, evaluate this node
+        final childrenValues = <dynamic>[];
+        for (int i = 0; i < current.children.length; i++) {
+          childrenValues.insert(0, valueStack.removeLast());
         }
-      case Marker pattern:
-        return NamedMark(pattern.name, tree.start);
-      case Eps():
-        return "";
-      case Alt():
-        // One of the alternatives matched - evaluate that child
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+
+        final pattern = grammar.symbolRegistry[current.symbol];
+        print('  Evaluating node ${current.symbol} (pattern: ${pattern.runtimeType}) with children: $childrenValues');
+        if (pattern == null) {
+          throw StateError("Symbol ${current.symbol} not found in grammar.");
         }
-        return null;
-      case Seq():
-        // Sequence: evaluate left and right children
-        final results = <dynamic>[];
-        for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input);
-          results.add(childValue);
-        }
-        return results;
-      case Conj():
-        // Conjunction: both patterns match the same token
-        final codeUnit = input.codeUnitAt(tree.start);
-        return String.fromCharCode(codeUnit);
-      case Plus():
-      case Star():
-        // One/Zero or more: collect all child results into a list.
-        // We avoid flattening sequences (lists) from the body match.
-        final results = <dynamic>[];
-        if (tree.children.isNotEmpty) {
-          // First child is the 'head' element
-          results.add(_evaluateParseDerivation(tree.children[0], input));
-          // Second child (if any) is the rest of the repetition (tail)
-          if (tree.children.length > 1) {
-            final rest = _evaluateParseDerivation(tree.children[1], input);
-            if (rest is List) {
-              results.addAll(rest);
-            } else if (rest != "") {
-              results.add(rest);
-            }
+
+        if (pattern is Action) {
+          final span = current.getMatchedText(input);
+          // Pass marks from the derivation if we had them, otherwise empty
+          valueStack.add(actionCallback(action: pattern, span: span, children: childrenValues));
+        } else if (pattern is Token) {
+          valueStack.add(current.getMatchedText(input));
+        } else if (pattern is Marker) {
+          valueStack.add(NamedMark(pattern.name, current.start));
+        } else if (pattern is Eps) {
+          valueStack.add("");
+        if (pattern is Alt || pattern is Rule || pattern is RuleCall || pattern is Call || pattern is PrecedenceLabeledPattern) {
+          if (childrenValues.isNotEmpty) {
+            final val = childrenValues[0];
+            print('    Node ${current.symbol}: evaluating ${pattern.runtimeType} -> taking child[0]: $val');
+            valueStack.add(val);
+          } else {
+            print('    Node ${current.symbol}: evaluating ${pattern.runtimeType} -> NO CHILDREN, adding null');
+            valueStack.add(null);
           }
         }
-        return results;
-      case And():
-        // Positive lookahead: zero-width, return empty list
-        return [];
-      case Not():
-        // Negative lookahead: zero-width, return empty list
-        return [];
-      case Rule():
-        // Evaluate the rule's body
-        return _evaluateParseDerivation(
-          tree.children.isNotEmpty
-              ? tree.children[0]
-              : ParseDerivation(Eps().symbolId, tree.start, tree.end, []),
-          input,
-        );
-      case RuleCall _:
-        // Recursively evaluate the referenced rule
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+        } else if (pattern is Seq || pattern is Plus || pattern is Star) {
+          if (pattern is Seq) {
+            valueStack.add(childrenValues);
+          } else {
+            // Repetition: reconstruct list
+            final results = <dynamic>[];
+            if (childrenValues.isNotEmpty) {
+              results.add(childrenValues[0]);
+              if (childrenValues.length > 1) {
+                final rest = childrenValues[1];
+                if (rest is List) {
+                  results.addAll(rest);
+                } else if (rest != null && rest != "") {
+                  results.add(rest);
+                }
+              }
+            }
+            valueStack.add(results);
+          }
+        } else {
+          valueStack.add(childrenValues.length == 1 ? childrenValues[0] : childrenValues);
         }
-        return null;
-      case Call _:
-        // Recursively evaluate the referenced rule
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
+      } else {
+        workStack.add((current, true));
+        for (final child in current.children.reversed) {
+          workStack.add((child, false));
         }
-        return null;
-      case Action<dynamic> action:
-        // Evaluate the child and apply the semantic action
-        assert(tree.children.length == 1, "Action Nodes should only have one child.");
-
-        final childResults = <dynamic>[];
-        for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input);
-          childResults.add(childValue);
-        }
-        final span = tree.getMatchedText(input);
-        if (childResults.length == 1 && childResults.single is List) {
-          return action.callback(span, childResults.single);
-        }
-        return action.callback(span, childResults);
-      case PrecedenceLabeledPattern():
-        // Unwrap and evaluate the child pattern
-        if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input);
-        }
-        return null;
-      case null:
-        throw StateError("Tried to evaluate using an invalid symbol.");
+      }
     }
 
-    return null;
+    return valueStack.single;
   }
 
-  Step _processToken(int? token, int position, List<Frame> frames, {BsrSet? bsr}) {
-    final step = Step(this, token, position, bsr: bsr, buffer: _predicateBuffer);
-
-    for (final frame in frames) {
-      step._processFrame(frame);
+  /// Helper to invoke action callback with proper unwrapping logic
+  dynamic actionCallback({required Action action, required String span, required List<dynamic> children}) {
+    if (children.length == 1 && children.single is List) {
+      return action.callback(span, children.single);
     }
-
-    return step;
+    return action.callback(span, children);
   }
+
 
   /// Check if a pattern matches at a given position in the input without consuming.
   /// Used for AND/NOT lookahead predicates.
@@ -3752,6 +3970,25 @@ class SMParser {
 
     return false;
   }
+
+  Step _processToken(int? token, int position, List<Frame> frames,
+      {BsrSet? bsr, bool fastMode = false, bool iterative = true}) {
+    final step = Step(this, token, position,
+        bsr: bsr, buffer: _predicateBuffer, fastMode: fastMode);
+    if (iterative) {
+      step._processIterative(frames);
+    } else {
+      step._processRecursive(frames);
+    }
+    return step;
+  }
+}
+
+/// Helper to convert a [ParseTree] (from the forest) into a [ParseDerivation]
+/// (the simpler tree structure used for evaluation).
+ParseDerivation parseTreeToDerivation(ParseTree tree, String input) {
+  final children = tree.children.map((c) => parseTreeToDerivation(c, input)).toList();
+  return ParseDerivation(tree.node.pattern.symbolId!, tree.node.start, tree.node.end, children);
 }
 
 // ---------------------------------------------------------------------------
@@ -3784,6 +4021,16 @@ class Context {
   final int? callStart;
 
   const Context(this.caller, this.marks, [this.callStart]);
+
+  @override
+  int get hashCode => Object.hash(caller, marks, callStart);
+
+  @override
+  bool operator ==(Object other) =>
+      other is Context &&
+      caller == other.caller &&
+      marks == other.marks &&
+      callStart == other.callStart;
 }
 
 /// Frame for managing parsing states
@@ -3807,6 +4054,10 @@ class Caller extends CallerKey {
   /// The input position at which the associated rule was invoked.
   /// Set once at CallAction time; used by ReturnAction to record BSR entries.
   int? callStart;
+
+  /// Results (marks) produced by the rule, grouped by end position.
+  /// This ensures that completions at different positions are not pruned.
+  final Map<int, Set<GlushList<Mark>?>> completions = {};
 
   void addReturn(Context context, State nextState) {
     final key = (context.caller, nextState);
@@ -3835,37 +4086,63 @@ class Step {
   /// Predicate lookahead buffer for checking patterns without full input access
   final PredicateLookaheadBuffer buffer;
 
+  final bool fastMode;
   final List<Frame> nextFrames = [];
   final Map<Rule, Caller> _callers = {};
-  final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
-  Step(this.parser, this.token, this.position, {this.bsr, required this.buffer});
+  Step(this.parser, this.token, this.position, {this.bsr, required this.buffer, this.fastMode = false});
 
   bool get accept => _acceptedContexts.isNotEmpty;
 
   List<Mark> get marks {
+    if (fastMode || _acceptedContexts.isEmpty) return [];
     final markList = _acceptedContexts[0].marks;
     if (markList == null) return [];
     return markList.toList().cast<Mark>();
   }
 
-  void _withFrame(Context context, void Function(Frame) callback) {
-    final frame = Frame(context);
-    callback(frame);
-    if (frame.nextStates.isNotEmpty) {
-      nextFrames.add(frame);
+  void _processIterative(List<Frame> frames) {
+    final visited = <(Context, State)>{};
+    final worklist = <_ProcessFrame>[];
+    for (final frame in frames) {
+      worklist.add(_ProcessFrame(frame, null));
+    }
+
+    while (worklist.isNotEmpty) {
+      final work = worklist.removeLast();
+      final frame = work.frame;
+      
+      if (work.startState != null) {
+        final state = work.startState!;
+        if (!visited.add((frame.context, state))) continue;
+        _processStateIterative(frame, state, worklist);
+      } else {
+        for (final state in frame.nextStates) {
+          if (!visited.add((frame.context, state))) continue;
+          _processStateIterative(frame, state, worklist);
+        }
+      }
     }
   }
 
-  void _process(Frame frame, State state) {
+  void _processRecursive(List<Frame> frames) {
+    final visited = <(Context, State)>{};
+    for (final frame in frames) {
+      for (final state in frame.nextStates) {
+        _processStateRecursive(frame, state, visited);
+      }
+    }
+  }
+
+  void _processStateRecursive(Frame frame, State state, Set<(Context, State)> visited) {
+    if (!visited.add((frame.context, state))) return;
+
     for (final action in state.actions) {
       if (action is TokenAction) {
         if (action.pattern.match(token)) {
-          // If token matches, add a StringMark with the captured token if not ExactToken
-          // So ranges and 'any' tokens are captured into the marks array too
           var newMarks = frame.marks;
-          if (token != null &&
+          if (!fastMode && token != null &&
               action.pattern is Token &&
               (action.pattern as Token).choice is! ExactToken) {
             final strMark = StringMark(String.fromCharCode(token!), position);
@@ -3876,31 +4153,22 @@ class Step {
           nextFrames.add(nextFrame);
         }
       } else if (action is MarkAction) {
-        final mark = NamedMark(action.name, position);
-        final markCtx = Context(
-          frame.caller,
-          (frame.marks ?? GlushList.empty<Mark>()).add(mark),
-        );
-        _withFrame(markCtx, (markFrame) {
-          _process(markFrame, action.nextState);
-        });
-      } else if (action is PredicateAction) {
-        // Predicate checking (lookahead without consumption)
-        // Buffer ensures we have the data needed for lookahead
-        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
-
-        // For AND (&pattern), continue if pattern matches
-        // For NOT (!pattern), continue if pattern does NOT match
-        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
-
-        if (shouldContinue) {
-          // Predicate succeeded - process next state through standard frame mechanism
-          // Zero-width: processed with the same token in this frame step
-          _withFrame(frame.context, (predFrame) {
-            _process(predFrame, action.nextState);
-          });
+        if (fastMode) {
+          _processStateRecursive(frame, action.nextState, visited);
+        } else {
+          final mark = NamedMark(action.name, position);
+          final markCtx = Context(
+            frame.caller,
+            (frame.marks ?? GlushList.empty<Mark>()).add(mark),
+          );
+          _processStateRecursive(Frame(markCtx), action.nextState, visited);
         }
-        // If predicate failed, we simply don't add the next state (backtrack)
+      } else if (action is PredicateAction) {
+        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
+        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
+        if (shouldContinue) {
+          _processStateRecursive(frame, action.nextState, visited);
+        }
       } else if (action is CallAction) {
         final rule = action.rule;
         final isExecuted = _callers.containsKey(rule);
@@ -3908,49 +4176,51 @@ class Step {
 
         caller.addReturn(frame.context, action.returnState);
 
+        // Retrigger completions for all end positions
+        for (final entry in caller.completions.entries) {
+          for (final completionMarks in entry.value) {
+            final combinedMarks = (fastMode || frame.marks == null)
+                ? completionMarks
+                : GlushList.branched<Mark>([frame.marks!])
+                    .addList(completionMarks ?? GlushList.empty<Mark>());
+
+            final nextContext = Context(frame.caller, combinedMarks);
+            _processStateRecursive(Frame(nextContext), action.returnState, visited);
+          }
+        }
+
         if (!isExecuted) {
-          // Store callStart on the Caller so ReturnAction can emit BSR entries.
           caller.callStart = position;
-          final callCtx = Context(caller, GlushList.empty<Mark>(), position);
-          _withFrame(callCtx, (callFrame) {
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
-              _process(callFrame, firstState);
-            }
-          });
+          final callCtx = Context(caller, fastMode ? null : GlushList.empty<Mark>(), position);
+          final callFrame = Frame(callCtx);
+          for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            _processStateRecursive(callFrame, firstState, visited);
+          }
         }
       } else if (action is ReturnAction) {
         final rule = action.rule;
-
         if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+          print('      Guard failed');
           continue;
         }
 
-        // Record BSR rule-completion entry BEFORE the ambiguity guard,
-        // so every distinct (rule, callStart, position) span is captured.
-        // The _returnedCallers guard below is only for parsing-state correctness.
         final callStart = frame.context.callStart ??
             (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
         if (bsr != null && callStart != null) {
           bsr!.add(rule, callStart, position);
         }
-
         final caller = frame.caller;
-
-        // Simple ambiguity handling: only process each caller once
-        final shouldProcess = _returnedCallers.add(caller);
-        if (!shouldProcess) continue;
-
         if (caller is Caller) {
-          caller.forEach((ccaller, nextState, marks) {
-            final combinedMarks = marks == null
-                ? frame.marks
-                : GlushList.branched<Mark>([marks]).addList(frame.marks ?? GlushList.empty<Mark>());
+          if (caller.completions.putIfAbsent(position, () => {}).add(frame.marks)) {
+            caller.forEach((ccaller, nextState, prevMarks) {
+              final combinedMarks = (fastMode || prevMarks == null)
+                  ? frame.marks
+                  : GlushList.branched<Mark>([prevMarks]).addList(frame.marks ?? GlushList.empty<Mark>());
 
-            final nextContext = Context(ccaller, combinedMarks);
-            _withFrame(nextContext, (nextFrame) {
-              _process(nextFrame, nextState);
+              final nextContext = Context(ccaller, combinedMarks);
+              _processStateRecursive(Frame(nextContext), nextState, visited);
             });
-          });
+          }
         }
       } else if (action is AcceptAction) {
         _acceptedContexts.add(frame.context);
@@ -3958,13 +4228,103 @@ class Step {
     }
   }
 
-  void _processFrame(Frame frame) {
-    _withFrame(frame.copy().context, (nextFrame) {
-      for (final state in frame.nextStates) {
-        _process(nextFrame, state);
+  void _processStateIterative(Frame frame, State state, List<_ProcessFrame> worklist) {
+    for (final action in state.actions) {
+      if (action is TokenAction) {
+        if (action.pattern.match(token)) {
+          var newMarks = frame.marks;
+          if (!fastMode && token != null &&
+              action.pattern is Token &&
+              (action.pattern as Token).choice is! ExactToken) {
+            final strMark = StringMark(String.fromCharCode(token!), position);
+            newMarks = (newMarks ?? GlushList.empty<Mark>()).add(strMark);
+          }
+          final nextFrame = Frame(Context(frame.caller, newMarks));
+          nextFrame.nextStates.add(action.nextState);
+          nextFrames.add(nextFrame);
+        }
+      } else if (action is MarkAction) {
+        if (fastMode) {
+          worklist.add(_ProcessFrame(frame, action.nextState));
+        } else {
+          final mark = NamedMark(action.name, position);
+          final markCtx = Context(
+            frame.caller,
+            (frame.marks ?? GlushList.empty<Mark>()).add(mark),
+          );
+          worklist.add(_ProcessFrame(Frame(markCtx), action.nextState));
+        }
+      } else if (action is PredicateAction) {
+        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
+        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
+        if (shouldContinue) {
+          worklist.add(_ProcessFrame(frame, action.nextState));
+        }
+      } else if (action is CallAction) {
+        final rule = action.rule;
+        final isExecuted = _callers.containsKey(rule);
+        final caller = _callers.putIfAbsent(rule, Caller.new);
+
+        caller.addReturn(frame.context, action.returnState);
+
+        // Retrigger completions
+        for (final entry in caller.completions.entries) {
+          for (final completionMarks in entry.value) {
+            final combinedMarks = (fastMode || frame.marks == null)
+                ? completionMarks
+                : GlushList.branched<Mark>([frame.marks!])
+                    .addList(completionMarks ?? GlushList.empty<Mark>());
+
+            final nextContext = Context(frame.caller, combinedMarks);
+            worklist.add(_ProcessFrame(Frame(nextContext), action.returnState));
+          }
+        }
+
+        if (!isExecuted) {
+          caller.callStart = position;
+          final callCtx = Context(caller, fastMode ? null : GlushList.empty<Mark>(), position);
+          final callFrame = Frame(callCtx);
+          for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            worklist.add(_ProcessFrame(callFrame, firstState));
+          }
+        }
+      } else if (action is ReturnAction) {
+        final rule = action.rule;
+        if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+          continue;
+        }
+
+        final callStart = frame.context.callStart ??
+            (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
+        if (bsr != null && callStart != null) {
+          bsr!.add(rule, callStart, position);
+        }
+
+        final caller = frame.caller;
+        if (caller is Caller) {
+          if (caller.completions.putIfAbsent(position, () => {}).add(frame.marks)) {
+            caller.forEach((ccaller, nextState, prevMarks) {
+              final combinedMarks = (fastMode || prevMarks == null)
+                  ? frame.marks
+                  : GlushList.branched<Mark>([prevMarks]).addList(frame.marks ?? GlushList.empty<Mark>());
+
+              final nextContext = Context(ccaller, combinedMarks);
+              worklist.add(_ProcessFrame(Frame(nextContext), nextState));
+            });
+          }
+        }
+      } else if (action is AcceptAction) {
+        print('    AcceptAction hit! context: ${frame.context.caller}');
+        _acceptedContexts.add(frame.context);
       }
-    });
+    }
   }
+}
+
+class _ProcessFrame {
+  final Frame frame;
+  final State? startState;
+  _ProcessFrame(this.frame, this.startState);
 }
 
 

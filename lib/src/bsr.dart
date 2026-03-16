@@ -48,11 +48,14 @@ class BsrSet {
 
   /// Add a rule-completion entry.
   void add(Rule rule, int leftExtent, int rightExtent) {
-    _entries.add(BsrEntry(rule, leftExtent, rightExtent));
+    final entry = BsrEntry(rule, leftExtent, rightExtent);
+    _entries.add(entry);
   }
 
-  /// Returns true if [rule] was proven to match [[left], [right]).
-  bool contains(Rule rule, int left, int right) => _entries.contains(BsrEntry(rule, left, right));
+  /// Check if a rule was completed over [leftExtent, rightExtent).
+  bool contains(Rule rule, int leftExtent, int rightExtent) {
+    return _entries.contains(BsrEntry(rule, leftExtent, rightExtent));
+  }
 
   /// Returns all entries for the given rule.
   Iterable<BsrEntry> entriesForRule(Rule rule) => _entries.where((e) => e.rule == rule);
@@ -68,232 +71,272 @@ class BsrSet {
   /// [inputLength], using only spans that are proven in this BSR set.
   ///
   /// Returns null if the start rule has no proven entry for [0, inputLength].
-  SymbolicNode? buildSppf(
-    Rule startRule,
-    String input,
-    ForestNodeManager nodeManager,
-  ) {
-    final memo = <String, SymbolicNode?>{};
-    final inProgress = <String, bool>{};
-    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress);
-  }
+  ParseForest toForest(Rule startRule, String input, [List<Mark>? marks]) {
+    final nodeManager = ForestNodeManager();
+    final memoNodes = <_BsrTask, SymbolicNode?>{};
+    final memoGroups = <_BsrTask, List<List<ForestNode>>>{};
+    final taskStates = <_BsrTask, int>{}; // 0 = New, 1 = Pushed, 2 = Done
+    final stack = <_BsrTask>[];
 
-  // ---------------------------------------------------------------------------
-  // Internal SPPF construction (BSR-guided grammar walk)
-  // ---------------------------------------------------------------------------
+    final startTask = _BsrTask(0, startRule, 0, input.length);
+    stack.add(startTask);
 
-  SymbolicNode? _buildNode(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    // Fast-fail: only build SPPF for spans the BSR proves are reachable.
-    if (!contains(rule, start, end)) return null;
+    while (stack.isNotEmpty) {
+      final task = stack.last;
+      final state = taskStates[task] ?? 0;
 
-    final key = '${rule.name}:$start:$end';
-    if (memo.containsKey(key)) return memo[key];
-    if (inProgress[key] == true) return null;
+      if (state == 1) {
+        // Second visit: children are processed, collect results
+        if (task.type == 0) {
+          final symNode = nodeManager.symbolic(task.start, task.end, task.rule!);
+          final groups = memoGroups[_BsrTask(1, task.rule!.body(), task.start, task.end)];
+          if (groups != null) {
+            for (final children in groups) {
+              symNode.addFamily(Family(children));
+            }
+          }
+          memoNodes[task] = symNode.families.isNotEmpty ? symNode : null;
+        } else {
+          final p = task.pattern!;
+          final result = <List<ForestNode>>[];
+          if (p is Alt) {
+            result.addAll(memoGroups[_BsrTask(1, p.left, task.start, task.end)] ?? []);
+            result.addAll(memoGroups[_BsrTask(1, p.right, task.start, task.end)] ?? []);
+            memoGroups[task] = result;
+          } else if (p is Seq) {
+            if (task.start == 0 && task.end == input.length) {
+              print('DEBUG: Tracing Seq split for 0:${input.length}');
+            }
+            for (int mid = task.start; mid <= task.end; mid++) {
+              final lefts = memoGroups[_BsrTask(1, p.left, task.start, mid)];
+              final rights = memoGroups[_BsrTask(1, p.right, mid, task.end)];
+              
+              if (task.start == 0 && task.end == input.length && mid == 2) {
+                 print('DEBUG: Mid 2 lefts: ${lefts?.length}, rights: ${rights?.length}');
+              }
 
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule);
-
-    final childGroups =
-        _patternChildGroups(rule.body(), input, start, end, nodeManager, memo, inProgress);
-    for (final children in childGroups) {
-      symNode.addFamily(Family(children));
-    }
-
-    inProgress[key] = false;
-    final result = symNode.families.isNotEmpty ? symNode : null;
-    memo[key] = result;
-    return result;
-  }
-
-  List<List<ForestNode>> _patternChildGroups(
-    Pattern pattern,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    if (pattern is Token) {
-      if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        return [
-          [nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Eps) {
-      return start == end
-          ? [
-              [nodeManager.epsilon(start, pattern)]
-            ]
-          : [];
-    }
-
-    if (pattern is Marker) {
-      if (start == end) {
-        return [
-          [nodeManager.marker(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Alt) {
-      final left =
-          _patternChildGroups(pattern.left, input, start, end, nodeManager, memo, inProgress);
-      final right =
-          _patternChildGroups(pattern.right, input, start, end, nodeManager, memo, inProgress);
-      return [...left, ...right];
-    }
-
-    if (pattern is Seq) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start; mid <= end; mid++) {
-        final leftGroups =
-            _patternChildGroups(pattern.left, input, start, mid, nodeManager, memo, inProgress);
-        if (leftGroups.isEmpty) continue;
-
-        final rightGroups =
-            _patternChildGroups(pattern.right, input, mid, end, nodeManager, memo, inProgress);
-        if (rightGroups.isEmpty) continue;
-
-        for (final l in leftGroups) {
-          for (final r in rightGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Seq');
-            node.addFamily(Family([...l, ...r]));
-            result.add([node]);
+              if (lefts != null && rights != null) {
+                for (final l in lefts) {
+                  for (final r in rights) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Seq');
+                    node.addFamily(Family([...l, ...r]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Call || p is RuleCall) {
+            final rule = (p as dynamic).rule as Rule;
+            final child = memoNodes[_BsrTask(0, rule, task.start, task.end)];
+            if (child != null) {
+              result.add([child]);
+            }
+            memoGroups[task] = result;
+          } else if (p is Action) {
+            final groups = memoGroups[_BsrTask(1, p.child, task.start, task.end)];
+            if (groups != null) {
+              for (final children in groups) {
+                final intermediateNode = nodeManager.intermediate(task.start, task.end, p, 'Action');
+                intermediateNode.addFamily(Family(children));
+                result.add([intermediateNode]);
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Plus) {
+            for (int mid = task.start + 1; mid <= task.end; mid++) {
+              final heads = memoGroups[_BsrTask(1, p.child, task.start, mid)];
+              final tails = memoGroups[_BsrTask(1, p, mid, task.end)];
+              if (heads != null && tails != null) {
+                for (final h in heads) {
+                  for (final t in tails) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Plus');
+                    node.addFamily(Family([...h, ...t]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            final singles = memoGroups[_BsrTask(1, p.child, task.start, task.end)];
+            if (singles != null) {
+              for (final s in singles) {
+                final node = nodeManager.intermediate(task.start, task.end, p, 'Plus');
+                node.addFamily(Family(s));
+                result.add([node]);
+              }
+            }
+            memoGroups[task] = result;
+          } else if (p is Star) {
+            final result = <List<ForestNode>>[];
+            for (int mid = task.start + 1; mid <= task.end; mid++) {
+              final heads = memoGroups[_BsrTask(1, p.child, task.start, mid)];
+              final tails = memoGroups[_BsrTask(1, p, mid, task.end)];
+              if (heads != null && tails != null) {
+                for (final h in heads) {
+                  for (final t in tails) {
+                    final node = nodeManager.intermediate(task.start, task.end, p, 'Star');
+                    node.addFamily(Family([...h, ...t]));
+                    result.add([node]);
+                  }
+                }
+              }
+            }
+            if (task.start == task.end) {
+              final node = nodeManager.intermediate(task.start, task.end, p, 'Star');
+              node.addFamily(Family([nodeManager.epsilon(task.start, p)]));
+              result.add([node]);
+            }
+            memoGroups[task] = result;
+          } else if (p is PrecedenceLabeledPattern) {
+            memoGroups[task] = memoGroups[_BsrTask(1, p.pattern, task.start, task.end)] ?? [];
           }
         }
+        taskStates[task] = 2; // Done
+        stack.removeLast();
+        continue;
       }
-      return result;
-    }
 
-    if (pattern is Call) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+      if (state == 2) {
+        // Already done
+        stack.removeLast();
+        continue;
+      }
 
-    if (pattern is RuleCall) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+      // First visit: determine match and push children
+      taskStates[task] = 1;
 
-    if (pattern is Action) {
-      final childGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      return childGroups.map((children) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
-        node.addFamily(Family(children));
-        return [node];
-      }).toList();
-    }
+      if (task.type == 0) {
+        final rule = task.rule!;
+        if (!contains(rule, task.start, task.end)) {
+          memoNodes[task] = null;
+          taskStates[task] = 2;
+          stack.removeLast();
+          continue;
+        }
+        stack.add(_BsrTask(1, rule.body(), task.start, task.end));
+      } else {
+        final p = task.pattern!;
+        final start = task.start;
+        final end = task.end;
 
-    if (pattern is Plus) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
+        if (p is Token) {
+          if (start + 1 == end && p.match(input.codeUnitAt(start))) {
+            memoGroups[task] = [
+              [nodeManager.terminal(start, end, p, input.codeUnitAt(start))]
+            ];
+          } else {
+            memoGroups[task] = [];
           }
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Eps) {
+          memoGroups[task] = start == end ? [[nodeManager.epsilon(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Marker) {
+          memoGroups[task] = start == end ? [[nodeManager.marker(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is Alt) {
+          stack.add(_BsrTask(1, p.left, start, end));
+          stack.add(_BsrTask(1, p.right, start, end));
+        } else if (p is Seq) {
+          for (int mid = start; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.left, start, mid));
+            stack.add(_BsrTask(1, p.right, mid, end));
+          }
+        } else if (p is Call || p is RuleCall) {
+          final rule = (p as dynamic).rule as Rule;
+          stack.add(_BsrTask(0, rule, start, end));
+        } else if (p is Action) {
+          stack.add(_BsrTask(1, p.child, start, end));
+        } else if (p is Plus) {
+          for (int mid = start + 1; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.child, start, mid));
+            stack.add(_BsrTask(1, p, mid, end));
+          }
+          stack.add(_BsrTask(1, p.child, start, end));
+        } else if (p is Star) {
+          for (int mid = start + 1; mid <= end; mid++) {
+            stack.add(_BsrTask(1, p.child, start, mid));
+            stack.add(_BsrTask(1, p, mid, end));
+          }
+        } else if (p is Conj) {
+          if (start + 1 == end &&
+              p.left.match(input.codeUnitAt(start)) &&
+              p.right.match(input.codeUnitAt(start))) {
+            memoGroups[task] = [
+              [nodeManager.terminal(start, end, p, input.codeUnitAt(start))]
+            ];
+          } else {
+            memoGroups[task] = [];
+          }
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is And || p is Not) {
+          memoGroups[task] = start == end ? [[nodeManager.epsilon(start, p)]] : [];
+          taskStates[task] = 2;
+          stack.removeLast();
+        } else if (p is PrecedenceLabeledPattern) {
+          stack.add(_BsrTask(1, p.pattern, start, end));
+        } else {
+          memoGroups[task] = [];
+          taskStates[task] = 2;
+          stack.removeLast();
         }
       }
-      final singleGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      for (final s in singleGroups) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-        node.addFamily(Family(s));
-        result.add([node]);
-      }
-
-      return result;
     }
 
-    if (pattern is Star) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
+    final root = memoNodes[startTask];
+    if (root == null) {
+      print('DEBUG: Trace failure for ${startRule.name}:0:${input.length}');
+      final bodyTask = _BsrTask(1, startRule.body(), 0, input.length);
+      final bodyGroups = memoGroups[bodyTask];
+      print('DEBUG: Body ${startRule.body().runtimeType} for 0:${input.length} groups: ${bodyGroups?.length}');
 
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Star');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
-        }
+      if (bodyGroups == null || bodyGroups.isEmpty) {
+         final body = startRule.body();
+         if (body is Alt) {
+            final lGroups = memoGroups[_BsrTask(1, body.left, 0, input.length)];
+            final rGroups = memoGroups[_BsrTask(1, body.right, 0, input.length)];
+            print('DEBUG: Alt left groups: ${lGroups?.length}, right groups: ${rGroups?.length}');
+         }
       }
-      if (start == end) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Star');
-        node.addFamily(Family([nodeManager.epsilon(start, pattern)]));
-        result.add([node]);
-      }
-
-      return result;
+      throw StateError("Failed to reconstruct forest root for ${startRule.name}");
     }
-
-    if (pattern is Conj) {
-      if (start + 1 == end &&
-          pattern.left.match(input.codeUnitAt(start)) &&
-          pattern.right.match(input.codeUnitAt(start))) {
-        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-        return [
-          [termNode]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is And || pattern is Not) {
-      if (start == end) {
-        return [
-          [nodeManager.epsilon(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      return _patternChildGroups(pattern.pattern, input, start, end, nodeManager, memo, inProgress);
-    }
-
-    return [];
+    return ParseForest(nodeManager, root, marks ?? []);
   }
 
   @override
   String toString() => 'BsrSet(${_entries.length} entries)';
+}
+
+class _BsrTask {
+  final int type; // 0 = Rule, 1 = Pattern
+  final Rule? rule;
+  final Pattern? pattern;
+  final int start;
+  final int end;
+
+  _BsrTask(this.type, dynamic target, this.start, this.end)
+      : rule = target is Rule ? target : null,
+        pattern = target is Pattern ? target : null;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _BsrTask &&
+          type == other.type &&
+          rule == other.rule &&
+          pattern == other.pattern &&
+          start == other.start &&
+          end == other.end;
+
+  @override
+  int get hashCode => Object.hash(type, rule, pattern, start, end);
+
+  @override
+  String toString() => type == 0 ? '${rule!.name}:$start:$end' : 'p:${pattern.hashCode}:$start:$end';
 }
 
 // ---------------------------------------------------------------------------

@@ -33,22 +33,39 @@ sealed class GlushList<T> {
   void forEach(void Function(T) callback);
 
   bool get isEmpty;
+
+  final int _hash;
+  GlushList._(this._hash);
+
+  @override
+  int get hashCode => _hash;
 }
 
 class EmptyList<T> extends GlushList<T> {
-  EmptyList._();
+  EmptyList._() : super._(0);
 
   @override
   void forEach(void Function(T) callback) {}
 
   @override
   bool get isEmpty => true;
+
+  @override
+  bool operator ==(Object other) => other is EmptyList<T>;
 }
 
 class BranchedList<T> extends GlushList<T> {
   final List<GlushList<T>> alternatives;
 
-  BranchedList._(this.alternatives);
+  static int _computeHash(List<GlushList<dynamic>> alternatives) {
+    int hash = 0;
+    for (final alt in alternatives) {
+      hash ^= alt.hashCode;
+    }
+    return hash;
+  }
+
+  BranchedList._(this.alternatives) : super._(_computeHash(alternatives));
 
   @override
   void forEach(void Function(T) callback) {
@@ -59,13 +76,24 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => alternatives.every((a) => a.isEmpty);
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! BranchedList<T>) return false;
+    if (_hash != other._hash) return false;
+    if (alternatives.length != other.alternatives.length) return false;
+    for (int i = 0; i < alternatives.length; i++) {
+      if (alternatives[i] != other.alternatives[i]) return false;
+    }
+    return true;
+  }
 }
 
 class Push<T> extends GlushList<T> {
   final GlushList<T> parent;
   final T data;
 
-  Push._(this.parent, this.data);
+  Push._(this.parent, this.data) : super._(Object.hash(parent, data));
 
   @override
   void forEach(void Function(T) callback) {
@@ -75,13 +103,20 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! Push<T>) return false;
+    if (_hash != other._hash) return false;
+    return data == other.data && parent == other.parent;
+  }
 }
 
 class Concat<T> extends GlushList<T> {
   final GlushList<T> left;
   final GlushList<T> right;
 
-  Concat._(this.left, this.right);
+  Concat._(this.left, this.right) : super._(Object.hash(left, right));
 
   @override
   void forEach(void Function(T) callback) {
@@ -91,4 +126,11 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! Concat<T>) return false;
+    if (_hash != other._hash) return false;
+    return left == other.left && right == other.right;
+  }
 }

@@ -56,7 +56,7 @@ class MarkerNode extends ForestNode {
   int get hashCode => super.hashCode ^ name.hashCode;
 
   @override
-  String toString() => 'Marker(\$name)[$start]';
+  String toString() => 'Marker($name)[$start]';
 }
 
 /// Symbolic node (non-terminal)
@@ -238,24 +238,28 @@ class ParseForest {
   /// Count total nodes in the forest
   int countNodes() {
     final visited = <ForestNode>{};
-    _countNodesRecursive(root, visited);
+    _countNodesIterative(root, visited);
     return visited.length;
   }
 
-  void _countNodesRecursive(ForestNode node, Set<ForestNode> visited) {
-    if (visited.contains(node)) return;
-    visited.add(node);
+  void _countNodesIterative(ForestNode startNode, Set<ForestNode> visited) {
+    final stack = [startNode];
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
 
-    if (node is SymbolicNode) {
-      for (final family in node.families) {
-        for (final child in family.children) {
-          _countNodesRecursive(child, visited);
+      if (node is SymbolicNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
-      }
-    } else if (node is IntermediateNode) {
-      for (final family in node.families) {
-        for (final child in family.children) {
-          _countNodesRecursive(child, visited);
+      } else if (node is IntermediateNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
     }
@@ -264,87 +268,129 @@ class ParseForest {
   /// Count total families (derivations) in the forest
   int countFamilies() {
     final visited = <ForestNode>{};
-    return _countFamiliesRecursive(root, visited);
+    return _countFamiliesIterative(root, visited);
   }
 
-  int _countFamiliesRecursive(ForestNode node, Set<ForestNode> visited) {
-    if (visited.contains(node)) return 0;
-    visited.add(node);
+  int _countFamiliesIterative(ForestNode startNode, Set<ForestNode> visited) {
+    int totalCount = 0;
+    final stack = [startNode];
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
 
-    int count = 0;
-    if (node is SymbolicNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
+      if (node is SymbolicNode) {
+        totalCount += node.families.length;
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
-      }
-    } else if (node is IntermediateNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
+      } else if (node is IntermediateNode) {
+        totalCount += node.families.length;
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
     }
-    return count;
+    return totalCount;
   }
 
   /// Lazily yields all parse trees contained in the forest.
-  Iterable<ParseTree> extract() sync* {
-    yield* _extractTrees(root);
+  Iterable<ParseTree> extract() {
+    return _extractTreesIterative(root);
   }
 
-  Iterable<ParseTree> _extractTrees(ForestNode node) sync* {
-    if (node is SymbolicNode) {
-      if (node.families.isEmpty) {
-        yield ParseTree(node, const []);
-        return;
-      }
-      for (final family in node.families) {
-        if (family.children.isEmpty) {
-          yield ParseTree(node, const []);
-        } else {
-          yield* _extractFamilyTrees(node, family);
+  Iterable<ParseTree> _extractTreesIterative(ForestNode startNode) sync* {
+    final memo = <ForestNode, List<ParseTree>>{};
+    final stack = <ForestNode>[startNode];
+    final postOrder = <ForestNode>[];
+    final visited = <ForestNode>{};
+    
+    while (stack.isNotEmpty) {
+      final node = stack.removeLast();
+      if (visited.contains(node)) continue;
+      visited.add(node);
+      postOrder.add(node);
+      
+      if (node is SymbolicNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
+        }
+      } else if (node is IntermediateNode) {
+        for (final family in node.families) {
+          for (final child in family.children) {
+            stack.add(child);
+          }
         }
       }
-    } else if (node is IntermediateNode) {
-      if (node.families.isEmpty) {
-        yield ParseTree(node, const []);
-        return;
-      }
-      for (final family in node.families) {
-        if (family.children.isEmpty) {
-          yield ParseTree(node, const []);
+    }
+    
+    for (int i = postOrder.length - 1; i >= 0; i--) {
+      final node = postOrder[i];
+      final result = <ParseTree>[];
+      if (node is SymbolicNode) {
+        if (node.families.isEmpty) {
+          result.add(ParseTree(node, const []));
         } else {
-          yield* _extractFamilyTrees(node, family);
+          for (final family in node.families) {
+            result.addAll(_getFamilyTrees(node, family, (n) => memo[n]!));
+          }
         }
+      } else if (node is IntermediateNode) {
+        if (node.families.isEmpty) {
+          result.add(ParseTree(node, const []));
+        } else {
+          for (final family in node.families) {
+            result.addAll(_getFamilyTrees(node, family, (n) => memo[n]!));
+          }
+        }
+      } else {
+        result.add(ParseTree(node, const []));
       }
-    } else {
-      yield ParseTree(node, const []);
+      memo[node] = result;
     }
+
+    yield* memo[startNode]!;
   }
 
-  /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
-    // Collect sub-iterables for each child position
-    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
-    // Yield the Cartesian product of the child options as ParseTree nodes
-    for (final combination in _cartesianProduct(childOptions)) {
-      yield ParseTree(parent, combination);
+  List<ParseTree> _getFamilyTrees(ForestNode parent, Family family, List<ParseTree> Function(ForestNode) getTrees) {
+    if (family.children.isEmpty) {
+      return [ParseTree(parent, const [])];
     }
+    
+    final childOptions = family.children.map((child) => getTrees(child)).toList();
+    return _cartesianProduct(childOptions).map((combination) => ParseTree(parent, combination)).toList();
   }
 
-  /// Lazily yields every combination (one item from each of [lists] in order).
   Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
     if (lists.isEmpty) {
       yield const [];
       return;
     }
-    for (final head in lists.first) {
-      for (final tail in _cartesianProduct(lists.sublist(1))) {
-        yield [head, ...tail];
+
+    final indices = List<int>.filled(lists.length, 0);
+    final n = lists.length;
+
+    while (true) {
+      final combination = List<ParseTree>.generate(n, (i) => lists[i][indices[i]]);
+      yield combination;
+
+      int i = n - 1;
+      while (i >= 0) {
+        indices[i]++;
+        if (indices[i] < lists[i].length) {
+          break;
+        }
+        indices[i] = 0;
+        i--;
       }
+
+      if (i < 0) break;
     }
   }
 
