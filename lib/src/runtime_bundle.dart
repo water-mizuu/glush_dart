@@ -2,6 +2,7 @@
 // Contains the combined source code of the glush runtime for standalone generation.
 
 const String runtimeBundle = r'''
+import 'dart:collection' show Queue;
 import 'dart:async';
 
 // --- $filename ---
@@ -460,6 +461,9 @@ class Marker extends Pattern {
 /// Epsilon (empty pattern)
 class Eps extends Pattern {
   static const Set<Pattern> _emptySet = <Pattern>{};
+
+  @override
+  String get symbolId => "eps";
 
   @override
   Eps consume() => this;
@@ -1073,12 +1077,10 @@ extension PrecedenceExtension on Pattern {
 /// Grammar definition and building
 
 
+
 typedef GrammarBuilder = Pattern Function();
 
 class Grammar with _GrammarMixin implements GrammarInterface {
-  static int _grammarCounter = 0;
-
-  final String grammarId;
   final List<Rule> rules = [];
   late final RuleCall startCall;
   Map<Pattern, List<Pattern>>? transitions;
@@ -1091,7 +1093,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
 
-  Grammar(GrammarBuilder builder) : grammarId = '_G${_grammarCounter++}' {
+  Grammar(GrammarBuilder builder) {
     try {
       final result = builder();
       if (result is RuleCall) {
@@ -1160,7 +1162,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     // Assign symbol IDs to each pattern in discovery order
     for (final pattern in allPatterns) {
       if (pattern.symbolId == null) {
-        final symbolId = '${grammarId}_S${_symbolCounter++}';
+        final symbolId = 'S${_symbolCounter++}';
         pattern.assignSymbolId(symbolId);
         symbolRegistry[symbolId] = pattern;
       }
@@ -1169,40 +1171,45 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   /// Recursively collects all patterns used in a rule's body
   void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
-    final body = rule.body();
-    _collectPatternsFromPattern(body, patterns);
+    _collectPatternsFromPattern(rule.body(), patterns);
   }
 
-  /// Recursively collects patterns from a pattern structure
+  /// Iteratively collects patterns from a pattern structure using a stack
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
-    if (patterns.contains(pattern)) return; // Avoid cycles
-    patterns.add(pattern);
+    final stack = Queue.of([pattern]);
 
-    switch (pattern) {
-      case Seq seq:
-        _collectPatternsFromPattern(seq.left, patterns);
-        _collectPatternsFromPattern(seq.right, patterns);
-      case Alt alt:
-        _collectPatternsFromPattern(alt.left, patterns);
-        _collectPatternsFromPattern(alt.right, patterns);
-      case Conj conj:
-        _collectPatternsFromPattern(conj.left, patterns);
-        _collectPatternsFromPattern(conj.right, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
-      case And and:
-        _collectPatternsFromPattern(and.pattern, patterns);
-      case Not not:
-        _collectPatternsFromPattern(not.pattern, patterns);
-      case Action action:
-        _collectPatternsFromPattern(action.child, patterns);
-      case PrecedenceLabeledPattern plp:
-        _collectPatternsFromPattern(plp.pattern, patterns);
-      default:
-        // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
-        break;
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+
+      if (patterns.contains(current)) continue; // Avoid cycles
+      patterns.add(current);
+
+      switch (current) {
+        case Seq seq:
+          stack.addLast(seq.right);
+          stack.addLast(seq.left);
+        case Alt alt:
+          stack.addLast(alt.right);
+          stack.addLast(alt.left);
+        case Conj conj:
+          stack.addLast(conj.right);
+          stack.addLast(conj.left);
+        case Plus plus:
+          stack.addLast(plus.child);
+        case Star star:
+          stack.addLast(star.child);
+        case And and:
+          stack.addLast(and.pattern);
+        case Not not:
+          stack.addLast(not.pattern);
+        case Action action:
+          stack.addLast(action.child);
+        case PrecedenceLabeledPattern plp:
+          stack.addLast(plp.pattern);
+        default:
+          // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
+          break;
+      }
     }
   }
 
@@ -2374,23 +2381,7 @@ class ParseDerivation {
   final int end;
   final List<ParseDerivation> children;
 
-  ParseDerivation(dynamic symbolOrPattern, this.start, this.end, this.children)
-      : symbol = _extractSymbolId(symbolOrPattern);
-
-  /// Extract symbol ID from either a Pattern or a String
-  static String _extractSymbolId(dynamic symbolOrPattern) {
-    if (symbolOrPattern is String) {
-      return symbolOrPattern;
-    } else if (symbolOrPattern is Pattern) {
-      final id = symbolOrPattern.symbolId;
-      if (id != null) {
-        return id;
-      }
-      // If pattern has no symbolId, throw an error to catch configuration issues
-      throw StateError('Pattern $symbolOrPattern has not been assigned a symbol ID by a Grammar');
-    }
-    throw ArgumentError('symbolOrPattern must be a Pattern or String');
-  }
+  const ParseDerivation(this.symbol, this.start, this.end, this.children);
 
   /// Get substring that this derivation matched
   String getMatchedText(String input) {
@@ -2452,11 +2443,8 @@ class ParseDerivationWithValue<T> {
 
   /// Get the tree's pattern object from the registry (uses grammar context if available)
   Pattern? get pattern {
-    if (grammar != null && grammar is dynamic) {
-      final g = grammar as dynamic;
-      if (g.symbolRegistry != null) {
-        return g.symbolRegistry[tree.symbol];
-      }
+    if (grammar case var grammar?) {
+      return grammar.symbolRegistry[tree.symbol];
     }
     return null;
   }
@@ -3038,7 +3026,7 @@ class SMParser {
   /// Actions are executed bottom-up with child results.
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
-      final value = evaluateParseDerivation(derivation, input, grammar);
+      final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
   }
@@ -3054,7 +3042,7 @@ class SMParser {
   ) sync* {
     for (final tree in forest.forest.extract()) {
       final derivation = parseTreeToDerivation(tree, input);
-      final value = evaluateParseDerivation(derivation, input, grammar);
+      final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
   }
@@ -3064,8 +3052,9 @@ class SMParser {
     final childDerivations = tree.children //
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
+
     return ParseDerivation(
-      tree.node.pattern,
+      tree.node.pattern.symbolId!,
       tree.node.start,
       tree.node.end,
       childDerivations,
@@ -3238,7 +3227,7 @@ class SMParser {
     if (start == end) {
       try {
         if (rule.body().empty()) {
-          final d = ParseDerivation(rule, start, end, []);
+          final d = ParseDerivation(rule.symbolId!, start, end, []);
           memo[key] = [d];
           yield d;
         } else {
@@ -3260,22 +3249,28 @@ class SMParser {
     memo[key] = cache;
   }
 
-  Iterable<ParseDerivation> _enumerateAlternatives(Pattern pattern, String input, int start,
-      int end, Map<String, List<ParseDerivation>?> memo, Map<String, bool> inProgress) sync* {
+  Iterable<ParseDerivation> _enumerateAlternatives(
+    Pattern pattern,
+    String input,
+    int start,
+    int end,
+    Map<String, List<ParseDerivation>?> memo,
+    Map<String, bool> inProgress,
+  ) sync* {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        yield ParseDerivation(pattern, start, end, []);
+        yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
       return;
     }
 
     if (pattern is Eps) {
-      if (start == end) yield ParseDerivation(pattern, start, end, []);
+      if (start == end) yield ParseDerivation(pattern.symbolId, start, end, []);
       return;
     }
 
     if (pattern is Marker) {
-      if (start == end) yield ParseDerivation(pattern, start, end, []);
+      if (start == end) yield ParseDerivation(pattern.symbolId!, start, end, []);
       return;
     }
 
@@ -3298,7 +3293,7 @@ class SMParser {
 
         for (final left in leftList) {
           for (final right in rightList) {
-            yield ParseDerivation(pattern, start, end, [left, right]);
+            yield ParseDerivation(pattern.symbolId!, start, end, [left, right]);
           }
         }
       }
@@ -3315,7 +3310,7 @@ class SMParser {
               pattern.child, input, mid, end, '${pattern.child}*', memo, inProgress)) {
             // Only yield if plus covers the full requested span
             if (star.end == end) {
-              yield ParseDerivation(pattern, start, end, [child, star]);
+              yield ParseDerivation(pattern.symbolId!, start, end, [child, star]);
             }
           }
         }
@@ -3336,7 +3331,7 @@ class SMParser {
     if (pattern is Action) {
       for (final child
           in _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress)) {
-        yield ParseDerivation(pattern, start, end, [child]);
+        yield ParseDerivation(pattern.symbolId!, start, end, [child]);
       }
       // yield* _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress);
       return;
@@ -3346,7 +3341,7 @@ class SMParser {
       // Positive lookahead: check if pattern matches at start position without consuming
       if (_checkPredicatePattern(pattern.pattern, start)) {
         // Predicate succeeded - yield empty derivation (zero-width match)
-        yield ParseDerivation(pattern, start, start, []);
+        yield ParseDerivation(pattern.symbolId!, start, start, []);
       }
       return;
     }
@@ -3355,7 +3350,7 @@ class SMParser {
       // Negative lookahead: check if pattern does NOT match at start position
       if (!_checkPredicatePattern(pattern.pattern, start)) {
         // Predicate succeeded - yield empty derivation (zero-width match)
-        yield ParseDerivation(pattern, start, start, []);
+        yield ParseDerivation(pattern.symbolId!, start, start, []);
       }
       return;
     }
@@ -3369,7 +3364,7 @@ class SMParser {
       if (start + 1 == end &&
           pattern.left.match(input.codeUnitAt(start)) &&
           pattern.right.match(input.codeUnitAt(start))) {
-        yield ParseDerivation(pattern, start, end, []);
+        yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
       return;
     }
@@ -3390,7 +3385,7 @@ class SMParser {
     Map<String, bool> inProgress,
   ) sync* {
     if (start == end) {
-      yield ParseDerivation(pattern, start, end, []);
+      yield ParseDerivation(pattern.symbolId!, start, end, []);
       return;
     }
 
@@ -3403,7 +3398,7 @@ class SMParser {
           for (final star in _enumerateStar(pattern, input, mid, end, symbol, memo, inProgress)) {
             // Use the actual end position from the star tree, not the requested 'end'
             final actualEnd = star.end;
-            yield ParseDerivation(pattern, start, actualEnd, [child, star]);
+            yield ParseDerivation(pattern.symbolId!, start, actualEnd, [child, star]);
           }
         }
         return; // Only use the first (longest) match - PEG greedy semantics
@@ -3411,26 +3406,27 @@ class SMParser {
     }
 
     // No match found - zero matches
-    yield ParseDerivation(pattern, start, start, []);
+    yield ParseDerivation(pattern.symbolId!, start, start, []);
   }
 
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
-  dynamic evaluateParseDerivation(ParseDerivation derivation, String input,
-      [dynamic grammarContext]) {
-    return _evaluateParseDerivation(derivation, input, grammarContext);
+  Object? evaluateParseDerivation(
+    ParseDerivation derivation,
+    String input,
+  ) {
+    return _evaluateParseDerivation(derivation, input);
   }
 
   /// Directly evaluate a [ParseTree] extracted from the forest.
-  dynamic evaluateParseTree(ParseTree tree, String input, [GrammarInterface? grammarContext]) {
-    return _evaluateParseDerivation(parseTreeToDerivation(tree, input), input, grammarContext);
+  Object? evaluateParseTree(ParseTree tree, String input) {
+    return _evaluateParseDerivation(
+      parseTreeToDerivation(tree, input),
+      input,
+    );
   }
 
-  Object? _evaluateParseDerivation(
-    ParseDerivation tree,
-    String input, [
-    GrammarInterface? grammar,
-  ]) {
-    final symbolRegistry = grammar?.symbolRegistry ?? <String, Pattern>{};
+  Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
+    final symbolRegistry = grammar.symbolRegistry;
 
     switch (symbolRegistry[tree.symbol]) {
       case Token pattern:
@@ -3445,14 +3441,14 @@ class SMParser {
       case Alt():
         // One of the alternatives matched - evaluate that child
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input, grammar);
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case Seq():
         // Sequence: evaluate left and right children
         final results = <dynamic>[];
         for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input, grammar);
+          final childValue = _evaluateParseDerivation(child, input);
           results.add(childValue);
         }
         return results;
@@ -3467,10 +3463,10 @@ class SMParser {
         final results = <dynamic>[];
         if (tree.children.isNotEmpty) {
           // First child is the 'head' element
-          results.add(_evaluateParseDerivation(tree.children[0], input, grammar));
+          results.add(_evaluateParseDerivation(tree.children[0], input));
           // Second child (if any) is the rest of the repetition (tail)
           if (tree.children.length > 1) {
-            final rest = _evaluateParseDerivation(tree.children[1], input, grammar);
+            final rest = _evaluateParseDerivation(tree.children[1], input);
             if (rest is List) {
               results.addAll(rest);
             } else if (rest != "") {
@@ -3492,26 +3488,17 @@ class SMParser {
               ? tree.children[0]
               : ParseDerivation(Eps().symbolId, tree.start, tree.end, []),
           input,
-          grammar,
         );
       case RuleCall _:
         // Recursively evaluate the referenced rule
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(
-            tree.children[0],
-            input,
-            grammar,
-          );
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case Call _:
         // Recursively evaluate the referenced rule
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(
-            tree.children[0],
-            input,
-            grammar,
-          );
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case Action<dynamic> action:
@@ -3520,7 +3507,7 @@ class SMParser {
 
         final childResults = <dynamic>[];
         for (final child in tree.children) {
-          final childValue = _evaluateParseDerivation(child, input, grammar);
+          final childValue = _evaluateParseDerivation(child, input);
           childResults.add(childValue);
         }
         final span = tree.getMatchedText(input);
@@ -3531,7 +3518,7 @@ class SMParser {
       case PrecedenceLabeledPattern():
         // Unwrap and evaluate the child pattern
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(tree.children[0], input, grammar);
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case null:

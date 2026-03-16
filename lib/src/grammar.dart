@@ -1,6 +1,8 @@
 /// Grammar definition and building
 library glush.grammar;
 
+import 'dart:collection' show Queue;
+
 import 'patterns.dart';
 import 'state_machine.dart' as sm;
 import 'errors.dart';
@@ -98,40 +100,45 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
 
   /// Recursively collects all patterns used in a rule's body
   void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
-    final body = rule.body();
-    _collectPatternsFromPattern(body, patterns);
+    _collectPatternsFromPattern(rule.body(), patterns);
   }
 
-  /// Recursively collects patterns from a pattern structure
+  /// Iteratively collects patterns from a pattern structure using a stack
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
-    if (patterns.contains(pattern)) return; // Avoid cycles
-    patterns.add(pattern);
+    final stack = Queue.of([pattern]);
 
-    switch (pattern) {
-      case Seq seq:
-        _collectPatternsFromPattern(seq.left, patterns);
-        _collectPatternsFromPattern(seq.right, patterns);
-      case Alt alt:
-        _collectPatternsFromPattern(alt.left, patterns);
-        _collectPatternsFromPattern(alt.right, patterns);
-      case Conj conj:
-        _collectPatternsFromPattern(conj.left, patterns);
-        _collectPatternsFromPattern(conj.right, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
-      case And and:
-        _collectPatternsFromPattern(and.pattern, patterns);
-      case Not not:
-        _collectPatternsFromPattern(not.pattern, patterns);
-      case Action action:
-        _collectPatternsFromPattern(action.child, patterns);
-      case PrecedenceLabeledPattern plp:
-        _collectPatternsFromPattern(plp.pattern, patterns);
-      default:
-        // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
-        break;
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+
+      if (patterns.contains(current)) continue; // Avoid cycles
+      patterns.add(current);
+
+      switch (current) {
+        case Seq seq:
+          stack.addLast(seq.right);
+          stack.addLast(seq.left);
+        case Alt alt:
+          stack.addLast(alt.right);
+          stack.addLast(alt.left);
+        case Conj conj:
+          stack.addLast(conj.right);
+          stack.addLast(conj.left);
+        case Plus plus:
+          stack.addLast(plus.child);
+        case Star star:
+          stack.addLast(star.child);
+        case And and:
+          stack.addLast(and.pattern);
+        case Not not:
+          stack.addLast(not.pattern);
+        case Action action:
+          stack.addLast(action.child);
+        case PrecedenceLabeledPattern plp:
+          stack.addLast(plp.pattern);
+        default:
+          // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
+          break;
+      }
     }
   }
 
