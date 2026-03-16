@@ -84,12 +84,12 @@ class ParserResult {
 
 /// Represents a single parse tree derivation
 class ParseDerivation {
-  final Pattern symbol;
+  final String symbol;
   final int start;
   final int end;
   final List<ParseDerivation> children;
 
-  ParseDerivation(this.symbol, this.start, this.end, this.children);
+  const ParseDerivation(this.symbol, this.start, this.end, this.children);
 
   /// Get substring that this derivation matched
   String getMatchedText(String input) {
@@ -139,14 +139,23 @@ class ParseDerivation {
 class ParseDerivationWithValue<T> {
   final ParseDerivation tree;
   final T value;
+  final GrammarInterface? grammar;
 
-  ParseDerivationWithValue(this.tree, this.value);
+  ParseDerivationWithValue(this.tree, this.value, {this.grammar});
 
   /// Get substring that this derivation matched
   String getMatchedText(String input) => tree.getMatchedText(input);
 
-  /// Get the tree's symbol
-  Pattern get symbol => tree.symbol;
+  /// Get the tree's symbol (as a String ID)
+  String get symbol => tree.symbol;
+
+  /// Get the tree's pattern object from the registry (uses grammar context if available)
+  Pattern? get pattern {
+    if (grammar case var grammar?) {
+      return grammar.symbolRegistry[tree.symbol];
+    }
+    return null;
+  }
 
   /// Get the tree's span
   int get start => tree.start;
@@ -225,10 +234,13 @@ class PredicateLookaheadBuffer {
 
 class SMParser {
   final StateMachine stateMachine;
+  final GrammarInterface grammar;
   late final List<Frame> _initialFrames;
   late PredicateLookaheadBuffer _predicateBuffer;
 
-  SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
+  SMParser(GrammarInterface grammar)
+      : stateMachine = StateMachine(grammar),
+        grammar = grammar {
     const initialContext = Context(RootCallerKey(), null);
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -723,7 +735,7 @@ class SMParser {
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
       final value = evaluateParseDerivation(derivation, input);
-      yield ParseDerivationWithValue(derivation, value);
+      yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
   }
 
@@ -739,7 +751,7 @@ class SMParser {
     for (final tree in forest.forest.extract()) {
       final derivation = parseTreeToDerivation(tree, input);
       final value = evaluateParseDerivation(derivation, input);
-      yield ParseDerivationWithValue(derivation, value);
+      yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
   }
 
@@ -748,7 +760,13 @@ class SMParser {
     final childDerivations = tree.children //
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
-    return ParseDerivation(tree.node.pattern, tree.node.start, tree.node.end, childDerivations);
+
+    return ParseDerivation(
+      tree.node.pattern.symbolId!,
+      tree.node.start,
+      tree.node.end,
+      childDerivations,
+    );
   }
 
   int _countDerivations(Rule rule, String input, int start, int end, Map<String, int> memo,
@@ -917,7 +935,7 @@ class SMParser {
     if (start == end) {
       try {
         if (rule.body().empty()) {
-          final d = ParseDerivation(rule, start, end, []);
+          final d = ParseDerivation(rule.symbolId!, start, end, []);
           memo[key] = [d];
           yield d;
         } else {
@@ -939,22 +957,28 @@ class SMParser {
     memo[key] = cache;
   }
 
-  Iterable<ParseDerivation> _enumerateAlternatives(Pattern pattern, String input, int start,
-      int end, Map<String, List<ParseDerivation>?> memo, Map<String, bool> inProgress) sync* {
+  Iterable<ParseDerivation> _enumerateAlternatives(
+    Pattern pattern,
+    String input,
+    int start,
+    int end,
+    Map<String, List<ParseDerivation>?> memo,
+    Map<String, bool> inProgress,
+  ) sync* {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        yield ParseDerivation(pattern, start, end, []);
+        yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
       return;
     }
 
     if (pattern is Eps) {
-      if (start == end) yield ParseDerivation(pattern, start, end, []);
+      if (start == end) yield ParseDerivation(pattern.symbolId, start, end, []);
       return;
     }
 
     if (pattern is Marker) {
-      if (start == end) yield ParseDerivation(pattern, start, end, []);
+      if (start == end) yield ParseDerivation(pattern.symbolId!, start, end, []);
       return;
     }
 
@@ -977,7 +1001,7 @@ class SMParser {
 
         for (final left in leftList) {
           for (final right in rightList) {
-            yield ParseDerivation(pattern, start, end, [left, right]);
+            yield ParseDerivation(pattern.symbolId!, start, end, [left, right]);
           }
         }
       }
@@ -994,7 +1018,7 @@ class SMParser {
               pattern.child, input, mid, end, '${pattern.child}*', memo, inProgress)) {
             // Only yield if plus covers the full requested span
             if (star.end == end) {
-              yield ParseDerivation(pattern, start, end, [child, star]);
+              yield ParseDerivation(pattern.symbolId!, start, end, [child, star]);
             }
           }
         }
@@ -1015,7 +1039,7 @@ class SMParser {
     if (pattern is Action) {
       for (final child
           in _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress)) {
-        yield ParseDerivation(pattern, start, end, [child]);
+        yield ParseDerivation(pattern.symbolId!, start, end, [child]);
       }
       // yield* _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress);
       return;
@@ -1025,7 +1049,7 @@ class SMParser {
       // Positive lookahead: check if pattern matches at start position without consuming
       if (_checkPredicatePattern(pattern.pattern, start)) {
         // Predicate succeeded - yield empty derivation (zero-width match)
-        yield ParseDerivation(pattern, start, start, []);
+        yield ParseDerivation(pattern.symbolId!, start, start, []);
       }
       return;
     }
@@ -1034,7 +1058,7 @@ class SMParser {
       // Negative lookahead: check if pattern does NOT match at start position
       if (!_checkPredicatePattern(pattern.pattern, start)) {
         // Predicate succeeded - yield empty derivation (zero-width match)
-        yield ParseDerivation(pattern, start, start, []);
+        yield ParseDerivation(pattern.symbolId!, start, start, []);
       }
       return;
     }
@@ -1048,7 +1072,7 @@ class SMParser {
       if (start + 1 == end &&
           pattern.left.match(input.codeUnitAt(start)) &&
           pattern.right.match(input.codeUnitAt(start))) {
-        yield ParseDerivation(pattern, start, end, []);
+        yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
       return;
     }
@@ -1069,7 +1093,7 @@ class SMParser {
     Map<String, bool> inProgress,
   ) sync* {
     if (start == end) {
-      yield ParseDerivation(pattern, start, end, []);
+      yield ParseDerivation(pattern.symbolId!, start, end, []);
       return;
     }
 
@@ -1082,7 +1106,7 @@ class SMParser {
           for (final star in _enumerateStar(pattern, input, mid, end, symbol, memo, inProgress)) {
             // Use the actual end position from the star tree, not the requested 'end'
             final actualEnd = star.end;
-            yield ParseDerivation(pattern, start, actualEnd, [child, star]);
+            yield ParseDerivation(pattern.symbolId!, start, actualEnd, [child, star]);
           }
         }
         return; // Only use the first (longest) match - PEG greedy semantics
@@ -1090,24 +1114,29 @@ class SMParser {
     }
 
     // No match found - zero matches
-    yield ParseDerivation(pattern, start, start, []);
+    yield ParseDerivation(pattern.symbolId!, start, start, []);
   }
 
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
-  dynamic evaluateParseDerivation(ParseDerivation derivation, String input) {
+  Object? evaluateParseDerivation(
+    ParseDerivation derivation,
+    String input,
+  ) {
     return _evaluateParseDerivation(derivation, input);
   }
 
   /// Directly evaluate a [ParseTree] extracted from the forest.
-  dynamic evaluateParseTree(ParseTree tree, String input) {
-    return _evaluateParseDerivation(parseTreeToDerivation(tree, input), input);
+  Object? evaluateParseTree(ParseTree tree, String input) {
+    return _evaluateParseDerivation(
+      parseTreeToDerivation(tree, input),
+      input,
+    );
   }
 
-  Object? _evaluateParseDerivation(
-    ParseDerivation tree,
-    String input,
-  ) {
-    switch (tree.symbol) {
+  Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
+    final symbolRegistry = grammar.symbolRegistry;
+
+    switch (symbolRegistry[tree.symbol]) {
       case Token pattern:
         if (tree.start + 1 == tree.end && pattern.match(input.codeUnitAt(tree.start))) {
           final evaluated = tree.getMatchedText(input);
@@ -1165,25 +1194,19 @@ class SMParser {
         return _evaluateParseDerivation(
           tree.children.isNotEmpty
               ? tree.children[0]
-              : ParseDerivation(Eps(), tree.start, tree.end, []),
+              : ParseDerivation(Eps().symbolId, tree.start, tree.end, []),
           input,
         );
       case RuleCall _:
         // Recursively evaluate the referenced rule
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(
-            tree.children[0],
-            input,
-          );
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case Call _:
         // Recursively evaluate the referenced rule
         if (tree.children.isNotEmpty) {
-          return _evaluateParseDerivation(
-            tree.children[0],
-            input,
-          );
+          return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
       case Action<dynamic> action:
@@ -1206,6 +1229,8 @@ class SMParser {
           return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
+      case null:
+        throw StateError("Tried to evaluate using an invalid symbol.");
     }
 
     return null;

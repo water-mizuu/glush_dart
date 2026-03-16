@@ -135,8 +135,20 @@ void main() {
   print('-' * 70);
   print('Method 1 - parse():');
   _methodParse(markerGrammar, input2);
+  // Method 2: enumerateAllParses()
+  print('\n\nMethod 2: enumerateAllParses() -> returns parse trees');
+  _methodEnumerateAllParses(actionGrammar, input2);
+  _methodEnumerateAllParses(markerGrammar, input2);
   print('\nMethod 3 - enumerateAllParsesWithResults():');
   _methodEnumerateAllParsesWithResults(actionGrammar, input2);
+
+  // Method 4: enumerateForest()
+  print('\n\nMethod 4: enumerateForest() -> parse trees from SPPF');
+  _methodEnumerateForest(markerGrammar, input2);
+
+  // Method 5: enumerateForestWithResults()
+  print('\n\nMethod 5: enumerateForestWithResults() -> values from SPPF');
+  _methodEnumerateForestWithResults(actionGrammar, input2);
 }
 
 void _methodParse(GrammarInterface grammar, String input) {
@@ -156,7 +168,7 @@ void _methodParse(GrammarInterface grammar, String input) {
   if (result is ParseSuccess) {
     print('Parse succeeded.');
     print('Marks: ${result.result.marks}');
-    final (value, _) = evaluator.evaluate(result.result.marks);
+    final value = evaluator.evaluate(result.result.marks);
     print('Evaluated result: $value');
   } else if (result is ParseError) {
     print('Parse failed at position ${result.position}');
@@ -222,9 +234,6 @@ void _methodEnumerateForest(GrammarInterface grammar, String input) {
       print('Total parse trees from forest: ${trees.length}');
       for (final (i, parse) in trees.indexed) {
         var value = parser.evaluateParseTree(parse, input);
-        if (value is! num) {
-          value = _evaluateCleanStructure(value);
-        }
 
         print(parse.toPrecedenceString(input));
         print('  Parse ${i + 1}: Result = $value');

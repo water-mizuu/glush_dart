@@ -1,17 +1,22 @@
-import 'dart:io';
-
 import 'package:glush/glush.dart';
-import '../expr_parser.dart' as parser;
 
-void main() {
+import 'helper.dart';
+
+void main() async {
   const grammarText = r'''
-    # Hello world!
-
-    expr = $add expr '+' term | $sub expr '-' term | term;
-    term = $mul term '*' factor | $div term '/' factor | factor;
-    factor = $group '(' expr ')'
+    expr = $add expr _ '+' _ term | $sub expr _ '-' _ term | term;
+    term = $mul term _ '*' _ factor | $div term _ '/' _ factor | factor;
+    factor = $group '(' _ expr _ ')'
            | $number [0-9]+;
+    _ = [ \t\n\r]*;
   ''';
+
+  // Test the spawnProcessParser function
+  final processParser = await spawnProcessParser(grammarText);
+  print('Parser spawned successfully!');
+
+  final result = await processParser.parse('1+2*(3+4)');
+  print('Parse result: $result');
 
   final markEvaluator = Evaluator<num>((consume) {
     return {
@@ -24,18 +29,10 @@ void main() {
     };
   });
 
-  // Generate a standalone parser file
-  final standaloneCode = generateStandaloneGrammarDartFile(grammarText);
-
-  // Write it to a file
-  File('expr_parser.dart').writeAsStringSync(standaloneCode);
-
-  final result = parser.parseGrammarMarks('1+2*(3+4)');
-  if (result case parser.ParseSuccess(:final result)) {
-    var (evaluationResult, _) = markEvaluator.evaluate(result.marks);
-
-    print("The answer is $evaluationResult");
-  } else if (result case parser.ParseError result) {
-    print(result);
+  if (result case ["ok", List<String> marks]) {
+    print(markEvaluator.evaluate(marks));
   }
+
+  await processParser.dispose();
+  print('Parser disposed.');
 }

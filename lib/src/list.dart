@@ -1,7 +1,13 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
-abstract class GlushList<T> {
+/// Abstract base class for managing parse alternatives as a tree structure.
+///
+/// GlushList provides an efficient way to represent multiple parsing results
+/// without flattening them into a single list. It uses a tree-like composition
+/// pattern where results can be combined, branched, and ultimately converted
+/// to a flat list when needed.
+sealed class GlushList<T> {
   static GlushList<T> empty<T>() => EmptyList<T>._();
 
   static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {

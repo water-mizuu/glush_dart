@@ -13,6 +13,13 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
   Map<Pattern, List<Pattern>>? transitions;
   sm.StateMachine? _stateMachine;
 
+  /// Maps symbol IDs back to patterns for this grammar
+  @override
+  final Map<String, Pattern> symbolRegistry = {};
+
+  /// Counter for assigning symbol IDs within this grammar
+  int _symbolCounter = 0;
+
   Grammar(GrammarBuilder builder) {
     try {
       final result = builder();
@@ -62,8 +69,70 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
 
     rules.addAll(discoveredRules);
 
+    // Discover and assign symbol IDs to all patterns used in this grammar
+    _assignPatternSymbols();
+
     _computeEmpty();
     _computeTransitions();
+  }
+
+  /// Discovers all patterns in the grammar and assigns them symbol IDs
+  void _assignPatternSymbols() {
+    final allPatterns = <Pattern>{};
+
+    // Collect all patterns from the grammar's rules, including the rules themselves
+    for (final rule in rules) {
+      allPatterns.add(rule); // Add the rule itself
+      _collectPatternsFromRule(rule, allPatterns);
+    }
+
+    // Assign symbol IDs to each pattern in discovery order
+    for (final pattern in allPatterns) {
+      if (pattern.symbolId == null) {
+        final symbolId = 'S${_symbolCounter++}';
+        pattern.assignSymbolId(symbolId);
+        symbolRegistry[symbolId] = pattern;
+      }
+    }
+  }
+
+  /// Recursively collects all patterns used in a rule's body
+  void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
+    final body = rule.body();
+    _collectPatternsFromPattern(body, patterns);
+  }
+
+  /// Recursively collects patterns from a pattern structure
+  void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
+    if (patterns.contains(pattern)) return; // Avoid cycles
+    patterns.add(pattern);
+
+    switch (pattern) {
+      case Seq seq:
+        _collectPatternsFromPattern(seq.left, patterns);
+        _collectPatternsFromPattern(seq.right, patterns);
+      case Alt alt:
+        _collectPatternsFromPattern(alt.left, patterns);
+        _collectPatternsFromPattern(alt.right, patterns);
+      case Conj conj:
+        _collectPatternsFromPattern(conj.left, patterns);
+        _collectPatternsFromPattern(conj.right, patterns);
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
+      case And and:
+        _collectPatternsFromPattern(and.pattern, patterns);
+      case Not not:
+        _collectPatternsFromPattern(not.pattern, patterns);
+      case Action action:
+        _collectPatternsFromPattern(action.child, patterns);
+      case PrecedenceLabeledPattern plp:
+        _collectPatternsFromPattern(plp.pattern, patterns);
+      default:
+        // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
+        break;
+    }
   }
 
   sm.StateMachine get stateMachine {

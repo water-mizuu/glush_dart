@@ -6,6 +6,9 @@ import 'errors.dart';
 
 // Grammar interface to avoid circular import
 abstract class GrammarInterface {
+  /// Maps symbol IDs back to patterns for this grammar
+  Map<String, Pattern> get symbolRegistry;
+
   RuleCall get startCall;
   List<Rule> get rules;
   bool isEmpty();

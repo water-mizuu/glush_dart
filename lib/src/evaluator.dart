@@ -11,7 +11,7 @@ class Evaluator<T> {
   Evaluator(this.factory);
 
   /// Evaluates the list of marks and returns the result along with any remaining marks.
-  (T, List<String>) evaluate(List<String> marks) {
+  T evaluate(List<String> marks) {
     int index = 0;
     late final Map<String, dynamic Function()> handlers;
 
@@ -26,6 +26,6 @@ class Evaluator<T> {
     }
 
     handlers = factory(consume);
-    return (consume<T>(), marks.sublist(index));
+    return consume<T>();
   }
 }

@@ -162,8 +162,10 @@ void main() {
   group('Enumeration vs Forest Extraction', () {
     /// Helper: extract label from ParseDerivation for structure comparison
     String _derivationShape(ParseDerivation d) {
-      if (d.children.isEmpty) return d.symbol.toString();
-      return '${d.symbol}(${d.children.map(_derivationShape).join(',')})';
+      // Use the symbol ID directly since we don't have grammar context in tests
+      final label = d.symbol;
+      if (d.children.isEmpty) return label;
+      return '$label(${d.children.map(_derivationShape).join(',')})';
     }
 
     /// Helper: extract label from ParseTree for structure comparison
@@ -392,9 +394,6 @@ void main() {
         // 2. SS -> (s+s)+s
         // 3. SS -> s+(s+s)
         expect(derivations.length, equals(44));
-        for (final structure in forestResult.forest.extract().toList()) {
-          print(structure.toPrecedenceString(testInput));
-        }
       }
     });
   });

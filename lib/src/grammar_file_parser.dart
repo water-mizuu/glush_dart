@@ -250,7 +250,6 @@ class GrammarFileParser {
 
       final rule = _parseRule();
       if (rule != null) {
-        print("Added rule: $rule");
         rules.add(rule);
       }
     }
@@ -468,7 +467,8 @@ class GrammarFileParser {
     if (type == _TokenType.dollar) {
       _advance(); // consume $
       if (_peek().type != _TokenType.identifier) {
-         throw GrammarFileParseError('Expected identifier after \$', line: _peek().line, column: _peek().column);
+        throw GrammarFileParseError('Expected identifier after \$',
+            line: _peek().line, column: _peek().column);
       }
       final markName = _advance().value;
       return MarkerPattern(markName);

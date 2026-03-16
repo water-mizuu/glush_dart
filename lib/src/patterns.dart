@@ -4,7 +4,20 @@ library glush.patterns;
 import 'errors.dart';
 
 sealed class Pattern {
+  /// Symbol ID assigned by the grammar this pattern belongs to.
+  /// Initially null, assigned during Grammar.finalize()
+  String? _symbolId;
+
+  String? get symbolId => _symbolId;
+
+  /// Called by Grammar during finalize to assign this pattern a symbol ID
+  /// within the grammar's namespace
+  void assignSymbolId(String id) {
+    _symbolId = id;
+  }
+
   Pattern();
+
   factory Pattern.char(String char) = Token.char;
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
@@ -99,8 +112,7 @@ sealed class Pattern {
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
   ///   - childResults: list of evaluated semantic values from children
-  Action<T> withAction<T>(
-      T Function(String span, List<dynamic> childResults) callback) {
+  Action<T> withAction<T>(T Function(String span, List<dynamic> childResults) callback) {
     return Action<T>(this, callback);
   }
 
@@ -115,8 +127,7 @@ sealed class Pattern {
     inner = Rule(
         "__${_customIds++}",
         () =>
-            (inner() >> this).withAction(
-                (_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
             this);
 
     return inner();
@@ -127,8 +138,7 @@ sealed class Pattern {
     inner = Rule(
         "__${_customIds++}",
         () =>
-            (inner() >> this).withAction(
-                (_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
             Eps());
 
     return inner();
@@ -285,7 +295,10 @@ class Marker extends Pattern {
 
 /// Epsilon (empty pattern)
 class Eps extends Pattern {
-  static final Set<Pattern> _emptySet = <Pattern>{};
+  static const Set<Pattern> _emptySet = <Pattern>{};
+
+  @override
+  String get symbolId => "eps";
 
   @override
   Eps consume() => this;
@@ -702,8 +715,7 @@ class RuleCall extends Pattern {
   RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   @override
-  RuleCall copy() =>
-      RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
+  RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -726,8 +738,7 @@ class RuleCall extends Pattern {
   }
 
   @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
+  String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
 /// Lazy call to a rule (defers the call until needed), with optional precedence constraint
@@ -764,9 +775,8 @@ class Call extends Pattern {
   }
 
   @override
-  String toString() => minPrecedenceLevel != null
-      ? '<${rule.name}^$minPrecedenceLevel>'
-      : '<${rule.name}>';
+  String toString() =>
+      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.
@@ -826,8 +836,7 @@ class PrecedenceLabeledPattern extends Pattern {
   PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
 
   @override
-  PrecedenceLabeledPattern copy() =>
-      PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
