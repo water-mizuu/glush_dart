@@ -5,49 +5,38 @@ abstract class GlushList<T> {
   static GlushList<T> empty<T>() => EmptyList<T>._();
 
   static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
-    if (alternatives.length == 1) {
-      return alternatives[0];
-    }
+    if (alternatives.isEmpty) return EmptyList<T>._();
+    if (alternatives.length == 1) return alternatives[0];
     return BranchedList<T>._(alternatives);
   }
 
-  GlushList<T> add(T data) {
-    return Push<T>._(this, data);
-  }
+  GlushList<T> add(T data) => Push<T>._(this, data);
 
   GlushList<T> addList(GlushList<T> list) {
+    if (list is EmptyList<T>) return this;
+    if (this is EmptyList<T>) return list;
     return Concat<T>._(this, list);
   }
 
   List<T> toList() {
     final result = <T>[];
-    forEach((item) => result.add(item));
+    forEach(result.add);
     return result;
   }
 
   void forEach(void Function(T) callback);
 
-  bool isEmpty() {
-    try {
-      forEach((_) {
-        throw _StopIteration();
-      });
-      return true;
-    } on _StopIteration {
-      return false;
-    }
-  }
+  bool get isEmpty;
 }
-
-class _StopIteration implements Exception {}
 
 class EmptyList<T> extends GlushList<T> {
   EmptyList._();
 
   @override
-  void forEach(void Function(T) callback) {
-    // Empty list does nothing
-  }
+  void forEach(void Function(T) callback) {}
+
+  @override
+  bool get isEmpty => true;
 }
 
 class BranchedList<T> extends GlushList<T> {
@@ -57,11 +46,13 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   void forEach(void Function(T) callback) {
-    if (alternatives.length != 1) {
-      throw Exception('ambiguous');
+    for (final alt in alternatives) {
+      alt.forEach(callback);
     }
-    alternatives[0].forEach(callback);
   }
+
+  @override
+  bool get isEmpty => alternatives.every((a) => a.isEmpty);
 }
 
 class Push<T> extends GlushList<T> {
@@ -75,6 +66,9 @@ class Push<T> extends GlushList<T> {
     parent.forEach(callback);
     callback(data);
   }
+
+  @override
+  bool get isEmpty => false;
 }
 
 class Concat<T> extends GlushList<T> {
@@ -88,4 +82,7 @@ class Concat<T> extends GlushList<T> {
     left.forEach(callback);
     right.forEach(callback);
   }
+
+  @override
+  bool get isEmpty => left.isEmpty && right.isEmpty;
 }

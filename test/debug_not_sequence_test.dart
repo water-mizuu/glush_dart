@@ -7,7 +7,7 @@ void main() {
       final a = Token(ExactToken(97)); // 'a'
       final b = Token(ExactToken(98)); // 'b'
       final c = Token(ExactToken(99)); // 'c'
-      final pattern = (b >> c).not() >> a;
+      final pattern = (b >> c).not() >> a >> b.maybe();
       print('Pattern: $pattern');
       return Rule('test', () => pattern);
     });
@@ -29,7 +29,7 @@ void main() {
     print('recognize(""): $res4 (empty input?)');
 
     expect(res1, isTrue);
+    expect(res2, isTrue); // Disable for now
     expect(res3, isFalse);
-    // expect(res2, isTrue);  // Disable for now
   });
 }

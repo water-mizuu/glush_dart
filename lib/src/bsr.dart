@@ -8,6 +8,8 @@
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 library glush.bsr;
 
+import 'package:glush/src/mark.dart';
+
 import 'patterns.dart';
 import 'sppf.dart';
 
@@ -302,20 +304,21 @@ class BsrSet {
 sealed class BsrParseOutcome {}
 
 /// Returned when BSR parsing fails.
-final class BsrParseError extends BsrParseOutcome implements Exception {
+final class BsrParseError implements BsrParseOutcome, Exception {
   final int position;
 
-  BsrParseError(this.position);
+  const BsrParseError(this.position);
 
   @override
   String toString() => 'BsrParseError at position $position';
 }
 
 /// Returned when BSR parsing succeeds. Contains the [BsrSet] of proven spans.
-final class BsrParseSuccess extends BsrParseOutcome {
+final class BsrParseSuccess implements BsrParseOutcome {
   final BsrSet bsrSet;
+  final List<Mark> marks;
 
-  BsrParseSuccess(this.bsrSet);
+  const BsrParseSuccess(this.bsrSet, this.marks);
 
   @override
   String toString() => 'BsrParseSuccess($bsrSet)';
