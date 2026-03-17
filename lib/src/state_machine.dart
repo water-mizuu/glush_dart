@@ -159,7 +159,12 @@ class StateMachine {
 
   void _connect(State state, Pattern terminal) {
     if (terminal is Action) {
-      _connect(state, terminal.child);
+      // Create a SemanticAction state machine action with the callback
+      final nextState = _getOrCreateState(terminal);
+      final action = SemanticAction(terminal.callback, nextState, terminal.child);
+      state.actions.add(action);
+      // Connect the semantic action's next state to the child pattern
+      _connect(nextState, terminal.child);
     } else if (terminal is RuleCall) {
       final returnState = _getOrCreateState(terminal);
       final action = CallAction(terminal.rule, returnState);

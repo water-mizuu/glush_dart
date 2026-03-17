@@ -294,10 +294,10 @@ class SMParser {
   /// Internally uses BSR (Binarised Shared Representation) recorded during
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
-  ParseOutcome<T> parseWithForest<T>(String input, {bool isSavingMarks = true}) {
+  ParseOutcome<T> parseWithForest<T>(String input) {
     Stopwatch watch = Stopwatch()..start();
     _predicateBuffer.initializeFromString(input);
-    final bsrOutcome = parseToBsr(input, isSavingMarks: isSavingMarks);
+    final bsrOutcome = parseToBsr(input);
     if (bsrOutcome is BsrParseError) {
       return ParseError<T>(bsrOutcome.position);
     }
@@ -427,7 +427,7 @@ class SMParser {
   ///
   /// Returns [BsrParseSuccess] with the [BsrSet] on success, or
   /// [BsrParseError] if the input does not conform to the grammar.
-  BsrParseOutcome parseToBsr(String input, {bool isSavingMarks = true}) {
+  BsrParseOutcome parseToBsr(String input) {
     _predicateBuffer.initializeFromString(input);
     final bsr = BsrSet();
     var frames = _initialFrames;
@@ -438,8 +438,8 @@ class SMParser {
         codepoint,
         position,
         frames,
+        input: input,
         bsr: bsr,
-        isSavingMarks: isSavingMarks,
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -448,13 +448,7 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(
-      null,
-      position,
-      frames,
-      bsr: bsr,
-      isSavingMarks: isSavingMarks,
-    );
+    final lastStep = _processToken(null, position, frames, input: input, bsr: bsr);
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -983,18 +977,10 @@ class SMParser {
     int? token,
     int position,
     List<Frame> frames, {
+    String input = '',
     BsrSet? bsr,
-    bool isSavingMarks = true,
   }) {
-    final step = Step(
-      this,
-      token,
-      position,
-      bsr: bsr,
-      buffer: _predicateBuffer,
-      isSavingMarks: isSavingMarks,
-    );
-
+    final step = Step(this, token, position, input: input, bsr: bsr, buffer: _predicateBuffer);
     for (final frame in frames) {
       step._processFrame(frame);
     }
@@ -1007,8 +993,8 @@ class SMParser {
   ///
   /// This is a fast check that determines if a pattern would match at startPos
   /// without actually advancing the parser state.
-  bool checkPatternAtPosition(Pattern pattern, String input, int startPos) {
-    _predicateBuffer.initializeFromString(input);
+  bool checkPatternAtPosition(Pattern pattern, String inputStr, int startPos) {
+    _predicateBuffer.initializeFromString(inputStr);
     return _checkPredicatePattern(pattern, startPos);
   }
 
@@ -1270,7 +1256,11 @@ class Context {
   /// was invoked.  Used to record BSR rule-completion entries.
   final int? callStart;
 
-  const Context(this.caller, this.marks, [this.callStart]);
+  /// The computed semantic value at this point in parsing.
+  /// Updated as semantic actions are evaluated during parsing.
+  final Object? semanticValue;
+
+  const Context(this.caller, this.marks, [this.callStart, this.semanticValue]);
 }
 
 /// Frame for managing parsing states
@@ -1291,11 +1281,11 @@ class Step {
   final SMParser parser;
   final int? token;
   final int position;
+  final String input;
 
   /// Optional BSR set to populate with rule-completion entries. When null,
   /// BSR recording is skipped (used by the plain recognize/parse paths).
   final BsrSet? bsr;
-  final bool isSavingMarks;
 
   /// Predicate lookahead buffer for checking patterns without full input access
   final PredicateLookaheadBuffer buffer;
@@ -1312,9 +1302,9 @@ class Step {
     this.parser,
     this.token,
     this.position, {
+    required this.input,
     this.bsr,
     required this.buffer,
-    required this.isSavingMarks,
   });
 
   bool get accept => _acceptedContexts.isNotEmpty;
@@ -1345,20 +1335,49 @@ class Step {
     for (final action in state.actions) {
       switch (action) {
         case SemanticAction():
-          // Semantic actions are evaluated later during derivation evaluation.
-          // During state machine processing, just continue to next state.
-          final nextFrame = _createLocalFrame(frame.context);
+          // Evaluate semantic action during parsing
+          // Extract child results from marks (StringMark values)
+          final marks = frame.marks?.toList() ?? [];
+          final childResults = <Object?>[];
+          int spanStart = position;
+          int spanEnd = position;
+
+          for (final mark in marks) {
+            if (mark is StringMark) {
+              childResults.add(mark.value);
+              spanStart = spanStart > mark.position ? mark.position : spanStart;
+              spanEnd = mark.position + 1; // Update end position
+            } else if (mark is NamedMark) {
+              spanStart = spanStart > mark.position ? mark.position : spanStart;
+              spanEnd = spanEnd < mark.position ? mark.position : spanEnd;
+            }
+          }
+
+          // Compute the span string from input
+          final span = spanStart < input.length && spanEnd <= input.length
+              ? input.substring(spanStart, spanEnd)
+              : '';
+
+          // Call the semantic action callback with computed span and child results
+          final computedValue = action.callback(span, childResults);
+
+          // Create new context with computed semantic value
+          final semanticCtx = Context(
+            frame.caller,
+            frame.marks,
+            frame.context.callStart,
+            computedValue,
+          );
+          final nextFrame = _createLocalFrame(semanticCtx);
           _enqueueProcess(nextFrame, action.nextState);
         case TokenAction():
           if (token case var token? when action.pattern.match(token)) {
             // If token matches, add a StringMark with the captured token if not ExactToken
             // So ranges and 'any' tokens are captured into the marks array too
             var newMarks = frame.marks;
-            if (isSavingMarks) {
-              if (action.pattern case Token(:var choice) when choice is! ExactToken) {
-                final strMark = StringMark(String.fromCharCode(token), position);
-                newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
-              }
+            if (action.pattern case Token(:var choice) when choice is! ExactToken) {
+              final strMark = StringMark(String.fromCharCode(token), position);
+              newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
             }
             final nextFrame = Frame(Context(frame.caller, newMarks));
             nextFrame.nextStates.add(action.nextState);
@@ -1366,20 +1385,15 @@ class Step {
             // TokenAction does NOT enqueue - it defers to next token step
           }
         case MarkAction():
-          if (isSavingMarks) {
-            final mark = NamedMark(action.name, position);
-            final markCtx = Context(
-              frame.caller,
-              (frame.marks ?? const GlushList.empty()).add(mark),
-            );
-            // Create local frame that will be conditionally added to nextFrames
-            final markFrame = _createLocalFrame(markCtx);
-            // Enqueue instead of _withFrame callback
-            _enqueueProcess(markFrame, action.nextState);
-          } else {
-            final nextFrame = _createLocalFrame(frame.context);
-            _enqueueProcess(nextFrame, action.nextState);
-          }
+          final mark = NamedMark(action.name, position);
+          final markCtx = Context(
+            frame.caller,
+            (frame.marks ?? const GlushList.empty()).add(mark),
+          );
+          // Create local frame that will be conditionally added to nextFrames
+          final markFrame = _createLocalFrame(markCtx);
+          // Enqueue instead of _withFrame callback
+          _enqueueProcess(markFrame, action.nextState);
         case PredicateAction():
           // Predicate checking (lookahead without consumption)
           // Buffer ensures we have the data needed for lookahead
@@ -1439,12 +1453,10 @@ class Step {
 
           if (caller is Caller) {
             caller.forEach((ccaller, nextState, marks) {
-              final nextMarks = !isSavingMarks
-                  ? const GlushList<Mark>.empty()
-                  : marks == null
-                      ? frame.marks
-                      : GlushList.branched<Mark>([marks])
-                          .addList(frame.marks ?? const GlushList.empty());
+              final nextMarks = marks == null
+                  ? frame.marks
+                  : GlushList.branched<Mark>([marks])
+                      .addList(frame.marks ?? const GlushList.empty());
 
               final nextContext = Context(ccaller, nextMarks);
               // Create local frame that will be conditionally added to nextFrames
