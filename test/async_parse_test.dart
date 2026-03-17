@@ -18,7 +18,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1' as a single chunk
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1']),
       );
 
@@ -38,7 +38,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '12' as two separate chunks
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1', '2']),
       );
 
@@ -58,7 +58,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1+1+1' one character at a time
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1', '+', '1', '+', '1']),
       );
 
@@ -72,7 +72,7 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream([]),
       );
 
@@ -87,7 +87,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '2' which doesn't match
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['2']),
       );
 
@@ -114,7 +114,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1+1*1' as chunks
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1', '+', '1', '*', '1']),
       );
 
@@ -137,7 +137,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1+1+1' with varied chunk sizes
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1+', '1+', '1']),
       );
 
@@ -156,7 +156,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream entire input as one chunk
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1+1+1']),
       );
 
@@ -175,7 +175,7 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1', '+', '1']),
       );
 
@@ -194,13 +194,13 @@ void main() {
       final parser = SMParser(grammar);
 
       // First parse
-      final result1 = await parser.parseWithForestAsync<dynamic>(
+      final result1 = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1']),
       );
       expect(result1, isA<ParseForestSuccess>());
 
       // Second parse with same parser should work (buffer is cleared)
-      final result2 = await parser.parseWithForestAsync<dynamic>(
+      final result2 = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1']),
       );
       expect(result2, isA<ParseForestSuccess>());
@@ -215,7 +215,7 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream([' ', ' ']),
       );
 
@@ -235,10 +235,10 @@ void main() {
       const input = '1+1+1';
 
       // Synchronous parse
-      final syncResult = parser.parseWithForest<dynamic>(input);
+      final syncResult = parser.parseWithForest<Object?>(input);
 
       // Asynchronous parse from stream
-      final asyncResult = await parser.parseWithForestAsync<dynamic>(
+      final asyncResult = await parser.parseWithForestAsync<Object?>(
         createChunkedStream([input]),
       );
 
@@ -265,7 +265,7 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync<dynamic>(
+      final result = await parser.parseWithForestAsync<Object?>(
         createChunkedStream(['1']),
       );
 

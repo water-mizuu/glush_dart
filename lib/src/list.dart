@@ -8,13 +8,14 @@ library glush.list;
 /// pattern where results can be combined, branched, and ultimately converted
 /// to a flat list when needed.
 sealed class GlushList<T> {
-  static GlushList<T> empty<T>() => EmptyList<T>._();
-
   static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
     if (alternatives.isEmpty) return EmptyList<T>._();
     if (alternatives.length == 1) return alternatives[0];
     return BranchedList<T>._(alternatives);
   }
+
+  const GlushList();
+  const factory GlushList.empty() = EmptyList<T>._;
 
   GlushList<T> add(T data) => Push<T>._(this, data);
 
@@ -36,7 +37,7 @@ sealed class GlushList<T> {
 }
 
 class EmptyList<T> extends GlushList<T> {
-  EmptyList._();
+  const EmptyList._();
 
   @override
   void forEach(void Function(T) callback) {}
@@ -48,7 +49,7 @@ class EmptyList<T> extends GlushList<T> {
 class BranchedList<T> extends GlushList<T> {
   final List<GlushList<T>> alternatives;
 
-  BranchedList._(this.alternatives);
+  const BranchedList._(this.alternatives);
 
   @override
   void forEach(void Function(T) callback) {
@@ -65,7 +66,7 @@ class Push<T> extends GlushList<T> {
   final GlushList<T> parent;
   final T data;
 
-  Push._(this.parent, this.data);
+  const Push._(this.parent, this.data);
 
   @override
   void forEach(void Function(T) callback) {
@@ -81,7 +82,7 @@ class Concat<T> extends GlushList<T> {
   final GlushList<T> left;
   final GlushList<T> right;
 
-  Concat._(this.left, this.right);
+  const Concat._(this.left, this.right);
 
   @override
   void forEach(void Function(T) callback) {

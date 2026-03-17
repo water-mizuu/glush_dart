@@ -6,14 +6,14 @@ library glush.evaluator;
 /// It allows defining handlers for named markers and recursively consuming
 /// marks from the list.
 class Evaluator<T> {
-  final Map<String, dynamic Function()> Function(R Function<R>() consume) factory;
+  final Map<String, Object? Function()> Function(R Function<R>() consume) factory;
 
   Evaluator(this.factory);
 
   /// Evaluates the list of marks and returns the result along with any remaining marks.
   T evaluate(List<String> marks) {
     int index = 0;
-    late final Map<String, dynamic Function()> handlers;
+    late final Map<String, Object? Function()> handlers;
 
     R consume<R>() {
       if (index >= marks.length) throw StateError('Unexpected end of marks');

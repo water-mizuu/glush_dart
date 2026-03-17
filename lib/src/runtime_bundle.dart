@@ -3,6 +3,7 @@
 
 const String runtimeBundle = r'''
 import 'dart:async';
+import 'dart:collection';
 
 // --- $filename ---
 /// Custom list implementation for managing parse alternatives
@@ -14,13 +15,14 @@ import 'dart:async';
 /// pattern where results can be combined, branched, and ultimately converted
 /// to a flat list when needed.
 sealed class GlushList<T> {
-  static GlushList<T> empty<T>() => EmptyList<T>._();
-
   static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
     if (alternatives.isEmpty) return EmptyList<T>._();
     if (alternatives.length == 1) return alternatives[0];
     return BranchedList<T>._(alternatives);
   }
+
+  const GlushList();
+  const factory GlushList.empty() = EmptyList<T>._;
 
   GlushList<T> add(T data) => Push<T>._(this, data);
 
@@ -42,7 +44,7 @@ sealed class GlushList<T> {
 }
 
 class EmptyList<T> extends GlushList<T> {
-  EmptyList._();
+  const EmptyList._();
 
   @override
   void forEach(void Function(T) callback) {}
@@ -54,7 +56,7 @@ class EmptyList<T> extends GlushList<T> {
 class BranchedList<T> extends GlushList<T> {
   final List<GlushList<T>> alternatives;
 
-  BranchedList._(this.alternatives);
+  const BranchedList._(this.alternatives);
 
   @override
   void forEach(void Function(T) callback) {
@@ -71,7 +73,7 @@ class Push<T> extends GlushList<T> {
   final GlushList<T> parent;
   final T data;
 
-  Push._(this.parent, this.data);
+  const Push._(this.parent, this.data);
 
   @override
   void forEach(void Function(T) callback) {
@@ -87,7 +89,7 @@ class Concat<T> extends GlushList<T> {
   final GlushList<T> left;
   final GlushList<T> right;
 
-  Concat._(this.left, this.right);
+  const Concat._(this.left, this.right);
 
   @override
   void forEach(void Function(T) callback) {
@@ -333,8 +335,10 @@ sealed class TokenChoice {
 /// Matches any token (wildcard)
 final class AnyToken extends TokenChoice {
   const AnyToken();
+
   @override
   bool matches(int? value) => value != null;
+
   @override
   String toString() => 'any';
 }
@@ -343,8 +347,10 @@ final class AnyToken extends TokenChoice {
 final class ExactToken extends TokenChoice {
   final int value;
   const ExactToken(this.value);
+
   @override
   bool matches(int? token) => token == value;
+
   @override
   String toString() => String.fromCharCode(value);
 }
@@ -354,8 +360,10 @@ final class RangeToken extends TokenChoice {
   final int start;
   final int end;
   const RangeToken(this.start, this.end);
+
   @override
   bool matches(int? token) => token != null && token >= start && token <= end;
+
   @override
   String toString() => '$start..$end';
 }
@@ -856,6 +864,7 @@ class Rule extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -1366,7 +1375,7 @@ abstract class GrammarInterface {
 }
 
 // Action types for state machine
-abstract class StateAction {
+sealed class StateAction {
   const StateAction();
 }
 
@@ -1402,7 +1411,7 @@ class AcceptAction implements StateAction {
 }
 
 class SemanticAction implements StateAction {
-  final dynamic Function(String span, List<dynamic> childResults) callback;
+  final Object? Function(String span, List<Object?> childResults) callback;
   final State nextState;
   final Pattern? childPattern;
 
@@ -1474,9 +1483,6 @@ class StateMachine {
     for (final rule in grammar.rules) {
       rules.add(rule);
 
-      // First, extract all actions from the rule body
-      _extractActions(rule.body());
-
       final firstState = _getOrCreateState(rule);
       ruleFirst[rule] = [firstState];
 
@@ -1495,24 +1501,6 @@ class StateMachine {
         final state = _getOrCreateState(lst);
         state.actions.add(ReturnAction(rule));
       }
-    }
-  }
-
-  void _extractActions(Pattern pattern) {
-    if (pattern is Action) {
-      _extractActions(pattern.child);
-    } else if (pattern is Alt) {
-      _extractActions(pattern.left);
-      _extractActions(pattern.right);
-    } else if (pattern is Seq) {
-      _extractActions(pattern.left);
-      _extractActions(pattern.right);
-    } else if (pattern is Plus) {
-      _extractActions(pattern.child);
-    } else if (pattern is And) {
-      _extractActions(pattern.pattern);
-    } else if (pattern is Not) {
-      _extractActions(pattern.pattern);
     }
   }
 
@@ -1577,9 +1565,9 @@ class StateMachine {
 
 /// Base class for all forest nodes
 sealed class ForestNode {
+  final Pattern pattern;
   final int start;
   final int end;
-  final Pattern pattern;
 
   ForestNode(this.start, this.end, this.pattern);
 
@@ -1746,12 +1734,12 @@ class ForestNodeManager {
   }
 
   /// Get or create a symbolic node
-  SymbolicNode symbolic(int start, int end, Rule rule) {
-    final key = _makeCacheKey('sym', start, end, rule, rule.name);
+  SymbolicNode symbolic(int start, int end, Pattern rule) {
+    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId!);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
-    final node = SymbolicNode(start, end, rule, rule.name);
+    final node = SymbolicNode(start, end, rule, rule.symbolId!);
     _nodeCache[key] = node;
     _symbolicNodes.add(node);
     return node;
@@ -1953,7 +1941,7 @@ class ParseTree {
 }
 
 // --- $filename ---
-/// Binarised Shared Representation (BSR) for compact derivation recording.
+/// Binary Subtree Representation (BSR) for compact derivation recording.
 ///
 /// A BSR set is populated *during* parsing. Each entry records that a rule
 /// was successfully completed over a specific input span.  The SPPF can then
@@ -1964,14 +1952,47 @@ class ParseTree {
 
 
 
+// ---------------------------------------------------------------------------
+// Trampoline for CPS-based recursion management
+// ---------------------------------------------------------------------------
+
+abstract class _Trampoline<T> {
+  T run() {
+    _Trampoline<T> current = this;
+    while (current is _More<T>) {
+      current = current.next();
+    }
+    return (current as _Done<T>).result;
+  }
+}
+
+class _More<T> extends _Trampoline<T> {
+  final _Trampoline<T> Function() next;
+  _More(this.next);
+}
+
+class _Done<T> extends _Trampoline<T> {
+  final T result;
+  _Done(this.result);
+}
+
+extension _TrampolineExtensions<T> on _Trampoline<T> {
+  _Trampoline<U> then<U>(_Trampoline<U> Function(T) f) {
+    if (this is _Done<T>) {
+      return f((this as _Done<T>).result);
+    }
+    return _More<U>(() => (this as _More<T>).next().then(f));
+  }
+}
+
 /// A single rule-completion entry in the BSR.
 ///
 /// Records that [rule] was successfully parsed over the input span
 /// [[leftExtent], [rightExtent]).
-typedef BsrEntry = (Rule rule, int leftExtent, int rightExtent);
+typedef BsrEntry = (Pattern rule, int leftExtent, int rightExtent);
 
 extension BsrEntryMethods on BsrEntry {
-  Rule get rule => $1;
+  Pattern get rule => $1;
   int get leftExtent => $2;
   int get rightExtent => $3;
 }
@@ -1984,12 +2005,12 @@ class BsrSet {
   final Set<BsrEntry> _entries = {};
 
   /// Add a rule-completion entry.
-  void add(Rule rule, int leftExtent, int rightExtent) {
+  void add(Pattern rule, int leftExtent, int rightExtent) {
     _entries.add((rule, leftExtent, rightExtent));
   }
 
   /// Returns true if [rule] was proven to match [[left], [right]).
-  bool contains(Rule rule, int left, int right) => _entries.contains((rule, left, right));
+  bool contains(Pattern rule, int left, int right) => _entries.contains((rule, left, right));
 
   /// Returns all entries for the given rule.
   Iterable<BsrEntry> entriesForRule(Rule rule) => _entries.where((e) => e.rule == rule);
@@ -2012,14 +2033,13 @@ class BsrSet {
   ) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
-    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress);
+    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
   }
 
   // ---------------------------------------------------------------------------
   // Internal SPPF construction (BSR-guided grammar walk)
   // ---------------------------------------------------------------------------
-
-  SymbolicNode? _buildNode(
+  _Trampoline<SymbolicNode?> _buildNode(
     Rule rule,
     String input,
     int start,
@@ -2029,28 +2049,38 @@ class BsrSet {
     Map<String, bool> inProgress,
   ) {
     // Fast-fail: only build SPPF for spans the BSR proves are reachable.
-    if (!contains(rule, start, end)) return null;
+    if (!contains(rule, start, end)) return _Done(null);
 
-    final key = '${rule.name}:$start:$end';
-    if (memo.containsKey(key)) return memo[key];
-    if (inProgress[key] == true) return null;
+    final key = '${rule.symbolId}:$start:$end';
+    if (memo.containsKey(key)) return _Done(memo[key]);
+    if (inProgress[key] == true) return _Done(null);
 
     inProgress[key] = true;
     final symNode = nodeManager.symbolic(start, end, rule);
 
-    final childGroups =
-        _patternChildGroups(rule.body(), input, start, end, nodeManager, memo, inProgress);
-    for (final children in childGroups) {
-      symNode.addFamily(Family(children));
-    }
+    return _More(() => _patternNodes(
+          rule.body(),
+          input,
+          start,
+          end,
+          nodeManager,
+          memo,
+          inProgress,
+          (childNodes) {
+            for (final child in childNodes) {
+              // Rule nodes now strictly point to 1 child (which may be an IntermediateNode handling the rest)
+              symNode.addFamily(Family([child]));
+            }
 
-    inProgress[key] = false;
-    final result = symNode.families.isNotEmpty ? symNode : null;
-    memo[key] = result;
-    return result;
+            inProgress[key] = false;
+            final result = symNode.families.isNotEmpty ? symNode : null;
+            memo[key] = result;
+            return _Done(result);
+          },
+        ));
   }
 
-  List<List<ForestNode>> _patternChildGroups(
+  _Trampoline<T> _patternNodes<T>(
     Pattern pattern,
     String input,
     int start,
@@ -2058,175 +2088,248 @@ class BsrSet {
     ForestNodeManager nodeManager,
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
+    _Trampoline<T> Function(List<ForestNode>) continuation,
   ) {
-    if (pattern is Token) {
-      if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        return [
-          [nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Eps) {
-      return start == end
-          ? [
-              [nodeManager.epsilon(start, pattern)]
-            ]
-          : [];
-    }
-
-    if (pattern is Marker) {
-      if (start == end) {
-        return [
-          [nodeManager.marker(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Alt) {
-      final left =
-          _patternChildGroups(pattern.left, input, start, end, nodeManager, memo, inProgress);
-      final right =
-          _patternChildGroups(pattern.right, input, start, end, nodeManager, memo, inProgress);
-      return [...left, ...right];
-    }
-
-    if (pattern is Seq) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start; mid <= end; mid++) {
-        final leftGroups =
-            _patternChildGroups(pattern.left, input, start, mid, nodeManager, memo, inProgress);
-        if (leftGroups.isEmpty) continue;
-
-        final rightGroups =
-            _patternChildGroups(pattern.right, input, mid, end, nodeManager, memo, inProgress);
-        if (rightGroups.isEmpty) continue;
-
-        for (final l in leftGroups) {
-          for (final r in rightGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Seq');
-            node.addFamily(Family([...l, ...r]));
-            result.add([node]);
-          }
+    switch (pattern) {
+      case Token():
+        if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
+          return continuation([nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]);
         }
-      }
-      return result;
-    }
+        return continuation([]);
+      case Marker():
+        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
+      case Eps():
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
+      case Alt():
+        return _More(() => _patternNodes(
+              pattern.left,
+              input,
+              start,
+              end,
+              nodeManager,
+              memo,
+              inProgress,
+              (leftNodes) => _More(() => _patternNodes(
+                    pattern.right,
+                    input,
+                    start,
+                    end,
+                    nodeManager,
+                    memo,
+                    inProgress,
+                    (rightNodes) => continuation([...leftNodes, ...rightNodes]),
+                  )),
+            ));
+      case Seq():
+        IntermediateNode? seqNode;
 
-    if (pattern is Call) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+        _Trampoline<T> loop(int mid) {
+          if (mid > end) return continuation(seqNode != null ? [seqNode!] : []);
 
-    if (pattern is RuleCall) {
-      final child = _buildNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
+          return _More(() => _patternNodes(
+                pattern.left,
+                input,
+                start,
+                mid,
+                nodeManager,
+                memo,
+                inProgress,
+                (leftNodes) {
+                  if (leftNodes.isEmpty) return _More(() => loop(mid + 1));
 
-    if (pattern is Action) {
-      final childGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      return childGroups.map((children) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
-        node.addFamily(Family(children));
-        return [node];
-      }).toList();
-    }
-
-    if (pattern is Plus) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
+                  return _More(() => _patternNodes(
+                        pattern.right,
+                        input,
+                        mid,
+                        end,
+                        nodeManager,
+                        memo,
+                        inProgress,
+                        (rightNodes) {
+                          if (rightNodes.isNotEmpty) {
+                            // Hoisted intermediate creation: strictly packed and binarised
+                            seqNode ??= nodeManager.intermediate(start, end, pattern, 'Seq');
+                            for (final l in leftNodes) {
+                              for (final r in rightNodes) {
+                                seqNode!.addFamily(Family([l, r]));
+                              }
+                            }
+                          }
+                          return _More(() => loop(mid + 1));
+                        },
+                      ));
+                },
+              ));
         }
-      }
-      final singleGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      for (final s in singleGroups) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-        node.addFamily(Family(s));
-        result.add([node]);
-      }
 
-      return result;
-    }
-
-    if (pattern is Star) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Star');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
+        return _More(() => loop(start));
+      case Conj():
+        if (start + 1 == end &&
+            pattern.left.match(input.codeUnitAt(start)) &&
+            pattern.right.match(input.codeUnitAt(start))) {
+          final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
+          return continuation([termNode]);
         }
-      }
-      if (start == end) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Star');
-        node.addFamily(Family([nodeManager.epsilon(start, pattern)]));
-        result.add([node]);
-      }
+        return continuation([]);
+      case Plus():
+        IntermediateNode? plusNode;
 
-      return result;
+        _Trampoline<T> loop(int mid) {
+          if (mid > end) {
+            return _More(() => _patternNodes(
+                  pattern.child,
+                  input,
+                  start,
+                  end,
+                  nodeManager,
+                  memo,
+                  inProgress,
+                  (singleNodes) {
+                    if (singleNodes.isNotEmpty) {
+                      plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                      for (final s in singleNodes) {
+                        plusNode!.addFamily(Family([s]));
+                      }
+                    }
+                    return continuation(plusNode != null ? [plusNode!] : []);
+                  },
+                ));
+          }
+
+          return _More(() => _patternNodes(
+                pattern.child,
+                input,
+                start,
+                mid,
+                nodeManager,
+                memo,
+                inProgress,
+                (headNodes) {
+                  if (headNodes.isEmpty) return _More(() => loop(mid + 1));
+
+                  return _More(() => _patternNodes(
+                        pattern,
+                        input,
+                        mid,
+                        end,
+                        nodeManager,
+                        memo,
+                        inProgress,
+                        (tailNodes) {
+                          if (tailNodes.isNotEmpty) {
+                            plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                            for (final h in headNodes) {
+                              for (final t in tailNodes) {
+                                plusNode!.addFamily(Family([h, t]));
+                              }
+                            }
+                          }
+                          return _More(() => loop(mid + 1));
+                        },
+                      ));
+                },
+              ));
+        }
+
+        return _More(() => loop(start + 1));
+      case Star():
+        IntermediateNode? starNode;
+
+        _Trampoline<T> loop(int mid) {
+          if (mid > end) {
+            if (start == end) {
+              starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+              starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
+            }
+            return continuation(starNode != null ? [starNode!] : []);
+          }
+
+          return _More(() => _patternNodes(
+                pattern.child,
+                input,
+                start,
+                mid,
+                nodeManager,
+                memo,
+                inProgress,
+                (headNodes) {
+                  if (headNodes.isEmpty) return _More(() => loop(mid + 1));
+
+                  return _More(() => _patternNodes(
+                        pattern,
+                        input,
+                        mid,
+                        end,
+                        nodeManager,
+                        memo,
+                        inProgress,
+                        (tailNodes) {
+                          if (tailNodes.isNotEmpty) {
+                            starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+                            for (final h in headNodes) {
+                              for (final t in tailNodes) {
+                                starNode!.addFamily(Family([h, t]));
+                              }
+                            }
+                          }
+                          return _More(() => loop(mid + 1));
+                        },
+                      ));
+                },
+              ));
+        }
+
+        return _More(() => loop(start + 1));
+      case And() || Not():
+        if (start == end) {
+          return continuation([nodeManager.epsilon(start, pattern)]);
+        }
+        return continuation([]);
+      case Rule():
+        return _More(() => _patternNodes(
+              pattern.body(),
+              input,
+              start,
+              end,
+              nodeManager,
+              memo,
+              inProgress,
+              continuation,
+            ));
+      case RuleCall(:var rule) || Call(:var rule):
+        return _More(() => _buildNode(rule, input, start, end, nodeManager, memo, inProgress)
+            .then((child) => continuation(child != null ? [child] : [])));
+      case Action<dynamic>():
+        return _More(() => _patternNodes(
+              pattern.child,
+              input,
+              start,
+              end,
+              nodeManager,
+              memo,
+              inProgress,
+              (childNodes) {
+                if (childNodes.isEmpty) return continuation([]);
+
+                final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
+                for (final child in childNodes) {
+                  node.addFamily(Family([child]));
+                }
+                return continuation([node]);
+              },
+            ));
+      case PrecedenceLabeledPattern():
+        return _More(() => _patternNodes(
+              pattern.pattern,
+              input,
+              start,
+              end,
+              nodeManager,
+              memo,
+              inProgress,
+              continuation,
+            ));
     }
-
-    if (pattern is Conj) {
-      if (start + 1 == end &&
-          pattern.left.match(input.codeUnitAt(start)) &&
-          pattern.right.match(input.codeUnitAt(start))) {
-        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-        return [
-          [termNode]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is And || pattern is Not) {
-      if (start == end) {
-        return [
-          [nodeManager.epsilon(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      return _patternChildGroups(pattern.pattern, input, start, end, nodeManager, memo, inProgress);
-    }
-
-    return [];
   }
 
   @override
@@ -2548,12 +2651,15 @@ class SMParser {
   /// Internally uses BSR (Binarised Shared Representation) recorded during
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
-  ParseOutcome<T> parseWithForest<T>(String input) {
+  ParseOutcome<T> parseWithForest<T>(String input, {bool isSavingMarks = true}) {
+    Stopwatch watch = Stopwatch()..start();
     _predicateBuffer.initializeFromString(input);
-    final bsrOutcome = parseToBsr(input);
+    final bsrOutcome = parseToBsr(input, isSavingMarks: isSavingMarks);
     if (bsrOutcome is BsrParseError) {
       return ParseError<T>(bsrOutcome.position);
     }
+    watch..stop();
+    print("Finished processing BSR in ${watch.elapsedMicroseconds}us");
 
     final bsrSuccess = bsrOutcome as BsrParseSuccess;
     final bsrSet = bsrSuccess.bsrSet;
@@ -2561,7 +2667,7 @@ class SMParser {
     final nodeManager = ForestNodeManager();
     final root = bsrSet.buildSppf(startRule, input, nodeManager);
     final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
-    final forest = ParseForest(nodeManager, effectiveRoot, bsrOutcome.marks);
+    final forest = ParseForest(nodeManager, effectiveRoot, []);
     return ParseForestSuccess<T>(forest);
   }
 
@@ -2674,52 +2780,24 @@ class SMParser {
     return completer.future;
   }
 
-  /// Parse with forest extraction using the direct grammar-walk approach.
-  ///
-  /// Builds the SPPF by exhaustively walking the grammar structure after
-  /// parsing, without BSR pruning. Provided for performance
-  /// comparison against [parseWithForest] (the BSR-backed variant).
-  ParseOutcome<T> parseWithForestDirect<T>(String input) {
-    _predicateBuffer.initializeFromString(input);
-    var frames = _initialFrames;
-    int position = 0;
-
-    for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: null);
-      frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
-        return ParseError<T>(position);
-      }
-      position++;
-    }
-
-    final lastStep = _processToken(null, position, frames, bsr: null);
-
-    if (lastStep.accept) {
-      final startRule = stateMachine.grammar.startCall.rule;
-      final nodeManager = ForestNodeManager();
-      _buildForestNode(startRule, input, 0, input.length, nodeManager, {}, {});
-
-      final root = nodeManager.symbolic(0, input.length, startRule);
-      final forest = ParseForest(nodeManager, root, lastStep.marks);
-      return ParseForestSuccess<T>(forest);
-    } else {
-      return ParseError<T>(position);
-    }
-  }
-
   /// Parse and return the BSR set of all proven rule-completion spans.
   ///
   /// Returns [BsrParseSuccess] with the [BsrSet] on success, or
   /// [BsrParseError] if the input does not conform to the grammar.
-  BsrParseOutcome parseToBsr(String input) {
+  BsrParseOutcome parseToBsr(String input, {bool isSavingMarks = true}) {
     _predicateBuffer.initializeFromString(input);
     final bsr = BsrSet();
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: bsr);
+      final stepResult = _processToken(
+        codepoint,
+        position,
+        frames,
+        bsr: bsr,
+        isSavingMarks: isSavingMarks,
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -2727,250 +2805,19 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: bsr);
+    final lastStep = _processToken(
+      null,
+      position,
+      frames,
+      bsr: bsr,
+      isSavingMarks: isSavingMarks,
+    );
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
     } else {
       return BsrParseError(position);
     }
-  }
-
-  /// Build SPPF nodes for a rule span, returning the SymbolicNode (or null if no derivation).
-  SymbolicNode? _buildForestNode(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    final key = '${rule.name}:$start:$end';
-
-    if (memo.containsKey(key)) return memo[key];
-    if (inProgress[key] == true) return null; // Recursive call — treat as no derivation
-
-    inProgress[key] = true;
-
-    final symNode = nodeManager.symbolic(start, end, rule);
-    // NOTE: memo is NOT set here — we set it only after families are built,
-    // so that re-entrant calls via identity rules (e.g. Call(s)) return null
-    // instead of a partially-constructed (and potentially cyclic) node.
-
-    final childGroups =
-        _patternChildGroups(rule.body(), input, start, end, nodeManager, memo, inProgress);
-    for (final children in childGroups) {
-      symNode.addFamily(Family(children));
-    }
-
-    inProgress[key] = false;
-    final result = symNode.families.isNotEmpty ? symNode : null;
-    memo[key] = result; // Cache the final result (null if no valid derivation)
-    return result;
-  }
-
-  /// Returns all possible lists of child [ForestNode]s that [pattern] can produce
-  /// over [start]..[end]. Each entry represents one alternative derivation's flat
-  /// child list. An empty returned list means no derivation exists.
-  List<List<ForestNode>> _patternChildGroups(
-    Pattern pattern,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
-    if (pattern is Token) {
-      if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-        return [
-          [termNode]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Eps) {
-      if (start == end) {
-        return [
-          [nodeManager.epsilon(start, pattern)]
-        ]; // epsilon: one derivation with one EpsilonNode
-      }
-      return [];
-    }
-
-    if (pattern is Marker) {
-      if (start == end) {
-        return [
-          [nodeManager.marker(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is Alt) {
-      // Union: collect derivations from both alternatives
-      final leftGroups =
-          _patternChildGroups(pattern.left, input, start, end, nodeManager, memo, inProgress);
-      final rightGroups =
-          _patternChildGroups(pattern.right, input, start, end, nodeManager, memo, inProgress);
-      return [...leftGroups, ...rightGroups];
-    }
-
-    if (pattern is Seq) {
-      final result = <List<ForestNode>>[];
-      for (int mid = start; mid <= end; mid++) {
-        final leftGroups =
-            _patternChildGroups(pattern.left, input, start, mid, nodeManager, memo, inProgress);
-        if (leftGroups.isEmpty) continue;
-
-        final rightGroups =
-            _patternChildGroups(pattern.right, input, mid, end, nodeManager, memo, inProgress);
-        if (rightGroups.isEmpty) continue;
-
-        // Cartesian product: concatenate each pair of left/right child-lists
-        for (final leftChildren in leftGroups) {
-          for (final rightChildren in rightGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Seq');
-            node.addFamily(Family([...leftChildren, ...rightChildren]));
-            result.add([node]);
-          }
-        }
-      }
-      return result;
-    }
-
-    if (pattern is Call) {
-      final child =
-          _buildForestNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
-
-    if (pattern is RuleCall) {
-      final child =
-          _buildForestNode(pattern.rule, input, start, end, nodeManager, memo, inProgress);
-      return child != null
-          ? [
-              [child]
-            ]
-          : [];
-    }
-
-    if (pattern is Action) {
-      final childGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      if (childGroups.isEmpty) return [];
-
-      // Wrap each derivation in an IntermediateNode to represent the semantic action
-      return childGroups.map((children) {
-        final intermediateNode = nodeManager.intermediate(start, end, pattern, 'Action<T>');
-        intermediateNode.addFamily(Family(children));
-        return [intermediateNode];
-      }).toList();
-    }
-
-    if (pattern is Plus) {
-      // Decompose (P >> Plus(P)) | P
-      final result = <List<ForestNode>>[];
-
-      // Option 1: P then Plus(P)
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
-        }
-      }
-
-      // Option 2: Just P
-      final singleGroups =
-          _patternChildGroups(pattern.child, input, start, end, nodeManager, memo, inProgress);
-      for (final s in singleGroups) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Plus');
-        node.addFamily(Family(s));
-        result.add([node]);
-      }
-
-      return result;
-    }
-
-    if (pattern is Star) {
-      final result = <List<ForestNode>>[];
-
-      // Option 1: P then Star(P)
-      for (int mid = start + 1; mid <= end; mid++) {
-        final headGroups =
-            _patternChildGroups(pattern.child, input, start, mid, nodeManager, memo, inProgress);
-        if (headGroups.isEmpty) continue;
-
-        final tailGroups =
-            _patternChildGroups(pattern, input, mid, end, nodeManager, memo, inProgress);
-        if (tailGroups.isEmpty) continue;
-
-        for (final h in headGroups) {
-          for (final t in tailGroups) {
-            final node = nodeManager.intermediate(start, end, pattern, 'Star');
-            node.addFamily(Family([...h, ...t]));
-            result.add([node]);
-          }
-        }
-      }
-
-      // Option 2: Eps (base case)
-      if (start == end) {
-        final node = nodeManager.intermediate(start, end, pattern, 'Star');
-        node.addFamily(Family([nodeManager.epsilon(start, pattern)]));
-        result.add([node]);
-      }
-
-      return result;
-    }
-
-    if (pattern is Conj) {
-      // Both patterns must match the same span.
-      // Since Conj is restricted to single-token patterns, start+1 should be end.
-      if (start + 1 == end &&
-          pattern.left.match(input.codeUnitAt(start)) &&
-          pattern.right.match(input.codeUnitAt(start))) {
-        final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-        return [
-          [termNode]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is And || pattern is Not) {
-      // Predicates are zero-width.
-      if (start == end) {
-        return [
-          [nodeManager.epsilon(start, pattern)]
-        ];
-      }
-      return [];
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      return _patternChildGroups(pattern.pattern, input, start, end, nodeManager, memo, inProgress);
-    }
-
-    return [];
   }
 
   /// Count all possible parse trees without building them
@@ -3389,9 +3236,7 @@ class SMParser {
   }
 
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
-    final symbolRegistry = grammar.symbolRegistry;
-
-    switch (symbolRegistry[tree.symbol]) {
+    switch (grammar.symbolRegistry[tree.symbol]) {
       case Token pattern:
         if (tree.start + 1 == tree.end && pattern.match(input.codeUnitAt(tree.start))) {
           final evaluated = tree.getMatchedText(input);
@@ -3491,8 +3336,21 @@ class SMParser {
     return null;
   }
 
-  Step _processToken(int? token, int position, List<Frame> frames, {BsrSet? bsr}) {
-    final step = Step(this, token, position, bsr: bsr, buffer: _predicateBuffer);
+  Step _processToken(
+    int? token,
+    int position,
+    List<Frame> frames, {
+    BsrSet? bsr,
+    bool isSavingMarks = true,
+  }) {
+    final step = Step(
+      this,
+      token,
+      position,
+      bsr: bsr,
+      buffer: _predicateBuffer,
+      isSavingMarks: isSavingMarks,
+    );
 
     for (final frame in frames) {
       step._processFrame(frame);
@@ -3737,6 +3595,29 @@ final class RootCallerKey extends CallerKey {
   bool operator ==(Object other) => other is RootCallerKey;
 }
 
+/// Caller tracking for rule returns
+final class Caller extends CallerKey {
+  /// Key is a (caller, nextState) pair encoded as a two-element list.
+  final Map<(CallerKey, State), List<GlushList<Mark>?>> _grouped = {};
+
+  /// The input position at which the associated rule was invoked.
+  /// Set once at CallAction time; used by ReturnAction to record BSR entries.
+  int? callStart;
+
+  void addReturn(Context context, State nextState) {
+    final key = (context.caller, nextState);
+    _grouped.putIfAbsent(key, () => []).add(context.marks);
+  }
+
+  void forEach(void Function(CallerKey, State, GlushList<Mark>?) callback) {
+    for (final MapEntry(key: (caller, nextState), value: marks) in _grouped.entries) {
+      for (final mark in marks) {
+        callback(caller, nextState, mark);
+      }
+    }
+  }
+}
+
 /// Context for parsing (tracks marks, callers, and BSR call-start position).
 class Context {
   final CallerKey caller;
@@ -3762,29 +3643,6 @@ class Frame {
   GlushList<Mark>? get marks => context.marks;
 }
 
-/// Caller tracking for rule returns
-class Caller extends CallerKey {
-  /// Key is a (caller, nextState) pair encoded as a two-element list.
-  final Map<(CallerKey, State), List<GlushList<Mark>?>> _grouped = {};
-
-  /// The input position at which the associated rule was invoked.
-  /// Set once at CallAction time; used by ReturnAction to record BSR entries.
-  int? callStart;
-
-  void addReturn(Context context, State nextState) {
-    final key = (context.caller, nextState);
-    _grouped.putIfAbsent(key, () => []).add(context.marks);
-  }
-
-  void forEach(void Function(CallerKey, State, GlushList<Mark>?) callback) {
-    for (final MapEntry(key: (caller, nextState), value: marks) in _grouped.entries) {
-      for (final mark in marks) {
-        callback(caller, nextState, mark);
-      }
-    }
-  }
-}
-
 /// Single step in parsing
 class Step {
   final SMParser parser;
@@ -3794,6 +3652,7 @@ class Step {
   /// Optional BSR set to populate with rule-completion entries. When null,
   /// BSR recording is skipped (used by the plain recognize/parse paths).
   final BsrSet? bsr;
+  final bool isSavingMarks;
 
   /// Predicate lookahead buffer for checking patterns without full input access
   final PredicateLookaheadBuffer buffer;
@@ -3803,7 +3662,17 @@ class Step {
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
-  Step(this.parser, this.token, this.position, {this.bsr, required this.buffer});
+  /// Frames created during CPS processing that need conditional adding to nextFrames
+  final Set<Frame> _localFramesInCurrentProcessing = {};
+
+  Step(
+    this.parser,
+    this.token,
+    this.position, {
+    this.bsr,
+    required this.buffer,
+    required this.isSavingMarks,
+  });
 
   bool get accept => _acceptedContexts.isNotEmpty;
 
@@ -3813,120 +3682,223 @@ class Step {
     return markList.toList().cast<Mark>();
   }
 
-  void _withFrame(Context context, void Function(Frame) callback) {
+  /// Work queue for CPS trampoline - stores frame/state pairs to process
+  late final DoubleLinkedQueue<_ProcessWork> _workQueue = DoubleLinkedQueue<_ProcessWork>();
+
+  /// Create a local frame that will be conditionally added to nextFrames if it has states
+  Frame _createLocalFrame(Context context) {
     final frame = Frame(context);
-    callback(frame);
-    if (frame.nextStates.isNotEmpty) {
-      nextFrames.add(frame);
-    }
+    _localFramesInCurrentProcessing.add(frame);
+    return frame;
   }
 
-  void _process(Frame frame, State state) {
+  /// Enqueue work to process a frame/state pair (CPS continuation)
+  void _enqueueProcess(Frame frame, State state) {
+    _workQueue.add(_ProcessWork(frame, state));
+  }
+
+  /// CPS-style processing: instead of recursive _process calls, we handle with a trampoline
+  void _processWork(Frame frame, State state) {
     for (final action in state.actions) {
-      if (action is TokenAction) {
-        if (action.pattern.match(token)) {
-          // If token matches, add a StringMark with the captured token if not ExactToken
-          // So ranges and 'any' tokens are captured into the marks array too
-          var newMarks = frame.marks;
-          if (token != null &&
-              action.pattern is Token &&
-              (action.pattern as Token).choice is! ExactToken) {
-            final strMark = StringMark(String.fromCharCode(token!), position);
-            newMarks = (newMarks ?? GlushList.empty<Mark>()).add(strMark);
-          }
-          final nextFrame = Frame(Context(frame.caller, newMarks));
-          nextFrame.nextStates.add(action.nextState);
-          nextFrames.add(nextFrame);
-        }
-      } else if (action is MarkAction) {
-        final mark = NamedMark(action.name, position);
-        final markCtx = Context(
-          frame.caller,
-          (frame.marks ?? GlushList.empty<Mark>()).add(mark),
-        );
-        _withFrame(markCtx, (markFrame) {
-          _process(markFrame, action.nextState);
-        });
-      } else if (action is PredicateAction) {
-        // Predicate checking (lookahead without consumption)
-        // Buffer ensures we have the data needed for lookahead
-        bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
-
-        // For AND (&pattern), continue if pattern matches
-        // For NOT (!pattern), continue if pattern does NOT match
-        final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
-
-        if (shouldContinue) {
-          // Predicate succeeded - process next state through standard frame mechanism
-          // Zero-width: processed with the same token in this frame step
-          _withFrame(frame.context, (predFrame) {
-            _process(predFrame, action.nextState);
-          });
-        }
-        // If predicate failed, we simply don't add the next state (backtrack)
-      } else if (action is CallAction) {
-        final rule = action.rule;
-        final isExecuted = _callers.containsKey(rule);
-        final caller = _callers.putIfAbsent(rule, Caller.new);
-
-        caller.addReturn(frame.context, action.returnState);
-
-        if (!isExecuted) {
-          // Store callStart on the Caller so ReturnAction can emit BSR entries.
-          caller.callStart = position;
-          final callCtx = Context(caller, GlushList.empty<Mark>(), position);
-          _withFrame(callCtx, (callFrame) {
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
-              _process(callFrame, firstState);
+      switch (action) {
+        case SemanticAction():
+          // TODO: Handle this case.
+          throw UnimplementedError();
+        case TokenAction():
+          if (token case var token? when action.pattern.match(token)) {
+            // If token matches, add a StringMark with the captured token if not ExactToken
+            // So ranges and 'any' tokens are captured into the marks array too
+            var newMarks = frame.marks;
+            if (isSavingMarks) {
+              if (action.pattern case Token(:var choice) when choice is! ExactToken) {
+                final strMark = StringMark(String.fromCharCode(token), position);
+                newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
+              }
             }
-          });
-        }
-      } else if (action is ReturnAction) {
-        final rule = action.rule;
+            final nextFrame = Frame(Context(frame.caller, newMarks));
+            nextFrame.nextStates.add(action.nextState);
+            nextFrames.add(nextFrame);
+            // TokenAction does NOT enqueue - it defers to next token step
+          }
+        case MarkAction():
+          if (isSavingMarks) {
+            final mark = NamedMark(action.name, position);
+            final markCtx = Context(
+              frame.caller,
+              (frame.marks ?? const GlushList.empty()).add(mark),
+            );
+            // Create local frame that will be conditionally added to nextFrames
+            final markFrame = _createLocalFrame(markCtx);
+            // Enqueue instead of _withFrame callback
+            _enqueueProcess(markFrame, action.nextState);
+          } else {
+            final nextFrame = _createLocalFrame(frame.context);
+            _enqueueProcess(nextFrame, action.nextState);
+          }
+        case PredicateAction():
+          // Predicate checking (lookahead without consumption)
+          // Buffer ensures we have the data needed for lookahead
+          bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
 
-        if (token != null && rule.guard != null && !rule.guard!.match(token)) {
-          continue;
-        }
+          // For AND (&pattern), continue if pattern matches
+          // For NOT (!pattern), continue if pattern does NOT match
+          final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
 
-        // Record BSR rule-completion entry BEFORE the ambiguity guard,
-        // so every distinct (rule, callStart, position) span is captured.
-        // The _returnedCallers guard below is only for parsing-state correctness.
-        final callStart = frame.context.callStart ??
-            (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
-        if (bsr != null && callStart != null) {
-          bsr!.add(rule, callStart, position);
-        }
+          if (shouldContinue) {
+            // Predicate succeeded - enqueue next state processing
+            // Zero-width: processed with the same token in this frame step
+            final predFrame = _createLocalFrame(frame.context);
+            _enqueueProcess(predFrame, action.nextState);
+          }
+        // If predicate failed, we simply don't enqueue (backtrack)
+        case CallAction():
+          final rule = action.rule;
+          final isExecuted = _callers.containsKey(rule);
+          final caller = _callers.putIfAbsent(rule, Caller.new);
 
-        final caller = frame.caller;
+          caller.addReturn(frame.context, action.returnState);
+          if (!isExecuted) {
+            // Store callStart on the Caller so ReturnAction can emit BSR entries.
+            caller.callStart = position;
+            final callCtx = Context(caller, const GlushList.empty(), position);
+            // Create local frame that will be conditionally added to nextFrames
+            final callFrame = _createLocalFrame(callCtx);
+            // Enqueue first states instead of _withFrame callback
+            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+              _enqueueProcess(callFrame, firstState);
+            }
+          }
+        case ReturnAction():
+          final rule = action.rule;
 
-        // Simple ambiguity handling: only process each caller once
-        final shouldProcess = _returnedCallers.add(caller);
-        if (!shouldProcess) continue;
+          if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+            continue;
+          }
 
-        if (caller is Caller) {
-          caller.forEach((ccaller, nextState, marks) {
-            final combinedMarks = marks == null
-                ? frame.marks
-                : GlushList.branched<Mark>([marks]).addList(frame.marks ?? GlushList.empty<Mark>());
+          // Record BSR rule-completion entry BEFORE the ambiguity guard,
+          // so every distinct (rule, callStart, position) span is captured.
+          // The _returnedCallers guard below is only for parsing-state correctness.
+          final callStart = frame.context.callStart ??
+              (frame.caller is Caller //
+                  ? (frame.caller as Caller).callStart
+                  : null);
+          if ((bsr, callStart) case (var bsr?, var callStart?)) {
+            bsr.add(rule, callStart, position);
+          }
 
-            final nextContext = Context(ccaller, combinedMarks);
-            _withFrame(nextContext, (nextFrame) {
-              _process(nextFrame, nextState);
+          final caller = frame.caller;
+
+          // Simple ambiguity handling: only process each caller once
+          final shouldProcess = _returnedCallers.add(caller);
+          if (!shouldProcess) continue;
+
+          if (caller is Caller) {
+            caller.forEach((ccaller, nextState, marks) {
+              final nextMarks = !isSavingMarks
+                  ? const GlushList<Mark>.empty()
+                  : marks == null
+                      ? frame.marks
+                      : GlushList.branched<Mark>([marks])
+                          .addList(frame.marks ?? const GlushList.empty());
+
+              final nextContext = Context(ccaller, nextMarks);
+              // Create local frame that will be conditionally added to nextFrames
+              final nextFrame = _createLocalFrame(nextContext);
+              // Enqueue instead of _withFrame callback
+              _enqueueProcess(nextFrame, nextState);
             });
-          });
-        }
-      } else if (action is AcceptAction) {
-        _acceptedContexts.add(frame.context);
+          }
+        case AcceptAction():
+          _acceptedContexts.add(frame.context);
       }
     }
   }
 
   void _processFrame(Frame frame) {
-    _withFrame(frame.copy().context, (nextFrame) {
-      for (final state in frame.nextStates) {
-        _process(nextFrame, state);
+    _workQueue.clear();
+    _localFramesInCurrentProcessing.clear();
+    final nextFrame = Frame(frame.copy().context);
+
+    // Initialize work queue with all states from the frame
+    for (final state in frame.nextStates) {
+      _enqueueProcess(nextFrame, state);
+    }
+
+    // Trampoline loop: process all enqueued work iteratively
+    while (_workQueue.isNotEmpty) {
+      final work = _workQueue.removeFirst();
+      _processWork(work.frame, work.state);
+    }
+
+    // After all work is done, add frames that have states to nextFrames
+    // Local frames (created within _processWork) are only added if they have states
+    for (final localFrame in _localFramesInCurrentProcessing) {
+      if (localFrame.nextStates.isNotEmpty) {
+        nextFrames.add(localFrame);
       }
-    });
+    }
+
+    // Add the main nextFrame if it has states
+    if (nextFrame.nextStates.isNotEmpty) {
+      nextFrames.add(nextFrame);
+    }
+  }
+}
+
+/// Work item for CPS trampoline - represents the continuation to process a frame/state pair
+class _ProcessWork {
+  final Frame frame;
+  final State state;
+
+  _ProcessWork(this.frame, this.state);
+}
+
+/// Work item for pattern child group processing - represents a pattern to process for SPPF construction
+class _PatternWork {
+  final Pattern pattern;
+  final String input;
+  final int start;
+  final int end;
+  final ForestNodeManager nodeManager;
+  final Map<String, SymbolicNode?> memo;
+  final Map<String, bool> inProgress;
+  final String key;
+
+  _PatternWork({
+    required this.pattern,
+    required this.input,
+    required this.start,
+    required this.end,
+    required this.nodeManager,
+    required this.memo,
+    required this.inProgress,
+    required this.key,
+  });
+
+  /// Create a new work item inheriting from this one, with optional field overrides
+  _PatternWork inherit({
+    Pattern? pattern,
+    String? input,
+    int? start,
+    int? end,
+    ForestNodeManager? nodeManager,
+    Map<String, SymbolicNode?>? memo,
+    Map<String, bool>? inProgress,
+  }) {
+    final newPattern = pattern ?? this.pattern;
+    final newStart = start ?? this.start;
+    final newEnd = end ?? this.end;
+
+    return _PatternWork(
+      pattern: newPattern,
+      input: input ?? this.input,
+      start: newStart,
+      end: newEnd,
+      nodeManager: nodeManager ?? this.nodeManager,
+      memo: memo ?? this.memo,
+      inProgress: inProgress ?? this.inProgress,
+      key: '${newPattern.hashCode}:$newStart:$newEnd',
+    );
   }
 }
 

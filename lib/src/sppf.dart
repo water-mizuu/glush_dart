@@ -6,9 +6,9 @@ import 'patterns.dart';
 
 /// Base class for all forest nodes
 sealed class ForestNode {
+  final Pattern pattern;
   final int start;
   final int end;
-  final Pattern pattern;
 
   ForestNode(this.start, this.end, this.pattern);
 
@@ -175,12 +175,12 @@ class ForestNodeManager {
   }
 
   /// Get or create a symbolic node
-  SymbolicNode symbolic(int start, int end, Rule rule) {
-    final key = _makeCacheKey('sym', start, end, rule, rule.name);
+  SymbolicNode symbolic(int start, int end, Pattern rule) {
+    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId!);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
-    final node = SymbolicNode(start, end, rule, rule.name);
+    final node = SymbolicNode(start, end, rule, rule.symbolId!);
     _nodeCache[key] = node;
     _symbolicNodes.add(node);
     return node;

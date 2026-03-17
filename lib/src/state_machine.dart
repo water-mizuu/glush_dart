@@ -15,7 +15,7 @@ abstract class GrammarInterface {
 }
 
 // Action types for state machine
-abstract class StateAction {
+sealed class StateAction {
   const StateAction();
 }
 
@@ -51,7 +51,7 @@ class AcceptAction implements StateAction {
 }
 
 class SemanticAction implements StateAction {
-  final dynamic Function(String span, List<dynamic> childResults) callback;
+  final Object? Function(String span, List<Object?> childResults) callback;
   final State nextState;
   final Pattern? childPattern;
 
@@ -123,9 +123,6 @@ class StateMachine {
     for (final rule in grammar.rules) {
       rules.add(rule);
 
-      // First, extract all actions from the rule body
-      _extractActions(rule.body());
-
       final firstState = _getOrCreateState(rule);
       ruleFirst[rule] = [firstState];
 
@@ -144,24 +141,6 @@ class StateMachine {
         final state = _getOrCreateState(lst);
         state.actions.add(ReturnAction(rule));
       }
-    }
-  }
-
-  void _extractActions(Pattern pattern) {
-    if (pattern is Action) {
-      _extractActions(pattern.child);
-    } else if (pattern is Alt) {
-      _extractActions(pattern.left);
-      _extractActions(pattern.right);
-    } else if (pattern is Seq) {
-      _extractActions(pattern.left);
-      _extractActions(pattern.right);
-    } else if (pattern is Plus) {
-      _extractActions(pattern.child);
-    } else if (pattern is And) {
-      _extractActions(pattern.pattern);
-    } else if (pattern is Not) {
-      _extractActions(pattern.pattern);
     }
   }
 

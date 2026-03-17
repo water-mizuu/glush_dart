@@ -88,13 +88,13 @@ Future<ProcessParser> spawnProcessParser(
 
 /// Helper class for managing a parser isolate.
 class ProcessParser {
-  late final StreamSubscription<dynamic> _subscription;
+  late final StreamSubscription<Object?> _subscription;
   final Isolate _isolate;
   final SendPort _parserSendPort;
   final ReceivePort _initPort;
   final ReceivePort _onError;
   int _requestId = 0;
-  final Map<int, Completer<List<dynamic>>> _pendingRequests = {};
+  final Map<int, Completer<List<Object?>>> _pendingRequests = {};
 
   ProcessParser._(
     this._isolate,
@@ -108,18 +108,18 @@ class ProcessParser {
   /// Parses the given [input] string and returns the result.
   /// Returns a list: ["ok", result] on success, ["fail", errors] on parse failure,
   /// or ["error", message, stackTrace] on exception.
-  Future<List<dynamic>> parse(String input) async {
+  Future<List<Object?>> parse(String input) async {
     final responsePort = ReceivePort();
     final requestId = _requestId++;
 
-    final completer = Completer<List<dynamic>>();
+    final completer = Completer<List<Object?>>();
     _pendingRequests[requestId] = completer;
 
     // Listen for this specific response
     _subscription = responsePort.listen((response) {
       if (_pendingRequests.containsKey(requestId)) {
         final completer = _pendingRequests.remove(requestId)!;
-        if (response is List<dynamic>) {
+        if (response is List<Object?>) {
           String first = response[0] as String;
 
           if (first == "ok") {

@@ -6,16 +6,16 @@ void main() {
     final grammar = Grammar(() {
       late final Rule s;
       s = Rule('S', () {
-        return Eps() |
-            Token.char('s') | // s
+        return Token.char('s') | // s
             (s() >> s()) |
-            (s() >> s() >> s());
+            (s() >> s() >> s()) |
+            (s() >> s() >> s() >> s());
       });
       return s;
     });
 
     final parser = SMParser(grammar);
-    const testInput = 'ssss';
+    const testInput = 'sssss';
     final derivationCount = parser.countAllParses(testInput);
     final derivations = parser.enumerateAllParses(testInput).toList();
     final forestResult = parser.parseWithForest(testInput);

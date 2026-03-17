@@ -169,8 +169,10 @@ sealed class TokenChoice {
 /// Matches any token (wildcard)
 final class AnyToken extends TokenChoice {
   const AnyToken();
+
   @override
   bool matches(int? value) => value != null;
+
   @override
   String toString() => 'any';
 }
@@ -179,8 +181,10 @@ final class AnyToken extends TokenChoice {
 final class ExactToken extends TokenChoice {
   final int value;
   const ExactToken(this.value);
+
   @override
   bool matches(int? token) => token == value;
+
   @override
   String toString() => String.fromCharCode(value);
 }
@@ -190,8 +194,10 @@ final class RangeToken extends TokenChoice {
   final int start;
   final int end;
   const RangeToken(this.start, this.end);
+
   @override
   bool matches(int? token) => token != null && token >= start && token <= end;
+
   @override
   String toString() => '$start..$end';
 }
@@ -692,6 +698,7 @@ class Rule extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 

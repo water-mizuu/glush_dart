@@ -8,7 +8,13 @@
       "name": "glush_dart",
       "request": "launch",
       "type": "dart",
-      "program": "example/example.dart"
-    }
+      "program": "test/glush_test.dart"
+    },
+    {
+      "name": "debugrn",
+      "request": "launch",
+      "type": "dart",
+      "program": "test/gamma_three_test.dart",
+    },
   ]
 }
