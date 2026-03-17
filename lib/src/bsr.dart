@@ -9,7 +9,6 @@
 library glush.bsr;
 
 import 'package:glush/src/mark.dart';
-
 import 'patterns.dart';
 import 'sppf.dart';
 
@@ -46,60 +45,80 @@ extension _TrampolineExtensions<T> on _Trampoline<T> {
   }
 }
 
-/// A single rule-completion entry in the BSR.
-///
-/// Records that [rule] was successfully parsed over the input span
-/// [[leftExtent], [rightExtent]).
-typedef BsrEntry = (Pattern rule, int leftExtent, int rightExtent);
+/// Represents a grammar slot in a production: A ::= \alpha · \beta.
+class GrammarSlot {
+  final Rule rule;
+  final Pattern? pattern; // The pattern that was just matched (\alpha = \gamma pattern)
+
+  const GrammarSlot(this.rule, this.pattern);
+
+  @override
+  bool operator ==(Object other) =>
+      other is GrammarSlot && other.rule == rule && other.pattern == pattern;
+
+  @override
+  int get hashCode => Object.hash(rule, pattern);
+
+  @override
+  String toString() {
+    if (pattern == null) return '<${rule.name} ::= · ...>';
+    if (pattern == rule) return '<${rule.name} ::= ... ·>';
+    return '<${rule.name} ::= ... $pattern · ...>';
+  }
+}
+
+/// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
+typedef BsrEntry = (GrammarSlot slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  Pattern get rule => $1;
-  int get leftExtent => $2;
-  int get rightExtent => $3;
+  GrammarSlot get slot => $1;
+  int get start => $2;
+  int get pivot => $3;
+  int get end => $4;
 }
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
-///
-/// Can be queried to check which rules were proven to match which spans,
-/// and can construct an SPPF on demand restricted to proven spans.
 class BsrSet {
   final Set<BsrEntry> _entries = {};
 
-  /// Add a rule-completion entry.
-  void add(Pattern rule, int leftExtent, int rightExtent) {
-    _entries.add((rule, leftExtent, rightExtent));
+  // Indexing for efficient SPPF construction.
+  Map<(Rule, int, int), List<(int, Pattern?)>>? _index;
+  Map<(Rule, int, int), List<(int, Pattern?)>>? _leftIndex;
+
+  void _ensureIndex() {
+    if (_index != null) return;
+    final entriesBySpan = <(Rule, int, int), List<(int, Pattern?)>>{};
+    final entriesByStart = <(Rule, int, int), List<(int, Pattern?)>>{};
+
+    for (final entry in _entries) {
+      final key = (entry.slot.rule, entry.start, entry.end);
+      (entriesBySpan[key] ??= []).add((entry.pivot, entry.slot.pattern));
+
+      final startKey = (entry.slot.rule, entry.start, entry.pivot);
+      (entriesByStart[startKey] ??= []).add((entry.end, entry.slot.pattern));
+    }
+    _index = entriesBySpan;
+    _leftIndex = entriesByStart;
   }
 
-  /// Returns true if [rule] was proven to match [[left], [right]).
-  bool contains(Pattern rule, int left, int right) => _entries.contains((rule, left, right));
-
-  /// Returns all entries for the given rule.
-  Iterable<BsrEntry> entriesForRule(Rule rule) => _entries.where((e) => e.rule == rule);
-
-  /// Returns all entries matching a given span (any rule).
-  Iterable<BsrEntry> entriesForSpan(int left, int right) =>
-      _entries.where((e) => e.leftExtent == left && e.rightExtent == right);
+  /// Add a rule-completion entry.
+  void add(GrammarSlot slot, int start, int pivot, int end) {
+    _entries.add((slot, start, pivot, end));
+    _index = null;
+  }
 
   /// Total number of recorded rule-completion entries.
   int get length => _entries.length;
+  Iterable<BsrEntry> get allEntries => _entries;
 
-  /// Build an SPPF rooted at [startRule] over the full input of length
-  /// [inputLength], using only spans that are proven in this BSR set.
-  ///
-  /// Returns null if the start rule has no proven entry for [0, inputLength].
-  SymbolicNode? buildSppf(
-    Rule startRule,
-    String input,
-    ForestNodeManager nodeManager,
-  ) {
+  /// Build an SPPF rooted at [startRule] over the full input.
+  SymbolicNode? buildSppf(Rule startRule, String input, ForestNodeManager nodeManager) {
+    _ensureIndex();
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
     return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
   }
 
-  // ---------------------------------------------------------------------------
-  // Internal SPPF construction (BSR-guided grammar walk)
-  // ---------------------------------------------------------------------------
   _Trampoline<SymbolicNode?> _buildNode(
     Rule rule,
     String input,
@@ -109,36 +128,107 @@ class BsrSet {
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
   ) {
-    // Fast-fail: only build SPPF for spans the BSR proves are reachable.
-    if (!contains(rule, start, end)) return _Done(null);
-
     final key = '${rule.symbolId}:$start:$end';
+    if (_index![(rule, start, end)] == null) return _Done(null);
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
 
     inProgress[key] = true;
     final symNode = nodeManager.symbolic(start, end, rule);
 
-    return _More(() => _patternNodes(
-          rule.body(),
-          input,
-          start,
-          end,
-          nodeManager,
-          memo,
-          inProgress,
-          (childNodes) {
-            for (final child in childNodes) {
-              // Rule nodes now strictly point to 1 child (which may be an IntermediateNode handling the rest)
-              symNode.addFamily(Family([child]));
-            }
+    return _More(
+      () => _patternNodes(
+        rule.body(),
+        input,
+        start,
+        end,
+        nodeManager,
+        memo,
+        inProgress,
+        (childNodes) {
+          for (final child in childNodes) symNode.addFamily(Family([child]));
+          inProgress[key] = false;
+          final result = symNode.families.isNotEmpty ? symNode : null;
+          memo[key] = result;
+          return _Done(result);
+        },
+        rule,
+        start,
+      ),
+    );
+  }
 
-            inProgress[key] = false;
-            final result = symNode.families.isNotEmpty ? symNode : null;
-            memo[key] = result;
-            return _Done(result);
-          },
-        ));
+  _Trampoline<T> _buildNodeWith<T>(
+    Rule rule,
+    String input,
+    int start,
+    int end,
+    ForestNodeManager nodeManager,
+    Map<String, SymbolicNode?> memo,
+    Map<String, bool> inProgress,
+    _Trampoline<T> Function(SymbolicNode?) cont,
+  ) {
+    final key = '${rule.symbolId}:$start:$end';
+    if (_index![(rule, start, end)] == null) return cont(null);
+    if (memo.containsKey(key)) return cont(memo[key]);
+    if (inProgress[key] == true) return cont(null);
+
+    inProgress[key] = true;
+    final symNode = nodeManager.symbolic(start, end, rule);
+
+    return _More(
+      () => _patternNodes(
+        rule.body(),
+        input,
+        start,
+        end,
+        nodeManager,
+        memo,
+        inProgress,
+        (childNodes) {
+          for (final child in childNodes) symNode.addFamily(Family([child]));
+          inProgress[key] = false;
+          final result = symNode.families.isNotEmpty ? symNode : null;
+          memo[key] = result;
+          return cont(result);
+        },
+        rule,
+        start,
+      ),
+    );
+  }
+
+  Set<int> _pivotsFor(Rule rule, int ruleStart, int currentEnd, Pattern lastPattern) {
+    if (_index == null) _ensureIndex();
+    final entries = _index![(rule, ruleStart, currentEnd)];
+    if (entries == null) return const {};
+    final result = <int>{};
+    for (final (pivot, slotPat) in entries) {
+      if (_slotPatternMatches(slotPat, lastPattern)) result.add(pivot);
+    }
+    return result;
+  }
+
+  Set<int> _pivotsFromLeft(Rule rule, int ruleStart, int pivot, Pattern firstPattern) {
+    if (_leftIndex == null) _ensureIndex();
+    final entries = _leftIndex![(rule, ruleStart, pivot)];
+    if (entries == null) return const {};
+    final result = <int>{};
+    for (final (end, slotPat) in entries) {
+      if (_slotPatternMatches(slotPat, firstPattern)) result.add(end);
+    }
+    return result;
+  }
+
+  static bool _slotPatternMatches(Pattern? recorded, Pattern? query) {
+    if (recorded == query) return true;
+    if (recorded == null || query == null) return false;
+    if (recorded.symbolId != null && recorded.symbolId == query.symbolId) return true;
+    if (query is RuleCall) return _slotPatternMatches(recorded, query.rule);
+    if (query is Call) return _slotPatternMatches(recorded, query.rule);
+    if (query is Action) return _slotPatternMatches(recorded, query.child);
+    if (query is PrecedenceLabeledPattern) return _slotPatternMatches(recorded, query.pattern);
+    return false;
   }
 
   _Trampoline<T> _patternNodes<T>(
@@ -150,6 +240,8 @@ class BsrSet {
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
     _Trampoline<T> Function(List<ForestNode>) continuation,
+    Rule currentRule,
+    int ruleStart,
   ) {
     switch (pattern) {
       case Token():
@@ -162,234 +254,327 @@ class BsrSet {
       case Eps():
         return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
       case Alt():
-        return _More(() => _patternNodes(
+        return _More(
+          () => _patternNodes(
+            pattern.left,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (left) => _More(
+              () => _patternNodes(
+                pattern.right,
+                input,
+                start,
+                end,
+                nodeManager,
+                memo,
+                inProgress,
+                (right) => continuation([...left, ...right]),
+                currentRule,
+                ruleStart,
+              ),
+            ),
+            currentRule,
+            ruleStart,
+          ),
+        );
+      case Seq():
+        IntermediateNode? seqNode;
+        final rightPivots = _pivotsFor(currentRule, ruleStart, end, pattern.right);
+        final leftPivots = _pivotsFromLeft(currentRule, ruleStart, start, pattern.left);
+
+        // Final optimization: use BSR pivots if available to achieve O(1) splits.
+        // Fallback to guarded exhaustive search ONLY if BSR indicates a match exists.
+        final Iterable<int> splitPoints;
+        if (rightPivots.isNotEmpty || leftPivots.isNotEmpty) {
+          splitPoints = {...rightPivots, ...leftPivots};
+        } else if (_index![(currentRule, ruleStart, end)] != null) {
+          splitPoints = {for (var i = start; i <= end; i++) i};
+        } else {
+          return continuation([]);
+        }
+
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
               pattern.left,
               input,
               start,
-              end,
+              mid,
               nodeManager,
               memo,
               inProgress,
-              (leftNodes) => _More(() => _patternNodes(
+              (leftNodes) {
+                if (leftNodes.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
                     pattern.right,
                     input,
-                    start,
+                    mid,
                     end,
                     nodeManager,
                     memo,
                     inProgress,
-                    (rightNodes) => continuation([...leftNodes, ...rightNodes]),
-                  )),
-            ));
-      case Seq():
-        IntermediateNode? seqNode;
-
-        _Trampoline<T> loop(int mid) {
-          if (mid > end) return continuation(seqNode != null ? [seqNode!] : []);
-
-          return _More(() => _patternNodes(
-                pattern.left,
-                input,
-                start,
-                mid,
-                nodeManager,
-                memo,
-                inProgress,
-                (leftNodes) {
-                  if (leftNodes.isEmpty) return _More(() => loop(mid + 1));
-
-                  return _More(() => _patternNodes(
-                        pattern.right,
-                        input,
-                        mid,
-                        end,
-                        nodeManager,
-                        memo,
-                        inProgress,
-                        (rightNodes) {
-                          if (rightNodes.isNotEmpty) {
-                            // Hoisted intermediate creation: strictly packed and binarised
-                            seqNode ??= nodeManager.intermediate(start, end, pattern, 'Seq');
-                            for (final l in leftNodes) {
-                              for (final r in rightNodes) {
-                                seqNode!.addFamily(Family([l, r]));
-                              }
-                            }
-                          }
-                          return _More(() => loop(mid + 1));
-                        },
-                      ));
-                },
-              ));
+                    (rightNodes) {
+                      if (rightNodes.isNotEmpty) {
+                        seqNode ??= nodeManager.intermediate(start, end, pattern, 'Seq');
+                        for (final l in leftNodes)
+                          for (final r in rightNodes) seqNode!.addFamily(Family([l, r]));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    currentRule,
+                    ruleStart,
+                  ),
+                );
+              },
+              currentRule,
+              ruleStart,
+            ),
+          );
         }
-
-        return _More(() => loop(start));
-      case Conj():
-        if (start + 1 == end &&
-            pattern.left.match(input.codeUnitAt(start)) &&
-            pattern.right.match(input.codeUnitAt(start))) {
-          final termNode = nodeManager.terminal(start, end, pattern, input.codeUnitAt(start));
-          return continuation([termNode]);
-        }
-        return continuation([]);
+        return _More(() => loop(splitPoints.iterator));
       case Plus():
         IntermediateNode? plusNode;
+        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
+        final Iterable<int> splitPoints;
+        if (pivots.isNotEmpty) {
+          splitPoints = pivots;
+        } else if (_index![(currentRule, ruleStart, end)] != null) {
+          splitPoints = {for (var i = start + 1; i <= end; i++) i};
+        } else {
+          splitPoints = const <int>{};
+        }
 
-        _Trampoline<T> loop(int mid) {
-          if (mid > end) {
-            return _More(() => _patternNodes(
-                  pattern.child,
-                  input,
-                  start,
-                  end,
-                  nodeManager,
-                  memo,
-                  inProgress,
-                  (singleNodes) {
-                    if (singleNodes.isNotEmpty) {
-                      plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
-                      for (final s in singleNodes) {
-                        plusNode!.addFamily(Family([s]));
-                      }
-                    }
-                    return continuation(plusNode != null ? [plusNode!] : []);
-                  },
-                ));
-          }
-
-          return _More(() => _patternNodes(
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) {
+            return _More(
+              () => _patternNodes(
                 pattern.child,
                 input,
                 start,
-                mid,
+                end,
                 nodeManager,
                 memo,
                 inProgress,
-                (headNodes) {
-                  if (headNodes.isEmpty) return _More(() => loop(mid + 1));
-
-                  return _More(() => _patternNodes(
-                        pattern,
-                        input,
-                        mid,
-                        end,
-                        nodeManager,
-                        memo,
-                        inProgress,
-                        (tailNodes) {
-                          if (tailNodes.isNotEmpty) {
-                            plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
-                            for (final h in headNodes) {
-                              for (final t in tailNodes) {
-                                plusNode!.addFamily(Family([h, t]));
-                              }
-                            }
-                          }
-                          return _More(() => loop(mid + 1));
-                        },
-                      ));
+                (nodes) {
+                  if (nodes.isNotEmpty) {
+                    plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                    for (final n in nodes) plusNode!.addFamily(Family([n]));
+                  }
+                  return continuation(plusNode != null ? [plusNode!] : []);
                 },
-              ));
+                currentRule,
+                ruleStart,
+              ),
+            );
+          }
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
+              pattern.child,
+              input,
+              start,
+              mid,
+              nodeManager,
+              memo,
+              inProgress,
+              (head) {
+                if (head.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
+                    pattern,
+                    input,
+                    mid,
+                    end,
+                    nodeManager,
+                    memo,
+                    inProgress,
+                    (tail) {
+                      if (tail.isNotEmpty) {
+                        plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                        for (final h in head)
+                          for (final t in tail) plusNode!.addFamily(Family([h, t]));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    currentRule,
+                    ruleStart,
+                  ),
+                );
+              },
+              currentRule,
+              ruleStart,
+            ),
+          );
         }
-
-        return _More(() => loop(start + 1));
+        return _More(() => loop(splitPoints.iterator));
       case Star():
         IntermediateNode? starNode;
+        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
+        final Iterable<int> splitPoints;
+        if (pivots.isNotEmpty) {
+          splitPoints = pivots;
+        } else if (_index![(currentRule, ruleStart, end)] != null) {
+          splitPoints = {for (var i = start + 1; i <= end; i++) i};
+        } else {
+          splitPoints = const <int>{};
+        }
 
-        _Trampoline<T> loop(int mid) {
-          if (mid > end) {
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) {
             if (start == end) {
               starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
               starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
             }
             return continuation(starNode != null ? [starNode!] : []);
           }
-
-          return _More(() => _patternNodes(
-                pattern.child,
-                input,
-                start,
-                mid,
-                nodeManager,
-                memo,
-                inProgress,
-                (headNodes) {
-                  if (headNodes.isEmpty) return _More(() => loop(mid + 1));
-
-                  return _More(() => _patternNodes(
-                        pattern,
-                        input,
-                        mid,
-                        end,
-                        nodeManager,
-                        memo,
-                        inProgress,
-                        (tailNodes) {
-                          if (tailNodes.isNotEmpty) {
-                            starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
-                            for (final h in headNodes) {
-                              for (final t in tailNodes) {
-                                starNode!.addFamily(Family([h, t]));
-                              }
-                            }
-                          }
-                          return _More(() => loop(mid + 1));
-                        },
-                      ));
-                },
-              ));
-        }
-
-        return _More(() => loop(start + 1));
-      case And() || Not():
-        if (start == end) {
-          return continuation([nodeManager.epsilon(start, pattern)]);
-        }
-        return continuation([]);
-      case Rule():
-        return _More(() => _patternNodes(
-              pattern.body(),
-              input,
-              start,
-              end,
-              nodeManager,
-              memo,
-              inProgress,
-              continuation,
-            ));
-      case RuleCall(:var rule) || Call(:var rule):
-        return _More(() => _buildNode(rule, input, start, end, nodeManager, memo, inProgress)
-            .then((child) => continuation(child != null ? [child] : [])));
-      case Action<dynamic>():
-        return _More(() => _patternNodes(
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
               pattern.child,
               input,
               start,
-              end,
+              mid,
               nodeManager,
               memo,
               inProgress,
-              (childNodes) {
-                if (childNodes.isEmpty) return continuation([]);
-
-                final node = nodeManager.intermediate(start, end, pattern, 'Action<T>');
-                for (final child in childNodes) {
-                  node.addFamily(Family([child]));
-                }
-                return continuation([node]);
+              (head) {
+                if (head.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
+                    pattern,
+                    input,
+                    mid,
+                    end,
+                    nodeManager,
+                    memo,
+                    inProgress,
+                    (tail) {
+                      if (tail.isNotEmpty) {
+                        starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+                        for (final h in head)
+                          for (final t in tail) starNode!.addFamily(Family([h, t]));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    currentRule,
+                    ruleStart,
+                  ),
+                );
               },
-            ));
+              currentRule,
+              ruleStart,
+            ),
+          );
+        }
+        return _More(() => loop(splitPoints.iterator));
+      case Conj():
+        return _More(
+          () => _patternNodes(
+            pattern.left,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (left) {
+              if (left.isEmpty) return continuation([]);
+              return _More(
+                () => _patternNodes(
+                  pattern.right,
+                  input,
+                  start,
+                  end,
+                  nodeManager,
+                  memo,
+                  inProgress,
+                  (right) {
+                    if (right.isEmpty) return continuation([]);
+                    final node = nodeManager.intermediate(start, end, pattern, 'Conj');
+                    for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
+                    return continuation([node]);
+                  },
+                  currentRule,
+                  ruleStart,
+                ),
+              );
+            },
+            currentRule,
+            ruleStart,
+          ),
+        );
+      case Rule():
+        return _More(
+          () => _patternNodes(
+            pattern.body(),
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            continuation,
+            pattern,
+            ruleStart,
+          ),
+        );
+      case RuleCall(:var rule) || Call(:var rule):
+        return _More(
+          () => _buildNodeWith(
+            rule,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (node) => continuation(node != null ? [node] : []),
+          ),
+        );
+      case Action<dynamic>():
+        return _More(
+          () => _patternNodes(
+            pattern.child,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (nodes) {
+              if (nodes.isEmpty) return continuation([]);
+              final node = nodeManager.intermediate(start, end, pattern, 'Action');
+              for (final n in nodes) node.addFamily(Family([n]));
+              return continuation([node]);
+            },
+            currentRule,
+            ruleStart,
+          ),
+        );
       case PrecedenceLabeledPattern():
-        return _More(() => _patternNodes(
-              pattern.pattern,
-              input,
-              start,
-              end,
-              nodeManager,
-              memo,
-              inProgress,
-              continuation,
-            ));
+        return _More(
+          () => _patternNodes(
+            pattern.pattern,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            continuation,
+            currentRule,
+            ruleStart,
+          ),
+        );
+      case And() || Not():
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
     }
   }
 
@@ -397,30 +582,15 @@ class BsrSet {
   String toString() => 'BsrSet(${_entries.length} entries)';
 }
 
-// ---------------------------------------------------------------------------
-// Parse outcome types for BSR-based parsing
-// ---------------------------------------------------------------------------
-
-/// Sealed result type for [SMParser.parseToBsr].
 sealed class BsrParseOutcome {}
 
-/// Returned when BSR parsing fails.
 final class BsrParseError implements BsrParseOutcome, Exception {
   final int position;
-
   const BsrParseError(this.position);
-
-  @override
-  String toString() => 'BsrParseError at position $position';
 }
 
-/// Returned when BSR parsing succeeds. Contains the [BsrSet] of proven spans.
 final class BsrParseSuccess implements BsrParseOutcome {
   final BsrSet bsrSet;
   final List<Mark> marks;
-
   const BsrParseSuccess(this.bsrSet, this.marks);
-
-  @override
-  String toString() => 'BsrParseSuccess($bsrSet)';
 }

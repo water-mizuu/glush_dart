@@ -17,13 +17,50 @@ void main() {
       });
 
       final parser = SMParser(grammar);
-
+      double previous = 1;
       for (int count = 20; count <= 1000; count += 20) {
         Stopwatch watch = Stopwatch()..start();
         final input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
+        expect(parser.parseWithForest(input), isNotNull);
         watch..stop();
+        print(
+          "Finished $count in ${watch.elapsedMicroseconds}us "
+          "(${watch.elapsedMicroseconds / previous}x)",
+        );
+        previous = watch.elapsedMicroseconds.toDouble();
+      }
+    });
+
+    test('parses right left grammars correctly', () {
+      final grammar = Grammar(() {
+        late final Rule S;
+        S = Rule(
+          'S',
+          () =>
+              Pattern.char('s') | //
+              S.call() >> Pattern.char("+") >> Pattern.char('s'),
+        );
+
+        return S.call();
+      });
+
+      final parser = SMParser(grammar);
+
+      double previous = 1;
+      for (int count = 20; count <= 1000; count += 20) {
+        Stopwatch watch = Stopwatch()..start();
+        final input = "s+" * count + "s";
+
+        expect(parser.parse(input), isNotNull);
+        expect(parser.parseWithForest(input), isNotNull);
+        watch..stop();
+        print(
+          "Finished $count in ${watch.elapsedMicroseconds}us "
+          "(${watch.elapsedMicroseconds / previous}x)",
+        );
+        previous = watch.elapsedMicroseconds.toDouble();
       }
     });
 

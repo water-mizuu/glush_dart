@@ -77,10 +77,10 @@ class ParserResult {
   }
 
   List<List<Object?>> toList() => _rawMarks.map((m) {
-        if (m is NamedMark) return m.toList();
-        if (m is StringMark) return m.toList();
-        return [];
-      }).toList();
+    if (m is NamedMark) return m.toList();
+    if (m is StringMark) return m.toList();
+    return [];
+  }).toList();
 }
 
 /// Represents a single parse tree derivation
@@ -235,13 +235,12 @@ class PredicateLookaheadBuffer {
 
 class SMParser {
   final StateMachine stateMachine;
-  final GrammarInterface grammar;
   late final List<Frame> _initialFrames;
   late PredicateLookaheadBuffer _predicateBuffer;
 
-  SMParser(GrammarInterface grammar)
-      : stateMachine = StateMachine(grammar),
-        grammar = grammar {
+  GrammarInterface get grammar => stateMachine.grammar;
+
+  SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
     const initialContext = Context(RootCallerKey(), null);
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -434,13 +433,7 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(
-        codepoint,
-        position,
-        frames,
-        input: input,
-        bsr: bsr,
-      );
+      final stepResult = _processToken(codepoint, position, frames, input: input, bsr: bsr);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -496,7 +489,8 @@ class SMParser {
 
   /// Convert a [ParseTree] (forest representation) to a [ParseDerivation] (enumeration representation).
   static ParseDerivation parseTreeToDerivation(ParseTree tree, String input) {
-    final childDerivations = tree.children //
+    final childDerivations = tree
+        .children //
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
 
@@ -508,8 +502,14 @@ class SMParser {
     );
   }
 
-  int _countDerivations(Rule rule, String input, int start, int end, Map<String, int> memo,
-      Map<String, bool> inProgress) {
+  int _countDerivations(
+    Rule rule,
+    String input,
+    int start,
+    int end,
+    Map<String, int> memo,
+    Map<String, bool> inProgress,
+  ) {
     final key = '${rule.name}:$start:$end';
 
     if (memo.containsKey(key)) {
@@ -540,8 +540,14 @@ class SMParser {
     return totalCount;
   }
 
-  int _countAlternatives(Pattern pattern, String input, int start, int end, Map<String, int> memo,
-      Map<String, bool> inProgress) {
+  int _countAlternatives(
+    Pattern pattern,
+    String input,
+    int start,
+    int end,
+    Map<String, int> memo,
+    Map<String, bool> inProgress,
+  ) {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
         return 1;
@@ -621,7 +627,9 @@ class SMParser {
     if (pattern is And || pattern is Not) {
       if (start == end &&
           _checkPredicatePattern(
-                  pattern is And ? pattern.pattern : (pattern as Not).pattern, start) ==
+                pattern is And ? pattern.pattern : (pattern as Not).pattern,
+                start,
+              ) ==
               (pattern is And)) {
         return 1;
       }
@@ -632,8 +640,14 @@ class SMParser {
   }
 
   // Count zero or more matches of a pattern
-  int _countStar(Pattern pattern, String input, int start, int end, Map<String, int> memo,
-      Map<String, bool> inProgress) {
+  int _countStar(
+    Pattern pattern,
+    String input,
+    int start,
+    int end,
+    Map<String, int> memo,
+    Map<String, bool> inProgress,
+  ) {
     if (start == end) {
       return 1; // Zero matches
     }
@@ -730,12 +744,24 @@ class SMParser {
     if (pattern is Seq) {
       // CFG sequence: enumerate ALL splits where both left and right match
       for (int mid = start; mid <= end; mid++) {
-        final leftList =
-            _enumerateAlternatives(pattern.left, input, start, mid, memo, inProgress).toList();
+        final leftList = _enumerateAlternatives(
+          pattern.left,
+          input,
+          start,
+          mid,
+          memo,
+          inProgress,
+        ).toList();
         if (leftList.isEmpty) continue;
 
-        final rightList =
-            _enumerateAlternatives(pattern.right, input, mid, end, memo, inProgress).toList();
+        final rightList = _enumerateAlternatives(
+          pattern.right,
+          input,
+          mid,
+          end,
+          memo,
+          inProgress,
+        ).toList();
         if (rightList.isEmpty) continue;
 
         for (final left in leftList) {
@@ -749,12 +775,25 @@ class SMParser {
 
     if (pattern is Plus) {
       for (int mid = start + 1; mid <= end; mid++) {
-        final childList =
-            _enumerateAlternatives(pattern.child, input, start, mid, memo, inProgress).toList();
+        final childList = _enumerateAlternatives(
+          pattern.child,
+          input,
+          start,
+          mid,
+          memo,
+          inProgress,
+        ).toList();
         if (childList.isEmpty) continue;
         for (final child in childList) {
           for (final star in _enumerateStar(
-              pattern.child, input, mid, end, '${pattern.child}*', memo, inProgress)) {
+            pattern.child,
+            input,
+            mid,
+            end,
+            '${pattern.child}*',
+            memo,
+            inProgress,
+          )) {
             // Only yield if plus covers the full requested span
             if (star.end == end) {
               yield ParseDerivation(pattern.symbolId!, start, end, [child, star]);
@@ -776,8 +815,14 @@ class SMParser {
     }
 
     if (pattern is Action) {
-      for (final child
-          in _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress)) {
+      for (final child in _enumerateAlternatives(
+        pattern.child,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+      )) {
         yield ParseDerivation(pattern.symbolId!, start, end, [child]);
       }
       // yield* _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress);
@@ -838,8 +883,14 @@ class SMParser {
 
     // PEG greedy matching: try longest match first
     for (int mid = end; mid > start; mid--) {
-      final childList =
-          _enumerateAlternatives(pattern, input, start, mid, memo, inProgress).toList();
+      final childList = _enumerateAlternatives(
+        pattern,
+        input,
+        start,
+        mid,
+        memo,
+        inProgress,
+      ).toList();
       if (childList.isNotEmpty) {
         for (final child in childList) {
           for (final star in _enumerateStar(pattern, input, mid, end, symbol, memo, inProgress)) {
@@ -857,19 +908,13 @@ class SMParser {
   }
 
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
-  Object? evaluateParseDerivation(
-    ParseDerivation derivation,
-    String input,
-  ) {
+  Object? evaluateParseDerivation(ParseDerivation derivation, String input) {
     return _evaluateParseDerivation(derivation, input);
   }
 
   /// Directly evaluate a [ParseTree] extracted from the forest.
   Object? evaluateParseTree(ParseTree tree, String input) {
-    return _evaluateParseDerivation(
-      parseTreeToDerivation(tree, input),
-      input,
-    );
+    return _evaluateParseDerivation(parseTreeToDerivation(tree, input), input);
   }
 
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
@@ -1226,22 +1271,26 @@ final class RootCallerKey extends CallerKey {
 
 /// Caller tracking for rule returns
 final class Caller extends CallerKey {
+  final Rule rule;
+
   /// Key is a (caller, nextState) pair encoded as a two-element list.
-  final Map<(CallerKey, State), List<GlushList<Mark>?>> _grouped = {};
+  final Map<(CallerKey, State), List<Context>> _grouped = {};
 
   /// The input position at which the associated rule was invoked.
   /// Set once at CallAction time; used by ReturnAction to record BSR entries.
   int? callStart;
 
+  Caller(this.rule);
+
   void addReturn(Context context, State nextState) {
     final key = (context.caller, nextState);
-    _grouped.putIfAbsent(key, () => []).add(context.marks);
+    _grouped.putIfAbsent(key, () => []).add(context);
   }
 
-  void forEach(void Function(CallerKey, State, GlushList<Mark>?) callback) {
-    for (final MapEntry(key: (caller, nextState), value: marks) in _grouped.entries) {
-      for (final mark in marks) {
-        callback(caller, nextState, mark);
+  void forEach(void Function(CallerKey, State, Context) callback) {
+    for (final MapEntry(key: (caller, nextState), value: contexts) in _grouped.entries) {
+      for (final context in contexts) {
+        callback(caller, nextState, context);
       }
     }
   }
@@ -1256,11 +1305,15 @@ class Context {
   /// was invoked.  Used to record BSR rule-completion entries.
   final int? callStart;
 
+  /// The input position where the last matched symbol started.
+  /// Used for midPoint in BSR nodes.
+  final int? pivot;
+
   /// The computed semantic value at this point in parsing.
   /// Updated as semantic actions are evaluated during parsing.
   final Object? semanticValue;
 
-  const Context(this.caller, this.marks, [this.callStart, this.semanticValue]);
+  const Context(this.caller, this.marks, [this.callStart, this.pivot, this.semanticValue]);
 }
 
 /// Frame for managing parsing states
@@ -1366,6 +1419,7 @@ class Step {
             frame.caller,
             frame.marks,
             frame.context.callStart,
+            frame.context.pivot,
             computedValue,
           );
           final nextFrame = _createLocalFrame(semanticCtx);
@@ -1379,7 +1433,21 @@ class Step {
               final strMark = StringMark(String.fromCharCode(token), position);
               newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
             }
-            final nextFrame = Frame(Context(frame.caller, newMarks));
+
+            final bsrSet = bsr;
+            if (bsrSet != null && frame.caller is Caller) {
+              final rule = (frame.caller as Caller).rule;
+              bsrSet.add(
+                GrammarSlot(rule, action.pattern),
+                frame.context.callStart!,
+                position, // Use current position as pivot for this token
+                position + 1,
+              );
+            }
+
+            final nextFrame = Frame(
+              Context(frame.caller, newMarks, frame.context.callStart, position + 1),
+            );
             nextFrame.nextStates.add(action.nextState);
             nextFrames.add(nextFrame);
             // TokenAction does NOT enqueue - it defers to next token step
@@ -1389,6 +1457,8 @@ class Step {
           final markCtx = Context(
             frame.caller,
             (frame.marks ?? const GlushList.empty()).add(mark),
+            frame.context.callStart,
+            frame.context.pivot,
           );
           // Create local frame that will be conditionally added to nextFrames
           final markFrame = _createLocalFrame(markCtx);
@@ -1413,7 +1483,7 @@ class Step {
         case CallAction():
           final rule = action.rule;
           final isExecuted = _callers.containsKey(rule);
-          final caller = _callers.putIfAbsent(rule, Caller.new);
+          final caller = _callers.putIfAbsent(rule, () => Caller(rule));
 
           caller.addReturn(frame.context, action.returnState);
           if (!isExecuted) {
@@ -1437,12 +1507,19 @@ class Step {
           // Record BSR rule-completion entry BEFORE the ambiguity guard,
           // so every distinct (rule, callStart, position) span is captured.
           // The _returnedCallers guard below is only for parsing-state correctness.
-          final callStart = frame.context.callStart ??
-              (frame.caller is Caller //
+          final callStart =
+              frame.context.callStart ??
+              (frame.caller
+                      is Caller //
                   ? (frame.caller as Caller).callStart
                   : null);
-          if ((bsr, callStart) case (var bsr?, var callStart?)) {
-            bsr.add(rule, callStart, position);
+          final lastPivot = frame.context.pivot;
+          if ((bsr, callStart, lastPivot ?? callStart) case (
+            var bsr?,
+            var callStart?,
+            var pivot?,
+          )) {
+            bsr.add(GrammarSlot(rule, rule), callStart, pivot, position);
           }
 
           final caller = frame.caller;
@@ -1452,13 +1529,29 @@ class Step {
           if (!shouldProcess) continue;
 
           if (caller is Caller) {
-            caller.forEach((ccaller, nextState, marks) {
-              final nextMarks = marks == null
+            caller.forEach((ccaller, nextState, ccontext) {
+              final nextMarks = ccontext.marks == null
                   ? frame.marks
-                  : GlushList.branched<Mark>([marks])
-                      .addList(frame.marks ?? const GlushList.empty());
+                  : GlushList.branched<Mark>([
+                      ccontext.marks!,
+                    ]).addList(frame.marks ?? const GlushList.empty());
 
-              final nextContext = Context(ccaller, nextMarks);
+              final bsrSet = bsr;
+              if (bsrSet != null && ccaller is Caller) {
+                final rule = ccaller.rule;
+                // BSR(A ::= \alpha B · \beta, i, k, j)
+                // i = ccontext.callStart
+                // k = caller.callStart (where the sub-rule B started)
+                // j = position
+                bsrSet.add(
+                  GrammarSlot(rule, action.rule),
+                  ccontext.callStart!,
+                  caller.callStart!,
+                  position,
+                );
+              }
+
+              final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
               // Create local frame that will be conditionally added to nextFrames
               final nextFrame = _createLocalFrame(nextContext);
               // Enqueue instead of _withFrame callback
