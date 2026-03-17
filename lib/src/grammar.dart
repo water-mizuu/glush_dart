@@ -117,10 +117,6 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
       case Conj conj:
         _collectPatternsFromPattern(conj.left, patterns);
         _collectPatternsFromPattern(conj.right, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case And and:
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
@@ -129,7 +125,7 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
         _collectPatternsFromPattern(plp.pattern, patterns);
-      default:
+      case _:
         // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
         break;
     }
@@ -193,19 +189,7 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
     return Token(RangeToken(range.start, range.end));
   }
 
-  Pattern inv(Pattern pattern) => pattern.invert();
-
   Eps eps() => Eps();
-
-  Marker mark(String name) => Marker(name);
-
-  Alt sepBy(Pattern p, Pattern sep) => sepBy1(p, sep).maybe();
-
-  Seq sepBy1(Pattern p, Pattern sep) => p >> (sep >> p).star();
-
-  Alt endBy(Pattern p, Pattern sep) => endBy1(p, sep).maybe();
-
-  Plus endBy1(Pattern p, Pattern sep) => (p >> sep).plus();
 
   Rule defRule(String name, Pattern Function() builder) {
     final rule = Rule(name, builder);

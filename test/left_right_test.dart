@@ -1,6 +1,4 @@
 import 'package:glush/glush.dart';
-import 'package:glush/src/bsr.dart';
-import 'package:glush/src/sppf.dart';
 
 void main() {
   print("=== RIGHT RECURSIVE ===");
@@ -13,12 +11,13 @@ void testGrammar(bool leftRecursive) {
   late Rule S;
   final g = Grammar(() {
     S = Rule(
-        'S',
-        () =>
-            Pattern.char('s') |
-            (leftRecursive
-                ? (S.call() >> Pattern.char('+') >> Pattern.char('s'))
-                : (Pattern.char('s') >> Pattern.char('+') >> S.call())));
+      'S',
+      () =>
+          Pattern.char('s') |
+          (leftRecursive
+              ? (S.call() >> Pattern.char('+') >> Pattern.char('s'))
+              : (Pattern.char('s') >> Pattern.char('+') >> S.call())),
+    );
     return S.call();
   });
 
@@ -42,7 +41,8 @@ void testGrammar(bool leftRecursive) {
       if (root != null) {
         final forest = ParseForest(nm, root, bsrResult.marks);
         print(
-            "n=$n: SUCCESS, nodes: ${forest.countNodes()}, parse: ${parseTime}ms, build: ${buildTime}ms");
+          "n=$n: SUCCESS, nodes: ${forest.countNodes()}, parse: ${parseTime}ms, build: ${buildTime}ms",
+        );
       } else {
         print("n=$n: FAILED (root is null)");
       }

@@ -2,7 +2,6 @@
 library glush.state_machine;
 
 import 'patterns.dart';
-import 'errors.dart';
 
 // Grammar interface to avoid circular import
 abstract class GrammarInterface {
@@ -73,11 +72,7 @@ class PredicateAction implements StateAction {
   // Next state after successful predicate check
   final State nextState;
 
-  const PredicateAction({
-    required this.isAnd,
-    required this.pattern,
-    required this.nextState,
-  });
+  const PredicateAction({required this.isAnd, required this.pattern, required this.nextState});
 
   @override
   String toString() => isAnd ? 'Predicate(&${pattern})' : 'Predicate(!${pattern})';
@@ -105,10 +100,6 @@ class StateMachine {
   final Map<Object, State> _stateMapping = {};
 
   StateMachine(this.grammar) {
-    _buildStateMachine();
-  }
-
-  void _buildStateMachine() {
     final initState = _getOrCreateState(':init');
     _connect(initState, grammar.startCall);
 
@@ -148,54 +139,51 @@ class StateMachine {
   }
 
   State _getOrCreateState(Object pattern) {
-    if (pattern is String) {
-      return _stateMapping.putIfAbsent(
-        pattern,
-        () => State(_stateMapping.length),
-      );
-    }
-    return _stateMapping.putIfAbsent(
-      pattern,
-      () => State(_stateMapping.length),
-    );
+    return _stateMapping.putIfAbsent(pattern, () => State(_stateMapping.length));
   }
 
   void _connect(State state, Pattern terminal) {
-    if (terminal is Action) {
-      // Create a SemanticAction state machine action with the callback
-      final nextState = _getOrCreateState(terminal);
-      final action = SemanticAction(terminal.callback, nextState, terminal.child);
-      state.actions.add(action);
-      // Connect the semantic action's next state to the child pattern
-      _connect(nextState, terminal.child);
-    } else if (terminal is RuleCall) {
-      final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, terminal, returnState);
-      state.actions.add(action);
-    } else if (terminal is Call) {
-      final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, terminal, returnState);
-      state.actions.add(action);
-    } else if (terminal is And) {
-      // Positive lookahead: create predicate action
-      final nextState = _getOrCreateState(terminal);
-      final action = PredicateAction(isAnd: true, pattern: terminal.pattern, nextState: nextState);
-      state.actions.add(action);
-    } else if (terminal is Not) {
-      // Negative lookahead: create predicate action
-      final nextState = _getOrCreateState(terminal);
-      final action = PredicateAction(isAnd: false, pattern: terminal.pattern, nextState: nextState);
-      state.actions.add(action);
-    } else if (terminal is Token || terminal is Conj) {
-      final nextState = _getOrCreateState(terminal);
-      final action = TokenAction(terminal, nextState);
-      state.actions.add(action);
-    } else if (terminal is Marker) {
-      final nextState = _getOrCreateState(terminal);
-      final action = MarkAction(terminal.name, terminal, nextState);
-      state.actions.add(action);
-    } else {
-      throw GrammarError('Unknown terminal: ${terminal.runtimeType}');
+    switch (terminal) {
+      case Token() || Conj():
+        final nextState = _getOrCreateState(terminal);
+        final action = TokenAction(terminal, nextState);
+        state.actions.add(action);
+      case Marker():
+        final nextState = _getOrCreateState(terminal);
+        final action = MarkAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
+      case And():
+        // Positive lookahead: create predicate action
+        final nextState = _getOrCreateState(terminal);
+        final action = PredicateAction(
+          isAnd: true,
+          pattern: terminal.pattern,
+          nextState: nextState,
+        );
+        state.actions.add(action);
+      case Not():
+        // Negative lookahead: create predicate action
+        final nextState = _getOrCreateState(terminal);
+        final action = PredicateAction(
+          isAnd: false,
+          pattern: terminal.pattern,
+          nextState: nextState,
+        );
+        state.actions.add(action);
+      case RuleCall(:var rule) || Call(:var rule):
+        final returnState = _getOrCreateState(terminal);
+        final action = CallAction(rule, terminal, returnState);
+        state.actions.add(action);
+      case Action<dynamic>():
+        // Create a SemanticAction state machine action with the callback
+        final nextState = _getOrCreateState(terminal);
+        final action = SemanticAction(terminal.callback, nextState, terminal.child);
+        state.actions.add(action);
+        // Connect the semantic action's next state to the child pattern
+        _connect(nextState, terminal.child);
+      case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || PrecedenceLabeledPattern():
+        // TODO: Handle this case.
+        throw UnimplementedError();
     }
   }
 

@@ -45,8 +45,6 @@ void main() {
 
     test('repetition works', () {
       final token = Token(ExactToken(97));
-      expect(token.plus(), isA<Plus>());
-      expect(token.star(), isA<Star>());
       expect(token.maybe(), isA<Alt>());
     });
   });
@@ -394,6 +392,8 @@ void main() {
             .toSet();
 
         final trees = forestResult.forest.extract().toList();
+        expect(enumerations, equals(forestExtracted));
+        expect(forestExtracted, equals(enumerations));
         expect(enumerations.difference(forestExtracted), equals(<String>{}));
         expect(forestExtracted.difference(enumerations), equals(<String>{}));
         // Both enumeration and forest extraction should find the same number

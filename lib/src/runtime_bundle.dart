@@ -1197,10 +1197,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       case Conj conj:
         _collectPatternsFromPattern(conj.left, patterns);
         _collectPatternsFromPattern(conj.right, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case And and:
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
@@ -1209,7 +1205,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
         _collectPatternsFromPattern(plp.pattern, patterns);
-      default:
+      case _:
         // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
         break;
     }
@@ -1273,19 +1269,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     return Token(RangeToken(range.start, range.end));
   }
 
-  Pattern inv(Pattern pattern) => pattern.invert();
-
   Eps eps() => Eps();
-
-  Marker mark(String name) => Marker(name);
-
-  Alt sepBy(Pattern p, Pattern sep) => sepBy1(p, sep).maybe();
-
-  Seq sepBy1(Pattern p, Pattern sep) => p >> (sep >> p).star();
-
-  Alt endBy(Pattern p, Pattern sep) => endBy1(p, sep).maybe();
-
-  Plus endBy1(Pattern p, Pattern sep) => (p >> sep).plus();
 
   Rule defRule(String name, Pattern Function() builder) {
     final rule = Rule(name, builder);
@@ -1433,11 +1417,7 @@ class PredicateAction implements StateAction {
   // Next state after successful predicate check
   final State nextState;
 
-  const PredicateAction({
-    required this.isAnd,
-    required this.pattern,
-    required this.nextState,
-  });
+  const PredicateAction({required this.isAnd, required this.pattern, required this.nextState});
 
   @override
   String toString() => isAnd ? 'Predicate(&${pattern})' : 'Predicate(!${pattern})';
@@ -1465,10 +1445,6 @@ class StateMachine {
   final Map<Object, State> _stateMapping = {};
 
   StateMachine(this.grammar) {
-    _buildStateMachine();
-  }
-
-  void _buildStateMachine() {
     final initState = _getOrCreateState(':init');
     _connect(initState, grammar.startCall);
 
@@ -1508,54 +1484,51 @@ class StateMachine {
   }
 
   State _getOrCreateState(Object pattern) {
-    if (pattern is String) {
-      return _stateMapping.putIfAbsent(
-        pattern,
-        () => State(_stateMapping.length),
-      );
-    }
-    return _stateMapping.putIfAbsent(
-      pattern,
-      () => State(_stateMapping.length),
-    );
+    return _stateMapping.putIfAbsent(pattern, () => State(_stateMapping.length));
   }
 
   void _connect(State state, Pattern terminal) {
-    if (terminal is Action) {
-      // Create a SemanticAction state machine action with the callback
-      final nextState = _getOrCreateState(terminal);
-      final action = SemanticAction(terminal.callback, nextState, terminal.child);
-      state.actions.add(action);
-      // Connect the semantic action's next state to the child pattern
-      _connect(nextState, terminal.child);
-    } else if (terminal is RuleCall) {
-      final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, terminal, returnState);
-      state.actions.add(action);
-    } else if (terminal is Call) {
-      final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, terminal, returnState);
-      state.actions.add(action);
-    } else if (terminal is And) {
-      // Positive lookahead: create predicate action
-      final nextState = _getOrCreateState(terminal);
-      final action = PredicateAction(isAnd: true, pattern: terminal.pattern, nextState: nextState);
-      state.actions.add(action);
-    } else if (terminal is Not) {
-      // Negative lookahead: create predicate action
-      final nextState = _getOrCreateState(terminal);
-      final action = PredicateAction(isAnd: false, pattern: terminal.pattern, nextState: nextState);
-      state.actions.add(action);
-    } else if (terminal is Token || terminal is Conj) {
-      final nextState = _getOrCreateState(terminal);
-      final action = TokenAction(terminal, nextState);
-      state.actions.add(action);
-    } else if (terminal is Marker) {
-      final nextState = _getOrCreateState(terminal);
-      final action = MarkAction(terminal.name, terminal, nextState);
-      state.actions.add(action);
-    } else {
-      throw GrammarError('Unknown terminal: ${terminal.runtimeType}');
+    switch (terminal) {
+      case Token() || Conj():
+        final nextState = _getOrCreateState(terminal);
+        final action = TokenAction(terminal, nextState);
+        state.actions.add(action);
+      case Marker():
+        final nextState = _getOrCreateState(terminal);
+        final action = MarkAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
+      case And():
+        // Positive lookahead: create predicate action
+        final nextState = _getOrCreateState(terminal);
+        final action = PredicateAction(
+          isAnd: true,
+          pattern: terminal.pattern,
+          nextState: nextState,
+        );
+        state.actions.add(action);
+      case Not():
+        // Negative lookahead: create predicate action
+        final nextState = _getOrCreateState(terminal);
+        final action = PredicateAction(
+          isAnd: false,
+          pattern: terminal.pattern,
+          nextState: nextState,
+        );
+        state.actions.add(action);
+      case RuleCall(:var rule) || Call(:var rule):
+        final returnState = _getOrCreateState(terminal);
+        final action = CallAction(rule, terminal, returnState);
+        state.actions.add(action);
+      case Action<dynamic>():
+        // Create a SemanticAction state machine action with the callback
+        final nextState = _getOrCreateState(terminal);
+        final action = SemanticAction(terminal.callback, nextState, terminal.child);
+        state.actions.add(action);
+        // Connect the semantic action's next state to the child pattern
+        _connect(nextState, terminal.child);
+      case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || PrecedenceLabeledPattern():
+        // TODO: Handle this case.
+        throw UnimplementedError();
     }
   }
 
@@ -1996,33 +1969,11 @@ extension _TrampolineExtensions<T> on _Trampoline<T> {
   }
 }
 
-/// Represents a grammar slot in a production: A ::= \alpha · \beta.
-class GrammarSlot {
-  final Rule rule;
-  final Pattern? pattern; // The pattern that was just matched (\alpha = \gamma pattern)
-
-  const GrammarSlot(this.rule, this.pattern);
-
-  @override
-  bool operator ==(Object other) =>
-      other is GrammarSlot && other.rule == rule && other.pattern == pattern;
-
-  @override
-  int get hashCode => Object.hash(rule, pattern);
-
-  @override
-  String toString() {
-    if (pattern == null) return '<${rule.name} ::= · ...>';
-    if (pattern == rule) return '<${rule.name} ::= ... ·>';
-    return '<${rule.name} ::= ... $pattern · ...>';
-  }
-}
-
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
-typedef BsrEntry = (GrammarSlot slot, int start, int pivot, int end);
+typedef BsrEntry = (Rule slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  GrammarSlot get slot => $1;
+  Rule get slot => $1;
   int get start => $2;
   int get pivot => $3;
   int get end => $4;
@@ -2030,41 +1981,20 @@ extension BsrEntryMethods on BsrEntry {
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
 class BsrSet {
-  final Set<BsrEntry> _entries = {};
-
-  // Indexing for efficient SPPF construction.
-  Map<(Rule, int, int), List<(int, Pattern?)>>? _index;
-  Map<(Rule, int, int), List<(int, Pattern?)>>? _leftIndex;
-
-  void _ensureIndex() {
-    if (_index != null) return;
-    final entriesBySpan = <(Rule, int, int), List<(int, Pattern?)>>{};
-    final entriesByStart = <(Rule, int, int), List<(int, Pattern?)>>{};
-
-    for (final entry in _entries) {
-      final key = (entry.slot.rule, entry.start, entry.end);
-      (entriesBySpan[key] ??= []).add((entry.pivot, entry.slot.pattern));
-
-      final startKey = (entry.slot.rule, entry.start, entry.pivot);
-      (entriesByStart[startKey] ??= []).add((entry.end, entry.slot.pattern));
-    }
-    _index = entriesBySpan;
-    _leftIndex = entriesByStart;
-  }
+  final Map<(Rule, int start, int end), Set<int>> _pivots = {};
 
   /// Add a rule-completion entry.
-  void add(GrammarSlot slot, int start, int pivot, int end) {
-    _entries.add((slot, start, pivot, end));
-    _index = null;
+  void add(Rule rule, int start, int pivot, int end) {
+    _pivots.putIfAbsent((rule, start, end), Set.new).add((pivot));
   }
 
   /// Total number of recorded rule-completion entries.
-  int get length => _entries.length;
-  Iterable<BsrEntry> get allEntries => _entries;
+  int get length => _pivots.values.expand((v) => v).length;
+  Iterable<BsrEntry> get entries =>
+      _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   /// Build an SPPF rooted at [startRule] over the full input.
   SymbolicNode? buildSppf(Rule startRule, String input, ForestNodeManager nodeManager) {
-    _ensureIndex();
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
     return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
@@ -2080,7 +2010,6 @@ class BsrSet {
     Map<String, bool> inProgress,
   ) {
     final key = '${rule.name}:$start:$end';
-    if (_index![(rule, start, end)] == null) return _Done(null);
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
 
@@ -2120,7 +2049,6 @@ class BsrSet {
     _Trampoline<T> Function(SymbolicNode?) cont,
   ) {
     final key = '${rule.symbolId}:$start:$end';
-    if (_index![(rule, start, end)] == null) return cont(null);
     if (memo.containsKey(key)) return cont(memo[key]);
     if (inProgress[key] == true) return cont(null);
 
@@ -2137,10 +2065,14 @@ class BsrSet {
         memo,
         inProgress,
         (childNodes) {
-          for (final child in childNodes) symNode.addFamily(Family([child]));
+          for (final child in childNodes) {
+            symNode.addFamily(Family([child]));
+          }
+
           inProgress[key] = false;
           final result = symNode.families.isNotEmpty ? symNode : null;
           memo[key] = result;
+
           return cont(result);
         },
         rule,
@@ -2149,47 +2081,8 @@ class BsrSet {
     );
   }
 
-  Set<int> _pivotsFor(Rule rule, int ruleStart, int currentEnd, Pattern lastPattern) {
-    if (_index == null) _ensureIndex();
-    final entries = _index![(rule, ruleStart, currentEnd)];
-    if (entries == null) return const {};
-    final result = <int>{};
-    for (final (pivot, slotPat) in entries) {
-      if (_slotPatternMatches(slotPat, lastPattern)) {
-        result.add(pivot);
-      }
-    }
-    return result;
-  }
-
-  Set<int> _pivotsFromLeft(Rule rule, int ruleStart, int pivot, Pattern firstPattern) {
-    if (_leftIndex == null) _ensureIndex();
-    final entries = _leftIndex![(rule, ruleStart, pivot)];
-    if (entries == null) return const {};
-    final result = <int>{};
-    for (final (end, slotPat) in entries) {
-      if (_slotPatternMatches(slotPat, firstPattern)) result.add(end);
-    }
-    return result;
-  }
-
-  static bool _slotPatternMatches(Pattern? recorded, Pattern? query) {
-    if (recorded == query) return true;
-    if (recorded == null || query == null) return false;
-
-    if (recorded.symbolId != null && query.symbolId != null && recorded.symbolId == query.symbolId)
-      return true;
-
-    // Symmetric unwrapping
-    if (query is Seq) {
-      return _slotPatternMatches(recorded, query.left);
-    }
-    if (query is RuleCall) return _slotPatternMatches(recorded, query.rule);
-    if (query is Call) return _slotPatternMatches(recorded, query.rule);
-    if (query is Action) return _slotPatternMatches(recorded, query.child);
-    if (query is PrecedenceLabeledPattern) return _slotPatternMatches(recorded, query.pattern);
-
-    return false;
+  Set<int> _pivotsFor(Rule rule, int start, int end) {
+    return _pivots.putIfAbsent((rule, start, end), Set.new).toSet();
   }
 
   _Trampoline<T> _patternNodes<T>(
@@ -2247,28 +2140,7 @@ class BsrSet {
 
         // Pivot optimization only works when we're processing the full rule span
         // starting from ruleStart. For sub-spans, we use exhaustive search.
-        final Iterable<int> splitPoints;
-        if (start == ruleStart) {
-          // At rule start - use pivot optimization if available
-          final rightPivots = _pivotsFor(currentRule, ruleStart, end, pattern.right);
-
-          if (rightPivots.isNotEmpty) {
-            splitPoints = rightPivots;
-          } else if (_index![(currentRule, ruleStart, end)] != null) {
-            // Rule matches found but no specific pivots - exhaustive search
-            splitPoints = {for (var i = start; i <= end; i++) i};
-          } else {
-            return continuation([]);
-          }
-        } else {
-          // Sub-span of rule - use exhaustive search if rule match exists
-          if (_index![(currentRule, ruleStart, end)] != null) {
-            splitPoints = {for (var i = start; i <= end; i++) i};
-          } else {
-            return continuation([]);
-          }
-        }
-
+        Set<int> splitPoints = _pivotsFor(currentRule, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
@@ -2316,17 +2188,10 @@ class BsrSet {
           );
         }
         return _More(() => loop(splitPoints.iterator));
+
       case Plus():
         IntermediateNode? plusNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
-        final Iterable<int> splitPoints;
-        if (pivots.isNotEmpty) {
-          splitPoints = pivots;
-        } else if (_index![(currentRule, ruleStart, end)] != null) {
-          splitPoints = {for (var i = start + 1; i <= end; i++) i};
-        } else {
-          splitPoints = const <int>{};
-        }
+        final pivots = _pivotsFor(currentRule, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -2390,18 +2255,10 @@ class BsrSet {
             ),
           );
         }
-        return _More(() => loop(splitPoints.iterator));
+        return _More(() => loop(pivots.iterator));
       case Star():
         IntermediateNode? starNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
-        final Iterable<int> splitPoints;
-        if (pivots.isNotEmpty) {
-          splitPoints = pivots;
-        } else if (_index![(currentRule, ruleStart, end)] != null) {
-          splitPoints = {for (var i = start + 1; i <= end; i++) i};
-        } else {
-          splitPoints = const <int>{};
-        }
+        final pivots = _pivotsFor(currentRule, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -2450,7 +2307,7 @@ class BsrSet {
             ),
           );
         }
-        return _More(() => loop(splitPoints.iterator));
+        return _More(() => loop(pivots.iterator));
       case Conj():
         return _More(
           () => _patternNodes(
@@ -2499,7 +2356,7 @@ class BsrSet {
             inProgress,
             continuation,
             pattern,
-            ruleStart,
+            start,
           ),
         );
       case RuleCall(:var rule) || Call(:var rule):
@@ -2556,7 +2413,7 @@ class BsrSet {
   }
 
   @override
-  String toString() => 'BsrSet(${_entries.length} entries)';
+  String toString() => 'BsrSet(${_pivots.length} entries)';
 }
 
 sealed class BsrParseOutcome {}
@@ -2674,7 +2531,7 @@ class ParseDerivation {
       if (input != null) {
         return getMatchedText(input);
       }
-      return input == null ? '[$start:$end]' : '${input.substring(start, end)}';
+      return '[$start:$end]';
     }
     if (children.length == 1) {
       return children.single.toTreeString(input);
@@ -3028,22 +2885,6 @@ class SMParser {
   /// Actions are executed bottom-up with child results.
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
-      final value = evaluateParseDerivation(derivation, input);
-      yield ParseDerivationWithValue(derivation, value, grammar: grammar);
-    }
-  }
-
-  /// Extract all parse trees from a [ParseForest] with evaluated semantic actions.
-  /// This provides a forest-based alternative to [enumerateAllParsesWithResults],
-  /// yielding [ParseDerivationWithValue] results with top-level semantic values.
-  ///
-  /// The forest should come from [parseWithForest] on matching input.
-  Iterable<ParseDerivationWithValue<dynamic>> enumerateForestWithResults(
-    ParseForestSuccess forest,
-    String input,
-  ) sync* {
-    for (final tree in forest.forest.extract()) {
-      final derivation = parseTreeToDerivation(tree, input);
       final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
@@ -3417,7 +3258,6 @@ class SMParser {
       yield* _enumerateStar(pattern.child, input, start, end, 'Star', memo, inProgress);
       return;
     }
-
     if (pattern is Conj) {
       if (start + 1 == end &&
           pattern.left.match(input.codeUnitAt(start)) &&
@@ -3637,10 +3477,6 @@ class SMParser {
       return _checkPredicateSeq(pattern.left, pattern.right, startPos);
     }
 
-    if (pattern is Plus) {
-      return _checkPredicatePattern(pattern.child, startPos);
-    }
-
     if (pattern is And) {
       return _checkPredicatePattern(pattern.pattern, startPos);
     }
@@ -3694,10 +3530,6 @@ class SMParser {
       int leftLen = _estimatePatternLength(pattern.left, startPos);
       if (leftLen >= 0) return leftLen;
       return _estimatePatternLength(pattern.right, startPos);
-    }
-
-    if (pattern is Plus) {
-      return _estimatePatternLength(pattern.child, startPos);
     }
 
     if (pattern is And || pattern is Not) {
@@ -3773,6 +3605,22 @@ class SMParser {
     if (pattern is Plus) {
       // At least one match
       if (start == end) return false;
+      for (int mid = start + 1; mid <= end; mid++) {
+        if (_patternCanMatch(pattern.child, start, mid)) {
+          // Check if rest can be matched by zero or more
+          if (mid == end || _patternCanMatchStar(pattern.child, mid, end)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    if (pattern is Star) {
+      // Zero or more matches
+      if (start == end) return true; // Zero matches always succeeds
+
+      // Try one or more matches
       for (int mid = start + 1; mid <= end; mid++) {
         if (_patternCanMatch(pattern.child, start, mid)) {
           // Check if rest can be matched by zero or more
@@ -4005,7 +3853,7 @@ class Step {
             if (bsrSet != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
               bsrSet.add(
-                GrammarSlot(rule, action.pattern),
+                rule,
                 frame.context.callStart!,
                 position, // Use current position as pivot for this token
                 position + 1,
@@ -4031,12 +3879,7 @@ class Step {
           final bsrSet = bsr;
           if (bsrSet != null && frame.caller is Caller) {
             final rule = (frame.caller as Caller).rule;
-            bsrSet.add(
-              GrammarSlot(rule, action.pattern),
-              frame.context.callStart!,
-              position,
-              position,
-            );
+            bsrSet.add(rule, frame.context.callStart!, position, position);
           }
 
           // Create local frame that will be conditionally added to nextFrames
@@ -4090,17 +3933,14 @@ class Step {
           // The _returnedCallers guard below is only for parsing-state correctness.
           final callStart =
               frame.context.callStart ??
-              (frame.caller
-                      is Caller //
-                  ? (frame.caller as Caller).callStart
-                  : null);
+              (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
           final lastPivot = frame.context.pivot;
           if ((bsr, callStart, lastPivot ?? callStart) case (
             var bsr?,
             var callStart?,
             var pivot?,
           )) {
-            bsr.add(GrammarSlot(rule, action.lastPattern), callStart, pivot, position);
+            bsr.add(rule, callStart, pivot, position);
           }
 
           final caller = frame.caller;
@@ -4113,16 +3953,7 @@ class Step {
           if (bsrSet != null && caller is Caller) {
             caller.forEach((ccaller, nextState, ccontext) {
               if (ccaller is Caller) {
-                // BSR(A ::= \alpha B · \beta, i, k, j)
-                // i = ccontext.callStart
-                // k = caller.callStart (where the sub-rule B started)
-                // j = position
-                bsrSet.add(
-                  GrammarSlot(ccaller.rule, caller.pattern),
-                  ccontext.callStart!,
-                  caller.callStart!,
-                  position,
-                );
+                bsrSet.add(ccaller.rule, ccontext.callStart!, caller.callStart!, position);
               }
             });
           }

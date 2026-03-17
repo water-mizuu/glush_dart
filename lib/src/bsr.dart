@@ -45,33 +45,11 @@ extension _TrampolineExtensions<T> on _Trampoline<T> {
   }
 }
 
-/// Represents a grammar slot in a production: A ::= \alpha · \beta.
-class GrammarSlot {
-  final Rule rule;
-  final Pattern? pattern; // The pattern that was just matched (\alpha = \gamma pattern)
-
-  const GrammarSlot(this.rule, this.pattern);
-
-  @override
-  bool operator ==(Object other) =>
-      other is GrammarSlot && other.rule == rule && other.pattern == pattern;
-
-  @override
-  int get hashCode => Object.hash(rule, pattern);
-
-  @override
-  String toString() {
-    if (pattern == null) return '<${rule.name} ::= · ...>';
-    if (pattern == rule) return '<${rule.name} ::= ... ·>';
-    return '<${rule.name} ::= ... $pattern · ...>';
-  }
-}
-
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
-typedef BsrEntry = (GrammarSlot slot, int start, int pivot, int end);
+typedef BsrEntry = (Rule slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  GrammarSlot get slot => $1;
+  Rule get slot => $1;
   int get start => $2;
   int get pivot => $3;
   int get end => $4;
@@ -79,41 +57,20 @@ extension BsrEntryMethods on BsrEntry {
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
 class BsrSet {
-  final Set<BsrEntry> _entries = {};
-
-  // Indexing for efficient SPPF construction.
-  Map<(Rule, int, int), List<(int, Pattern?)>>? _index;
-  Map<(Rule, int, int), List<(int, Pattern?)>>? _leftIndex;
-
-  void _ensureIndex() {
-    if (_index != null) return;
-    final entriesBySpan = <(Rule, int, int), List<(int, Pattern?)>>{};
-    final entriesByStart = <(Rule, int, int), List<(int, Pattern?)>>{};
-
-    for (final entry in _entries) {
-      final key = (entry.slot.rule, entry.start, entry.end);
-      (entriesBySpan[key] ??= []).add((entry.pivot, entry.slot.pattern));
-
-      final startKey = (entry.slot.rule, entry.start, entry.pivot);
-      (entriesByStart[startKey] ??= []).add((entry.end, entry.slot.pattern));
-    }
-    _index = entriesBySpan;
-    _leftIndex = entriesByStart;
-  }
+  final Map<(Rule, int start, int end), Set<int>> _pivots = {};
 
   /// Add a rule-completion entry.
-  void add(GrammarSlot slot, int start, int pivot, int end) {
-    _entries.add((slot, start, pivot, end));
-    _index = null;
+  void add(Rule rule, int start, int pivot, int end) {
+    _pivots.putIfAbsent((rule, start, end), Set.new).add((pivot));
   }
 
   /// Total number of recorded rule-completion entries.
-  int get length => _entries.length;
-  Iterable<BsrEntry> get allEntries => _entries;
+  int get length => _pivots.values.expand((v) => v).length;
+  Iterable<BsrEntry> get entries =>
+      _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   /// Build an SPPF rooted at [startRule] over the full input.
   SymbolicNode? buildSppf(Rule startRule, String input, ForestNodeManager nodeManager) {
-    _ensureIndex();
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
     return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
@@ -129,7 +86,6 @@ class BsrSet {
     Map<String, bool> inProgress,
   ) {
     final key = '${rule.name}:$start:$end';
-    if (_index![(rule, start, end)] == null) return _Done(null);
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
 
@@ -169,7 +125,6 @@ class BsrSet {
     _Trampoline<T> Function(SymbolicNode?) cont,
   ) {
     final key = '${rule.symbolId}:$start:$end';
-    if (_index![(rule, start, end)] == null) return cont(null);
     if (memo.containsKey(key)) return cont(memo[key]);
     if (inProgress[key] == true) return cont(null);
 
@@ -186,10 +141,14 @@ class BsrSet {
         memo,
         inProgress,
         (childNodes) {
-          for (final child in childNodes) symNode.addFamily(Family([child]));
+          for (final child in childNodes) {
+            symNode.addFamily(Family([child]));
+          }
+
           inProgress[key] = false;
           final result = symNode.families.isNotEmpty ? symNode : null;
           memo[key] = result;
+
           return cont(result);
         },
         rule,
@@ -198,36 +157,8 @@ class BsrSet {
     );
   }
 
-  Set<int> _pivotsFor(Rule rule, int ruleStart, int currentEnd, Pattern lastPattern) {
-    if (_index == null) _ensureIndex();
-    final entries = _index![(rule, ruleStart, currentEnd)];
-    if (entries == null) return const {};
-    final result = <int>{};
-    for (final (pivot, slotPat) in entries) {
-      if (_slotPatternMatches(slotPat, lastPattern)) {
-        result.add(pivot);
-      }
-    }
-    return result;
-  }
-
-  static bool _slotPatternMatches(Pattern? recorded, Pattern? query) {
-    if (recorded == query) return true;
-    if (recorded == null || query == null) return false;
-
-    if (recorded.symbolId != null && query.symbolId != null && recorded.symbolId == query.symbolId)
-      return true;
-
-    // Symmetric unwrapping
-    if (query is Seq) {
-      return _slotPatternMatches(recorded, query.left);
-    }
-    if (query is RuleCall) return _slotPatternMatches(recorded, query.rule);
-    if (query is Call) return _slotPatternMatches(recorded, query.rule);
-    if (query is Action) return _slotPatternMatches(recorded, query.child);
-    if (query is PrecedenceLabeledPattern) return _slotPatternMatches(recorded, query.pattern);
-
-    return false;
+  Set<int> _pivotsFor(Rule rule, int start, int end) {
+    return _pivots.putIfAbsent((rule, start, end), Set.new).toSet();
   }
 
   _Trampoline<T> _patternNodes<T>(
@@ -285,28 +216,7 @@ class BsrSet {
 
         // Pivot optimization only works when we're processing the full rule span
         // starting from ruleStart. For sub-spans, we use exhaustive search.
-        final Iterable<int> splitPoints;
-        if (start == ruleStart) {
-          // At rule start - use pivot optimization if available
-          final rightPivots = _pivotsFor(currentRule, ruleStart, end, pattern.right);
-
-          if (rightPivots.isNotEmpty) {
-            splitPoints = rightPivots;
-          } else if (_index![(currentRule, ruleStart, end)] != null) {
-            // Rule matches found but no specific pivots - exhaustive search
-            splitPoints = {for (var i = start; i <= end; i++) i};
-          } else {
-            return continuation([]);
-          }
-        } else {
-          // Sub-span of rule - use exhaustive search if rule match exists
-          if (_index![(currentRule, ruleStart, end)] != null) {
-            splitPoints = {for (var i = start; i <= end; i++) i};
-          } else {
-            return continuation([]);
-          }
-        }
-
+        Set<int> splitPoints = _pivotsFor(currentRule, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
@@ -354,17 +264,10 @@ class BsrSet {
           );
         }
         return _More(() => loop(splitPoints.iterator));
+
       case Plus():
         IntermediateNode? plusNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
-        final Iterable<int> splitPoints;
-        if (pivots.isNotEmpty) {
-          splitPoints = pivots;
-        } else if (_index![(currentRule, ruleStart, end)] != null) {
-          splitPoints = {for (var i = start + 1; i <= end; i++) i};
-        } else {
-          splitPoints = const <int>{};
-        }
+        final pivots = _pivotsFor(currentRule, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -428,18 +331,10 @@ class BsrSet {
             ),
           );
         }
-        return _More(() => loop(splitPoints.iterator));
+        return _More(() => loop(pivots.iterator));
       case Star():
         IntermediateNode? starNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end, pattern.child);
-        final Iterable<int> splitPoints;
-        if (pivots.isNotEmpty) {
-          splitPoints = pivots;
-        } else if (_index![(currentRule, ruleStart, end)] != null) {
-          splitPoints = {for (var i = start + 1; i <= end; i++) i};
-        } else {
-          splitPoints = const <int>{};
-        }
+        final pivots = _pivotsFor(currentRule, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -488,7 +383,7 @@ class BsrSet {
             ),
           );
         }
-        return _More(() => loop(splitPoints.iterator));
+        return _More(() => loop(pivots.iterator));
       case Conj():
         return _More(
           () => _patternNodes(
@@ -537,7 +432,7 @@ class BsrSet {
             inProgress,
             continuation,
             pattern,
-            ruleStart,
+            start,
           ),
         );
       case RuleCall(:var rule) || Call(:var rule):
@@ -594,7 +489,7 @@ class BsrSet {
   }
 
   @override
-  String toString() => 'BsrSet(${_entries.length} entries)';
+  String toString() => 'BsrSet(${_pivots.length} entries)';
 }
 
 sealed class BsrParseOutcome {}

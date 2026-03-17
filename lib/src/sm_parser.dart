@@ -109,7 +109,7 @@ class ParseDerivation {
       if (input != null) {
         return getMatchedText(input);
       }
-      return input == null ? '[$start:$end]' : '${input.substring(start, end)}';
+      return '[$start:$end]';
     }
     if (children.length == 1) {
       return children.single.toTreeString(input);
@@ -463,22 +463,6 @@ class SMParser {
   /// Actions are executed bottom-up with child results.
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
-      final value = evaluateParseDerivation(derivation, input);
-      yield ParseDerivationWithValue(derivation, value, grammar: grammar);
-    }
-  }
-
-  /// Extract all parse trees from a [ParseForest] with evaluated semantic actions.
-  /// This provides a forest-based alternative to [enumerateAllParsesWithResults],
-  /// yielding [ParseDerivationWithValue] results with top-level semantic values.
-  ///
-  /// The forest should come from [parseWithForest] on matching input.
-  Iterable<ParseDerivationWithValue<dynamic>> enumerateForestWithResults(
-    ParseForestSuccess forest,
-    String input,
-  ) sync* {
-    for (final tree in forest.forest.extract()) {
-      final derivation = parseTreeToDerivation(tree, input);
       final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
@@ -852,7 +836,6 @@ class SMParser {
       yield* _enumerateStar(pattern.child, input, start, end, 'Star', memo, inProgress);
       return;
     }
-
     if (pattern is Conj) {
       if (start + 1 == end &&
           pattern.left.match(input.codeUnitAt(start)) &&
@@ -1072,10 +1055,6 @@ class SMParser {
       return _checkPredicateSeq(pattern.left, pattern.right, startPos);
     }
 
-    if (pattern is Plus) {
-      return _checkPredicatePattern(pattern.child, startPos);
-    }
-
     if (pattern is And) {
       return _checkPredicatePattern(pattern.pattern, startPos);
     }
@@ -1129,10 +1108,6 @@ class SMParser {
       int leftLen = _estimatePatternLength(pattern.left, startPos);
       if (leftLen >= 0) return leftLen;
       return _estimatePatternLength(pattern.right, startPos);
-    }
-
-    if (pattern is Plus) {
-      return _estimatePatternLength(pattern.child, startPos);
     }
 
     if (pattern is And || pattern is Not) {
@@ -1208,6 +1183,22 @@ class SMParser {
     if (pattern is Plus) {
       // At least one match
       if (start == end) return false;
+      for (int mid = start + 1; mid <= end; mid++) {
+        if (_patternCanMatch(pattern.child, start, mid)) {
+          // Check if rest can be matched by zero or more
+          if (mid == end || _patternCanMatchStar(pattern.child, mid, end)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    if (pattern is Star) {
+      // Zero or more matches
+      if (start == end) return true; // Zero matches always succeeds
+
+      // Try one or more matches
       for (int mid = start + 1; mid <= end; mid++) {
         if (_patternCanMatch(pattern.child, start, mid)) {
           // Check if rest can be matched by zero or more
@@ -1440,7 +1431,7 @@ class Step {
             if (bsrSet != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
               bsrSet.add(
-                GrammarSlot(rule, action.pattern),
+                rule,
                 frame.context.callStart!,
                 position, // Use current position as pivot for this token
                 position + 1,
@@ -1466,12 +1457,7 @@ class Step {
           final bsrSet = bsr;
           if (bsrSet != null && frame.caller is Caller) {
             final rule = (frame.caller as Caller).rule;
-            bsrSet.add(
-              GrammarSlot(rule, action.pattern),
-              frame.context.callStart!,
-              position,
-              position,
-            );
+            bsrSet.add(rule, frame.context.callStart!, position, position);
           }
 
           // Create local frame that will be conditionally added to nextFrames
@@ -1525,17 +1511,14 @@ class Step {
           // The _returnedCallers guard below is only for parsing-state correctness.
           final callStart =
               frame.context.callStart ??
-              (frame.caller
-                      is Caller //
-                  ? (frame.caller as Caller).callStart
-                  : null);
+              (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
           final lastPivot = frame.context.pivot;
           if ((bsr, callStart, lastPivot ?? callStart) case (
             var bsr?,
             var callStart?,
             var pivot?,
           )) {
-            bsr.add(GrammarSlot(rule, action.lastPattern), callStart, pivot, position);
+            bsr.add(rule, callStart, pivot, position);
           }
 
           final caller = frame.caller;
@@ -1548,16 +1531,7 @@ class Step {
           if (bsrSet != null && caller is Caller) {
             caller.forEach((ccaller, nextState, ccontext) {
               if (ccaller is Caller) {
-                // BSR(A ::= \alpha B · \beta, i, k, j)
-                // i = ccontext.callStart
-                // k = caller.callStart (where the sub-rule B started)
-                // j = position
-                bsrSet.add(
-                  GrammarSlot(ccaller.rule, caller.pattern),
-                  ccontext.callStart!,
-                  caller.callStart!,
-                  position,
-                );
+                bsrSet.add(ccaller.rule, ccontext.callStart!, caller.callStart!, position);
               }
             });
           }

@@ -1,38 +1,46 @@
 import 'package:glush/glush.dart';
 
-import 'helper.dart';
-
 void main() async {
-  const grammarText = r'''
-    expr = $add expr __ '+' __ term | $sub expr __ '-' __ term | term;
-    term = $mul term __ '*' __ factor | $div term __ '/' __ factor | factor;
-    factor = $group '(' __ expr __ ')'
-           | $number [0-9]+;
-    __ = [ \t\n\r]*;
-  ''';
+  final grammar = Grammar(() {
+    late Rule expr, term, factor, __;
 
-  // Test the spawnProcessParser function
-  final processParser = await spawnProcessParser(grammarText);
-  print('Parser spawned successfully!');
+    expr = Rule(
+      "expr",
+      () =>
+          Marker("add") >> expr() >> __() >> Token.char("+") >> __() >> expr() |
+          Marker("sub") >> expr() >> __() >> Token.char("-") >> __() >> expr() |
+          term(),
+    );
 
-  final result = await processParser.parse('1 + 2 * ( 3 + 4 )');
-  print('Parse result: $result');
+    term = Rule(
+      "term",
+      () =>
+          Marker("mul") >> term() >> __() >> Token.char("*") >> __() >> term() |
+          Marker("div") >> term() >> __() >> Token.char("*") >> __() >> term() |
+          factor(),
+    );
 
-  final markEvaluator = Evaluator<num>((consume) {
-    return {
-      "add": () => consume<num>() + consume<num>(),
-      "sub": () => consume<num>() - consume<num>(),
-      "mul": () => consume<num>() * consume<num>(),
-      "div": () => consume<num>() / consume<num>(),
-      "group": () => consume<num>(),
-      "number": () => num.parse(consume<String>()),
-    };
+    factor = Rule(
+      "factor",
+      () =>
+          Marker("group") >> Token.char("(") >> __() >> expr() >> __() >> Token.char(")") |
+          Marker("number") >> Token.charRange('0', '9'),
+    );
+
+    __ = Rule(
+      "__",
+      () => (Token.char(' ') | Token.char('\t') | Token.char('\n') | Token.char('\r')).star(),
+    );
+
+    return expr();
   });
 
-  if (result case ["ok", List<String> marks]) {
-    print(markEvaluator.evaluate(marks));
-  }
+  final parser = SMParser(grammar);
+  print('Parser spawned successfully!');
 
-  await processParser.dispose();
+  final result = parser.enumerateAllParses('1 + 2 + 3');
+  for (final res in result) {
+    print(res.toTreeString("1 + 2 + 3"));
+  }
   print('Parser disposed.');
 }

@@ -119,14 +119,6 @@ void main() {
   _methodEnumerateAllParsesWithResults(markerGrammar, input);
   _methodEnumerateAllParsesWithResults(cleanGrammar, input);
 
-  // Method 4: enumerateForest()
-  print('\n\nMethod 4: enumerateForest() -> parse trees from SPPF');
-  _methodEnumerateForest(markerGrammar, input);
-
-  // Method 5: enumerateForestWithResults()
-  print('\n\nMethod 5: enumerateForestWithResults() -> values from SPPF');
-  _methodEnumerateForestWithResults(actionGrammar, input);
-
   // // Complex example
   const input2 = '(5-1)*2+3';
   print('\n\n' + '=' * 70);
@@ -140,14 +132,6 @@ void main() {
   _methodEnumerateAllParses(markerGrammar, input2);
   print('\nMethod 3 - enumerateAllParsesWithResults():');
   _methodEnumerateAllParsesWithResults(actionGrammar, input2);
-
-  // Method 4: enumerateForest()
-  print('\n\nMethod 4: enumerateForest() -> parse trees from SPPF');
-  _methodEnumerateForest(markerGrammar, input2);
-
-  // Method 5: enumerateForestWithResults()
-  print('\n\nMethod 5: enumerateForestWithResults() -> values from SPPF');
-  _methodEnumerateForestWithResults(actionGrammar, input2);
 }
 
 void _methodParse(GrammarInterface grammar, String input) {
@@ -160,7 +144,7 @@ void _methodParse(GrammarInterface grammar, String input) {
       'sub': () => $<num>() - $<num>(),
       'mul': () => $<num>() * $<num>(),
       'div': () => $<num>() / $<num>(),
-      'number': () => num.parse($<String>())
+      'number': () => num.parse($<String>()),
     };
   });
 
@@ -211,55 +195,5 @@ void _methodEnumerateAllParsesWithResults(GrammarInterface grammar, String input
     }
   } else {
     print('No parses found.');
-  }
-}
-
-// ============================================================================
-// METHOD 4: enumerateForest()
-// ============================================================================
-void _methodEnumerateForest(GrammarInterface grammar, String input) {
-  final parser = SMParser(grammar);
-  final parseResult = parser.parseWithForest(input);
-
-  if (parseResult is ParseForestSuccess) {
-    final trees = parseResult.forest.extract().toList();
-
-    if (trees.isNotEmpty) {
-      print('Total parse trees from forest: ${trees.length}');
-      for (final (i, parse) in trees.indexed) {
-        var value = parser.evaluateParseTree(parse, input);
-
-        print(parse.toPrecedenceString(input));
-        print('  Parse ${i + 1}: Result = $value');
-      }
-    } else {
-      print('No parses found in forest.');
-    }
-  } else if (parseResult is ParseError) {
-    print('Parse failed at position ${parseResult.position}');
-  }
-}
-
-// ============================================================================
-// METHOD 5: enumerateForestWithResults()
-// ============================================================================
-void _methodEnumerateForestWithResults(GrammarInterface grammar, String input) {
-  final parser = SMParser(grammar);
-  final result = parser.parseWithForest(input);
-
-  if (result is ParseForestSuccess) {
-    final results = parser.enumerateForestWithResults(result, input).toList();
-
-    if (results.isNotEmpty) {
-      print('Total parse trees from forest: ${results.length}');
-      for (final (i, parseResult) in results.indexed) {
-        var value = parseResult.value;
-        print('  Parse ${i + 1}: Result = $value');
-      }
-    } else {
-      print('No parses found in forest.');
-    }
-  } else if (result is ParseError) {
-    print('Parse failed at position ${result.position}');
   }
 }
