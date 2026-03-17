@@ -294,14 +294,11 @@ class SMParser {
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
   ParseOutcome<T> parseWithForest<T>(String input) {
-    Stopwatch watch = Stopwatch()..start();
     _predicateBuffer.initializeFromString(input);
     final bsrOutcome = parseToBsr(input);
     if (bsrOutcome is BsrParseError) {
       return ParseError<T>(bsrOutcome.position);
     }
-    watch..stop();
-    print("Finished processing BSR in ${watch.elapsedMicroseconds}us");
 
     final bsrSuccess = bsrOutcome as BsrParseSuccess;
     final bsrSet = bsrSuccess.bsrSet;
@@ -516,9 +513,8 @@ class SMParser {
       return memo[key]!;
     }
 
-    // Check for cycle - if we're already processing this rule at this span, break the cycle
     if (inProgress[key] == true) {
-      return 0; // Prevent infinite recursion on identity rules
+      return 0; // Avoid cycles
     }
 
     if (start == end) {
@@ -678,12 +674,13 @@ class SMParser {
 
     // If we've already computed this span, replay from cache
     if (memo.containsKey(key)) {
-      yield* memo[key] ?? const [];
+      yield* memo[key]!;
       return;
     }
 
-    // Cycle guard — identity rules like Call(s) at the same span return nothing
-    if (inProgress[key] == true) return;
+    if (inProgress[key] == true) {
+      return; // Avoid cycles
+    }
 
     if (start == end) {
       try {
@@ -736,8 +733,12 @@ class SMParser {
     }
 
     if (pattern is Alt) {
+      final key = '${pattern.hashCode}:$start:$end';
+      if (inProgress[key] == true) return;
+      inProgress[key] = true;
       yield* _enumerateAlternatives(pattern.left, input, start, end, memo, inProgress);
       yield* _enumerateAlternatives(pattern.right, input, start, end, memo, inProgress);
+      inProgress[key] = false;
       return;
     }
 
@@ -1272,6 +1273,7 @@ final class RootCallerKey extends CallerKey {
 /// Caller tracking for rule returns
 final class Caller extends CallerKey {
   final Rule rule;
+  final Pattern pattern;
 
   /// Key is a (caller, nextState) pair encoded as a two-element list.
   final Map<(CallerKey, State), List<Context>> _grouped = {};
@@ -1280,7 +1282,7 @@ final class Caller extends CallerKey {
   /// Set once at CallAction time; used by ReturnAction to record BSR entries.
   int? callStart;
 
-  Caller(this.rule);
+  Caller(this.rule, this.pattern);
 
   void addReturn(Context context, State nextState) {
     final key = (context.caller, nextState);
@@ -1344,7 +1346,7 @@ class Step {
   final PredicateLookaheadBuffer buffer;
 
   final List<Frame> nextFrames = [];
-  final Map<Rule, Caller> _callers = {};
+  final Map<(Rule, Pattern), Caller> _callers = {};
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
@@ -1460,6 +1462,18 @@ class Step {
             frame.context.callStart,
             frame.context.pivot,
           );
+
+          final bsrSet = bsr;
+          if (bsrSet != null && frame.caller is Caller) {
+            final rule = (frame.caller as Caller).rule;
+            bsrSet.add(
+              GrammarSlot(rule, action.pattern),
+              frame.context.callStart!,
+              position,
+              position,
+            );
+          }
+
           // Create local frame that will be conditionally added to nextFrames
           final markFrame = _createLocalFrame(markCtx);
           // Enqueue instead of _withFrame callback
@@ -1482,8 +1496,10 @@ class Step {
         // If predicate failed, we simply don't enqueue (backtrack)
         case CallAction():
           final rule = action.rule;
-          final isExecuted = _callers.containsKey(rule);
-          final caller = _callers.putIfAbsent(rule, () => Caller(rule));
+          final pattern = action.pattern;
+          final key = (rule, pattern);
+          final isExecuted = _callers.containsKey(key);
+          final caller = _callers.putIfAbsent(key, () => Caller(rule, pattern));
 
           caller.addReturn(frame.context, action.returnState);
           if (!isExecuted) {
@@ -1519,10 +1535,32 @@ class Step {
             var callStart?,
             var pivot?,
           )) {
-            bsr.add(GrammarSlot(rule, rule), callStart, pivot, position);
+            bsr.add(GrammarSlot(rule, action.lastPattern), callStart, pivot, position);
           }
 
           final caller = frame.caller;
+
+          // Record BSR entries for all parent rules being returned to.
+          // This must happen BEFORE the ambiguity guard because different
+          // derivations of 'rule' might return to the same 'caller' context,
+          // providing alternative pivots for the parent rule's sequence.
+          final bsrSet = bsr;
+          if (bsrSet != null && caller is Caller) {
+            caller.forEach((ccaller, nextState, ccontext) {
+              if (ccaller is Caller) {
+                // BSR(A ::= \alpha B · \beta, i, k, j)
+                // i = ccontext.callStart
+                // k = caller.callStart (where the sub-rule B started)
+                // j = position
+                bsrSet.add(
+                  GrammarSlot(ccaller.rule, caller.pattern),
+                  ccontext.callStart!,
+                  caller.callStart!,
+                  position,
+                );
+              }
+            });
+          }
 
           // Simple ambiguity handling: only process each caller once
           final shouldProcess = _returnedCallers.add(caller);
@@ -1535,21 +1573,6 @@ class Step {
                   : GlushList.branched<Mark>([
                       ccontext.marks!,
                     ]).addList(frame.marks ?? const GlushList.empty());
-
-              final bsrSet = bsr;
-              if (bsrSet != null && ccaller is Caller) {
-                final rule = ccaller.rule;
-                // BSR(A ::= \alpha B · \beta, i, k, j)
-                // i = ccontext.callStart
-                // k = caller.callStart (where the sub-rule B started)
-                // j = position
-                bsrSet.add(
-                  GrammarSlot(rule, action.rule),
-                  ccontext.callStart!,
-                  caller.callStart!,
-                  position,
-                );
-              }
 
               final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
               // Create local frame that will be conditionally added to nextFrames

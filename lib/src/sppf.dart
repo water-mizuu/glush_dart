@@ -369,12 +369,16 @@ class ParseTree {
   }
 
   String toPrecedenceString(String input) {
-    final mapped = children.map((c) => c.toPrecedenceString(input)).join("");
-    if (mapped.isEmpty) {
+    if (children.isEmpty) {
       return input.substring(node.start, node.end);
     }
 
-    return switch (children.length) { > 1 => "($mapped)", 1 => mapped, _ => throw Error() };
+    if (children.length == 1) {
+      return children.single.toPrecedenceString(input);
+    }
+
+    final mapped = children.map((c) => c.toPrecedenceString(input)).join("");
+    return "($mapped)";
   }
 
   @override

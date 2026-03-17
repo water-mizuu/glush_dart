@@ -128,7 +128,7 @@ class BsrSet {
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
   ) {
-    final key = '${rule.symbolId}:$start:$end';
+    final key = '${rule.name}:$start:$end';
     if (_index![(rule, start, end)] == null) return _Done(null);
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
@@ -204,18 +204,9 @@ class BsrSet {
     if (entries == null) return const {};
     final result = <int>{};
     for (final (pivot, slotPat) in entries) {
-      if (_slotPatternMatches(slotPat, lastPattern)) result.add(pivot);
-    }
-    return result;
-  }
-
-  Set<int> _pivotsFromLeft(Rule rule, int ruleStart, int pivot, Pattern firstPattern) {
-    if (_leftIndex == null) _ensureIndex();
-    final entries = _leftIndex![(rule, ruleStart, pivot)];
-    if (entries == null) return const {};
-    final result = <int>{};
-    for (final (end, slotPat) in entries) {
-      if (_slotPatternMatches(slotPat, firstPattern)) result.add(end);
+      if (_slotPatternMatches(slotPat, lastPattern)) {
+        result.add(pivot);
+      }
     }
     return result;
   }
@@ -223,11 +214,19 @@ class BsrSet {
   static bool _slotPatternMatches(Pattern? recorded, Pattern? query) {
     if (recorded == query) return true;
     if (recorded == null || query == null) return false;
-    if (recorded.symbolId != null && recorded.symbolId == query.symbolId) return true;
+
+    if (recorded.symbolId != null && query.symbolId != null && recorded.symbolId == query.symbolId)
+      return true;
+
+    // Symmetric unwrapping
+    if (query is Seq) {
+      return _slotPatternMatches(recorded, query.left);
+    }
     if (query is RuleCall) return _slotPatternMatches(recorded, query.rule);
     if (query is Call) return _slotPatternMatches(recorded, query.rule);
     if (query is Action) return _slotPatternMatches(recorded, query.child);
     if (query is PrecedenceLabeledPattern) return _slotPatternMatches(recorded, query.pattern);
+
     return false;
   }
 
@@ -283,18 +282,29 @@ class BsrSet {
         );
       case Seq():
         IntermediateNode? seqNode;
-        final rightPivots = _pivotsFor(currentRule, ruleStart, end, pattern.right);
-        final leftPivots = _pivotsFromLeft(currentRule, ruleStart, start, pattern.left);
 
-        // Final optimization: use BSR pivots if available to achieve O(1) splits.
-        // Fallback to guarded exhaustive search ONLY if BSR indicates a match exists.
+        // Pivot optimization only works when we're processing the full rule span
+        // starting from ruleStart. For sub-spans, we use exhaustive search.
         final Iterable<int> splitPoints;
-        if (rightPivots.isNotEmpty || leftPivots.isNotEmpty) {
-          splitPoints = {...rightPivots, ...leftPivots};
-        } else if (_index![(currentRule, ruleStart, end)] != null) {
-          splitPoints = {for (var i = start; i <= end; i++) i};
+        if (start == ruleStart) {
+          // At rule start - use pivot optimization if available
+          final rightPivots = _pivotsFor(currentRule, ruleStart, end, pattern.right);
+
+          if (rightPivots.isNotEmpty) {
+            splitPoints = rightPivots;
+          } else if (_index![(currentRule, ruleStart, end)] != null) {
+            // Rule matches found but no specific pivots - exhaustive search
+            splitPoints = {for (var i = start; i <= end; i++) i};
+          } else {
+            return continuation([]);
+          }
         } else {
-          return continuation([]);
+          // Sub-span of rule - use exhaustive search if rule match exists
+          if (_index![(currentRule, ruleStart, end)] != null) {
+            splitPoints = {for (var i = start; i <= end; i++) i};
+          } else {
+            return continuation([]);
+          }
         }
 
         _Trampoline<T> loop(Iterator<int> it) {
@@ -322,7 +332,12 @@ class BsrSet {
                     inProgress,
                     (rightNodes) {
                       if (rightNodes.isNotEmpty) {
-                        seqNode ??= nodeManager.intermediate(start, end, pattern, 'Seq');
+                        seqNode ??= nodeManager.intermediate(
+                          start,
+                          end,
+                          pattern,
+                          pattern.symbolId!,
+                        );
                         for (final l in leftNodes)
                           for (final r in rightNodes) seqNode!.addFamily(Family([l, r]));
                       }

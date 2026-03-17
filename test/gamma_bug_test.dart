@@ -1,9 +1,24 @@
 import 'package:glush/glush.dart';
+import 'package:glush/src/bsr.dart';
+import 'package:glush/src/sppf.dart';
 import 'package:test/test.dart';
 
+int counter = 0;
+
 void main() {
-  test('counts match for more complex ambiguity S->SSS|SS|s', () {
-    final grammar = Grammar(() {
+  group('gamma 3 related bugs', () {
+    final bug1 = Grammar(() {
+      late final Rule s;
+      s = Rule('S', () {
+        return Token.char('s') | // s
+            (s() >> s()) |
+            (s() >> s() >> s()) |
+            (s() >> s() >> s() >> s());
+      });
+      return s;
+    });
+
+    final bug2 = Grammar(() {
       late final Rule s;
       s = Rule('S', () {
         return Token.char('s') | // s
@@ -14,8 +29,28 @@ void main() {
       return s;
     });
 
-    final parser = SMParser(grammar);
+    final bug3 = Grammar(() {
+      late final Rule s;
+      s = Rule('S', () {
+        return Marker('') >>
+            (Token.char('s') | // s
+                (s() >> s()) |
+                (s() >> s() >> s()) |
+                (s() >> s() >> s() >> s()));
+      });
+      return s;
+    });
+
+    evaluateGamma3(bug1);
+    evaluateGamma3(bug2);
+    evaluateGamma3(bug3);
+  });
+}
+
+void evaluateGamma3(Grammar grammar) {
+  test('Grammar ${counter++}', () {
     const testInput = 'ssss';
+    final parser = SMParser(grammar);
     final derivationCount = parser.countAllParses(testInput);
     final derivations = parser.enumerateAllParses(testInput).toList();
     final forestResult = parser.parseWithForest(testInput);
@@ -32,8 +67,6 @@ void main() {
           .toSet();
 
       final trees = forestResult.forest.extract().toList();
-      print(enumerations);
-      print(forestExtracted);
       expect(enumerations.difference(forestExtracted), equals(<String>{}));
       expect(forestExtracted.difference(enumerations), equals(<String>{}));
       // Both enumeration and forest extraction should find the same number

@@ -21,9 +21,10 @@ sealed class StateAction {
 
 class MarkAction implements StateAction {
   final String name;
+  final Pattern pattern;
   final State nextState;
 
-  const MarkAction(this.name, this.nextState);
+  const MarkAction(this.name, this.pattern, this.nextState);
 }
 
 class TokenAction implements StateAction {
@@ -35,15 +36,17 @@ class TokenAction implements StateAction {
 
 class CallAction implements StateAction {
   final Rule rule;
+  final Pattern pattern;
   final State returnState;
 
-  const CallAction(this.rule, this.returnState);
+  const CallAction(this.rule, this.pattern, this.returnState);
 }
 
 class ReturnAction implements StateAction {
   final Rule rule;
+  final Pattern lastPattern;
 
-  const ReturnAction(this.rule);
+  const ReturnAction(this.rule, this.lastPattern);
 }
 
 class AcceptAction implements StateAction {
@@ -139,7 +142,7 @@ class StateMachine {
       // Mark states before returns
       for (final lst in rule.body().lastSet()) {
         final state = _getOrCreateState(lst);
-        state.actions.add(ReturnAction(rule));
+        state.actions.add(ReturnAction(rule, lst));
       }
     }
   }
@@ -167,11 +170,11 @@ class StateMachine {
       _connect(nextState, terminal.child);
     } else if (terminal is RuleCall) {
       final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, returnState);
+      final action = CallAction(terminal.rule, terminal, returnState);
       state.actions.add(action);
     } else if (terminal is Call) {
       final returnState = _getOrCreateState(terminal);
-      final action = CallAction(terminal.rule, returnState);
+      final action = CallAction(terminal.rule, terminal, returnState);
       state.actions.add(action);
     } else if (terminal is And) {
       // Positive lookahead: create predicate action
@@ -189,7 +192,7 @@ class StateMachine {
       state.actions.add(action);
     } else if (terminal is Marker) {
       final nextState = _getOrCreateState(terminal);
-      final action = MarkAction(terminal.name, nextState);
+      final action = MarkAction(terminal.name, terminal, nextState);
       state.actions.add(action);
     } else {
       throw GrammarError('Unknown terminal: ${terminal.runtimeType}');

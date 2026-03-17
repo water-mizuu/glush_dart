@@ -369,9 +369,9 @@ void main() {
         late final Rule s;
         s = Rule('S', () {
           return Token.char('s') | // s
-              (Marker('2') >> s() >> s()).withAction((_, c) => [...c]) | // SS
-              (Marker('3') >> s() >> s() >> s()).withAction((_, c) => [...c]) |
-              (Marker('4') >> s() >> s() >> s() >> s()).withAction((_, c) => [...c]); // SSS
+              (Marker('') >> s() >> s()).withAction((_, c) => [...c]) | // SS
+              (Marker('') >> s() >> s() >> s()).withAction((_, c) => [...c]) |
+              (Marker('') >> s() >> s() >> s() >> s()).withAction((_, c) => [...c]); // SSS
         });
         return s;
       });
@@ -380,12 +380,22 @@ void main() {
       const testInput = 'sssss';
       final derivationCount = parser.countAllParses(testInput);
       final derivations = parser.enumerateAllParses(testInput).toList();
-
       final forestResult = parser.parseWithForest(testInput);
       expect(forestResult, isA<ParseForestSuccess>());
 
       if (forestResult is ParseForestSuccess) {
+        Set<String> enumerations =
+            derivations //
+                .map((s) => s.toTreeString(testInput))
+                .toSet();
+        Set<String> forestExtracted = forestResult.forest
+            .extract()
+            .map((s) => s.toPrecedenceString(testInput))
+            .toSet();
+
         final trees = forestResult.forest.extract().toList();
+        expect(enumerations.difference(forestExtracted), equals(<String>{}));
+        expect(forestExtracted.difference(enumerations), equals(<String>{}));
         // Both enumeration and forest extraction should find the same number
         expect(derivations.length, equals(trees.length));
         expect(derivations.length, equals(derivationCount));
