@@ -8,6 +8,7 @@
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 library glush.bsr;
 
+import 'package:glush/src/grammar.dart';
 import 'package:glush/src/mark.dart';
 import 'patterns.dart';
 import 'sppf.dart';
@@ -59,53 +60,58 @@ class BsrSet {
 
   /// Total number of recorded rule-completion entries.
   int get length => _pivots.values.expand((v) => v).length;
-  Iterable<BsrEntry> get entries => _pivots.entries.expand(
-    (e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)),
-  );
-
-  BsrPattern _serialize(Pattern pattern) {
-    return switch (pattern) {
-      Token(choice: ExactToken(:var value)) => BsrPattern("Token:$value"),
-      Token(choice: AnyToken()) => BsrPattern("Token:any"),
-      Token(choice: RangeToken(:var start, :var end)) => BsrPattern(
-        "Token:$start..$end",
-      ),
-      Token(choice: LessToken(:var bound)) => BsrPattern("Token:<$bound"),
-      Token(choice: GreaterToken(:var bound)) => BsrPattern("Token:>$bound"),
-      Marker() => BsrPattern("Marker"),
-      Eps() => BsrPattern("Eps"),
-      Alt() => BsrPattern("Alt"),
-      Seq() => BsrPattern("Seq"),
-      Conj() => BsrPattern("Conj"),
-      Plus() => BsrPattern("Plus"),
-      Star() => BsrPattern("Star"),
-      And() => BsrPattern("And"),
-      Not() => BsrPattern("Not"),
-      Rule() => BsrPattern("Rule"),
-      RuleCall() => BsrPattern("RuleCall"),
-      Call() => BsrPattern("Call"),
-      Action() => BsrPattern("Action"),
-      PrecedenceLabeledPattern() => BsrPattern("PrecedenceLabeledPattern"),
-    };
-  }
+  Iterable<BsrEntry> get entries => _pivots
+      .entries //
+      .expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   /// Build an SPPF rooted at [startRule] over the full input.
   SymbolicNode? buildSppf(
+    GrammarInterface grammar,
     Rule startRule,
     String input,
     ForestNodeManager nodeManager,
   ) {
+    // return BsrToSppfBuilder(
+    //   input,
+    //   grammar,
+    //   this,
+    //   AnonymousSlotResolver(
+    //     children: (slotId) {
+    //       switch (grammar.symbolRegistry[slotId]!) {
+    //         case Seq seq:
+    //           return [seq.left.symbolId!, seq.right.symbolId!];
+    //         case Alt alt:
+    //           return [alt.left.symbolId!, alt.right.symbolId!];
+    //         case Conj conj:
+    //           return [conj.left.symbolId!, conj.right.symbolId!];
+    //         case And and:
+    //           return [and.pattern.symbolId!];
+    //         case Not not:
+    //           return [not.pattern.symbolId!];
+    //         case Action action:
+    //           return [action.child.symbolId!];
+    //         case PrecedenceLabeledPattern plp:
+    //           return [plp.pattern.symbolId!];
+    //         case Plus plus:
+    //           return [plus.child.symbolId!];
+    //         case Star star:
+    //           return [star.child.symbolId!];
+    //         case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+    //           return [];
+    //       }
+    //     },
+    //     isEpsilon: (symbol) => symbol.symbol == "eps",
+    //     isTerminal: (slot) => switch (grammar.symbolRegistry[slot]) {
+    //       Token() || Marker() || Eps() || Rule() => true,
+    //       _ => false,
+    //     },
+    //     terminalValue: (slot, input, start, end) => input.substring(start, end),
+    //   ),
+    //   ForestNodeManager(),
+    // ).build(startRule.symbolId!, 0, input.length);
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
-    return _buildNode(
-      startRule,
-      input,
-      0,
-      input.length,
-      nodeManager,
-      memo,
-      inProgress,
-    ).run();
+    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
   }
 
   _Trampoline<SymbolicNode?> _buildNode(
@@ -213,19 +219,13 @@ class BsrSet {
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          return continuation([
-            nodeManager.terminal(start, end, pattern, input.codeUnitAt(start)),
-          ]);
+          return continuation([nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]);
         }
         return continuation([]);
       case Marker():
-        return continuation(
-          start == end ? [nodeManager.marker(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
       case Eps():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
       case Alt():
         return _More(
           () => _patternNodes(
@@ -263,8 +263,7 @@ class BsrSet {
         // starting from ruleStart. For sub-spans, we use exhaustive search.
         Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext())
-            return continuation(seqNode != null ? [seqNode!] : []);
+          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
           return _More(
             () => _patternNodes(
@@ -295,8 +294,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final l in leftNodes)
-                          for (final r in rightNodes)
-                            seqNode!.addFamily(Family([l, r]));
+                          for (final r in rightNodes) seqNode!.addFamily(Family([l, r]));
                       }
                       return _More(() => loop(it));
                     },
@@ -377,8 +375,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail)
-                            plusNode!.addFamily(Family([h, t]));
+                          for (final t in tail) plusNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -408,9 +405,7 @@ class BsrSet {
                 pattern,
                 pattern.symbolId! as String,
               );
-              starNode!.addFamily(
-                Family([nodeManager.epsilon(start, pattern)]),
-              );
+              starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
             }
             return continuation(starNode != null ? [starNode!] : []);
           }
@@ -444,8 +439,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail)
-                            starNode!.addFamily(Family([h, t]));
+                          for (final t in tail) starNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -491,8 +485,7 @@ class BsrSet {
                       pattern,
                       pattern.symbolId! as String,
                     );
-                    for (final l in left)
-                      for (final r in right) node.addFamily(Family([l, r]));
+                    for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
                     return continuation([node]);
                   },
                   currentRule,
@@ -582,8 +575,7 @@ class BsrSet {
         );
       case PrecedenceLabeledPattern():
         // Check if this alternative meets the minimum precedence level
-        if (minPrecedenceLevel != null &&
-            pattern.precedenceLevel < minPrecedenceLevel) {
+        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
           // Skip this alternative - it doesn't meet the precedence requirement
           return continuation([]);
         }
@@ -603,14 +595,149 @@ class BsrSet {
           ),
         );
       case And() || Not():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
     }
   }
 
   @override
   String toString() => 'BsrSet(${_pivots.length} entries)';
+}
+
+abstract class SlotResolver {
+  bool isTerminal(PatternSymbol slot);
+  bool isEpsilon(PatternSymbol slot);
+
+  String terminalValue(PatternSymbol slot, String input, int i, int j);
+
+  List<PatternSymbol> children(PatternSymbol slot);
+}
+
+class AnonymousSlotResolver implements SlotResolver {
+  final List<PatternSymbol> Function(PatternSymbol slot) _children;
+  final bool Function(PatternSymbol slot) _isEpsilon;
+  final bool Function(PatternSymbol slot) _isTerminal;
+  final String Function(PatternSymbol slot, String input, int i, int j) _terminalValue;
+
+  const AnonymousSlotResolver({
+    required List<PatternSymbol> Function(PatternSymbol slot) children,
+    required bool Function(PatternSymbol slot) isEpsilon,
+    required bool Function(PatternSymbol slot) isTerminal,
+    required String Function(PatternSymbol slot, String input, int i, int j) terminalValue,
+  }) : _children = children,
+       _isEpsilon = isEpsilon,
+       _isTerminal = isTerminal,
+       _terminalValue = terminalValue;
+
+  @override
+  List<PatternSymbol> children(PatternSymbol slot) => _children(slot);
+
+  @override
+  bool isEpsilon(PatternSymbol slot) => _isEpsilon(slot);
+
+  @override
+  bool isTerminal(PatternSymbol slot) => _isTerminal(slot);
+
+  @override
+  String terminalValue(PatternSymbol slot, String input, int i, int j) =>
+      _terminalValue(slot, input, i, j);
+}
+
+class BsrToSppfBuilder {
+  final String input;
+  final GrammarInterface grammar;
+  final BsrSet bsr;
+  final SlotResolver resolver;
+  final ForestNodeManager nodeManager;
+
+  // Memo: (slot, i, j) → node
+  final Map<(PatternSymbol, int, int), SymbolicNode> _nodes = {};
+
+  BsrToSppfBuilder(this.input, this.grammar, this.bsr, this.resolver, this.nodeManager);
+
+  SymbolicNode? build(PatternSymbol startSlot, int start, int end) {
+    return _buildNode(startSlot, start, end);
+  }
+
+  SymbolicNode? _buildNode(PatternSymbol slot, int i, int j) {
+    final key = (slot, i, j);
+
+    if (_nodes.containsKey(key)) {
+      return _nodes[key];
+    }
+
+    // Create node immediately (important for cycles)
+    final node = nodeManager.symbolic(i, j, _ruleOf(slot));
+    _nodes[key] = node;
+
+    // --- Terminal ---
+    if (resolver.isTerminal(slot)) {
+      final term = nodeManager.terminal(
+        i,
+        j,
+        _patternOf(slot),
+        resolver.terminalValue(slot, input, i, j).codeUnitAt(0),
+      );
+      node.addFamily(Family([term]));
+      return node;
+    }
+
+    // --- Epsilon ---
+    if (resolver.isEpsilon(slot)) {
+      final eps = nodeManager.epsilon(i, _patternOf(slot));
+      node.addFamily(Family([eps]));
+      return node;
+    }
+
+    final pivots = bsr._pivots[(slot, i, j)];
+    if (pivots == null || pivots.isEmpty) {
+      return null;
+    }
+
+    final children = resolver.children(slot);
+    if (children.isEmpty) return null;
+
+    if (children.length == 1) {
+      final child = _buildNode(children.single, i, j);
+      if (child != null) {
+        node.addFamily(Family([child]));
+      }
+    }
+
+    if (children.length == 2) {
+      final [leftSlot, rightSlot] = children;
+      // --- Build families (NO Cartesian explosion here) ---
+      for (final k in pivots) {
+        final left = _buildNode(leftSlot, i, k);
+        final right = _buildNode(rightSlot, k, j);
+
+        if (left != null && right != null) {
+          node.addFamily(Family([left, right]));
+        }
+      }
+    }
+
+    // Remove empty nodes (optional, matches your previous semantics)
+    if (node.families.isEmpty) {
+      _nodes.remove(key);
+      return null;
+    }
+
+    return node;
+  }
+
+  // -----------------------------
+  // Adapters (you plug these in)
+  // -----------------------------
+
+  Rule _ruleOf(PatternSymbol slot) {
+    // Map slot → rule
+    throw UnimplementedError();
+  }
+
+  Pattern _patternOf(PatternSymbol slot) {
+    // Map slot → pattern (for terminal/epsilon nodes)
+    throw UnimplementedError();
+  }
 }
 
 sealed class BsrParseOutcome {}
