@@ -245,7 +245,6 @@ class SMParser {
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
-    // Initialize buffer (can be reused across parses with clear())
     _predicateBuffer = PredicateLookaheadBuffer();
   }
 
@@ -975,7 +974,7 @@ class SMParser {
           return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
-      case Action<dynamic> action:
+      case Action action:
         // Evaluate the child and apply the semantic action
         assert(tree.children.length == 1, "Action Nodes should only have one child.");
 

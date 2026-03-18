@@ -112,7 +112,9 @@ sealed class Pattern {
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
   ///   - childResults: list of evaluated semantic values from children
-  Action<T> withAction<T>(T Function(String span, List<dynamic> childResults) callback) {
+  Action<T> withAction<T>(
+    T Function(String span, List<dynamic> childResults) callback,
+  ) {
     return Action<T>(this, callback);
   }
 
@@ -125,10 +127,13 @@ sealed class Pattern {
   Pattern plusRewrite() {
     late Rule inner;
     inner = Rule(
-        "__${_customIds++}",
-        () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-            this);
+      "__${_customIds++}",
+      () =>
+          (inner() >> this).withAction(
+            (_, c) => [if (c[0] case List v) ...v else c[0], c[1]],
+          ) |
+          this,
+    );
 
     return inner();
   }
@@ -136,10 +141,13 @@ sealed class Pattern {
   Pattern starRewrite() {
     late Rule inner;
     inner = Rule(
-        "__${_customIds++}",
-        () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-            Eps());
+      "__${_customIds++}",
+      () =>
+          (inner() >> this).withAction(
+            (_, c) => [if (c[0] case List v) ...v else c[0], c[1]],
+          ) |
+          Eps(),
+    );
 
     return inner();
   }
@@ -155,9 +163,6 @@ sealed class Pattern {
   /// without consuming input. Prevents matching when pattern would succeed.
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
   Not not() => Not(this);
-
-  /// Unary operator for positive lookahead: ~pattern
-  And operator ~() => And(this);
 }
 
 /// Sealed class hierarchy for token choice — replaces the former dynamic field.
@@ -228,10 +233,10 @@ class Token extends Pattern {
 
   Token(this.choice);
   Token.char(String char) //
-      : assert(char.length == 1),
-        choice = ExactToken(char.codeUnits.first);
+    : assert(char.length == 1),
+      choice = ExactToken(char.codeUnits.first);
   Token.charRange(String from, String to)
-      : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
+    : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
 
   @override
   bool singleToken() => true;
@@ -336,8 +341,8 @@ class Alt extends Pattern {
   final Pattern right;
 
   Alt(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume();
+    : left = left.consume(),
+      right = right.consume();
 
   @override
   Alt copy() => Alt(left, right);
@@ -390,8 +395,8 @@ class Seq extends Pattern {
   final Pattern right;
 
   Seq(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume();
+    : left = left.consume(),
+      right = right.consume();
 
   @override
   Seq copy() => Seq(left, right);
@@ -454,8 +459,8 @@ class Conj extends Pattern {
   final Pattern right;
 
   Conj(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume() {
+    : left = left.consume(),
+      right = right.consume() {
     if (!left.singleToken() || !right.singleToken()) {
       throw GrammarError('only single token can be used in conjunctions');
     }
@@ -722,7 +727,8 @@ class RuleCall extends Pattern {
   RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   @override
-  RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
+  RuleCall copy() =>
+      RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -745,7 +751,8 @@ class RuleCall extends Pattern {
   }
 
   @override
-  String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
+  String toString() =>
+      minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
 /// Lazy call to a rule (defers the call until needed), with optional precedence constraint
@@ -782,8 +789,9 @@ class Call extends Pattern {
   }
 
   @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
+  String toString() => minPrecedenceLevel != null
+      ? '<${rule.name}^$minPrecedenceLevel>'
+      : '<${rule.name}>';
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.
@@ -843,7 +851,8 @@ class PrecedenceLabeledPattern extends Pattern {
   PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
 
   @override
-  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() =>
+      PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {

@@ -282,7 +282,7 @@ class BsrSet {
                 inProgress,
                 (nodes) {
                   if (nodes.isNotEmpty) {
-                    plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                    plusNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                     for (final n in nodes) plusNode!.addFamily(Family([n]));
                   }
                   return continuation(plusNode != null ? [plusNode!] : []);
@@ -315,7 +315,7 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                        plusNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                         for (final h in head)
                           for (final t in tail) plusNode!.addFamily(Family([h, t]));
                       }
@@ -339,7 +339,7 @@ class BsrSet {
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
             if (start == end) {
-              starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+              starNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
               starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
             }
             return continuation(starNode != null ? [starNode!] : []);
@@ -367,7 +367,7 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+                        starNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                         for (final h in head)
                           for (final t in tail) starNode!.addFamily(Family([h, t]));
                       }
@@ -407,7 +407,7 @@ class BsrSet {
                   inProgress,
                   (right) {
                     if (right.isEmpty) return continuation([]);
-                    final node = nodeManager.intermediate(start, end, pattern, 'Conj');
+                    final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                     for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
                     return continuation([node]);
                   },
@@ -460,7 +460,7 @@ class BsrSet {
             inProgress,
             (nodes) {
               if (nodes.isEmpty) return continuation([]);
-              final node = nodeManager.intermediate(start, end, pattern, 'Action');
+              final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
               for (final n in nodes) node.addFamily(Family([n]));
               return continuation([node]);
             },

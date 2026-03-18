@@ -34,11 +34,8 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
       } else {
         throw TypeError();
       }
-    } catch (e) {
-      if (e is TypeError) {
-        throw GrammarError('the main pattern must be a rule call');
-      }
-      rethrow;
+    } on TypeError {
+      throw GrammarError('the main pattern must be a rule call');
     }
   }
 
@@ -125,8 +122,11 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
         _collectPatternsFromPattern(plp.pattern, patterns);
-      case _:
-        // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }
   }
