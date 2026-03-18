@@ -822,10 +822,11 @@ class Not extends Pattern {
   String toString() => 'not($pattern)';
 }
 
+extension type RuleName(String symbol) {}
+
 /// Grammar rule
 class Rule extends Pattern {
-  // final String name;
-  String get name => symbolId ?? "";
+  RuleName get name => RuleName(symbolId ?? "");
   final Pattern Function() _code;
   Pattern? _body;
   Pattern? guard;
@@ -854,7 +855,7 @@ class Rule extends Pattern {
   }
 
   @override
-  Rule copy() => Rule(name, _code);
+  Rule copy() => Rule(name.symbol, _code);
 
   @override
   Set<Pattern> firstSet() => {this};
@@ -1439,6 +1440,18 @@ class StateMachine {
 
   final Map<Object, State> _stateMapping = {};
 
+  /// Internal constructor for pre-built state machines (imported)
+  /// Used by ImportedStateMachine to reconstruct exported state machines
+  StateMachine.empty(this.grammar);
+
+  /// Initialize state structure for imported state machines
+  /// (exposed for ImportedStateMachine)
+  void initializeImported(List<State> initialStates, Map<Object, State> stateMapping) {
+    _initialStates = initialStates;
+    _stateMapping.addAll(stateMapping);
+    _cachedStates = stateMapping.values.toList();
+  }
+
   StateMachine(this.grammar) {
     final initState = _getOrCreateState(':init');
     _connect(initState, grammar.startCall);
@@ -1969,10 +1982,10 @@ extension _TrampolineExtensions<T> on _Trampoline<T> {
 }
 
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
-typedef BsrEntry = (Rule slot, int start, int pivot, int end);
+typedef BsrEntry = (String slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  Rule get slot => $1;
+  String get slot => $1;
   int get start => $2;
   int get pivot => $3;
   int get end => $4;
@@ -1980,11 +1993,11 @@ extension BsrEntryMethods on BsrEntry {
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
 class BsrSet {
-  final Map<(Rule, int start, int end), Set<int>> _pivots = {};
+  final Map<(String, int start, int end), Set<int>> _pivots = {};
 
   /// Add a rule-completion entry.
-  void add(Rule rule, int start, int pivot, int end) {
-    _pivots.putIfAbsent((rule, start, end), Set.new).add((pivot));
+  void add(String patternSymbol, int start, int pivot, int end) {
+    _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add((pivot));
   }
 
   /// Total number of recorded rule-completion entries.
@@ -2084,8 +2097,8 @@ class BsrSet {
     );
   }
 
-  Set<int> _pivotsFor(Rule rule, int start, int end) {
-    return _pivots.putIfAbsent((rule, start, end), Set.new).toSet();
+  Set<int> _pivotsFor(String ruleSymbol, int start, int end) {
+    return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
   }
 
   _Trampoline<T> _patternNodes<T>(
@@ -2146,7 +2159,7 @@ class BsrSet {
 
         // Pivot optimization only works when we're processing the full rule span
         // starting from ruleStart. For sub-spans, we use exhaustive search.
-        Set<int> splitPoints = _pivotsFor(currentRule, start, end);
+        Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
@@ -2199,7 +2212,7 @@ class BsrSet {
 
       case Plus():
         IntermediateNode? plusNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end);
+        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -2274,7 +2287,7 @@ class BsrSet {
         return _More(() => loop(pivots.iterator));
       case Star():
         IntermediateNode? starNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end);
+        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -2722,6 +2735,15 @@ class SMParser {
   GrammarInterface get grammar => stateMachine.grammar;
 
   SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
+    const initialContext = Context(RootCallerKey(), null);
+    final initialFrame = Frame(initialContext);
+    initialFrame.nextStates.addAll(stateMachine.initialStates);
+    _initialFrames = [initialFrame];
+    _predicateBuffer = PredicateLookaheadBuffer();
+  }
+
+  /// Create parser from a pre-built state machine (used for imported machines)
+  SMParser.fromStateMachine(this.stateMachine) {
     const initialContext = Context(RootCallerKey(), null);
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -3975,7 +3997,7 @@ class Step {
             if (bsrSet != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
               bsrSet.add(
-                rule,
+                rule.symbolId!,
                 frame.context.callStart!,
                 position, // Use current position as pivot for this token
                 position + 1,
@@ -4001,7 +4023,7 @@ class Step {
           final bsrSet = bsr;
           if (bsrSet != null && frame.caller is Caller) {
             final rule = (frame.caller as Caller).rule;
-            bsrSet.add(rule, frame.context.callStart!, position, position);
+            bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
           }
 
           // Create local frame that will be conditionally added to nextFrames
@@ -4062,7 +4084,7 @@ class Step {
             var callStart?,
             var pivot?,
           )) {
-            bsr.add(rule, callStart, pivot, position);
+            bsr.add(rule.symbolId!, callStart, pivot, position);
           }
 
           final caller = frame.caller;
@@ -4075,7 +4097,12 @@ class Step {
           if (bsrSet != null && caller is Caller) {
             caller.forEach((ccaller, nextState, ccontext) {
               if (ccaller is Caller) {
-                bsrSet.add(ccaller.rule, ccontext.callStart!, caller.callStart!, position);
+                bsrSet.add(
+                  ccaller.rule.symbolId!,
+                  ccontext.callStart!,
+                  caller.callStart!,
+                  position,
+                );
               }
             });
           }

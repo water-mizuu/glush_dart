@@ -46,10 +46,10 @@ extension _TrampolineExtensions<T> on _Trampoline<T> {
 }
 
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
-typedef BsrEntry = (Rule slot, int start, int pivot, int end);
+typedef BsrEntry = (String slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  Rule get slot => $1;
+  String get slot => $1;
   int get start => $2;
   int get pivot => $3;
   int get end => $4;
@@ -57,11 +57,11 @@ extension BsrEntryMethods on BsrEntry {
 
 /// The set of all [BsrEntry] instances accumulated during a parse.
 class BsrSet {
-  final Map<(Rule, int start, int end), Set<int>> _pivots = {};
+  final Map<(String, int start, int end), Set<int>> _pivots = {};
 
   /// Add a rule-completion entry.
-  void add(Rule rule, int start, int pivot, int end) {
-    _pivots.putIfAbsent((rule, start, end), Set.new).add((pivot));
+  void add(String patternSymbol, int start, int pivot, int end) {
+    _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add((pivot));
   }
 
   /// Total number of recorded rule-completion entries.
@@ -161,8 +161,8 @@ class BsrSet {
     );
   }
 
-  Set<int> _pivotsFor(Rule rule, int start, int end) {
-    return _pivots.putIfAbsent((rule, start, end), Set.new).toSet();
+  Set<int> _pivotsFor(String ruleSymbol, int start, int end) {
+    return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
   }
 
   _Trampoline<T> _patternNodes<T>(
@@ -223,7 +223,7 @@ class BsrSet {
 
         // Pivot optimization only works when we're processing the full rule span
         // starting from ruleStart. For sub-spans, we use exhaustive search.
-        Set<int> splitPoints = _pivotsFor(currentRule, start, end);
+        Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
@@ -276,7 +276,7 @@ class BsrSet {
 
       case Plus():
         IntermediateNode? plusNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end);
+        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
@@ -351,7 +351,7 @@ class BsrSet {
         return _More(() => loop(pivots.iterator));
       case Star():
         IntermediateNode? starNode;
-        final pivots = _pivotsFor(currentRule, ruleStart, end);
+        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
 
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {

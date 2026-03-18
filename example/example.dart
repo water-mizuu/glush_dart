@@ -76,7 +76,7 @@ void main() {
     return expr;
   });
 
-  // Grammar with SEMANTIC ACTIONS for action-based evaluation
+  // Grammar with no actions / markers.
   final cleanGrammar = Grammar(() {
     late Rule expr, term, factor;
 

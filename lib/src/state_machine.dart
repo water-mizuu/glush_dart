@@ -99,6 +99,18 @@ class StateMachine {
 
   final Map<Object, State> _stateMapping = {};
 
+  /// Internal constructor for pre-built state machines (imported)
+  /// Used by ImportedStateMachine to reconstruct exported state machines
+  StateMachine.empty(this.grammar);
+
+  /// Initialize state structure for imported state machines
+  /// (exposed for ImportedStateMachine)
+  void initializeImported(List<State> initialStates, Map<Object, State> stateMapping) {
+    _initialStates = initialStates;
+    _stateMapping.addAll(stateMapping);
+    _cachedStates = stateMapping.values.toList();
+  }
+
   StateMachine(this.grammar) {
     final initState = _getOrCreateState(':init');
     _connect(initState, grammar.startCall);

@@ -656,10 +656,11 @@ class Not extends Pattern {
   String toString() => 'not($pattern)';
 }
 
+extension type RuleName(String symbol) {}
+
 /// Grammar rule
 class Rule extends Pattern {
-  // final String name;
-  String get name => symbolId ?? "";
+  RuleName get name => RuleName(symbolId ?? "");
   final Pattern Function() _code;
   Pattern? _body;
   Pattern? guard;
@@ -688,7 +689,7 @@ class Rule extends Pattern {
   }
 
   @override
-  Rule copy() => Rule(name, _code);
+  Rule copy() => Rule(name.symbol, _code);
 
   @override
   Set<Pattern> firstSet() => {this};

@@ -255,6 +255,15 @@ class SMParser {
     _predicateBuffer = PredicateLookaheadBuffer();
   }
 
+  /// Create parser from a pre-built state machine (used for imported machines)
+  SMParser.fromStateMachine(this.stateMachine) {
+    const initialContext = Context(RootCallerKey(), null);
+    final initialFrame = Frame(initialContext);
+    initialFrame.nextStates.addAll(stateMachine.initialStates);
+    _initialFrames = [initialFrame];
+    _predicateBuffer = PredicateLookaheadBuffer();
+  }
+
   bool recognize(String input) {
     _predicateBuffer.initializeFromString(input);
     var frames = _initialFrames;
@@ -1501,7 +1510,7 @@ class Step {
             if (bsrSet != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
               bsrSet.add(
-                rule,
+                rule.symbolId!,
                 frame.context.callStart!,
                 position, // Use current position as pivot for this token
                 position + 1,
@@ -1527,7 +1536,7 @@ class Step {
           final bsrSet = bsr;
           if (bsrSet != null && frame.caller is Caller) {
             final rule = (frame.caller as Caller).rule;
-            bsrSet.add(rule, frame.context.callStart!, position, position);
+            bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
           }
 
           // Create local frame that will be conditionally added to nextFrames
@@ -1588,7 +1597,7 @@ class Step {
             var callStart?,
             var pivot?,
           )) {
-            bsr.add(rule, callStart, pivot, position);
+            bsr.add(rule.symbolId!, callStart, pivot, position);
           }
 
           final caller = frame.caller;
@@ -1601,7 +1610,12 @@ class Step {
           if (bsrSet != null && caller is Caller) {
             caller.forEach((ccaller, nextState, ccontext) {
               if (ccaller is Caller) {
-                bsrSet.add(ccaller.rule, ccontext.callStart!, caller.callStart!, position);
+                bsrSet.add(
+                  ccaller.rule.symbolId!,
+                  ccontext.callStart!,
+                  caller.callStart!,
+                  position,
+                );
               }
             });
           }
