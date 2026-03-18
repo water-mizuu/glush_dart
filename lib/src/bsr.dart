@@ -83,8 +83,9 @@ class BsrSet {
     int end,
     ForestNodeManager nodeManager,
     Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) {
     final key = '${rule.name}:$start:$end';
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
@@ -110,6 +111,7 @@ class BsrSet {
         },
         rule,
         start,
+        minPrecedenceLevel: minPrecedenceLevel,
       ),
     );
   }
@@ -122,9 +124,10 @@ class BsrSet {
     ForestNodeManager nodeManager,
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
-    _Trampoline<T> Function(SymbolicNode?) cont,
-  ) {
-    final key = '${rule.symbolId}:$start:$end';
+    _Trampoline<T> Function(SymbolicNode?) cont, {
+    int? minPrecedenceLevel,
+  }) {
+    final key = '${rule.symbolId}:$start:$end:${minPrecedenceLevel ?? 'null'}';
     if (memo.containsKey(key)) return cont(memo[key]);
     if (inProgress[key] == true) return cont(null);
 
@@ -153,6 +156,7 @@ class BsrSet {
         },
         rule,
         start,
+        minPrecedenceLevel: minPrecedenceLevel,
       ),
     );
   }
@@ -171,8 +175,9 @@ class BsrSet {
     Map<String, bool> inProgress,
     _Trampoline<T> Function(List<ForestNode>) continuation,
     Rule currentRule,
-    int ruleStart,
-  ) {
+    int ruleStart, {
+    int? minPrecedenceLevel,
+  }) {
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
@@ -205,10 +210,12 @@ class BsrSet {
                 (right) => continuation([...left, ...right]),
                 currentRule,
                 ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
               ),
             ),
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case Seq():
@@ -255,11 +262,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -289,6 +298,7 @@ class BsrSet {
                 },
                 currentRule,
                 ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
               ),
             );
           }
@@ -315,7 +325,12 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        plusNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
+                        plusNode ??= nodeManager.intermediate(
+                          start,
+                          end,
+                          pattern,
+                          pattern.symbolId!,
+                        );
                         for (final h in head)
                           for (final t in tail) plusNode!.addFamily(Family([h, t]));
                       }
@@ -323,11 +338,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -367,7 +384,12 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        starNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
+                        starNode ??= nodeManager.intermediate(
+                          start,
+                          end,
+                          pattern,
+                          pattern.symbolId!,
+                        );
                         for (final h in head)
                           for (final t in tail) starNode!.addFamily(Family([h, t]));
                       }
@@ -375,11 +397,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -413,11 +437,13 @@ class BsrSet {
                   },
                   currentRule,
                   ruleStart,
+                  minPrecedenceLevel: minPrecedenceLevel,
                 ),
               );
             },
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case Rule():
@@ -433,12 +459,15 @@ class BsrSet {
             continuation,
             pattern,
             start,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
-      case RuleCall(:var rule) || Call(:var rule):
+      case RuleCall():
+        // Extract the precedence constraint from the RuleCall pattern
+        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
         return _More(
           () => _buildNodeWith(
-            rule,
+            pattern.rule,
             input,
             start,
             end,
@@ -446,6 +475,23 @@ class BsrSet {
             memo,
             inProgress,
             (node) => continuation(node != null ? [node] : []),
+            minPrecedenceLevel: constraint,
+          ),
+        );
+      case Call():
+        // Extract the precedence constraint from the Call pattern
+        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
+        return _More(
+          () => _buildNodeWith(
+            pattern.rule,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (node) => continuation(node != null ? [node] : []),
+            minPrecedenceLevel: constraint,
           ),
         );
       case Action<dynamic>():
@@ -466,9 +512,15 @@ class BsrSet {
             },
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case PrecedenceLabeledPattern():
+        // Check if this alternative meets the minimum precedence level
+        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+          // Skip this alternative - it doesn't meet the precedence requirement
+          return continuation([]);
+        }
         return _More(
           () => _patternNodes(
             pattern.pattern,
@@ -481,6 +533,7 @@ class BsrSet {
             continuation,
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case And() || Not():

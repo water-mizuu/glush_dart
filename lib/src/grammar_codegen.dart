@@ -33,11 +33,13 @@ class GrammarCodeGenerator {
     buffer.writeln();
     buffer.writeln('/// Lazy-initialized parser for ${grammarFile.name}');
     buffer.writeln(
-        'late final SMParser _${grammarFile.name}Parser = SMParser(_create${grammarName}Grammar());');
+      'late final SMParser _${grammarFile.name}Parser = SMParser(_create${grammarName}Grammar());',
+    );
     buffer.writeln();
     buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
-    buffer
-        .writeln('/// Returns the parse outcome containing the parse forest or error information');
+    buffer.writeln(
+      '/// Returns the parse outcome containing the parse forest or error information',
+    );
     buffer.writeln('Iterable<ParseDerivation> parse${grammarName}(String input) {');
     buffer.writeln('  return _${grammarFile.name}Parser.enumerateAllParses(input);');
     buffer.writeln('}');
@@ -69,12 +71,16 @@ class GrammarCodeGenerator {
     buffer.writeln('}');
     buffer.writeln();
     buffer.writeln('/// Lazy-initialized parser for ${grammarFile.name}');
-    buffer.writeln('late final SMParser _${grammarFile.name}Parser = '
-        'SMParser(_create${grammarName}Grammar());');
+    buffer.writeln(
+      'late final SMParser _${grammarFile.name}Parser = '
+      'SMParser(_create${grammarName}Grammar());',
+    );
     buffer.writeln();
     buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
-    buffer.writeln('/// Returns the parse outcome containing the ' //
-        'parse forest or error information');
+    buffer.writeln(
+      '/// Returns the parse outcome containing the ' //
+      'parse forest or error information',
+    );
     buffer.writeln('ParseOutcome parse${grammarName}(String input) {');
     buffer.writeln('  return _${grammarFile.name}Parser.parse(input);');
     buffer.writeln('}');
@@ -97,7 +103,11 @@ class GrammarCodeGenerator {
     // Rule definitions
     for (final rule in grammarFile.rules) {
       final ruleVar = _getRuleVariable(rule.name);
-      buffer.write('    $ruleVar = Rule(' '"${rule.name}"' ', () => ');
+      buffer.write(
+        '    $ruleVar = Rule('
+        '"${rule.name}"'
+        ', () => ',
+      );
 
       String patternCode = _generatePatternCode(rule.pattern, rule.precedenceLevels);
       if (rule.marks.isNotEmpty) {
@@ -114,8 +124,10 @@ class GrammarCodeGenerator {
 
   /// Generate Dart code for a pattern expression
   /// Tracks precedence levels so they can be wrapped with PrecedenceLabeledPattern
-  String _generatePatternCode(PatternExpr pattern,
-      [Map<PatternExpr, int> precedenceLevels = const {}]) {
+  String _generatePatternCode(
+    PatternExpr pattern, [
+    Map<PatternExpr, int> precedenceLevels = const {},
+  ]) {
     if (pattern is LiteralPattern) {
       final codes = pattern.literal.split('').map((c) => c.codeUnitAt(0)).toList();
       if (codes.length == 1) {
@@ -159,14 +171,12 @@ class GrammarCodeGenerator {
         callCode = 'Call($ruleVar)';
       }
 
-      if (pattern.mark != null) {
-        return 'Marker("${pattern.mark}") >> $callCode';
-      }
       return callCode;
     }
 
     if (pattern is SequencePattern) {
-      final parts = pattern.patterns //
+      final parts = pattern
+          .patterns //
           .map((p) => _generatePatternCode(p, precedenceLevels))
           .toList();
 
@@ -217,17 +227,18 @@ class GrammarCodeGenerator {
   }
 
   /// Generate a simple runner function
-  String generateParserRunner({
-    required String testInput,
-    String functionName = 'parseExample',
-  }) {
+  String generateParserRunner({required String testInput, String functionName = 'parseExample'}) {
     final buffer = StringBuffer();
 
     buffer.writeln('/// Parse test input: "$testInput"');
     buffer.writeln('ParseOutcome parseExample() {');
     buffer.writeln('  final grammar = create${_toPascalCase(grammarFile.name)}Grammar();');
     buffer.writeln('  final parser = SMParser(grammar);');
-    buffer.writeln('  final result = parser.parse(' '$testInput' ');');
+    buffer.writeln(
+      '  final result = parser.parse('
+      '$testInput'
+      ');',
+    );
     buffer.writeln('  return result;');
     buffer.writeln('}');
 
@@ -244,6 +255,7 @@ class GrammarCodeGenerator {
 
   /// Get the variable name for a rule (lowercase)
   String _getRuleVariable(String ruleName) {
+    /// Due to the wildcard feature, single underscores aren't declared.
     if (ruleName == "_") {
       return "__underscore";
     }

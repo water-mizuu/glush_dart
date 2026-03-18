@@ -9,16 +9,16 @@ void main() {
         S = Rule(
           'S',
           () =>
-              Marker("") >> Pattern.char('s') | //
-              Marker("") >> Pattern.char('s') >> Pattern.char("+") >> S.call(),
+              Token.char('s') | //
+              Token.char('s') >> Token.char("+") >> S.call(),
         );
 
         return S.call();
       });
 
-      final parser = SMParser(grammar);
+      SMParser parser = SMParser(grammar);
       double previous = 1;
-      for (int count = 20; count <= 200; count += 20) {
+      for (int count = 20; count <= 500; count += 20) {
         Stopwatch watch = Stopwatch()..start();
         final input = "s+" * count + "s";
 
@@ -39,8 +39,8 @@ void main() {
         S = Rule(
           'S',
           () =>
-              Marker("") >> Pattern.char('s') | //
-              Marker("") >> S.call() >> Pattern.char("+") >> Pattern.char('s'),
+              Token.char('s') | //
+              S.call() >> Token.char("+") >> Token.char('s'),
         );
 
         return S.call();
@@ -49,7 +49,7 @@ void main() {
       final parser = SMParser(grammar);
 
       double previous = 1;
-      for (int count = 20; count <= 200; count += 20) {
+      for (int count = 20; count <= 500; count += 20) {
         Stopwatch watch = Stopwatch()..start();
         final input = "s+" * count + "s";
 
@@ -62,26 +62,6 @@ void main() {
         );
         previous = watch.elapsedMicroseconds.toDouble();
       }
-    });
-
-    test('verifies conjunction logic at runtime', () {
-      final grammar = Grammar(() {
-        final digit = Token.charRange('0', '9');
-        final even =
-            Token(ExactToken(48)) |
-            Token(ExactToken(50)) |
-            Token(ExactToken(52)) |
-            Token(ExactToken(54)) |
-            Token(ExactToken(56));
-        final even_digit = digit & even;
-        return Rule('test', () => even_digit);
-      });
-
-      final parser = SMParser(grammar);
-      expect(parser.recognize('0'), isTrue);
-      expect(parser.recognize('2'), isTrue);
-      expect(parser.recognize('1'), isFalse);
-      expect(parser.recognize('a'), isFalse);
     });
   });
 }

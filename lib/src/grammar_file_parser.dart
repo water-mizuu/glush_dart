@@ -44,7 +44,6 @@ enum _TokenType {
   question, // ?
   lparen, // (
   rparen, // )
-  at, // @
   dollar, // $
   caret, // ^
   lbrace, // {
@@ -100,7 +99,6 @@ class _Tokenizer {
         '?': _TokenType.question,
         '(': _TokenType.lparen,
         ')': _TokenType.rparen,
-        '@': _TokenType.at,
         '\$': _TokenType.dollar,
         '^': _TokenType.caret,
         '{': _TokenType.lbrace,
@@ -167,8 +165,11 @@ class _Tokenizer {
     }
 
     if (position >= source.length) {
-      throw GrammarFileParseError('Unterminated character range',
-          line: startLine, column: startCol);
+      throw GrammarFileParseError(
+        'Unterminated character range',
+        line: startLine,
+        column: startCol,
+      );
     }
 
     buffer.write(']');
@@ -269,17 +270,12 @@ class GrammarFileParser {
     final ruleName = _advance().value;
     final marks = <String>[];
 
-    // Optional marks like @expr
-    while (_peek().type == _TokenType.at) {
-      _advance(); // consume @
-      if (_peek().type == _TokenType.identifier) {
-        marks.add(_advance().value);
-      }
-    }
-
     if (_peek().type != _TokenType.equals) {
-      throw GrammarFileParseError('Expected "=" after rule name',
-          line: _peek().line, column: _peek().column);
+      throw GrammarFileParseError(
+        'Expected "=" after rule name',
+        line: _peek().line,
+        column: _peek().column,
+      );
     }
 
     _advance(); // consume =
@@ -288,8 +284,11 @@ class GrammarFileParser {
 
     // Consume optional semicolon
     if (_peek().type != _TokenType.semicolon) {
-      throw GrammarFileParseError("Expected semicolon after rule declaration",
-          line: _peek().line, column: _peek().column);
+      throw GrammarFileParseError(
+        "Expected semicolon after rule declaration",
+        line: _peek().line,
+        column: _peek().column,
+      );
     }
     _advance();
 
@@ -467,8 +466,11 @@ class GrammarFileParser {
     if (type == _TokenType.dollar) {
       _advance(); // consume $
       if (_peek().type != _TokenType.identifier) {
-        throw GrammarFileParseError('Expected identifier after \$',
-            line: _peek().line, column: _peek().column);
+        throw GrammarFileParseError(
+          'Expected identifier after \$',
+          line: _peek().line,
+          column: _peek().column,
+        );
       }
       final markName = _advance().value;
       return MarkerPattern(markName);
@@ -476,16 +478,7 @@ class GrammarFileParser {
 
     if (type == _TokenType.identifier) {
       final ruleName = _advance().value;
-      var mark;
       int? precedenceConstraint;
-
-      // Optional mark like expr @token
-      if (_peek().type == _TokenType.at) {
-        _advance();
-        if (_peek().type == _TokenType.identifier) {
-          mark = _advance().value;
-        }
-      }
 
       // Optional precedence constraint like expr^2
       if (_peek().type == _TokenType.caret) {
@@ -499,7 +492,7 @@ class GrammarFileParser {
         }
       }
 
-      return RuleRefPattern(ruleName, mark: mark, precedenceConstraint: precedenceConstraint);
+      return RuleRefPattern(ruleName, precedenceConstraint: precedenceConstraint);
     }
 
     if (type == _TokenType.lparen) {
@@ -512,8 +505,11 @@ class GrammarFileParser {
       return GroupPattern(pattern);
     }
 
-    throw GrammarFileParseError('Unexpected token: ${_peek().value}',
-        line: _peek().line, column: _peek().column);
+    throw GrammarFileParseError(
+      'Unexpected token: ${_peek().value}',
+      line: _peek().line,
+      column: _peek().column,
+    );
   }
 
   List<CharRange> _parseCharRanges(String rangeStr) {

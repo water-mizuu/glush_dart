@@ -373,12 +373,16 @@ class ParseTree {
       return input.substring(node.start, node.end);
     }
 
-    if (children.length == 1) {
-      return children.single.toPrecedenceString(input);
+    List<String> mapped = children
+        .where((c) => c.node.start != c.node.end)
+        .map((c) => c.toPrecedenceString(input))
+        .toList();
+
+    if (mapped.length == 1) {
+      return mapped.single;
     }
 
-    final mapped = children.map((c) => c.toPrecedenceString(input)).join("");
-    return "($mapped)";
+    return "(${mapped.join("")})";
   }
 
   @override

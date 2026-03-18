@@ -75,18 +75,13 @@ class MarkerPattern extends PatternExpr {
 /// The precedenceConstraint is the minimum level required (e.g., 2 in expr^2)
 class RuleRefPattern extends PatternExpr {
   final String ruleName;
-  final String? mark; // optional @mark annotation
   final int? precedenceConstraint; // optional ^N constraint
 
-  RuleRefPattern(
-    this.ruleName, {
-    this.mark,
-    this.precedenceConstraint,
-  });
+  RuleRefPattern(this.ruleName, {this.precedenceConstraint});
 
   @override
   String toString() {
-    final base = mark != null ? '$ruleName @$mark' : ruleName;
+    String base = ruleName;
     if (precedenceConstraint != null) {
       return '$base^$precedenceConstraint';
     }
@@ -170,11 +165,7 @@ class GrammarFile {
   final List<RuleDefinition> rules;
   final Map<String, List<ActionExpr>> actions; // rule name -> actions
 
-  GrammarFile({
-    required this.name,
-    required this.rules,
-    this.actions = const {},
-  });
+  GrammarFile({required this.name, required this.rules, this.actions = const {}});
 
   /// Find a rule by name
   RuleDefinition? findRule(String name) {

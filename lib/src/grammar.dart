@@ -88,8 +88,9 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
       if (pattern.symbolId == null) {
         final symbolId = 'S${_symbolCounter++}';
         pattern.assignSymbolId(symbolId);
-        symbolRegistry[symbolId] = pattern;
       }
+      final actualSymbolId = pattern.symbolId!;
+      symbolRegistry[actualSymbolId] = pattern;
     }
   }
 

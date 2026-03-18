@@ -112,9 +112,7 @@ sealed class Pattern {
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
   ///   - childResults: list of evaluated semantic values from children
-  Action<T> withAction<T>(
-    T Function(String span, List<dynamic> childResults) callback,
-  ) {
+  Action<T> withAction<T>(T Function(String span, List<dynamic> childResults) callback) {
     return Action<T>(this, callback);
   }
 
@@ -129,9 +127,7 @@ sealed class Pattern {
     inner = Rule(
       "__${_customIds++}",
       () =>
-          (inner() >> this).withAction(
-            (_, c) => [if (c[0] case List v) ...v else c[0], c[1]],
-          ) |
+          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
           this,
     );
 
@@ -143,9 +139,7 @@ sealed class Pattern {
     inner = Rule(
       "__${_customIds++}",
       () =>
-          (inner() >> this).withAction(
-            (_, c) => [if (c[0] case List v) ...v else c[0], c[1]],
-          ) |
+          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
           Eps(),
     );
 
@@ -340,9 +334,7 @@ class Alt extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Alt(Pattern left, Pattern right)
-    : left = left.consume(),
-      right = right.consume();
+  Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Alt copy() => Alt(left, right);
@@ -394,9 +386,7 @@ class Seq extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Seq(Pattern left, Pattern right)
-    : left = left.consume(),
-      right = right.consume();
+  Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Seq copy() => Seq(left, right);
@@ -458,9 +448,7 @@ class Conj extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Conj(Pattern left, Pattern right)
-    : left = left.consume(),
-      right = right.consume() {
+  Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume() {
     if (!left.singleToken() || !right.singleToken()) {
       throw GrammarError('only single token can be used in conjunctions');
     }
@@ -670,13 +658,14 @@ class Not extends Pattern {
 
 /// Grammar rule
 class Rule extends Pattern {
-  final String name;
+  // final String name;
+  String get name => symbolId ?? "";
   final Pattern Function() _code;
   Pattern? _body;
   Pattern? guard;
   final List<RuleCall> calls = [];
 
-  Rule(this.name, this._code);
+  Rule(String name, this._code);
 
   RuleCall call({int? minPrecedenceLevel}) {
     final name = '${this.name}_${calls.length}';
@@ -727,8 +716,7 @@ class RuleCall extends Pattern {
   RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   @override
-  RuleCall copy() =>
-      RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
+  RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -751,8 +739,7 @@ class RuleCall extends Pattern {
   }
 
   @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
+  String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
 /// Lazy call to a rule (defers the call until needed), with optional precedence constraint
@@ -789,9 +776,8 @@ class Call extends Pattern {
   }
 
   @override
-  String toString() => minPrecedenceLevel != null
-      ? '<${rule.name}^$minPrecedenceLevel>'
-      : '<${rule.name}>';
+  String toString() =>
+      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.
@@ -851,8 +837,7 @@ class PrecedenceLabeledPattern extends Pattern {
   PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
 
   @override
-  PrecedenceLabeledPattern copy() =>
-      PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {

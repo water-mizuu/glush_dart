@@ -384,7 +384,7 @@ void main() {
       if (forestResult is ParseForestSuccess) {
         Set<String> enumerations =
             derivations //
-                .map((s) => s.toTreeString(testInput))
+                .map((s) => s.toPrecedenceString(testInput))
                 .toSet();
         Set<String> forestExtracted = forestResult.forest
             .extract()

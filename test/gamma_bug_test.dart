@@ -57,10 +57,10 @@ void evaluateGamma3(Grammar grammar) {
     expect(forestResult, isA<ParseForestSuccess>());
 
     if (forestResult is ParseForestSuccess) {
-      Set<String> enumerations =
-          derivations //
-              .map((s) => s.toTreeString(testInput))
-              .toSet();
+      Set<String> enumerations = derivations
+          .map((s) => s)
+          .map((s) => s.toPrecedenceString(testInput))
+          .toSet();
       Set<String> forestExtracted = forestResult.forest
           .extract()
           .map((s) => s.toPrecedenceString(testInput))

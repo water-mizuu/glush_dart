@@ -103,20 +103,27 @@ class ParseDerivation {
 
   /// Convert to flat tree string showing matched content and structure
   /// Example: for input "sss" with grammar S=s|SS|SSS might show (s(ss))
-  String toTreeString(String? input) {
+  String toTreeString(String input, [int indent = 0]) {
+    final prefix = '  ' * indent;
+    final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
+    return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
+  }
+
+  String toPrecedenceString(String input) {
     if (children.isEmpty) {
-      // Leaf node - show the matched text if input provided, otherwise just span
-      if (input != null) {
-        return getMatchedText(input);
-      }
-      return '[$start:$end]';
+      return input.substring(start, end);
     }
-    if (children.length == 1) {
-      return children.single.toTreeString(input);
+
+    List<String> mapped = children
+        .where((c) => c.start != c.end)
+        .map((c) => c.toPrecedenceString(input))
+        .toList();
+
+    if (mapped.length == 1) {
+      return mapped.single;
     }
-    // Parens showing children structure with their matched content
-    final childStr = children.map((c) => c.toTreeString(input)).join('');
-    return '($childStr)';
+
+    return "(${mapped.join("")})";
   }
 
   Object? getSimplified(String input) {
@@ -651,9 +658,11 @@ class SMParser {
     int start,
     int end,
     Map<String, List<ParseDerivation>?> memo,
-    Map<String, bool> inProgress,
-  ) sync* {
-    final key = '${rule.name}:$start:$end';
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) sync* {
+    final key =
+        '${rule.name}:$start:$end${minPrecedenceLevel != null ? ':min$minPrecedenceLevel' : ''}';
 
     // If we've already computed this span, replay from cache
     if (memo.containsKey(key)) {
@@ -682,7 +691,15 @@ class SMParser {
 
     inProgress[key] = true;
     final cache = <ParseDerivation>[];
-    for (final d in _enumerateAlternatives(rule.body(), input, start, end, memo, inProgress)) {
+    for (final d in _enumerateAlternatives(
+      rule.body(),
+      input,
+      start,
+      end,
+      memo,
+      inProgress,
+      minPrecedenceLevel: minPrecedenceLevel,
+    )) {
       cache.add(d);
       yield d;
     }
@@ -696,8 +713,9 @@ class SMParser {
     int start,
     int end,
     Map<String, List<ParseDerivation>?> memo,
-    Map<String, bool> inProgress,
-  ) sync* {
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) sync* {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
         yield ParseDerivation(pattern.symbolId!, start, end, []);
@@ -715,12 +733,47 @@ class SMParser {
       return;
     }
 
+    if (pattern is PrecedenceLabeledPattern) {
+      // Check if this alternative meets the minimum precedence level
+      if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+        // Skip this alternative - it doesn't meet the precedence requirement
+        return;
+      }
+      // Forward the minPrecedenceLevel to the wrapped pattern
+      yield* _enumerateAlternatives(
+        pattern.pattern,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
+      return;
+    }
+
     if (pattern is Alt) {
-      final key = '${pattern.hashCode}:$start:$end';
+      final key = '${pattern.hashCode}:$start:$end:${minPrecedenceLevel ?? ""}';
       if (inProgress[key] == true) return;
       inProgress[key] = true;
-      yield* _enumerateAlternatives(pattern.left, input, start, end, memo, inProgress);
-      yield* _enumerateAlternatives(pattern.right, input, start, end, memo, inProgress);
+      yield* _enumerateAlternatives(
+        pattern.left,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
+      yield* _enumerateAlternatives(
+        pattern.right,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
       inProgress[key] = false;
       return;
     }
@@ -735,6 +788,7 @@ class SMParser {
           mid,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (leftList.isEmpty) continue;
 
@@ -745,6 +799,7 @@ class SMParser {
           end,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (rightList.isEmpty) continue;
 
@@ -766,6 +821,7 @@ class SMParser {
           mid,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (childList.isEmpty) continue;
         for (final child in childList) {
@@ -789,12 +845,32 @@ class SMParser {
     }
 
     if (pattern is Call) {
-      yield* _enumerateDerivations(pattern.rule, input, start, end, memo, inProgress);
+      // Check precedence constraint on the Call pattern
+      final constraint = pattern.minPrecedenceLevel;
+      yield* _enumerateDerivations(
+        pattern.rule,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: constraint,
+      );
       return;
     }
 
     if (pattern is RuleCall) {
-      yield* _enumerateDerivations(pattern.rule, input, start, end, memo, inProgress);
+      // Check precedence constraint on the RuleCall pattern
+      final constraint = pattern.minPrecedenceLevel;
+      yield* _enumerateDerivations(
+        pattern.rule,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: constraint,
+      );
       return;
     }
 
@@ -806,10 +882,10 @@ class SMParser {
         end,
         memo,
         inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
       )) {
         yield ParseDerivation(pattern.symbolId!, start, end, [child]);
       }
-      // yield* _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress);
       return;
     }
 
@@ -841,11 +917,6 @@ class SMParser {
           pattern.right.match(input.codeUnitAt(start))) {
         yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
-      return;
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      yield* _enumerateAlternatives(pattern.pattern, input, start, end, memo, inProgress);
       return;
     }
   }

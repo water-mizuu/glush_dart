@@ -291,10 +291,11 @@ sealed class Pattern {
   Pattern plusRewrite() {
     late Rule inner;
     inner = Rule(
-        "__${_customIds++}",
-        () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-            this);
+      "__${_customIds++}",
+      () =>
+          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+          this,
+    );
 
     return inner();
   }
@@ -302,10 +303,11 @@ sealed class Pattern {
   Pattern starRewrite() {
     late Rule inner;
     inner = Rule(
-        "__${_customIds++}",
-        () =>
-            (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-            Eps());
+      "__${_customIds++}",
+      () =>
+          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
+          Eps(),
+    );
 
     return inner();
   }
@@ -321,9 +323,6 @@ sealed class Pattern {
   /// without consuming input. Prevents matching when pattern would succeed.
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
   Not not() => Not(this);
-
-  /// Unary operator for positive lookahead: ~pattern
-  And operator ~() => And(this);
 }
 
 /// Sealed class hierarchy for token choice — replaces the former dynamic field.
@@ -394,10 +393,10 @@ class Token extends Pattern {
 
   Token(this.choice);
   Token.char(String char) //
-      : assert(char.length == 1),
-        choice = ExactToken(char.codeUnits.first);
+    : assert(char.length == 1),
+      choice = ExactToken(char.codeUnits.first);
   Token.charRange(String from, String to)
-      : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
+    : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
 
   @override
   bool singleToken() => true;
@@ -501,9 +500,7 @@ class Alt extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Alt(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume();
+  Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Alt copy() => Alt(left, right);
@@ -555,9 +552,7 @@ class Seq extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Seq(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume();
+  Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Seq copy() => Seq(left, right);
@@ -619,9 +614,7 @@ class Conj extends Pattern {
   final Pattern left;
   final Pattern right;
 
-  Conj(Pattern left, Pattern right)
-      : left = left.consume(),
-        right = right.consume() {
+  Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume() {
     if (!left.singleToken() || !right.singleToken()) {
       throw GrammarError('only single token can be used in conjunctions');
     }
@@ -831,13 +824,14 @@ class Not extends Pattern {
 
 /// Grammar rule
 class Rule extends Pattern {
-  final String name;
+  // final String name;
+  String get name => symbolId ?? "";
   final Pattern Function() _code;
   Pattern? _body;
   Pattern? guard;
   final List<RuleCall> calls = [];
 
-  Rule(this.name, this._code);
+  Rule(String name, this._code);
 
   RuleCall call({int? minPrecedenceLevel}) {
     final name = '${this.name}_${calls.length}';
@@ -1114,11 +1108,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       } else {
         throw TypeError();
       }
-    } catch (e) {
-      if (e is TypeError) {
-        throw GrammarError('the main pattern must be a rule call');
-      }
-      rethrow;
+    } on TypeError {
+      throw GrammarError('the main pattern must be a rule call');
     }
   }
 
@@ -1171,8 +1162,9 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       if (pattern.symbolId == null) {
         final symbolId = 'S${_symbolCounter++}';
         pattern.assignSymbolId(symbolId);
-        symbolRegistry[symbolId] = pattern;
       }
+      final actualSymbolId = pattern.symbolId!;
+      symbolRegistry[actualSymbolId] = pattern;
     }
   }
 
@@ -1205,8 +1197,11 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
         _collectPatternsFromPattern(plp.pattern, patterns);
-      case _:
-        // Token, Marker, Eps, Rule, RuleCall, Call - these are terminals
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }
   }
@@ -1913,12 +1908,16 @@ class ParseTree {
       return input.substring(node.start, node.end);
     }
 
-    if (children.length == 1) {
-      return children.single.toPrecedenceString(input);
+    List<String> mapped = children
+        .where((c) => c.node.start != c.node.end)
+        .map((c) => c.toPrecedenceString(input))
+        .toList();
+
+    if (mapped.length == 1) {
+      return mapped.single;
     }
 
-    final mapped = children.map((c) => c.toPrecedenceString(input)).join("");
-    return "($mapped)";
+    return "(${mapped.join("")})";
   }
 
   @override
@@ -2007,8 +2006,9 @@ class BsrSet {
     int end,
     ForestNodeManager nodeManager,
     Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-  ) {
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) {
     final key = '${rule.name}:$start:$end';
     if (memo.containsKey(key)) return _Done(memo[key]);
     if (inProgress[key] == true) return _Done(null);
@@ -2034,6 +2034,7 @@ class BsrSet {
         },
         rule,
         start,
+        minPrecedenceLevel: minPrecedenceLevel,
       ),
     );
   }
@@ -2046,9 +2047,10 @@ class BsrSet {
     ForestNodeManager nodeManager,
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress,
-    _Trampoline<T> Function(SymbolicNode?) cont,
-  ) {
-    final key = '${rule.symbolId}:$start:$end';
+    _Trampoline<T> Function(SymbolicNode?) cont, {
+    int? minPrecedenceLevel,
+  }) {
+    final key = '${rule.symbolId}:$start:$end:${minPrecedenceLevel ?? 'null'}';
     if (memo.containsKey(key)) return cont(memo[key]);
     if (inProgress[key] == true) return cont(null);
 
@@ -2077,6 +2079,7 @@ class BsrSet {
         },
         rule,
         start,
+        minPrecedenceLevel: minPrecedenceLevel,
       ),
     );
   }
@@ -2095,8 +2098,9 @@ class BsrSet {
     Map<String, bool> inProgress,
     _Trampoline<T> Function(List<ForestNode>) continuation,
     Rule currentRule,
-    int ruleStart,
-  ) {
+    int ruleStart, {
+    int? minPrecedenceLevel,
+  }) {
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
@@ -2129,10 +2133,12 @@ class BsrSet {
                 (right) => continuation([...left, ...right]),
                 currentRule,
                 ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
               ),
             ),
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case Seq():
@@ -2179,11 +2185,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -2206,13 +2214,14 @@ class BsrSet {
                 inProgress,
                 (nodes) {
                   if (nodes.isNotEmpty) {
-                    plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                    plusNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                     for (final n in nodes) plusNode!.addFamily(Family([n]));
                   }
                   return continuation(plusNode != null ? [plusNode!] : []);
                 },
                 currentRule,
                 ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
               ),
             );
           }
@@ -2239,7 +2248,12 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        plusNode ??= nodeManager.intermediate(start, end, pattern, 'Plus');
+                        plusNode ??= nodeManager.intermediate(
+                          start,
+                          end,
+                          pattern,
+                          pattern.symbolId!,
+                        );
                         for (final h in head)
                           for (final t in tail) plusNode!.addFamily(Family([h, t]));
                       }
@@ -2247,11 +2261,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -2263,7 +2279,7 @@ class BsrSet {
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
             if (start == end) {
-              starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+              starNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
               starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
             }
             return continuation(starNode != null ? [starNode!] : []);
@@ -2291,7 +2307,12 @@ class BsrSet {
                     inProgress,
                     (tail) {
                       if (tail.isNotEmpty) {
-                        starNode ??= nodeManager.intermediate(start, end, pattern, 'Star');
+                        starNode ??= nodeManager.intermediate(
+                          start,
+                          end,
+                          pattern,
+                          pattern.symbolId!,
+                        );
                         for (final h in head)
                           for (final t in tail) starNode!.addFamily(Family([h, t]));
                       }
@@ -2299,11 +2320,13 @@ class BsrSet {
                     },
                     currentRule,
                     ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
                   ),
                 );
               },
               currentRule,
               ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
             ),
           );
         }
@@ -2331,17 +2354,19 @@ class BsrSet {
                   inProgress,
                   (right) {
                     if (right.isEmpty) return continuation([]);
-                    final node = nodeManager.intermediate(start, end, pattern, 'Conj');
+                    final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
                     for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
                     return continuation([node]);
                   },
                   currentRule,
                   ruleStart,
+                  minPrecedenceLevel: minPrecedenceLevel,
                 ),
               );
             },
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case Rule():
@@ -2357,12 +2382,15 @@ class BsrSet {
             continuation,
             pattern,
             start,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
-      case RuleCall(:var rule) || Call(:var rule):
+      case RuleCall():
+        // Extract the precedence constraint from the RuleCall pattern
+        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
         return _More(
           () => _buildNodeWith(
-            rule,
+            pattern.rule,
             input,
             start,
             end,
@@ -2370,6 +2398,23 @@ class BsrSet {
             memo,
             inProgress,
             (node) => continuation(node != null ? [node] : []),
+            minPrecedenceLevel: constraint,
+          ),
+        );
+      case Call():
+        // Extract the precedence constraint from the Call pattern
+        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
+        return _More(
+          () => _buildNodeWith(
+            pattern.rule,
+            input,
+            start,
+            end,
+            nodeManager,
+            memo,
+            inProgress,
+            (node) => continuation(node != null ? [node] : []),
+            minPrecedenceLevel: constraint,
           ),
         );
       case Action<dynamic>():
@@ -2384,15 +2429,21 @@ class BsrSet {
             inProgress,
             (nodes) {
               if (nodes.isEmpty) return continuation([]);
-              final node = nodeManager.intermediate(start, end, pattern, 'Action');
+              final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
               for (final n in nodes) node.addFamily(Family([n]));
               return continuation([node]);
             },
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case PrecedenceLabeledPattern():
+        // Check if this alternative meets the minimum precedence level
+        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+          // Skip this alternative - it doesn't meet the precedence requirement
+          return continuation([]);
+        }
         return _More(
           () => _patternNodes(
             pattern.pattern,
@@ -2405,6 +2456,7 @@ class BsrSet {
             continuation,
             currentRule,
             ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
           ),
         );
       case And() || Not():
@@ -2525,20 +2577,27 @@ class ParseDerivation {
 
   /// Convert to flat tree string showing matched content and structure
   /// Example: for input "sss" with grammar S=s|SS|SSS might show (s(ss))
-  String toTreeString(String? input) {
+  String toTreeString(String input, [int indent = 0]) {
+    final prefix = '  ' * indent;
+    final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
+    return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
+  }
+
+  String toPrecedenceString(String input) {
     if (children.isEmpty) {
-      // Leaf node - show the matched text if input provided, otherwise just span
-      if (input != null) {
-        return getMatchedText(input);
-      }
-      return '[$start:$end]';
+      return input.substring(start, end);
     }
-    if (children.length == 1) {
-      return children.single.toTreeString(input);
+
+    List<String> mapped = children
+        .where((c) => c.start != c.end)
+        .map((c) => c.toPrecedenceString(input))
+        .toList();
+
+    if (mapped.length == 1) {
+      return mapped.single;
     }
-    // Parens showing children structure with their matched content
-    final childStr = children.map((c) => c.toTreeString(input)).join('');
-    return '($childStr)';
+
+    return "(${mapped.join("")})";
   }
 
   Object? getSimplified(String input) {
@@ -2667,7 +2726,6 @@ class SMParser {
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
-    // Initialize buffer (can be reused across parses with clear())
     _predicateBuffer = PredicateLookaheadBuffer();
   }
 
@@ -3074,9 +3132,11 @@ class SMParser {
     int start,
     int end,
     Map<String, List<ParseDerivation>?> memo,
-    Map<String, bool> inProgress,
-  ) sync* {
-    final key = '${rule.name}:$start:$end';
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) sync* {
+    final key =
+        '${rule.name}:$start:$end${minPrecedenceLevel != null ? ':min$minPrecedenceLevel' : ''}';
 
     // If we've already computed this span, replay from cache
     if (memo.containsKey(key)) {
@@ -3105,7 +3165,15 @@ class SMParser {
 
     inProgress[key] = true;
     final cache = <ParseDerivation>[];
-    for (final d in _enumerateAlternatives(rule.body(), input, start, end, memo, inProgress)) {
+    for (final d in _enumerateAlternatives(
+      rule.body(),
+      input,
+      start,
+      end,
+      memo,
+      inProgress,
+      minPrecedenceLevel: minPrecedenceLevel,
+    )) {
       cache.add(d);
       yield d;
     }
@@ -3119,8 +3187,9 @@ class SMParser {
     int start,
     int end,
     Map<String, List<ParseDerivation>?> memo,
-    Map<String, bool> inProgress,
-  ) sync* {
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) sync* {
     if (pattern is Token) {
       if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
         yield ParseDerivation(pattern.symbolId!, start, end, []);
@@ -3138,12 +3207,47 @@ class SMParser {
       return;
     }
 
+    if (pattern is PrecedenceLabeledPattern) {
+      // Check if this alternative meets the minimum precedence level
+      if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+        // Skip this alternative - it doesn't meet the precedence requirement
+        return;
+      }
+      // Forward the minPrecedenceLevel to the wrapped pattern
+      yield* _enumerateAlternatives(
+        pattern.pattern,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
+      return;
+    }
+
     if (pattern is Alt) {
-      final key = '${pattern.hashCode}:$start:$end';
+      final key = '${pattern.hashCode}:$start:$end:${minPrecedenceLevel ?? ""}';
       if (inProgress[key] == true) return;
       inProgress[key] = true;
-      yield* _enumerateAlternatives(pattern.left, input, start, end, memo, inProgress);
-      yield* _enumerateAlternatives(pattern.right, input, start, end, memo, inProgress);
+      yield* _enumerateAlternatives(
+        pattern.left,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
+      yield* _enumerateAlternatives(
+        pattern.right,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      );
       inProgress[key] = false;
       return;
     }
@@ -3158,6 +3262,7 @@ class SMParser {
           mid,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (leftList.isEmpty) continue;
 
@@ -3168,6 +3273,7 @@ class SMParser {
           end,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (rightList.isEmpty) continue;
 
@@ -3189,6 +3295,7 @@ class SMParser {
           mid,
           memo,
           inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
         ).toList();
         if (childList.isEmpty) continue;
         for (final child in childList) {
@@ -3212,12 +3319,32 @@ class SMParser {
     }
 
     if (pattern is Call) {
-      yield* _enumerateDerivations(pattern.rule, input, start, end, memo, inProgress);
+      // Check precedence constraint on the Call pattern
+      final constraint = pattern.minPrecedenceLevel;
+      yield* _enumerateDerivations(
+        pattern.rule,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: constraint,
+      );
       return;
     }
 
     if (pattern is RuleCall) {
-      yield* _enumerateDerivations(pattern.rule, input, start, end, memo, inProgress);
+      // Check precedence constraint on the RuleCall pattern
+      final constraint = pattern.minPrecedenceLevel;
+      yield* _enumerateDerivations(
+        pattern.rule,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: constraint,
+      );
       return;
     }
 
@@ -3229,10 +3356,10 @@ class SMParser {
         end,
         memo,
         inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
       )) {
         yield ParseDerivation(pattern.symbolId!, start, end, [child]);
       }
-      // yield* _enumerateAlternatives(pattern.child, input, start, end, memo, inProgress);
       return;
     }
 
@@ -3264,11 +3391,6 @@ class SMParser {
           pattern.right.match(input.codeUnitAt(start))) {
         yield ParseDerivation(pattern.symbolId!, start, end, []);
       }
-      return;
-    }
-
-    if (pattern is PrecedenceLabeledPattern) {
-      yield* _enumerateAlternatives(pattern.pattern, input, start, end, memo, inProgress);
       return;
     }
   }
@@ -3397,7 +3519,7 @@ class SMParser {
           return _evaluateParseDerivation(tree.children[0], input);
         }
         return null;
-      case Action<dynamic> action:
+      case Action action:
         // Evaluate the child and apply the semantic action
         assert(tree.children.length == 1, "Action Nodes should only have one child.");
 
