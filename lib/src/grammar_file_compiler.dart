@@ -28,7 +28,7 @@ class GrammarFileCompiler {
     }
 
     final startRule = _rules[grammarFile.rules.first.name]!;
-    return Grammar(() => startRule.call());
+    return Grammar(() => startRule);
   }
 
   /// Compile a pattern expression into a Pattern

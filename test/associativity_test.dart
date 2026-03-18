@@ -8,7 +8,7 @@ void main() {
       // Tree 0 is left-assoc: ((2^3)^4)
       // Tree 1 is right-assoc: (2^(3^4))
       final grammarText = '''
-expr = 
+expr =
   11| '(' expr^0 ')'
   11| [0-9]+
   6| expr^6 '^' expr

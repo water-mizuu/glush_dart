@@ -248,6 +248,7 @@ class GrammarFileParser {
 
     while (!_isAtEnd()) {
       if (_peek().type == _TokenType.eof) break;
+      print(_peek());
 
       final rule = _parseRule();
       if (rule != null) {
@@ -283,14 +284,9 @@ class GrammarFileParser {
     final pattern = _parsePattern();
 
     // Consume optional semicolon
-    if (_peek().type != _TokenType.semicolon) {
-      throw GrammarFileParseError(
-        "Expected semicolon after rule declaration",
-        line: _peek().line,
-        column: _peek().column,
-      );
+    if (_peek().type == _TokenType.semicolon) {
+      _advance();
     }
-    _advance();
 
     return RuleDefinition(
       name: ruleName,
@@ -304,7 +300,7 @@ class GrammarFileParser {
     return _parseAlternation();
   }
 
-  /// Parse: [prec|]expr [| [prec|]expr] [| [prec|]expr]
+  /// Parse: [prec|]expr [ [prec|]expr] [| [prec|]expr]
   /// Where prec is an optional number (like "5|" or "6|")
   /// Precedence prefixes can implicitly start new alternatives
   PatternExpr _parseAlternation() {
@@ -416,6 +412,13 @@ class GrammarFileParser {
         if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe) {
           return false; // This is a precedence prefix, not a sequence continuation
         }
+      }
+    }
+
+    if (type == _TokenType.identifier) {
+      final nextIndex = tokenIndex + 1;
+      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.equals) {
+        return false; // This is now a new rule.
       }
     }
 

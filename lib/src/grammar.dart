@@ -7,7 +7,7 @@ import 'patterns.dart';
 import 'state_machine.dart' as sm;
 import 'errors.dart';
 
-typedef GrammarBuilder = Pattern Function();
+typedef GrammarBuilder = Rule Function();
 
 // Grammar interface to avoid circular import
 sealed class GrammarInterface {
@@ -35,17 +35,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   Grammar(GrammarBuilder builder) {
     try {
       final result = builder();
-      if (result is RuleCall) {
-        finalize(result);
-      } else if (result is Call) {
-        // Convert Call to RuleCall for grammar entry point
-        finalize(result.rule.call());
-      } else if (result is Rule) {
-        // Convert Rule to RuleCall for grammar entry point
-        finalize(result.call());
-      } else {
-        throw TypeError();
-      }
+      finalize(result.call());
     } on TypeError {
       throw GrammarError('the main pattern must be a rule call');
     }
@@ -180,10 +170,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   /// ```dart
   /// final ifKeyword = grammar.keyword<TokenType>('if', (span, _) => TokenType.IF);
   /// ```
-  Action<T> keyword<T>(
-    String text,
-    T Function(String span, List<dynamic> _) action,
-  ) {
+  Action<T> keyword<T>(String text, T Function(String span, List<dynamic> _) action) {
     return str(text).withAction<T>(action);
   }
 
@@ -292,9 +279,7 @@ class GrammarAdapter implements GrammarInterface {
 
   GrammarAdapter(StateMachine sm)
     : rules = sm.rules,
-      startCall = sm.rules.isNotEmpty
-          ? sm.rules[0].call()
-          : Rule('_dummy', () => Eps()).call();
+      startCall = sm.rules.isNotEmpty ? sm.rules[0].call() : Rule('_dummy', () => Eps()).call();
 
   GrammarAdapter.withRules(this.rules, this.startCall);
 

@@ -5,7 +5,7 @@ void main() {
   group('GrammarFileParser precedence', () {
     test('parses precedence levels correctly', () {
       final grammarText = '''
-expr = 
+expr =
   11| '(' expr^0 ')'
   11| [0-9]+
   7| expr^7 '*' expr^8
@@ -28,7 +28,7 @@ expr =
 
     test('GrammarFileCompiler applies precedence levels correctly to each alternative', () {
       final grammarText = '''
-expr = 
+expr =
   11| '(' expr^0 ')'
   11| [0-9]+
   7| expr^7 '*' expr^8
@@ -125,7 +125,7 @@ expr =
 
     test('multiple operations with correct precedence and associativity', () {
       final grammarText = '''
-expr = 
+expr =
   11| '(' expr^0 ')'
   11| [0-9]+
   7| expr^7 '*' expr^8

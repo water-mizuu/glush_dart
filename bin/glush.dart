@@ -1,46 +1,27 @@
 import 'package:glush/glush.dart';
 
 void main() async {
-  final grammar = Grammar(() {
-    late Rule expr, term, factor, __;
+  final grammar = r"""
+    expr = $add expr _ '+' _ expr
+         | $sub expr _ '-' _ expr
+         | term
 
-    expr = Rule(
-      "expr",
-      () =>
-          Marker("add") >> expr() >> __() >> Token.char("+") >> __() >> expr() |
-          Marker("sub") >> expr() >> __() >> Token.char("-") >> __() >> expr() |
-          term(),
-    );
+    term = $mul term _ '*' _ term
+         | $div term _ '/' _ term
+         | factor
 
-    term = Rule(
-      "term",
-      () =>
-          Marker("mul") >> term() >> __() >> Token.char("*") >> __() >> term() |
-          Marker("div") >> term() >> __() >> Token.char("*") >> __() >> term() |
-          factor(),
-    );
+    factor = $group '(' _ expr _ ')'
+           | $number number
 
-    factor = Rule(
-      "factor",
-      () =>
-          Marker("group") >> Token.char("(") >> __() >> expr() >> __() >> Token.char(")") |
-          Marker("number") >> Token.charRange('0', '9'),
-    );
+    number = number [0-9]
+           | [1-9]
 
-    __ = Rule(
-      "__",
-      () => (Token.char(' ') | Token.char('\t') | Token.char('\n') | Token.char('\r')).star(),
-    );
-
-    return expr();
-  });
-
-  final parser = SMParser(grammar);
-  print('Parser spawned successfully!');
-
-  final result = parser.enumerateAllParses('1 + 2 + 3');
-  for (final res in result) {
-    print(res.toTreeString("1 + 2 + 3"));
+    # _ = _ [ \t\n\r] | [ \t\n\r]
+    _ = [ \t\n\r]*
+    """;
+  final parser = SMParser(GrammarFileCompiler(GrammarFileParser(grammar).parse()).compile());
+  final result = parser.enumerateAllParsesWithResults('1 + 2 + 345');
+  for (final r in result) {
+    print(r);
   }
-  print('Parser disposed.');
 }

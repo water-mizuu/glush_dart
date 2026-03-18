@@ -33,8 +33,7 @@ class TerminalNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      super == other && other is TerminalNode && token == (other).token;
+      identical(this, other) || super == other && other is TerminalNode && token == (other).token;
 
   @override
   int get hashCode => super.hashCode ^ token.hashCode;
@@ -47,13 +46,11 @@ class TerminalNode extends ForestNode {
 class MarkerNode extends ForestNode {
   final String name;
 
-  MarkerNode(int position, Pattern pattern, this.name)
-    : super(position, position, pattern);
+  MarkerNode(int position, Pattern pattern, this.name) : super(position, position, pattern);
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      super == other && other is MarkerNode && name == (other).name;
+      identical(this, other) || super == other && other is MarkerNode && name == (other).name;
 
   @override
   int get hashCode => super.hashCode ^ name.hashCode;
@@ -77,8 +74,7 @@ class SymbolicNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      super == other && other is SymbolicNode && symbol == (other).symbol;
+      identical(this, other) || super == other && other is SymbolicNode && symbol == (other).symbol;
 
   @override
   int get hashCode => super.hashCode ^ symbol.hashCode;
@@ -103,9 +99,7 @@ class IntermediateNode extends ForestNode {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      super == other &&
-          other is IntermediateNode &&
-          description == (other).description;
+      super == other && other is IntermediateNode && description == (other).description;
 
   @override
   int get hashCode => super.hashCode ^ description.hashCode;
@@ -131,8 +125,7 @@ class Family {
 
   @override
   int get hashCode =>
-      children.fold(0, (h, c) => h ^ c.hashCode) ^
-      marks.fold(0, (h, m) => h ^ m.hashCode);
+      children.fold(0, (h, c) => h ^ c.hashCode) ^ marks.fold(0, (h, m) => h ^ m.hashCode);
 
   bool _listEquals<T>(List<T> a, List<T> b) {
     if (a.length != b.length) return false;
@@ -151,8 +144,7 @@ class Family {
 
 /// Epsilon node (empty parse)
 class EpsilonNode extends ForestNode {
-  EpsilonNode(int position, Pattern pattern)
-    : super(position, position, pattern);
+  EpsilonNode(int position, Pattern pattern) : super(position, position, pattern);
 
   @override
   String toString() => 'ε[$start]';
@@ -166,13 +158,7 @@ class ForestNodeManager {
   final Set<IntermediateNode> _intermediateNodes = {};
   final Set<MarkerNode> _markerNodes = {};
 
-  String _makeCacheKey(
-    String type,
-    int start,
-    int end,
-    Pattern pattern, [
-    String detail = '',
-  ]) {
+  String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
     return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
   }
 
@@ -190,13 +176,7 @@ class ForestNodeManager {
 
   /// Get or create a symbolic node
   SymbolicNode symbolic(int start, int end, Pattern rule) {
-    final key = _makeCacheKey(
-      'sym',
-      start,
-      end,
-      rule,
-      rule.symbolId! as String,
-    );
+    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId! as String);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
@@ -207,22 +187,12 @@ class ForestNodeManager {
   }
 
   /// Get or create an intermediate node
-  IntermediateNode intermediate(
-    int start,
-    int end,
-    Pattern pattern,
-    String description,
-  ) {
+  IntermediateNode intermediate(int start, int end, Pattern pattern, String description) {
     final key = _makeCacheKey('inter', start, end, pattern, description);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
-    final node = IntermediateNode(
-      start,
-      end,
-      pattern,
-      PatternSymbol(description),
-    );
+    final node = IntermediateNode(start, end, pattern, PatternSymbol(description));
     _nodeCache[key] = node;
     _intermediateNodes.add(node);
     return node;
@@ -241,13 +211,7 @@ class ForestNodeManager {
 
   /// Get or create a marker node
   MarkerNode marker(int position, Marker pattern) {
-    final key = _makeCacheKey(
-      'mark',
-      position,
-      position,
-      pattern,
-      pattern.name,
-    );
+    final key = _makeCacheKey('mark', position, position, pattern, pattern.name);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
@@ -326,6 +290,197 @@ class ParseForest {
     return count;
   }
 
+  /// Count derivations using SCC (Strongly Connected Components) analysis.
+  /// This is more efficient than enumeration for large forests by:
+  /// 1. Identifying shared structure and cycles
+  /// 2. Computing derivation counts via dynamic programming
+  /// 3. Detecting potentially infinite derivations
+  ///
+  /// Returns a map with:
+  /// - 'count': total number of derivations
+  /// - 'hasCycles': whether the forest has cycles (left-recursion)
+  /// - 'sccs': number of strongly connected components
+  Map<String, dynamic> countDerivationsWithSCC() {
+    final sccs = _findSCCs();
+    final sccMap = <ForestNode, int>{};
+
+    // Map each node to its SCC id
+    for (int i = 0; i < sccs.length; i++) {
+      for (final node in sccs[i]) {
+        sccMap[node] = i;
+      }
+    }
+
+    // Check for cycles: if any SCC has more than one node, or if a node reaches itself
+    bool hasCycles = sccs.any((scc) => scc.length > 1);
+
+    // Count derivations using memoization
+    final memo = <ForestNode, BigInt>{};
+    final inProgress = <ForestNode>{};
+
+    final count = _countDerivationsDP(root, memo, inProgress, sccMap);
+
+    return {
+      'count': count,
+      'hasCycles': hasCycles,
+      'sccs': sccs.length,
+      'forestSize': countNodes(),
+    };
+  }
+
+  /// Find strongly connected components using Tarjan's algorithm
+  List<Set<ForestNode>> _findSCCs() {
+    int index = 0;
+    final stack = <ForestNode>[];
+    final indices = <ForestNode, int>{};
+    final lowlinks = <ForestNode, int>{};
+    final onStack = <ForestNode, bool>{};
+    final sccs = <Set<ForestNode>>[];
+
+    void strongConnect(ForestNode node) {
+      indices[node] = index;
+      lowlinks[node] = index;
+      index++;
+      stack.add(node);
+      onStack[node] = true;
+
+      // Collect all successors (children) of this node
+      final successors = _getSuccessors(node);
+
+      for (final successor in successors) {
+        if (!indices.containsKey(successor)) {
+          strongConnect(successor);
+          lowlinks[node] = (lowlinks[node]! < lowlinks[successor]!)
+              ? lowlinks[node]!
+              : lowlinks[successor]!;
+        } else if (onStack[successor] == true) {
+          lowlinks[node] = (lowlinks[node]! < indices[successor]!)
+              ? lowlinks[node]!
+              : indices[successor]!;
+        }
+      }
+
+      if (lowlinks[node] == indices[node]) {
+        final scc = <ForestNode>{};
+        late ForestNode successor;
+        do {
+          successor = stack.removeLast();
+          onStack[successor] = false;
+          scc.add(successor);
+        } while (successor != node);
+        sccs.add(scc);
+      }
+    }
+
+    // Run Tarjan's algorithm on all nodes
+    final allNodes = <ForestNode>{};
+    _collectAllNodes(root, allNodes);
+
+    for (final node in allNodes) {
+      if (!indices.containsKey(node)) {
+        strongConnect(node);
+      }
+    }
+
+    return sccs;
+  }
+
+  /// Get all successor nodes (children) in the forest
+  Set<ForestNode> _getSuccessors(ForestNode node) {
+    final successors = <ForestNode>{};
+
+    if (node is SymbolicNode) {
+      for (final family in node.families) {
+        successors.addAll(family.children);
+      }
+    } else if (node is IntermediateNode) {
+      for (final family in node.families) {
+        successors.addAll(family.children);
+      }
+    }
+
+    return successors;
+  }
+
+  /// Collect all nodes reachable from the root
+  void _collectAllNodes(ForestNode node, Set<ForestNode> collected) {
+    if (collected.contains(node)) return;
+    collected.add(node);
+
+    if (node is SymbolicNode) {
+      for (final family in node.families) {
+        for (final child in family.children) {
+          _collectAllNodes(child, collected);
+        }
+      }
+    } else if (node is IntermediateNode) {
+      for (final family in node.families) {
+        for (final child in family.children) {
+          _collectAllNodes(child, collected);
+        }
+      }
+    }
+  }
+
+  /// Dynamic programming to count derivations with cycle detection
+  BigInt _countDerivationsDP(
+    ForestNode node,
+    Map<ForestNode, BigInt> memo,
+    Set<ForestNode> inProgress,
+    Map<ForestNode, int> sccMap,
+  ) {
+    if (memo.containsKey(node)) {
+      return memo[node]!;
+    }
+
+    // Detect cycle: if node is in progress, we have a cycle
+    if (inProgress.contains(node)) {
+      // In a well-formed parse forest, this shouldn't happen with bounded input
+      // But if it does, return 1 to avoid infinite loops (actual count is undefined)
+      return BigInt.one;
+    }
+
+    inProgress.add(node);
+
+    BigInt count = BigInt.zero;
+
+    if (node is SymbolicNode) {
+      if (node.families.isEmpty) {
+        count = BigInt.one; // Base case: leaf node
+      } else {
+        for (final family in node.families) {
+          // Count = product of child counts
+          BigInt familyCount = BigInt.one;
+          for (final child in family.children) {
+            final childCount = _countDerivationsDP(child, memo, inProgress, sccMap);
+            familyCount *= childCount;
+          }
+          count += familyCount;
+        }
+      }
+    } else if (node is IntermediateNode) {
+      if (node.families.isEmpty) {
+        count = BigInt.one;
+      } else {
+        for (final family in node.families) {
+          BigInt familyCount = BigInt.one;
+          for (final child in family.children) {
+            final childCount = _countDerivationsDP(child, memo, inProgress, sccMap);
+            familyCount *= childCount;
+          }
+          count += familyCount;
+        }
+      }
+    } else {
+      // Terminal, epsilon, or marker: count as 1
+      count = BigInt.one;
+    }
+
+    inProgress.remove(node);
+    memo[node] = count;
+    return count;
+  }
+
   /// Lazily yields all parse trees contained in the forest.
   Iterable<ParseTree> extract() sync* {
     yield* _extractTrees(root);
@@ -362,14 +517,9 @@ class ParseForest {
   }
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(
-    ForestNode parent,
-    Family family,
-  ) sync* {
+  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
     // Collect sub-iterables for each child position
-    final childOptions = family.children
-        .map((child) => _extractTrees(child).toList())
-        .toList();
+    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
     // Yield the Cartesian product of the child options as ParseTree nodes
     for (final combination in _cartesianProduct(childOptions)) {
       yield ParseTree(parent, combination);
@@ -377,9 +527,7 @@ class ParseForest {
   }
 
   /// Lazily yields every combination (one item from each of [lists] in order).
-  Iterable<List<ParseTree>> _cartesianProduct(
-    List<List<ParseTree>> lists,
-  ) sync* {
+  Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
     if (lists.isEmpty) {
       yield const [];
       return;

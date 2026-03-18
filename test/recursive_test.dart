@@ -13,7 +13,7 @@ void main() {
               Token.char('s') >> Token.char("+") >> S.call(),
         );
 
-        return S.call();
+        return S;
       });
 
       SMParser parser = SMParser(grammar);
@@ -43,7 +43,7 @@ void main() {
               S.call() >> Token.char("+") >> Token.char('s'),
         );
 
-        return S.call();
+        return S;
       });
 
       final parser = SMParser(grammar);

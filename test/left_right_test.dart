@@ -18,7 +18,7 @@ void testGrammar(bool leftRecursive) {
               ? (S.call() >> Pattern.char('+') >> Pattern.char('s'))
               : (Pattern.char('s') >> Pattern.char('+') >> S.call())),
     );
-    return S.call();
+    return S;
   });
 
   final parser = SMParser(g);
@@ -35,7 +35,7 @@ void testGrammar(bool leftRecursive) {
       final startRule = parser.stateMachine.grammar.startCall.rule;
       final nm = ForestNodeManager();
 
-      final root = bsr.buildSppf(startRule, input, nm);
+      final root = bsr.buildSppf(g, startRule, input, nm);
       final buildTime = sw.elapsedMilliseconds;
 
       if (root != null) {
