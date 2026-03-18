@@ -57,7 +57,11 @@ class MarkActionSpec extends StateActionSpec {
   const MarkActionSpec(this.name, this.nextStateId);
 
   @override
-  Map<String, dynamic> toJson() => {'type': 'mark', 'name': name, 'nextStateId': nextStateId};
+  Map<String, dynamic> toJson() => {
+    'type': 'mark',
+    'name': name,
+    'nextStateId': nextStateId,
+  };
 
   static MarkActionSpec fromJson(Map<String, dynamic> json) {
     return MarkActionSpec(json['name'] as String, json['nextStateId'] as int);
@@ -78,7 +82,10 @@ class CallActionSpec extends StateActionSpec {
   };
 
   static CallActionSpec fromJson(Map<String, dynamic> json) {
-    return CallActionSpec(json['ruleName'] as String, json['nextStateId'] as int);
+    return CallActionSpec(
+      json['ruleName'] as String,
+      json['nextStateId'] as int,
+    );
   }
 }
 
@@ -137,7 +144,10 @@ class SemanticActionCallSpec extends StateActionSpec {
   };
 
   static SemanticActionCallSpec fromJson(Map<String, dynamic> json) {
-    return SemanticActionCallSpec(json['actionId'] as String, json['nextStateId'] as int);
+    return SemanticActionCallSpec(
+      json['actionId'] as String,
+      json['nextStateId'] as int,
+    );
   }
 }
 
@@ -191,10 +201,15 @@ class RangeTokenSpec extends TokenSpec {
   const RangeTokenSpec(this.start, this.end);
 
   @override
-  bool matches(int? codeUnit) => codeUnit != null && codeUnit >= start && codeUnit <= end;
+  bool matches(int? codeUnit) =>
+      codeUnit != null && codeUnit >= start && codeUnit <= end;
 
   @override
-  Map<String, dynamic> toJson() => {'type': 'range', 'start': start, 'end': end};
+  Map<String, dynamic> toJson() => {
+    'type': 'range',
+    'start': start,
+    'end': end,
+  };
 }
 
 // ============================================================================
@@ -208,10 +223,10 @@ sealed class PatternSpec {
   Map<String, dynamic> toJson();
 
   /// Extract symbol ID if present, otherwise null
-  String? getSymbolId() {
+  PatternSymbol? getSymbolId() {
     return switch (this) {
       TokenPatternSpec(:var symbolId) => symbolId,
-      EpsPatternSpec() => null,
+      EpsPatternSpec() => const PatternSymbol("eps"),
       MarkerPatternSpec(:var symbolId) => symbolId,
       AltPatternSpec(:var symbolId) => symbolId,
       SeqPatternSpec(:var symbolId) => symbolId,
@@ -251,7 +266,7 @@ sealed class PatternSpec {
 
 class TokenPatternSpec extends PatternSpec {
   final TokenSpec tokenSpec;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const TokenPatternSpec({required this.tokenSpec, this.symbolId});
 
@@ -265,7 +280,11 @@ class TokenPatternSpec extends PatternSpec {
   static TokenPatternSpec fromJson(Map<String, dynamic> json) {
     return TokenPatternSpec(
       tokenSpec: TokenSpec.fromJson(json['tokenSpec'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException("Invalid Format"),
+      },
     );
   }
 }
@@ -279,7 +298,7 @@ class EpsPatternSpec extends PatternSpec {
 
 class MarkerPatternSpec extends PatternSpec {
   final String name;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const MarkerPatternSpec({required this.name, this.symbolId});
 
@@ -291,16 +310,27 @@ class MarkerPatternSpec extends PatternSpec {
   };
 
   static MarkerPatternSpec fromJson(Map<String, dynamic> json) {
-    return MarkerPatternSpec(name: json['name'] as String, symbolId: json['symbolId'] as String?);
+    return MarkerPatternSpec(
+      name: json['name'] as String,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
+    );
   }
 }
 
 class AltPatternSpec extends PatternSpec {
   final PatternSpec left;
   final PatternSpec right;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
-  const AltPatternSpec({required this.left, required this.right, this.symbolId});
+  const AltPatternSpec({
+    required this.left,
+    required this.right,
+    this.symbolId,
+  });
 
   @override
   Map<String, dynamic> toJson() => {
@@ -314,7 +344,11 @@ class AltPatternSpec extends PatternSpec {
     return AltPatternSpec(
       left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
       right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
@@ -322,9 +356,13 @@ class AltPatternSpec extends PatternSpec {
 class SeqPatternSpec extends PatternSpec {
   final PatternSpec left;
   final PatternSpec right;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
-  const SeqPatternSpec({required this.left, required this.right, this.symbolId});
+  const SeqPatternSpec({
+    required this.left,
+    required this.right,
+    this.symbolId,
+  });
 
   @override
   Map<String, dynamic> toJson() => {
@@ -338,7 +376,11 @@ class SeqPatternSpec extends PatternSpec {
     return SeqPatternSpec(
       left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
       right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
@@ -346,9 +388,13 @@ class SeqPatternSpec extends PatternSpec {
 class ConjPatternSpec extends PatternSpec {
   final PatternSpec left;
   final PatternSpec right;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
-  const ConjPatternSpec({required this.left, required this.right, this.symbolId});
+  const ConjPatternSpec({
+    required this.left,
+    required this.right,
+    this.symbolId,
+  });
 
   @override
   Map<String, dynamic> toJson() => {
@@ -362,14 +408,18 @@ class ConjPatternSpec extends PatternSpec {
     return ConjPatternSpec(
       left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
       right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class PlusPatternSpec extends PatternSpec {
   final PatternSpec child;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const PlusPatternSpec({required this.child, this.symbolId});
 
@@ -383,14 +433,18 @@ class PlusPatternSpec extends PatternSpec {
   static PlusPatternSpec fromJson(Map<String, dynamic> json) {
     return PlusPatternSpec(
       child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class StarPatternSpec extends PatternSpec {
   final PatternSpec child;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const StarPatternSpec({required this.child, this.symbolId});
 
@@ -404,14 +458,18 @@ class StarPatternSpec extends PatternSpec {
   static StarPatternSpec fromJson(Map<String, dynamic> json) {
     return StarPatternSpec(
       child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class AndPatternSpec extends PatternSpec {
   final PatternSpec pattern;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const AndPatternSpec({required this.pattern, this.symbolId});
 
@@ -425,14 +483,18 @@ class AndPatternSpec extends PatternSpec {
   static AndPatternSpec fromJson(Map<String, dynamic> json) {
     return AndPatternSpec(
       pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class NotPatternSpec extends PatternSpec {
   final PatternSpec pattern;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const NotPatternSpec({required this.pattern, this.symbolId});
 
@@ -446,14 +508,18 @@ class NotPatternSpec extends PatternSpec {
   static NotPatternSpec fromJson(Map<String, dynamic> json) {
     return NotPatternSpec(
       pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class RuleCallPatternSpec extends PatternSpec {
   final String ruleName;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const RuleCallPatternSpec({required this.ruleName, this.symbolId});
 
@@ -467,7 +533,11 @@ class RuleCallPatternSpec extends PatternSpec {
   static RuleCallPatternSpec fromJson(Map<String, dynamic> json) {
     return RuleCallPatternSpec(
       ruleName: json['ruleName'] as String,
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
@@ -475,9 +545,13 @@ class RuleCallPatternSpec extends PatternSpec {
 class CallPatternSpec extends PatternSpec {
   final String ruleName;
   final int minPrecedenceLevel;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
-  const CallPatternSpec({required this.ruleName, required this.minPrecedenceLevel, this.symbolId});
+  const CallPatternSpec({
+    required this.ruleName,
+    required this.minPrecedenceLevel,
+    this.symbolId,
+  });
 
   @override
   Map<String, dynamic> toJson() => {
@@ -491,7 +565,11 @@ class CallPatternSpec extends PatternSpec {
     return CallPatternSpec(
       ruleName: json['ruleName'] as String,
       minPrecedenceLevel: json['minPrecedenceLevel'] as int,
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
@@ -499,7 +577,7 @@ class CallPatternSpec extends PatternSpec {
 class PrecedenceLabeledPatternSpec extends PatternSpec {
   final int precedenceLevel;
   final PatternSpec pattern;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const PrecedenceLabeledPatternSpec({
     required this.precedenceLevel,
@@ -519,14 +597,18 @@ class PrecedenceLabeledPatternSpec extends PatternSpec {
     return PrecedenceLabeledPatternSpec(
       precedenceLevel: json['precedenceLevel'] as int,
       pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
 
 class ActionPatternSpec extends PatternSpec {
   final PatternSpec child;
-  final String? symbolId;
+  final PatternSymbol? symbolId;
 
   const ActionPatternSpec({required this.child, this.symbolId});
 
@@ -540,7 +622,11 @@ class ActionPatternSpec extends PatternSpec {
   static ActionPatternSpec fromJson(Map<String, dynamic> json) {
     return ActionPatternSpec(
       child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: json['symbolId'] as String?,
+      symbolId: switch (json['symbolId']) {
+        String id => PatternSymbol(id),
+        null => null,
+        _ => throw FormatException(),
+      },
     );
   }
 }
@@ -555,12 +641,18 @@ class StateSpec {
 
   const StateSpec(this.id, this.actions);
 
-  Map<String, dynamic> toJson() => {'id': id, 'actions': actions.map((a) => a.toJson()).toList()};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'actions': actions.map((a) => a.toJson()).toList(),
+  };
 
   static StateSpec fromJson(Map<String, dynamic> json) {
     return StateSpec(
       json['id'] as int,
-      (json['actions'] as List).cast<Map<String, dynamic>>().map(StateActionSpec.fromJson).toList(),
+      (json['actions'] as List)
+          .cast<Map<String, dynamic>>()
+          .map(StateActionSpec.fromJson)
+          .toList(),
     );
   }
 }
@@ -629,8 +721,10 @@ class ExportedStateMachine {
         .toList();
 
     final rules = (json['rules'] as Map<String, dynamic>).map(
-      (name, ruleJson) =>
-          MapEntry(name, RuleMetadataSpec.fromJson(ruleJson as Map<String, dynamic>)),
+      (name, ruleJson) => MapEntry(
+        name,
+        RuleMetadataSpec.fromJson(ruleJson as Map<String, dynamic>),
+      ),
     );
 
     return ExportedStateMachine(
@@ -683,7 +777,10 @@ class StateMachineExporter {
         _tokenPatternToSpec(pattern),
         nextState.id,
       ),
-      MarkAction(:var name, :var nextState) => MarkActionSpec(name, nextState.id),
+      MarkAction(:var name, :var nextState) => MarkActionSpec(
+        name,
+        nextState.id,
+      ),
       CallAction(:var rule, :var returnState) => CallActionSpec(
         rule.name as String,
         returnState.id,
@@ -694,7 +791,10 @@ class StateMachineExporter {
         isAnd: isAnd,
         nextStateId: nextState.id,
       ),
-      SemanticAction(:var nextState) => SemanticActionCallSpec('stub', nextState.id),
+      SemanticAction(:var nextState) => SemanticActionCallSpec(
+        'stub',
+        nextState.id,
+      ),
     };
   }
 
@@ -705,10 +805,14 @@ class StateMachineExporter {
         AnyToken() => const AnyTokenSpec(),
         ExactToken(:var value) => ExactTokenSpec(value),
         RangeToken(:var start, :var end) => RangeTokenSpec(start, end),
-        _ => throw UnsupportedError('Cannot convert token choice to spec: ${choice.runtimeType}'),
+        _ => throw UnsupportedError(
+          'Cannot convert token choice to spec: ${choice.runtimeType}',
+        ),
       };
     }
-    throw UnsupportedError('Cannot convert pattern to TokenSpec: ${pattern.runtimeType}');
+    throw UnsupportedError(
+      'Cannot convert pattern to TokenSpec: ${pattern.runtimeType}',
+    );
   }
 
   static PatternSpec _patternToSpec(Pattern pattern) {
@@ -718,7 +822,10 @@ class StateMachineExporter {
         symbolId: pattern.symbolId,
       ),
       Eps() => EpsPatternSpec(),
-      Marker(:var name) => MarkerPatternSpec(name: name, symbolId: pattern.symbolId),
+      Marker(:var name) => MarkerPatternSpec(
+        name: name,
+        symbolId: pattern.symbolId,
+      ),
       Alt(:var left, :var right) => AltPatternSpec(
         left: _patternToSpec(left),
         right: _patternToSpec(right),
@@ -734,8 +841,14 @@ class StateMachineExporter {
         right: _patternToSpec(right),
         symbolId: pattern.symbolId,
       ),
-      Plus(:var child) => PlusPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
-      Star(:var child) => StarPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
+      Plus(:var child) => PlusPatternSpec(
+        child: _patternToSpec(child),
+        symbolId: pattern.symbolId,
+      ),
+      Star(:var child) => StarPatternSpec(
+        child: _patternToSpec(child),
+        symbolId: pattern.symbolId,
+      ),
       And(:var pattern) => AndPatternSpec(
         pattern: _patternToSpec(pattern),
         symbolId: pattern.symbolId,
@@ -753,16 +866,19 @@ class StateMachineExporter {
         minPrecedenceLevel: minPrecedenceLevel ?? 0,
         symbolId: pattern.symbolId,
       ),
-      PrecedenceLabeledPattern(:var precedenceLevel, :var pattern) => PrecedenceLabeledPatternSpec(
-        precedenceLevel: precedenceLevel,
-        pattern: _patternToSpec(pattern),
-        symbolId: pattern.symbolId,
-      ),
+      PrecedenceLabeledPattern(:var precedenceLevel, :var pattern) =>
+        PrecedenceLabeledPatternSpec(
+          precedenceLevel: precedenceLevel,
+          pattern: _patternToSpec(pattern),
+          symbolId: pattern.symbolId,
+        ),
       Action(:var child) => ActionPatternSpec(
         child: _patternToSpec(child),
         symbolId: pattern.symbolId,
       ),
-      _ => throw UnsupportedError('Cannot serialize pattern: ${pattern.runtimeType}'),
+      _ => throw UnsupportedError(
+        'Cannot serialize pattern: ${pattern.runtimeType}',
+      ),
     };
   }
 }

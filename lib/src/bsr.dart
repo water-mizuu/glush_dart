@@ -36,44 +36,76 @@ class _Done<T> extends _Trampoline<T> {
   _Done(this.result);
 }
 
-extension _TrampolineExtensions<T> on _Trampoline<T> {
-  _Trampoline<U> then<U>(_Trampoline<U> Function(T) f) {
-    if (this is _Done<T>) {
-      return f((this as _Done<T>).result);
-    }
-    return _More<U>(() => (this as _More<T>).next().then(f));
-  }
-}
-
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
-typedef BsrEntry = (String slot, int start, int pivot, int end);
+typedef BsrEntry = (PatternSymbol slot, int start, int pivot, int end);
 
 extension BsrEntryMethods on BsrEntry {
-  String get slot => $1;
+  PatternSymbol get slot => $1;
   int get start => $2;
   int get pivot => $3;
   int get end => $4;
 }
 
+extension type const BsrPattern(String thing) {}
+
 /// The set of all [BsrEntry] instances accumulated during a parse.
 class BsrSet {
-  final Map<(String, int start, int end), Set<int>> _pivots = {};
+  final Map<(PatternSymbol, int start, int end), Set<int>> _pivots = {};
 
   /// Add a rule-completion entry.
-  void add(String patternSymbol, int start, int pivot, int end) {
+  void add(PatternSymbol patternSymbol, int start, int pivot, int end) {
     _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add((pivot));
   }
 
   /// Total number of recorded rule-completion entries.
   int get length => _pivots.values.expand((v) => v).length;
-  Iterable<BsrEntry> get entries =>
-      _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
+  Iterable<BsrEntry> get entries => _pivots.entries.expand(
+    (e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)),
+  );
+
+  BsrPattern _serialize(Pattern pattern) {
+    return switch (pattern) {
+      Token(choice: ExactToken(:var value)) => BsrPattern("Token:$value"),
+      Token(choice: AnyToken()) => BsrPattern("Token:any"),
+      Token(choice: RangeToken(:var start, :var end)) => BsrPattern(
+        "Token:$start..$end",
+      ),
+      Token(choice: LessToken(:var bound)) => BsrPattern("Token:<$bound"),
+      Token(choice: GreaterToken(:var bound)) => BsrPattern("Token:>$bound"),
+      Marker() => BsrPattern("Marker"),
+      Eps() => BsrPattern("Eps"),
+      Alt() => BsrPattern("Alt"),
+      Seq() => BsrPattern("Seq"),
+      Conj() => BsrPattern("Conj"),
+      Plus() => BsrPattern("Plus"),
+      Star() => BsrPattern("Star"),
+      And() => BsrPattern("And"),
+      Not() => BsrPattern("Not"),
+      Rule() => BsrPattern("Rule"),
+      RuleCall() => BsrPattern("RuleCall"),
+      Call() => BsrPattern("Call"),
+      Action() => BsrPattern("Action"),
+      PrecedenceLabeledPattern() => BsrPattern("PrecedenceLabeledPattern"),
+    };
+  }
 
   /// Build an SPPF rooted at [startRule] over the full input.
-  SymbolicNode? buildSppf(Rule startRule, String input, ForestNodeManager nodeManager) {
+  SymbolicNode? buildSppf(
+    Rule startRule,
+    String input,
+    ForestNodeManager nodeManager,
+  ) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
-    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
+    return _buildNode(
+      startRule,
+      input,
+      0,
+      input.length,
+      nodeManager,
+      memo,
+      inProgress,
+    ).run();
   }
 
   _Trampoline<SymbolicNode?> _buildNode(
@@ -161,7 +193,7 @@ class BsrSet {
     );
   }
 
-  Set<int> _pivotsFor(String ruleSymbol, int start, int end) {
+  Set<int> _pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
     return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
   }
 
@@ -181,13 +213,19 @@ class BsrSet {
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          return continuation([nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]);
+          return continuation([
+            nodeManager.terminal(start, end, pattern, input.codeUnitAt(start)),
+          ]);
         }
         return continuation([]);
       case Marker():
-        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
+        return continuation(
+          start == end ? [nodeManager.marker(start, pattern)] : [],
+        );
       case Eps():
-        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
+        return continuation(
+          start == end ? [nodeManager.epsilon(start, pattern)] : [],
+        );
       case Alt():
         return _More(
           () => _patternNodes(
@@ -225,7 +263,8 @@ class BsrSet {
         // starting from ruleStart. For sub-spans, we use exhaustive search.
         Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
+          if (!it.moveNext())
+            return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
           return _More(
             () => _patternNodes(
@@ -253,10 +292,11 @@ class BsrSet {
                           start,
                           end,
                           pattern,
-                          pattern.symbolId!,
+                          pattern.symbolId! as String,
                         );
                         for (final l in leftNodes)
-                          for (final r in rightNodes) seqNode!.addFamily(Family([l, r]));
+                          for (final r in rightNodes)
+                            seqNode!.addFamily(Family([l, r]));
                       }
                       return _More(() => loop(it));
                     },
@@ -291,7 +331,12 @@ class BsrSet {
                 inProgress,
                 (nodes) {
                   if (nodes.isNotEmpty) {
-                    plusNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
+                    plusNode ??= nodeManager.intermediate(
+                      start,
+                      end,
+                      pattern,
+                      pattern.symbolId! as String,
+                    );
                     for (final n in nodes) plusNode!.addFamily(Family([n]));
                   }
                   return continuation(plusNode != null ? [plusNode!] : []);
@@ -329,10 +374,11 @@ class BsrSet {
                           start,
                           end,
                           pattern,
-                          pattern.symbolId!,
+                          pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail) plusNode!.addFamily(Family([h, t]));
+                          for (final t in tail)
+                            plusNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -356,8 +402,15 @@ class BsrSet {
         _Trampoline<T> loop(Iterator<int> it) {
           if (!it.moveNext()) {
             if (start == end) {
-              starNode ??= nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
-              starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
+              starNode ??= nodeManager.intermediate(
+                start,
+                end,
+                pattern,
+                pattern.symbolId! as String,
+              );
+              starNode!.addFamily(
+                Family([nodeManager.epsilon(start, pattern)]),
+              );
             }
             return continuation(starNode != null ? [starNode!] : []);
           }
@@ -388,10 +441,11 @@ class BsrSet {
                           start,
                           end,
                           pattern,
-                          pattern.symbolId!,
+                          pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail) starNode!.addFamily(Family([h, t]));
+                          for (final t in tail)
+                            starNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -431,8 +485,14 @@ class BsrSet {
                   inProgress,
                   (right) {
                     if (right.isEmpty) return continuation([]);
-                    final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
-                    for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
+                    final node = nodeManager.intermediate(
+                      start,
+                      end,
+                      pattern,
+                      pattern.symbolId! as String,
+                    );
+                    for (final l in left)
+                      for (final r in right) node.addFamily(Family([l, r]));
                     return continuation([node]);
                   },
                   currentRule,
@@ -506,7 +566,12 @@ class BsrSet {
             inProgress,
             (nodes) {
               if (nodes.isEmpty) return continuation([]);
-              final node = nodeManager.intermediate(start, end, pattern, pattern.symbolId!);
+              final node = nodeManager.intermediate(
+                start,
+                end,
+                pattern,
+                pattern.symbolId! as String,
+              );
               for (final n in nodes) node.addFamily(Family([n]));
               return continuation([node]);
             },
@@ -517,7 +582,8 @@ class BsrSet {
         );
       case PrecedenceLabeledPattern():
         // Check if this alternative meets the minimum precedence level
-        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+        if (minPrecedenceLevel != null &&
+            pattern.precedenceLevel < minPrecedenceLevel) {
           // Skip this alternative - it doesn't meet the precedence requirement
           return continuation([]);
         }
@@ -537,7 +603,9 @@ class BsrSet {
           ),
         );
       case And() || Not():
-        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
+        return continuation(
+          start == end ? [nodeManager.epsilon(start, pattern)] : [],
+        );
     }
   }
 

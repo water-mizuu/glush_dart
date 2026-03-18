@@ -33,7 +33,8 @@ class TerminalNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || super == other && other is TerminalNode && token == (other).token;
+      identical(this, other) ||
+      super == other && other is TerminalNode && token == (other).token;
 
   @override
   int get hashCode => super.hashCode ^ token.hashCode;
@@ -46,11 +47,13 @@ class TerminalNode extends ForestNode {
 class MarkerNode extends ForestNode {
   final String name;
 
-  MarkerNode(int position, Pattern pattern, this.name) : super(position, position, pattern);
+  MarkerNode(int position, Pattern pattern, this.name)
+    : super(position, position, pattern);
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || super == other && other is MarkerNode && name == (other).name;
+      identical(this, other) ||
+      super == other && other is MarkerNode && name == (other).name;
 
   @override
   int get hashCode => super.hashCode ^ name.hashCode;
@@ -61,7 +64,7 @@ class MarkerNode extends ForestNode {
 
 /// Symbolic node (non-terminal)
 class SymbolicNode extends ForestNode {
-  final String symbol;
+  final PatternSymbol symbol;
   final List<Family> families = [];
 
   SymbolicNode(super.start, super.end, super.pattern, this.symbol);
@@ -74,7 +77,8 @@ class SymbolicNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || super == other && other is SymbolicNode && symbol == (other).symbol;
+      identical(this, other) ||
+      super == other && other is SymbolicNode && symbol == (other).symbol;
 
   @override
   int get hashCode => super.hashCode ^ symbol.hashCode;
@@ -85,7 +89,7 @@ class SymbolicNode extends ForestNode {
 
 /// Intermediate node (represents semantic actions on children)
 class IntermediateNode extends ForestNode {
-  final String description;
+  final PatternSymbol description;
   final List<Family> families = [];
 
   IntermediateNode(super.start, super.end, super.pattern, this.description);
@@ -99,7 +103,9 @@ class IntermediateNode extends ForestNode {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      super == other && other is IntermediateNode && description == (other).description;
+      super == other &&
+          other is IntermediateNode &&
+          description == (other).description;
 
   @override
   int get hashCode => super.hashCode ^ description.hashCode;
@@ -125,7 +131,8 @@ class Family {
 
   @override
   int get hashCode =>
-      children.fold(0, (h, c) => h ^ c.hashCode) ^ marks.fold(0, (h, m) => h ^ m.hashCode);
+      children.fold(0, (h, c) => h ^ c.hashCode) ^
+      marks.fold(0, (h, m) => h ^ m.hashCode);
 
   bool _listEquals<T>(List<T> a, List<T> b) {
     if (a.length != b.length) return false;
@@ -144,7 +151,8 @@ class Family {
 
 /// Epsilon node (empty parse)
 class EpsilonNode extends ForestNode {
-  EpsilonNode(int position, Pattern pattern) : super(position, position, pattern);
+  EpsilonNode(int position, Pattern pattern)
+    : super(position, position, pattern);
 
   @override
   String toString() => 'ε[$start]';
@@ -158,7 +166,13 @@ class ForestNodeManager {
   final Set<IntermediateNode> _intermediateNodes = {};
   final Set<MarkerNode> _markerNodes = {};
 
-  String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
+  String _makeCacheKey(
+    String type,
+    int start,
+    int end,
+    Pattern pattern, [
+    String detail = '',
+  ]) {
     return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
   }
 
@@ -176,7 +190,13 @@ class ForestNodeManager {
 
   /// Get or create a symbolic node
   SymbolicNode symbolic(int start, int end, Pattern rule) {
-    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId!);
+    final key = _makeCacheKey(
+      'sym',
+      start,
+      end,
+      rule,
+      rule.symbolId! as String,
+    );
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
@@ -187,12 +207,22 @@ class ForestNodeManager {
   }
 
   /// Get or create an intermediate node
-  IntermediateNode intermediate(int start, int end, Pattern pattern, String description) {
+  IntermediateNode intermediate(
+    int start,
+    int end,
+    Pattern pattern,
+    String description,
+  ) {
     final key = _makeCacheKey('inter', start, end, pattern, description);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
-    final node = IntermediateNode(start, end, pattern, description);
+    final node = IntermediateNode(
+      start,
+      end,
+      pattern,
+      PatternSymbol(description),
+    );
     _nodeCache[key] = node;
     _intermediateNodes.add(node);
     return node;
@@ -211,7 +241,13 @@ class ForestNodeManager {
 
   /// Get or create a marker node
   MarkerNode marker(int position, Marker pattern) {
-    final key = _makeCacheKey('mark', position, position, pattern, pattern.name);
+    final key = _makeCacheKey(
+      'mark',
+      position,
+      position,
+      pattern,
+      pattern.name,
+    );
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
@@ -326,9 +362,14 @@ class ParseForest {
   }
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
+  Iterable<ParseTree> _extractFamilyTrees(
+    ForestNode parent,
+    Family family,
+  ) sync* {
     // Collect sub-iterables for each child position
-    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
+    final childOptions = family.children
+        .map((child) => _extractTrees(child).toList())
+        .toList();
     // Yield the Cartesian product of the child options as ParseTree nodes
     for (final combination in _cartesianProduct(childOptions)) {
       yield ParseTree(parent, combination);
@@ -336,7 +377,9 @@ class ParseForest {
   }
 
   /// Lazily yields every combination (one item from each of [lists] in order).
-  Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
+  Iterable<List<ParseTree>> _cartesianProduct(
+    List<List<ParseTree>> lists,
+  ) sync* {
     if (lists.isEmpty) {
       yield const [];
       return;

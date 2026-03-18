@@ -1,13 +1,25 @@
 /// Grammar definition and building
 library glush.grammar;
 
+import 'package:glush/src/state_machine.dart';
+
 import 'patterns.dart';
 import 'state_machine.dart' as sm;
 import 'errors.dart';
 
 typedef GrammarBuilder = Pattern Function();
 
-class Grammar with _GrammarMixin implements sm.GrammarInterface {
+// Grammar interface to avoid circular import
+sealed class GrammarInterface {
+  /// Maps symbol IDs back to patterns for this grammar
+  Map<String, Pattern> get symbolRegistry;
+
+  RuleCall get startCall;
+  List<Rule> get rules;
+  bool isEmpty();
+}
+
+class Grammar with _GrammarMixin implements GrammarInterface {
   final List<Rule> rules = [];
   late final RuleCall startCall;
   Map<Pattern, List<Pattern>>? transitions;
@@ -87,10 +99,10 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
     for (final pattern in allPatterns) {
       if (pattern.symbolId == null) {
         final symbolId = 'S${_symbolCounter++}';
-        pattern.assignSymbolId(symbolId);
+        pattern.assignSymbolId(PatternSymbol(symbolId));
       }
       final actualSymbolId = pattern.symbolId!;
-      symbolRegistry[actualSymbolId] = pattern;
+      symbolRegistry[actualSymbolId as String] = pattern;
     }
   }
 
@@ -168,7 +180,10 @@ class Grammar with _GrammarMixin implements sm.GrammarInterface {
   /// ```dart
   /// final ifKeyword = grammar.keyword<TokenType>('if', (span, _) => TokenType.IF);
   /// ```
-  Action<T> keyword<T>(String text, T Function(String span, List<dynamic> _) action) {
+  Action<T> keyword<T>(
+    String text,
+    T Function(String span, List<dynamic> _) action,
+  ) {
     return str(text).withAction<T>(action);
   }
 
@@ -263,4 +278,26 @@ class IntRange {
   final int end;
 
   IntRange(this.start, this.end);
+}
+
+class GrammarAdapter implements GrammarInterface {
+  @override
+  final List<Rule> rules;
+
+  @override
+  final RuleCall startCall;
+
+  @override
+  final Map<String, Pattern> symbolRegistry = {};
+
+  GrammarAdapter(StateMachine sm)
+    : rules = sm.rules,
+      startCall = sm.rules.isNotEmpty
+          ? sm.rules[0].call()
+          : Rule('_dummy', () => Eps()).call();
+
+  GrammarAdapter.withRules(this.rules, this.startCall);
+
+  @override
+  bool isEmpty() => rules.isEmpty;
 }

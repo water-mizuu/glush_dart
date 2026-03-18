@@ -67,7 +67,9 @@ class StateMachineCodeGenerator {
       buffer.writeln('    // TODO: Implement semantic action for $ruleName');
       buffer.writeln('    // span: the matched substring');
       buffer.writeln('    // results: list of child semantic values');
-      buffer.writeln('    throw UnimplementedError("Action not implemented for $ruleName");');
+      buffer.writeln(
+        '    throw UnimplementedError("Action not implemented for $ruleName");',
+      );
       buffer.writeln('  }');
       buffer.writeln();
     }
@@ -92,7 +94,9 @@ class StateMachineCodeGenerator {
     }
     buffer.writeln();
     buffer.writeln('    // Override with user-provided actions');
-    buffer.writeln('    actions?.forEach((id, fn) => _machine.attachAction(id, fn));');
+    buffer.writeln(
+      '    actions?.forEach((id, fn) => _machine.attachAction(id, fn));',
+    );
     buffer.writeln();
     buffer.writeln('    _parser = _machine.createParser();');
     buffer.writeln('  }');
@@ -100,11 +104,16 @@ class StateMachineCodeGenerator {
     buffer.writeln('  SMParser get parser => _parser;');
     buffer.writeln('  ImportedStateMachine get machine => _machine;');
     buffer.writeln();
-    buffer.writeln('  ParseOutcome parse(String input) => _parser.parse(input);');
-    buffer.writeln('  Iterable<ParseDerivation> enumerateAllParses(String input) =>');
+    buffer.writeln(
+      '  ParseOutcome parse(String input) => _parser.parse(input);',
+    );
+    buffer.writeln(
+      '  Iterable<ParseDerivation> enumerateAllParses(String input) =>',
+    );
     buffer.writeln('    _parser.enumerateAllParses(input);');
     buffer.writeln(
-      '  Iterable<ParseDerivationWithValue> enumerateAllParsesWithResults(String input) =>',
+      '  Iterable<ParseDerivationWithValue> '
+      'enumerateAllParsesWithResults(String input) =>',
     );
     buffer.writeln('    _parser.enumerateAllParsesWithResults(input);');
     buffer.writeln('}');

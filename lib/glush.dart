@@ -5,7 +5,6 @@ export 'src/mark.dart';
 export 'src/list.dart';
 export 'src/patterns.dart';
 export 'src/state_machine.dart';
-export 'src/state_machine_graph.dart';
 export 'src/grammar.dart';
 export 'src/sm_parser.dart';
 export 'src/bsr.dart';

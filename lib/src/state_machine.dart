@@ -1,17 +1,9 @@
 /// State machine compilation from grammars
 library glush.state_machine;
 
+import 'package:glush/src/grammar.dart';
+
 import 'patterns.dart';
-
-// Grammar interface to avoid circular import
-abstract class GrammarInterface {
-  /// Maps symbol IDs back to patterns for this grammar
-  Map<String, Pattern> get symbolRegistry;
-
-  RuleCall get startCall;
-  List<Rule> get rules;
-  bool isEmpty();
-}
 
 // Action types for state machine
 sealed class StateAction {
@@ -153,6 +145,8 @@ class StateMachine {
   State _getOrCreateState(Object pattern) {
     return _stateMapping.putIfAbsent(pattern, () => State(_stateMapping.length));
   }
+
+  State get startState => _stateMapping[':init']!;
 
   void _connect(State state, Pattern terminal) {
     switch (terminal) {
