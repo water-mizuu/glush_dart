@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:glush/glush.dart';
 
 /// Minimal Runtime Example
-/// 
+///
 /// This example demonstrates how to:
 /// 1. Define a grammar (Simple Addition/Subtraction)
 /// 2. Generate a "Minimal Standalone" parser
@@ -18,11 +18,11 @@ void main() async {
 
     expr = Rule('expr', () {
       return (Call(expr) >> Pattern.char('+') >> Call(term)).withAction((span, results) {
-            if (results case [num l, '+', num r]) return l + r;
+            if (results case [[num l, '+'], num r]) return l + r;
             return null;
           }) |
           (Call(expr) >> Pattern.char('-') >> Call(term)).withAction((span, results) {
-            if (results case [num l, '-', num r]) return l - r;
+            if (results case [[num l, '-'], num r]) return l - r;
             return null;
           }) |
           Call(term);
@@ -53,26 +53,26 @@ void main() async {
   print('\nStep 4: Usage Demonstration');
   print('--------------------------------------------------');
   print('To use the generated parser, you would implement a script like this:\n');
-  
+
   print('''
-import 'generated_minimal_math.dart';
+    import 'generated_minimal_math.dart';
 
-void main() {
-  // Initialize the parser with custom semantic actions
-  // The action IDs (e.g., 'act:S1:') are found in the generated stubs
-  final parser = MinimalMathParser(actions: {
-    // You can override the default stubs here:
-    // 'act:S1:': (span, results) => ...
-  });
+    void main() {
+      // Initialize the parser with custom semantic actions
+      // The action IDs (e.g., 'act:S1:') are found in the generated stubs
+      final parser = MinimalMathParser(actions: {
+        // You can override the default stubs here:
+        // 'act:S1:': (span, results) => ...
+      });
 
-  final input = "1+2-3+4";
-  final outcome = parser.parse(input);
+      final input = "1+2-3+4";
+      final outcome = parser.parse(input);
 
-  if (outcome is ParseSuccess) {
-    print('Result of "\$input" is: \${outcome.semanticValue}');
-  }
-}
-''');
+      if (outcome is ParseSuccess) {
+        print('Result of "\$input" is: \${outcome.semanticValue}');
+      }
+    }
+    ''');
 
   print('--------------------------------------------------');
   print('Note: Since we are running in the glush_dart workspace,');

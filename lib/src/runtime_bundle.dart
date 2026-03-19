@@ -1034,11 +1034,14 @@ class Action<T> extends Pattern {
   @override
   Set<Pattern> firstSet() => child.firstSet();
   @override
-  Set<Pattern> lastSet() => child.lastSet();
+  Set<Pattern> lastSet() => {this};
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
     child.eachPair(callback);
+    for (final l in child.lastSet()) {
+      callback(l, this);
+    }
   }
 
   @override
@@ -1630,9 +1633,9 @@ class AcceptAction implements StateAction {
 class SemanticAction implements StateAction {
   final Object? Function(String span, List<Object?> childResults) callback;
   final State nextState;
-  final Pattern? childPattern;
+  final Pattern? pattern;
 
-  const SemanticAction(this.callback, this.nextState, [this.childPattern]);
+  const SemanticAction(this.callback, this.nextState, [this.pattern]);
 }
 
 /// Predicate action for lookahead assertions (AND/NOT predicates)
@@ -1658,7 +1661,8 @@ class PredicateAction implements StateAction {
   });
 
   @override
-  String toString() => isAnd ? 'Predicate(&${symbol ?? pattern})' : 'Predicate(!${symbol ?? pattern})';
+  String toString() =>
+      isAnd ? 'Predicate(&${symbol ?? pattern})' : 'Predicate(!${symbol ?? pattern})';
 }
 
 /// State in the state machine
@@ -1776,10 +1780,8 @@ class StateMachine {
       case Action<dynamic>():
         // Create a SemanticAction state machine action with the callback
         final nextState = _getOrCreateState(terminal);
-        final action = SemanticAction(terminal.callback, nextState, terminal.child);
+        final action = SemanticAction(terminal.callback, nextState, terminal);
         state.actions.add(action);
-        // Connect the semantic action's next state to the child pattern
-        _connect(nextState, terminal.child);
       case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || Prec():
         // TODO: Handle this case.
         throw UnimplementedError();
@@ -3726,9 +3728,23 @@ class SMParser {
         {
           int totalCount = 0;
           for (int mid = start; mid <= end; mid++) {
-            final leftCount = _countAlternatives(children.first, input, start, mid, memo, inProgress);
+            final leftCount = _countAlternatives(
+              children.first,
+              input,
+              start,
+              mid,
+              memo,
+              inProgress,
+            );
             if (leftCount > 0) {
-              final rightCount = _countAlternatives(children.last, input, mid, end, memo, inProgress);
+              final rightCount = _countAlternatives(
+                children.last,
+                input,
+                mid,
+                end,
+                memo,
+                inProgress,
+              );
               totalCount += leftCount * rightCount;
             }
           }
@@ -3738,7 +3754,14 @@ class SMParser {
         {
           int totalCount = 0;
           for (int mid = start + 1; mid <= end; mid++) {
-            final childCount = _countAlternatives(children.single, input, start, mid, memo, inProgress);
+            final childCount = _countAlternatives(
+              children.single,
+              input,
+              start,
+              mid,
+              memo,
+              inProgress,
+            );
             if (childCount > 0) {
               final starCount = _countStar(children.single, input, mid, end, memo, inProgress);
               totalCount += childCount * starCount;
@@ -3752,7 +3775,8 @@ class SMParser {
         return _countDerivations(children.single, input, start, end, memo, inProgress);
       case "and":
       case "not":
-        if (start == end && checkPatternAtSymbol(children.single, input, start) == (prefix == "and")) {
+        if (start == end &&
+            checkPatternAtSymbol(children.single, input, start) == (prefix == "and")) {
           return 1;
         }
         return 0;
@@ -3809,7 +3833,6 @@ class SMParser {
     if (inProgress[key] == true) return;
 
     inProgress[key] = true;
-    final cache = <ParseDerivation>[];
 
     // For rules or other patterns, we check their children
     final children = grammar.childrenRegistry[symbol] ?? [];
@@ -3975,7 +3998,16 @@ class SMParser {
             ).toList();
             if (childList.isEmpty) continue;
             for (final child in childList) {
-              for (final star in _enumerateStar(bsr, children.single, input, mid, end, symbol, memo, inProgress)) {
+              for (final star in _enumerateStar(
+                bsr,
+                children.single,
+                input,
+                mid,
+                end,
+                symbol,
+                memo,
+                inProgress,
+              )) {
                 if (star.end == end) {
                   yield ParseDerivation(symbol, start, end, [child, star]);
                 }
@@ -4046,10 +4078,27 @@ class SMParser {
 
     // PEG greedy matching: try longest match first
     for (int mid = end; mid > start; mid--) {
-      final childList = _enumerateAlternatives(bsr, childSymbol, input, start, mid, memo, inProgress).toList();
+      final childList = _enumerateAlternatives(
+        bsr,
+        childSymbol,
+        input,
+        start,
+        mid,
+        memo,
+        inProgress,
+      ).toList();
       if (childList.isNotEmpty) {
         for (final child in childList) {
-          for (final star in _enumerateStar(bsr, childSymbol, input, mid, end, starSymbol, memo, inProgress)) {
+          for (final star in _enumerateStar(
+            bsr,
+            childSymbol,
+            input,
+            mid,
+            end,
+            starSymbol,
+            memo,
+            inProgress,
+          )) {
             final actualEnd = star.end;
             yield ParseDerivation(starSymbol, start, actualEnd, [child, star]);
           }
@@ -4131,7 +4180,9 @@ class SMParser {
           Marker(:var name) => NamedMark(name, tree.start),
           Eps() => "",
           Action action => () {
-            final childResults = tree.children.map((c) => _evaluateParseDerivation(c, input)).toList();
+            final childResults = tree.children
+                .map((c) => _evaluateParseDerivation(c, input))
+                .toList();
             final span = tree.getMatchedText(input);
             if (childResults.length == 1 && childResults.single is List) {
               return action.callback(span, childResults.single as List);
@@ -4507,11 +4558,7 @@ class Context {
   /// Used for midPoint in BSR nodes.
   final int? pivot;
 
-  /// The computed semantic value at this point in parsing.
-  /// Updated as semantic actions are evaluated during parsing.
-  final Object? semanticValue;
-
-  const Context(this.caller, this.marks, [this.callStart, this.pivot, this.semanticValue]);
+  const Context(this.caller, this.marks, [this.callStart, this.pivot]);
 }
 
 /// Frame for managing parsing states
@@ -4596,13 +4643,12 @@ class Step {
             }
           }
 
-          // Compute the span string from input
-          final span = spanStart < input.length && spanEnd <= input.length
-              ? input.substring(spanStart, spanEnd)
-              : '';
+          // // Compute the span string from input
+          // final span = spanStart < input.length && spanEnd <= input.length
+          //     ? input.substring(spanStart, spanEnd)
+          //     : '';
 
-          // Call the semantic action callback with computed span and child results
-          final computedValue = action.callback(span, childResults);
+          // final computedValue = action.callback(span, childResults);
 
           // Create new context with computed semantic value
           final semanticCtx = Context(
@@ -4610,7 +4656,6 @@ class Step {
             frame.marks,
             frame.context.callStart,
             frame.context.pivot,
-            computedValue,
           );
 
           _withFrame(semanticCtx, (frame) {

@@ -108,7 +108,7 @@ class PredicateActionSpec extends StateActionSpec {
   final int nextStateId;
 
   const PredicateActionSpec({
-    required this.isAnd,
+    required this.isAnd, //
     required this.symbol,
     required this.nextStateId,
   });
@@ -365,7 +365,10 @@ class StateMachineExporter {
         symbol: symbol ?? pattern.symbolId!,
         nextStateId: nextState.id,
       ),
-      SemanticAction(:var nextState, :var pattern) => SemanticActionCallSpec((pattern?.symbolId as String?) ?? 'stub', nextState.id),
+      SemanticAction(:var nextState, :var pattern) => SemanticActionCallSpec(
+        (pattern?.symbolId as String?) ?? 'stub',
+        nextState.id,
+      ),
     };
   }
 

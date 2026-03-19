@@ -75,7 +75,10 @@ class PredicateAction implements StateAction {
   });
 
   @override
-  String toString() => isAnd ? 'Predicate(&${symbol ?? pattern})' : 'Predicate(!${symbol ?? pattern})';
+  String toString() =>
+      isAnd //
+      ? 'Predicate(&${symbol ?? pattern})'
+      : 'Predicate(!${symbol ?? pattern})';
 }
 
 /// State in the state machine

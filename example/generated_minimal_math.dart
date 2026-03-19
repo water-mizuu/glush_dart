@@ -1,5 +1,5 @@
 /// Auto-generated standalone state machine for MinimalMath grammar
-/// Generated: 2026-03-20 02:00:38.353353
+/// Generated: 2026-03-20 02:25:26.496976
 import 'dart:convert';
 
 // ============================================================================
@@ -529,7 +529,7 @@ class _Step {
 
 /// Exported state machine specification as JSON
 const String _MinimalMathStateMachineJson = r"""
-{"version":2,"initialStates":[0],"startSymbol":"rul:S0:","childrenRegistry":{"rul:S0:":["alt:S1:"],"alt:S1:":["alt:S2:","cal:S15:"],"alt:S2:":["act:S3:","act:S9:"],"act:S3:":["seq:S4:"],"seq:S4:":["seq:S5:","cal:S8:"],"seq:S5:":["cal:S6:","tok:S7:;43"],"cal:S6:":["rul:S0:"],"tok:S7:;43":[],"cal:S8:":["rul:S16:"],"act:S9:":["seq:S10:"],"seq:S10:":["seq:S11:","cal:S14:"],"seq:S11:":["cal:S12:","tok:S13:;45"],"cal:S12:":["rul:S0:"],"tok:S13:;45":[],"cal:S14:":["rul:S16:"],"cal:S15:":["rul:S16:"],"rul:S16:":["act:S17:"],"act:S17:":["rca:S18:"],"rca:S18:":["rul:S19:"],"rul:S19:":["alt:S20:"],"alt:S20:":["act:S21:","tok:S25:[48,57"],"act:S21:":["seq:S22:"],"seq:S22:":["rca:S23:","tok:S24:[48,57"],"rca:S23:":["rul:S19:"],"tok:S24:[48,57":[],"tok:S25:[48,57":[]},"states":[{"id":0,"actions":[{"type":"call","ruleName":"expr","nextStateId":1}]},{"id":1,"actions":[{"type":"accept"}]},{"id":2,"actions":[{"type":"call","ruleName":"expr","nextStateId":3},{"type":"call","ruleName":"expr","nextStateId":4},{"type":"call","ruleName":"term","nextStateId":5}]},{"id":3,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":43},"nextStateId":6}]},{"id":4,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":45},"nextStateId":9}]},{"id":5,"actions":[{"type":"return","ruleName":"expr"}]},{"id":6,"actions":[{"type":"call","ruleName":"term","nextStateId":7}]},{"id":7,"actions":[{"type":"semantic","actionId":"act:S3:","nextStateId":8}]},{"id":8,"actions":[{"type":"return","ruleName":"expr"}]},{"id":9,"actions":[{"type":"call","ruleName":"term","nextStateId":10}]},{"id":10,"actions":[{"type":"semantic","actionId":"act:S9:","nextStateId":11}]},{"id":11,"actions":[{"type":"return","ruleName":"expr"}]},{"id":12,"actions":[{"type":"call","ruleName":"__0","nextStateId":13}]},{"id":13,"actions":[{"type":"semantic","actionId":"act:S17:","nextStateId":14}]},{"id":14,"actions":[{"type":"return","ruleName":"term"}]},{"id":15,"actions":[{"type":"call","ruleName":"__0","nextStateId":16},{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":17}]},{"id":16,"actions":[{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":18}]},{"id":17,"actions":[{"type":"return","ruleName":"__0"}]},{"id":18,"actions":[{"type":"semantic","actionId":"act:S21:","nextStateId":19}]},{"id":19,"actions":[{"type":"return","ruleName":"__0"}]}],"rules":{"expr":{"name":"expr","firstStateIds":[2],"isEmpty":false},"term":{"name":"term","firstStateIds":[12],"isEmpty":false},"__0":{"name":"__0","firstStateIds":[15],"isEmpty":false}}}
+{"version":2,"initialStates":[0],"startSymbol":"rul:S0:","childrenRegistry":{"rul:S0:":["alt:S1:"],"alt:S1:":["alt:S2:","cal:S15:"],"alt:S2:":["act:S3:","act:S9:"],"act:S3:":["seq:S4:"],"seq:S4:":["seq:S5:","cal:S8:"],"seq:S5:":["cal:S6:","tok:S7:;43"],"cal:S6:":["rul:S0:"],"tok:S7:;43":[],"cal:S8:":["rul:S16:"],"act:S9:":["seq:S10:"],"seq:S10:":["seq:S11:","cal:S14:"],"seq:S11:":["cal:S12:","tok:S13:;45"],"cal:S12:":["rul:S0:"],"tok:S13:;45":[],"cal:S14:":["rul:S16:"],"cal:S15:":["rul:S16:"],"rul:S16:":["act:S17:"],"act:S17:":["rca:S18:"],"rca:S18:":["rul:S19:"],"rul:S19:":["alt:S20:"],"alt:S20:":["act:S21:","tok:S25:[48,57"],"act:S21:":["seq:S22:"],"seq:S22:":["rca:S23:","tok:S24:[48,57"],"rca:S23:":["rul:S19:"],"tok:S24:[48,57":[],"tok:S25:[48,57":[]},"states":[{"id":0,"actions":[{"type":"call","ruleName":"expr","nextStateId":1}]},{"id":1,"actions":[{"type":"accept"}]},{"id":2,"actions":[{"type":"call","ruleName":"expr","nextStateId":3},{"type":"call","ruleName":"expr","nextStateId":4},{"type":"call","ruleName":"term","nextStateId":5}]},{"id":3,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":43},"nextStateId":6}]},{"id":4,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":45},"nextStateId":8}]},{"id":5,"actions":[{"type":"return","ruleName":"expr"}]},{"id":6,"actions":[{"type":"call","ruleName":"term","nextStateId":7}]},{"id":7,"actions":[{"type":"return","ruleName":"expr"}]},{"id":8,"actions":[{"type":"call","ruleName":"term","nextStateId":9}]},{"id":9,"actions":[{"type":"return","ruleName":"expr"}]},{"id":10,"actions":[{"type":"call","ruleName":"__0","nextStateId":11}]},{"id":11,"actions":[{"type":"return","ruleName":"term"}]},{"id":12,"actions":[{"type":"call","ruleName":"__0","nextStateId":13},{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":14}]},{"id":13,"actions":[{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":15}]},{"id":14,"actions":[{"type":"return","ruleName":"__0"}]},{"id":15,"actions":[{"type":"return","ruleName":"__0"}]}],"rules":{"expr":{"name":"expr","firstStateIds":[2],"isEmpty":false},"term":{"name":"term","firstStateIds":[10],"isEmpty":false},"__0":{"name":"__0","firstStateIds":[12],"isEmpty":false}}}
 """;
 
 /// Load the exported state machine specification
@@ -539,38 +539,6 @@ ExportedStateMachine loadMinimalmathStateMachine() => ExportedStateMachine.fromJ
 /// Create an imported state machine with action stubs
 class MinimalmathActions {
   /// Override these methods with your semantic actions
-
-  /// Semantic action stub for: act:S17:
-  static Object? act_S17_Action(String span, List results) {
-    // TODO: Implement semantic action
-    // span: the matched substring
-    // results: list of child semantic values
-    throw UnimplementedError("Action not implemented for act:S17:");
-  }
-
-  /// Semantic action stub for: act:S21:
-  static Object? act_S21_Action(String span, List results) {
-    // TODO: Implement semantic action
-    // span: the matched substring
-    // results: list of child semantic values
-    throw UnimplementedError("Action not implemented for act:S21:");
-  }
-
-  /// Semantic action stub for: act:S3:
-  static Object? act_S3_Action(String span, List results) {
-    // TODO: Implement semantic action
-    // span: the matched substring
-    // results: list of child semantic values
-    throw UnimplementedError("Action not implemented for act:S3:");
-  }
-
-  /// Semantic action stub for: act:S9:
-  static Object? act_S9_Action(String span, List results) {
-    // TODO: Implement semantic action
-    // span: the matched substring
-    // results: list of child semantic values
-    throw UnimplementedError("Action not implemented for act:S9:");
-  }
 
 }
 
@@ -584,10 +552,6 @@ class MinimalmathParser {
     _machine = ImportedStateMachine(spec);
 
     // Attach default actions
-    _machine.attachAction("act:S17:", MinimalmathActions.act_S17_Action);
-    _machine.attachAction("act:S21:", MinimalmathActions.act_S21_Action);
-    _machine.attachAction("act:S3:", MinimalmathActions.act_S3_Action);
-    _machine.attachAction("act:S9:", MinimalmathActions.act_S9_Action);
 
     // Override with user-provided actions
     actions?.forEach((id, fn) => _machine.attachAction(id, fn));

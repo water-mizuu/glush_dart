@@ -1413,11 +1413,7 @@ class Context {
   /// Used for midPoint in BSR nodes.
   final int? pivot;
 
-  /// The computed semantic value at this point in parsing.
-  /// Updated as semantic actions are evaluated during parsing.
-  final Object? semanticValue;
-
-  const Context(this.caller, this.marks, [this.callStart, this.pivot, this.semanticValue]);
+  const Context(this.caller, this.marks, [this.callStart, this.pivot]);
 }
 
 /// Frame for managing parsing states
@@ -1502,13 +1498,12 @@ class Step {
             }
           }
 
-          // Compute the span string from input
-          final span = spanStart < input.length && spanEnd <= input.length
-              ? input.substring(spanStart, spanEnd)
-              : '';
+          // // Compute the span string from input
+          // final span = spanStart < input.length && spanEnd <= input.length
+          //     ? input.substring(spanStart, spanEnd)
+          //     : '';
 
-          // Call the semantic action callback with computed span and child results
-          final computedValue = action.callback(span, childResults);
+          // final computedValue = action.callback(span, childResults);
 
           // Create new context with computed semantic value
           final semanticCtx = Context(
@@ -1516,7 +1511,6 @@ class Step {
             frame.marks,
             frame.context.callStart,
             frame.context.pivot,
-            computedValue,
           );
 
           _withFrame(semanticCtx, (frame) {

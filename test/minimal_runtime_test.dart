@@ -36,33 +36,33 @@ void main() {
       // Create a driver script
       final driverFile = File('${tempDir.path}/driver.dart');
       driverFile.writeAsStringSync('''
-import 'simple_parser.dart';
-import 'dart:io';
+        import 'simple_parser.dart';
+        import 'dart:io';
 
-void main() {
-  final parser = SimpleParser();
-  
-  final result1 = parser.parse('a');
-  if (result1 is! ParseSuccess) {
-    print('FAIL: Expected success for "a"');
-    exit(1);
-  }
-  
-  final result2 = parser.parse('b');
-  if (result2 is! ParseSuccess) {
-    print('FAIL: Expected success for "b"');
-    exit(1);
-  }
-  
-  final result3 = parser.parse('c');
-  if (result3 is ParseSuccess) {
-    print('FAIL: Expected error for "c"');
-    exit(1);
-  }
-  
-  print('SUCCESS');
-}
-''');
+        void main() {
+          final parser = SimpleParser();
+
+          final result1 = parser.parse('a');
+          if (result1 is! ParseSuccess) {
+            print('FAIL: Expected success for "a"');
+            exit(1);
+          }
+
+          final result2 = parser.parse('b');
+          if (result2 is! ParseSuccess) {
+            print('FAIL: Expected success for "b"');
+            exit(1);
+          }
+
+          final result3 = parser.parse('c');
+          if (result3 is ParseSuccess) {
+            print('FAIL: Expected error for "c"');
+            exit(1);
+          }
+
+          print('SUCCESS');
+        }
+        ''');
 
       // Run the driver
       final result = await Process.run('dart', ['run', driverFile.path]);
@@ -104,29 +104,29 @@ void main() {
 
       final driverFile = File('${tempDir.path}/driver.dart');
       driverFile.writeAsStringSync('''
-import 'action_parser.dart';
-import 'dart:io';
+        import 'action_parser.dart';
+        import 'dart:io';
 
-void main() {
-  // Override the action
-  final parser = ActionParser(actions: {
-    '$actionId': (String span, List results) => span.toUpperCase(),
-  });
-  
-  final result = parser.parse('a');
-  if (result is ParseSuccess) {
-    if (result.semanticValue != 'A') {
-      print('FAIL: Expected "A", got "\${result.semanticValue}"');
-      print('DEBUG: actionId matched was $actionId');
-      exit(1);
-    }
-    print('SUCCESS');
-  } else {
-    print('FAIL: Parse failed');
-    exit(1);
-  }
-}
-''');
+        void main() {
+          // Override the action
+          final parser = ActionParser(actions: {
+            '$actionId': (String span, List results) => span.toUpperCase(),
+          });
+
+          final result = parser.parse('a');
+          if (result is ParseSuccess) {
+            if (result.semanticValue != 'A') {
+              print('FAIL: Expected "A", got "\${result.semanticValue}"');
+              print('DEBUG: actionId matched was $actionId');
+              exit(1);
+            }
+            print('SUCCESS');
+          } else {
+            print('FAIL: Parse failed');
+            exit(1);
+          }
+        }
+        ''');
 
       final result = await Process.run('dart', ['run', driverFile.path]);
       if (result.exitCode != 0) {
