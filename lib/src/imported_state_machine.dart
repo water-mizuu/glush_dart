@@ -93,16 +93,11 @@ class ImportedStateMachine {
       final ruleName = entry.key;
       final ruleSpec = entry.value;
       final rule = ruleMap[ruleName]!;
-      ruleFirst[rule] = ruleSpec.firstStateIds
-          .map((id) => stateMap[id]!)
-          .toList();
+      ruleFirst[rule] = ruleSpec.firstStateIds.map((id) => stateMap[id]!).toList();
     }
 
     // Create an adapter that provides the GrammarInterface
-    final adapter = GrammarAdapter.withRules(
-      ruleMap.values.toList(),
-      ruleMap.values.first.call(),
-    );
+    final adapter = GrammarAdapter.withRules(ruleMap.values.toList(), ruleMap.values.first.call());
 
     // Create the rebuilt state machine
     final sm = StateMachine.empty(adapter);
@@ -116,10 +111,7 @@ class ImportedStateMachine {
     }
 
     // Initialize with initial states and state mapping
-    sm.initializeImported(
-      spec.initialStateIds.map((id) => stateMap[id]!).toList(),
-      stateMap,
-    );
+    sm.initializeImported(spec.initialStateIds.map((id) => stateMap[id]!).toList(), stateMap);
 
     // Assign symbol IDs to all patterns for enumeration support
     _assignSymbolIds(sm);
@@ -201,10 +193,7 @@ class ImportedStateMachine {
         RuleCall('${ruleName}_call', ruleMap[ruleName]!),
         stateMap[nextStateId]!,
       ),
-      ReturnActionSpec(:var ruleName) => ReturnAction(
-        ruleMap[ruleName]!,
-        Eps(),
-      ),
+      ReturnActionSpec(:var ruleName) => ReturnAction(ruleMap[ruleName]!, Eps()),
       AcceptActionSpec() => const AcceptAction(),
       PredicateActionSpec(:var isAnd, :var nextStateId) => PredicateAction(
         isAnd: isAnd,
@@ -250,19 +239,15 @@ class ImportedStateMachine {
       StarPatternSpec(:var child) => Star(_specToPattern(child, ruleMap)),
       AndPatternSpec(:var pattern) => And(_specToPattern(pattern, ruleMap)),
       NotPatternSpec(:var pattern) => Not(_specToPattern(pattern, ruleMap)),
-      RuleCallPatternSpec(:var ruleName) => RuleCall(
-        ruleName,
-        ruleMap[ruleName]!,
-      ),
+      RuleCallPatternSpec(:var ruleName) => RuleCall(ruleName, ruleMap[ruleName]!),
       CallPatternSpec(:var ruleName, :var minPrecedenceLevel) => Call(
         ruleMap[ruleName]!,
         minPrecedenceLevel: minPrecedenceLevel,
       ),
-      PrecedenceLabeledPatternSpec(:var precedenceLevel, :var pattern) =>
-        PrecedenceLabeledPattern(
-          precedenceLevel,
-          _specToPattern(pattern, ruleMap),
-        ),
+      PrecedenceLabeledPatternSpec(:var precedenceLevel, :var pattern) => PrecedenceLabeledPattern(
+        precedenceLevel,
+        _specToPattern(pattern, ruleMap),
+      ),
       ActionPatternSpec(:var child) => Action<dynamic>(
         _specToPattern(child, ruleMap),
         (span, results) => results,

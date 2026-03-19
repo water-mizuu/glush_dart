@@ -321,7 +321,7 @@ class SMParser {
     final bsrSet = bsrSuccess.bsrSet;
     final startRule = stateMachine.grammar.startCall.rule;
     final nodeManager = ForestNodeManager();
-    final root = bsrSet.buildSppf(grammar, startRule, input, nodeManager);
+    final root = bsrSet.buildSppf(startRule, input, nodeManager);
     final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
     final forest = ParseForest(nodeManager, effectiveRoot, []);
     return ParseForestSuccess(forest);
@@ -417,7 +417,7 @@ class SMParser {
               final startRule = stateMachine.grammar.startCall.rule;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(grammar, startRule, fullInput, nodeManager);
+              final root = bsr.buildSppf(startRule, fullInput, nodeManager);
               final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startRule);
               final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
               completer.complete(ParseForestSuccess(forest));

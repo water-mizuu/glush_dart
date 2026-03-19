@@ -59,53 +59,14 @@ class BsrSet {
 
   /// Total number of recorded rule-completion entries.
   int get length => _pivots.values.expand((v) => v).length;
-  Iterable<BsrEntry> get entries => _pivots.entries.expand(
-    (e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)),
-  );
-
-  BsrPattern _serialize(Pattern pattern) {
-    return switch (pattern) {
-      Token(choice: ExactToken(:var value)) => BsrPattern("Token:$value"),
-      Token(choice: AnyToken()) => BsrPattern("Token:any"),
-      Token(choice: RangeToken(:var start, :var end)) => BsrPattern(
-        "Token:$start..$end",
-      ),
-      Token(choice: LessToken(:var bound)) => BsrPattern("Token:<$bound"),
-      Token(choice: GreaterToken(:var bound)) => BsrPattern("Token:>$bound"),
-      Marker() => BsrPattern("Marker"),
-      Eps() => BsrPattern("Eps"),
-      Alt() => BsrPattern("Alt"),
-      Seq() => BsrPattern("Seq"),
-      Conj() => BsrPattern("Conj"),
-      Plus() => BsrPattern("Plus"),
-      Star() => BsrPattern("Star"),
-      And() => BsrPattern("And"),
-      Not() => BsrPattern("Not"),
-      Rule() => BsrPattern("Rule"),
-      RuleCall() => BsrPattern("RuleCall"),
-      Call() => BsrPattern("Call"),
-      Action() => BsrPattern("Action"),
-      PrecedenceLabeledPattern() => BsrPattern("PrecedenceLabeledPattern"),
-    };
-  }
+  Iterable<BsrEntry> get entries =>
+      _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   /// Build an SPPF rooted at [startRule] over the full input.
-  SymbolicNode? buildSppf(
-    Rule startRule,
-    String input,
-    ForestNodeManager nodeManager,
-  ) {
+  SymbolicNode? buildSppf(Rule startRule, String input, ForestNodeManager nodeManager) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
-    return _buildNode(
-      startRule,
-      input,
-      0,
-      input.length,
-      nodeManager,
-      memo,
-      inProgress,
-    ).run();
+    return _buildNode(startRule, input, 0, input.length, nodeManager, memo, inProgress).run();
   }
 
   _Trampoline<SymbolicNode?> _buildNode(
@@ -213,19 +174,13 @@ class BsrSet {
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          return continuation([
-            nodeManager.terminal(start, end, pattern, input.codeUnitAt(start)),
-          ]);
+          return continuation([nodeManager.terminal(start, end, pattern, input.codeUnitAt(start))]);
         }
         return continuation([]);
       case Marker():
-        return continuation(
-          start == end ? [nodeManager.marker(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
       case Eps():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
       case Alt():
         return _More(
           () => _patternNodes(
@@ -263,8 +218,7 @@ class BsrSet {
         // starting from ruleStart. For sub-spans, we use exhaustive search.
         Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
         _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext())
-            return continuation(seqNode != null ? [seqNode!] : []);
+          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
           final mid = it.current;
           return _More(
             () => _patternNodes(
@@ -295,8 +249,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final l in leftNodes)
-                          for (final r in rightNodes)
-                            seqNode!.addFamily(Family([l, r]));
+                          for (final r in rightNodes) seqNode!.addFamily(Family([l, r]));
                       }
                       return _More(() => loop(it));
                     },
@@ -377,8 +330,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail)
-                            plusNode!.addFamily(Family([h, t]));
+                          for (final t in tail) plusNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -408,9 +360,7 @@ class BsrSet {
                 pattern,
                 pattern.symbolId! as String,
               );
-              starNode!.addFamily(
-                Family([nodeManager.epsilon(start, pattern)]),
-              );
+              starNode!.addFamily(Family([nodeManager.epsilon(start, pattern)]));
             }
             return continuation(starNode != null ? [starNode!] : []);
           }
@@ -444,8 +394,7 @@ class BsrSet {
                           pattern.symbolId! as String,
                         );
                         for (final h in head)
-                          for (final t in tail)
-                            starNode!.addFamily(Family([h, t]));
+                          for (final t in tail) starNode!.addFamily(Family([h, t]));
                       }
                       return _More(() => loop(it));
                     },
@@ -491,8 +440,7 @@ class BsrSet {
                       pattern,
                       pattern.symbolId! as String,
                     );
-                    for (final l in left)
-                      for (final r in right) node.addFamily(Family([l, r]));
+                    for (final l in left) for (final r in right) node.addFamily(Family([l, r]));
                     return continuation([node]);
                   },
                   currentRule,
@@ -582,8 +530,7 @@ class BsrSet {
         );
       case PrecedenceLabeledPattern():
         // Check if this alternative meets the minimum precedence level
-        if (minPrecedenceLevel != null &&
-            pattern.precedenceLevel < minPrecedenceLevel) {
+        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
           // Skip this alternative - it doesn't meet the precedence requirement
           return continuation([]);
         }
@@ -603,9 +550,7 @@ class BsrSet {
           ),
         );
       case And() || Not():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern)] : []);
     }
   }
 

@@ -35,7 +35,7 @@ void testGrammar(bool leftRecursive) {
       final startRule = parser.stateMachine.grammar.startCall.rule;
       final nm = ForestNodeManager();
 
-      final root = bsr.buildSppf(g, startRule, input, nm);
+      final root = bsr.buildSppf(startRule, input, nm);
       final buildTime = sw.elapsedMilliseconds;
 
       if (root != null) {
