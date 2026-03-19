@@ -54,10 +54,7 @@ void main() {
       final grammar = Grammar(() {
         late final expr;
         expr = Rule('expr', () {
-          return Eps() |
-              (Token(ExactToken(40)) >>
-                  Call(expr) >>
-                  Token(ExactToken(41))); // ( expr )
+          return Eps() | (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))); // ( expr )
         });
         return expr;
       });
@@ -84,10 +81,7 @@ void main() {
 
     test('recognizes sequences', () {
       final grammar = Grammar(() {
-        final rule = Rule(
-          'expr',
-          () => Token(ExactToken(97)) >> Token(ExactToken(98)),
-        ); // ab
+        final rule = Rule('expr', () => Token(ExactToken(97)) >> Token(ExactToken(98))); // ab
         return rule;
       });
 
@@ -99,10 +93,7 @@ void main() {
 
     test('recognizes alternation', () {
       final grammar = Grammar(() {
-        final rule = Rule(
-          'expr',
-          () => Token(ExactToken(97)) | Token(ExactToken(98)),
-        ); // a or b
+        final rule = Rule('expr', () => Token(ExactToken(97)) | Token(ExactToken(98))); // a or b
         return rule;
       });
 
@@ -151,9 +142,7 @@ void main() {
     test('parse error at correct position', () {
       final grammar = Grammar(() {
         final rule = Rule('expr', () {
-          return Token(ExactToken(97)) >>
-              Token(ExactToken(98)) >>
-              Token(ExactToken(99));
+          return Token(ExactToken(97)) >> Token(ExactToken(98)) >> Token(ExactToken(99));
         });
         return rule;
       });
@@ -188,7 +177,7 @@ void main() {
       } else if (t.node is EpsilonNode) {
         label = 'ε';
       } else if (t.node is IntermediateNode) {
-        label = (t.node as IntermediateNode).description as String;
+        label = (t.node as IntermediateNode).symbol as String;
       } else {
         label = t.node.toString();
       }
@@ -240,10 +229,7 @@ void main() {
     test('counts match for ambiguous grammar with input', () {
       final grammar = Grammar(() {
         late final s;
-        s = Rule(
-          'S',
-          () => Eps() | (Token(ExactToken(97)) >> Call(s) >> Call(s)),
-        );
+        s = Rule('S', () => Eps() | (Token(ExactToken(97)) >> Call(s) >> Call(s)));
         return s;
       });
 
@@ -383,9 +369,7 @@ void main() {
           return Token.char('s') | // s
               (Marker('') >> s() >> s()).withAction((_, c) => [...c]) | // SS
               (Marker('') >> s() >> s() >> s()).withAction((_, c) => [...c]) |
-              (Marker('') >> s() >> s() >> s() >> s()).withAction(
-                (_, c) => [...c],
-              ); // SSS
+              (Marker('') >> s() >> s() >> s() >> s()).withAction((_, c) => [...c]); // SSS
         });
         return s;
       });

@@ -6,11 +6,11 @@ import 'patterns.dart';
 
 /// Base class for all forest nodes
 sealed class ForestNode {
-  final Pattern pattern;
+  final PatternSymbol symbol;
   final int start;
   final int end;
 
-  ForestNode(this.start, this.end, this.pattern);
+  ForestNode(this.start, this.end, this.symbol);
 
   @override
   bool operator ==(Object other) =>
@@ -19,10 +19,10 @@ sealed class ForestNode {
           runtimeType == other.runtimeType &&
           start == other.start &&
           end == other.end &&
-          pattern == other.pattern;
+          symbol == other.symbol;
 
   @override
-  int get hashCode => start.hashCode ^ end.hashCode ^ pattern.hashCode;
+  int get hashCode => start.hashCode ^ end.hashCode ^ symbol.hashCode;
 }
 
 /// Terminal node (matches a token)
@@ -46,7 +46,7 @@ class TerminalNode extends ForestNode {
 class MarkerNode extends ForestNode {
   final String name;
 
-  MarkerNode(int position, Pattern pattern, this.name) : super(position, position, pattern);
+  MarkerNode(int position, PatternSymbol symbol, this.name) : super(position, position, symbol);
 
   @override
   bool operator ==(Object other) =>
@@ -61,10 +61,9 @@ class MarkerNode extends ForestNode {
 
 /// Symbolic node (non-terminal)
 class SymbolicNode extends ForestNode {
-  final PatternSymbol symbol;
-  final List<Family> families = [];
+  final Set<Family> families;
 
-  SymbolicNode(super.start, super.end, super.pattern, this.symbol);
+  SymbolicNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -74,7 +73,7 @@ class SymbolicNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || super == other && other is SymbolicNode && symbol == (other).symbol;
+      identical(this, other) || super == other && other is SymbolicNode && symbol == other.symbol;
 
   @override
   int get hashCode => super.hashCode ^ symbol.hashCode;
@@ -85,10 +84,9 @@ class SymbolicNode extends ForestNode {
 
 /// Intermediate node (represents semantic actions on children)
 class IntermediateNode extends ForestNode {
-  final PatternSymbol description;
-  final List<Family> families = [];
+  final Set<Family> families;
 
-  IntermediateNode(super.start, super.end, super.pattern, this.description);
+  IntermediateNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -99,52 +97,81 @@ class IntermediateNode extends ForestNode {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      super == other && other is IntermediateNode && description == (other).description;
+      super == other &&
+          other is IntermediateNode &&
+          families.difference(other.families).isEmpty &&
+          families.length == other.families.length;
 
   @override
-  int get hashCode => super.hashCode ^ description.hashCode;
+  int get hashCode => super.hashCode;
 
   @override
-  String toString() => 'Intermediate($description, [$start, $end))';
+  String toString() => 'Intermediate($symbol, [$start, $end))';
 }
 
 /// Family of parse derivations (alternatives)
-class Family {
-  final List<ForestNode> children;
+sealed class Family {
   final List<Mark> marks;
+  const Family([this.marks = const []]);
+  const factory Family.epsilon([List<Mark> marks]) = _EpsilonFamily;
+  const factory Family.unary(ForestNode child, [List<Mark> marks]) = _UnaryFamily;
+  const factory Family.binary(ForestNode left, ForestNode right, [List<Mark> marks]) =
+      _BinaryFamily;
 
-  Family(this.children, [this.marks = const []]);
+  Iterable<ForestNode> get children sync* {
+    switch (this) {
+      case _EpsilonFamily _:
+        break;
+      case _UnaryFamily self:
+        yield self.child;
+      case _BinaryFamily self:
+        yield self.left;
+        yield self.right;
+    }
+  }
+}
+
+class _EpsilonFamily extends Family {
+  const _EpsilonFamily([super.marks]);
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is _EpsilonFamily;
+
+  @override
+  int get hashCode => marks.hashCode;
+}
+
+/// Single child — terminal, or a rule wrapping one sub-pattern
+class _UnaryFamily extends Family {
+  final ForestNode child;
+  const _UnaryFamily(this.child, [super.marks]);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is _UnaryFamily && child == other.child;
+
+  @override
+  int get hashCode => child.hashCode;
+}
+
+/// Binary Seq(left, right) — the normal case
+class _BinaryFamily extends Family {
+  final ForestNode left;
+  final ForestNode right;
+  const _BinaryFamily(this.left, this.right, [super.marks]);
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Family &&
-          runtimeType == other.runtimeType &&
-          _listEquals(children, (other).children) &&
-          _listEquals(marks, (other).marks);
+      other is _BinaryFamily && left == other.left && right == other.right;
 
   @override
-  int get hashCode =>
-      children.fold(0, (h, c) => h ^ c.hashCode) ^ marks.fold(0, (h, m) => h ^ m.hashCode);
-
-  bool _listEquals<T>(List<T> a, List<T> b) {
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
-
-  @override
-  String toString() {
-    final childStr = children.join(', ');
-    return 'Family([$childStr])';
-  }
+  int get hashCode => left.hashCode ^ right.hashCode;
 }
 
 /// Epsilon node (empty parse)
 class EpsilonNode extends ForestNode {
-  EpsilonNode(int position, Pattern pattern) : super(position, position, pattern);
+  EpsilonNode(int position, PatternSymbol symbol) : super(position, position, symbol);
 
   @override
   String toString() => 'ε[$start]';
@@ -158,64 +185,64 @@ class ForestNodeManager {
   final Set<IntermediateNode> _intermediateNodes = {};
   final Set<MarkerNode> _markerNodes = {};
 
-  String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
-    return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
+  String _makeCacheKey(String type, int start, int end, PatternSymbol symbol) {
+    return '$type:$start:$end:$symbol';
   }
 
   /// Get or create a terminal node
-  TerminalNode terminal(int start, int end, Pattern pattern, int token) {
-    final key = _makeCacheKey('term', start, end, pattern, token.toString());
+  TerminalNode terminal(int start, int end, PatternSymbol symbol, int token) {
+    final key = _makeCacheKey('term', start, end, symbol);
     if (_nodeCache[key] case TerminalNode node) {
       return node;
     }
-    final node = TerminalNode(start, end, pattern, token);
+    final node = TerminalNode(start, end, symbol, token);
     _nodeCache[key] = node;
     _terminalNodes.add(node);
     return node;
   }
 
   /// Get or create a symbolic node
-  SymbolicNode symbolic(int start, int end, Pattern rule) {
-    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId! as String);
+  SymbolicNode symbolic(int start, int end, PatternSymbol symbol) {
+    final key = _makeCacheKey('sym', start, end, symbol);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
-    final node = SymbolicNode(start, end, rule, rule.symbolId!);
+    final node = SymbolicNode(start, end, symbol);
     _nodeCache[key] = node;
     _symbolicNodes.add(node);
     return node;
   }
 
   /// Get or create an intermediate node
-  IntermediateNode intermediate(int start, int end, Pattern pattern, String description) {
-    final key = _makeCacheKey('inter', start, end, pattern, description);
+  IntermediateNode intermediate(int start, int end, PatternSymbol symbol) {
+    final key = _makeCacheKey('inter', start, end, symbol);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
-    final node = IntermediateNode(start, end, pattern, PatternSymbol(description));
+    final node = IntermediateNode(start, end, symbol);
     _nodeCache[key] = node;
     _intermediateNodes.add(node);
     return node;
   }
 
   /// Get or create an epsilon node
-  EpsilonNode epsilon(int position, Pattern pattern) {
-    final key = _makeCacheKey('eps', position, position, pattern);
+  EpsilonNode epsilon(int position, PatternSymbol symbol) {
+    final key = _makeCacheKey('eps', position, position, symbol);
     if (_nodeCache[key] case EpsilonNode node) {
       return node;
     }
-    final node = EpsilonNode(position, pattern);
+    final node = EpsilonNode(position, symbol);
     _nodeCache[key] = node;
     return node;
   }
 
   /// Get or create a marker node
-  MarkerNode marker(int position, Marker pattern) {
-    final key = _makeCacheKey('mark', position, position, pattern, pattern.name);
+  MarkerNode marker(int position, Marker marker) {
+    final key = _makeCacheKey('mark', position, position, marker.symbolId!);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
-    final node = MarkerNode(position, pattern, pattern.name);
+    final node = MarkerNode(position, marker.symbolId!, marker.name);
     _nodeCache[key] = node;
     _markerNodes.add(node);
     return node;
@@ -272,16 +299,9 @@ class ParseForest {
     visited.add(node);
 
     int count = 0;
-    if (node is SymbolicNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
-        }
-      }
-    } else if (node is IntermediateNode) {
-      count = node.families.length;
-      for (final family in node.families) {
+    if (node case SymbolicNode(:var families) || IntermediateNode(:var families)) {
+      count = families.length;
+      for (final family in families) {
         for (final child in family.children) {
           count += _countFamiliesRecursive(child, visited);
         }
@@ -300,7 +320,7 @@ class ParseForest {
   /// - 'count': total number of derivations
   /// - 'hasCycles': whether the forest has cycles (left-recursion)
   /// - 'sccs': number of strongly connected components
-  Map<String, dynamic> countDerivationsWithSCC() {
+  Map<String, Object?> countDerivationsWithSCC() {
     final sccs = _findSCCs();
     final sccMap = <ForestNode, int>{};
 
@@ -518,24 +538,19 @@ class ParseForest {
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
   Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
-    // Collect sub-iterables for each child position
-    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
-    // Yield the Cartesian product of the child options as ParseTree nodes
-    for (final combination in _cartesianProduct(childOptions)) {
-      yield ParseTree(parent, combination);
-    }
-  }
-
-  /// Lazily yields every combination (one item from each of [lists] in order).
-  Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
-    if (lists.isEmpty) {
-      yield const [];
-      return;
-    }
-    for (final head in lists.first) {
-      for (final tail in _cartesianProduct(lists.sublist(1))) {
-        yield [head, ...tail];
-      }
+    switch (family) {
+      case _EpsilonFamily():
+        break;
+      case _UnaryFamily(:final child):
+        for (final tree in _extractTrees(child)) {
+          yield ParseTree(parent, [tree]);
+        }
+      case _BinaryFamily(:final left, :final right):
+        for (final l in _extractTrees(left)) {
+          for (final r in _extractTrees(right)) {
+            yield ParseTree(parent, [l, r]);
+          }
+        }
     }
   }
 

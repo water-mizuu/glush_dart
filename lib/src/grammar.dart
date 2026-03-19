@@ -12,7 +12,8 @@ typedef GrammarBuilder = Rule Function();
 // Grammar interface to avoid circular import
 sealed class GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
-  Map<String, Pattern> get symbolRegistry;
+  Map<PatternSymbol, Pattern> get symbolRegistry;
+  Map<PatternSymbol, Set<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
   List<Rule> get rules;
@@ -27,7 +28,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   /// Maps symbol IDs back to patterns for this grammar
   @override
-  final Map<String, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
@@ -70,6 +72,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
+    _fillChildrenMapping();
 
     _computeEmpty();
     _computeTransitions();
@@ -92,7 +95,27 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         pattern.assignSymbolId(PatternSymbol(symbolId));
       }
       final actualSymbolId = pattern.symbolId!;
-      symbolRegistry[actualSymbolId as String] = pattern;
+      symbolRegistry[actualSymbolId] = pattern;
+    }
+  }
+
+  void _fillChildrenMapping() {
+    for (final pattern in allPatterns) {
+      childrenRegistry[pattern.symbolId!] = switch (pattern) {
+        And() || Not() || Token() || Marker() || Eps() => {},
+
+        Alt(:var left, :var right) ||
+        Seq(:var left, :var right) ||
+        Conj(:var left, :var right) => {left.symbolId!, right.symbolId!},
+
+        Plus(:var child) ||
+        Star(:var child) ||
+        Action(:var child) ||
+        PrecedenceLabeledPattern(:var child) => {child.symbolId!},
+
+        Rule rule => {rule.body().symbolId!},
+        RuleCall(:var rule) || Call(:var rule) => {rule.symbolId!},
+      };
     }
   }
 
@@ -124,13 +147,21 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       case Action action:
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
-        _collectPatternsFromPattern(plp.pattern, patterns);
+        _collectPatternsFromPattern(plp.child, patterns);
       case Plus plus:
         _collectPatternsFromPattern(plus.child, patterns);
       case Star star:
         _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
+    }
+  }
+
+  Iterable<Pattern> get allPatterns sync* {
+    for (Rule rule in rules) {
+      Set<Pattern> patterns = {rule};
+      _collectPatternsFromRule(rule, patterns);
+      yield* patterns;
     }
   }
 
@@ -275,7 +306,10 @@ class GrammarAdapter implements GrammarInterface {
   final RuleCall startCall;
 
   @override
-  final Map<String, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+
+  @override
+  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
 
   GrammarAdapter(StateMachine sm)
     : rules = sm.rules,

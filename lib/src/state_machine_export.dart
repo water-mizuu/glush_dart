@@ -57,11 +57,7 @@ class MarkActionSpec extends StateActionSpec {
   const MarkActionSpec(this.name, this.nextStateId);
 
   @override
-  Map<String, dynamic> toJson() => {
-    'type': 'mark',
-    'name': name,
-    'nextStateId': nextStateId,
-  };
+  Map<String, dynamic> toJson() => {'type': 'mark', 'name': name, 'nextStateId': nextStateId};
 
   static MarkActionSpec fromJson(Map<String, dynamic> json) {
     return MarkActionSpec(json['name'] as String, json['nextStateId'] as int);
@@ -82,10 +78,7 @@ class CallActionSpec extends StateActionSpec {
   };
 
   static CallActionSpec fromJson(Map<String, dynamic> json) {
-    return CallActionSpec(
-      json['ruleName'] as String,
-      json['nextStateId'] as int,
-    );
+    return CallActionSpec(json['ruleName'] as String, json['nextStateId'] as int);
   }
 }
 
@@ -144,10 +137,7 @@ class SemanticActionCallSpec extends StateActionSpec {
   };
 
   static SemanticActionCallSpec fromJson(Map<String, dynamic> json) {
-    return SemanticActionCallSpec(
-      json['actionId'] as String,
-      json['nextStateId'] as int,
-    );
+    return SemanticActionCallSpec(json['actionId'] as String, json['nextStateId'] as int);
   }
 }
 
@@ -201,15 +191,10 @@ class RangeTokenSpec extends TokenSpec {
   const RangeTokenSpec(this.start, this.end);
 
   @override
-  bool matches(int? codeUnit) =>
-      codeUnit != null && codeUnit >= start && codeUnit <= end;
+  bool matches(int? codeUnit) => codeUnit != null && codeUnit >= start && codeUnit <= end;
 
   @override
-  Map<String, dynamic> toJson() => {
-    'type': 'range',
-    'start': start,
-    'end': end,
-  };
+  Map<String, dynamic> toJson() => {'type': 'range', 'start': start, 'end': end};
 }
 
 // ============================================================================
@@ -326,11 +311,7 @@ class AltPatternSpec extends PatternSpec {
   final PatternSpec right;
   final PatternSymbol? symbolId;
 
-  const AltPatternSpec({
-    required this.left,
-    required this.right,
-    this.symbolId,
-  });
+  const AltPatternSpec({required this.left, required this.right, this.symbolId});
 
   @override
   Map<String, dynamic> toJson() => {
@@ -358,11 +339,7 @@ class SeqPatternSpec extends PatternSpec {
   final PatternSpec right;
   final PatternSymbol? symbolId;
 
-  const SeqPatternSpec({
-    required this.left,
-    required this.right,
-    this.symbolId,
-  });
+  const SeqPatternSpec({required this.left, required this.right, this.symbolId});
 
   @override
   Map<String, dynamic> toJson() => {
@@ -390,11 +367,7 @@ class ConjPatternSpec extends PatternSpec {
   final PatternSpec right;
   final PatternSymbol? symbolId;
 
-  const ConjPatternSpec({
-    required this.left,
-    required this.right,
-    this.symbolId,
-  });
+  const ConjPatternSpec({required this.left, required this.right, this.symbolId});
 
   @override
   Map<String, dynamic> toJson() => {
@@ -547,11 +520,7 @@ class CallPatternSpec extends PatternSpec {
   final int minPrecedenceLevel;
   final PatternSymbol? symbolId;
 
-  const CallPatternSpec({
-    required this.ruleName,
-    required this.minPrecedenceLevel,
-    this.symbolId,
-  });
+  const CallPatternSpec({required this.ruleName, required this.minPrecedenceLevel, this.symbolId});
 
   @override
   Map<String, dynamic> toJson() => {
@@ -641,18 +610,12 @@ class StateSpec {
 
   const StateSpec(this.id, this.actions);
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'actions': actions.map((a) => a.toJson()).toList(),
-  };
+  Map<String, dynamic> toJson() => {'id': id, 'actions': actions.map((a) => a.toJson()).toList()};
 
   static StateSpec fromJson(Map<String, dynamic> json) {
     return StateSpec(
       json['id'] as int,
-      (json['actions'] as List)
-          .cast<Map<String, dynamic>>()
-          .map(StateActionSpec.fromJson)
-          .toList(),
+      (json['actions'] as List).cast<Map<String, dynamic>>().map(StateActionSpec.fromJson).toList(),
     );
   }
 }
@@ -721,10 +684,8 @@ class ExportedStateMachine {
         .toList();
 
     final rules = (json['rules'] as Map<String, dynamic>).map(
-      (name, ruleJson) => MapEntry(
-        name,
-        RuleMetadataSpec.fromJson(ruleJson as Map<String, dynamic>),
-      ),
+      (name, ruleJson) =>
+          MapEntry(name, RuleMetadataSpec.fromJson(ruleJson as Map<String, dynamic>)),
     );
 
     return ExportedStateMachine(
@@ -777,10 +738,7 @@ class StateMachineExporter {
         _tokenPatternToSpec(pattern),
         nextState.id,
       ),
-      MarkAction(:var name, :var nextState) => MarkActionSpec(
-        name,
-        nextState.id,
-      ),
+      MarkAction(:var name, :var nextState) => MarkActionSpec(name, nextState.id),
       CallAction(:var rule, :var returnState) => CallActionSpec(
         rule.name as String,
         returnState.id,
@@ -791,10 +749,7 @@ class StateMachineExporter {
         isAnd: isAnd,
         nextStateId: nextState.id,
       ),
-      SemanticAction(:var nextState) => SemanticActionCallSpec(
-        'stub',
-        nextState.id,
-      ),
+      SemanticAction(:var nextState) => SemanticActionCallSpec('stub', nextState.id),
     };
   }
 
@@ -805,14 +760,10 @@ class StateMachineExporter {
         AnyToken() => const AnyTokenSpec(),
         ExactToken(:var value) => ExactTokenSpec(value),
         RangeToken(:var start, :var end) => RangeTokenSpec(start, end),
-        _ => throw UnsupportedError(
-          'Cannot convert token choice to spec: ${choice.runtimeType}',
-        ),
+        _ => throw UnsupportedError('Cannot convert token choice to spec: ${choice.runtimeType}'),
       };
     }
-    throw UnsupportedError(
-      'Cannot convert pattern to TokenSpec: ${pattern.runtimeType}',
-    );
+    throw UnsupportedError('Cannot convert pattern to TokenSpec: ${pattern.runtimeType}');
   }
 
   static PatternSpec _patternToSpec(Pattern pattern) {
@@ -822,10 +773,7 @@ class StateMachineExporter {
         symbolId: pattern.symbolId,
       ),
       Eps() => EpsPatternSpec(),
-      Marker(:var name) => MarkerPatternSpec(
-        name: name,
-        symbolId: pattern.symbolId,
-      ),
+      Marker(:var name) => MarkerPatternSpec(name: name, symbolId: pattern.symbolId),
       Alt(:var left, :var right) => AltPatternSpec(
         left: _patternToSpec(left),
         right: _patternToSpec(right),
@@ -841,14 +789,8 @@ class StateMachineExporter {
         right: _patternToSpec(right),
         symbolId: pattern.symbolId,
       ),
-      Plus(:var child) => PlusPatternSpec(
-        child: _patternToSpec(child),
-        symbolId: pattern.symbolId,
-      ),
-      Star(:var child) => StarPatternSpec(
-        child: _patternToSpec(child),
-        symbolId: pattern.symbolId,
-      ),
+      Plus(:var child) => PlusPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
+      Star(:var child) => StarPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
       And(:var pattern) => AndPatternSpec(
         pattern: _patternToSpec(pattern),
         symbolId: pattern.symbolId,
@@ -866,7 +808,7 @@ class StateMachineExporter {
         minPrecedenceLevel: minPrecedenceLevel ?? 0,
         symbolId: pattern.symbolId,
       ),
-      PrecedenceLabeledPattern(:var precedenceLevel, :var pattern) =>
+      PrecedenceLabeledPattern(:var precedenceLevel, child: var pattern) =>
         PrecedenceLabeledPatternSpec(
           precedenceLevel: precedenceLevel,
           pattern: _patternToSpec(pattern),
@@ -876,9 +818,7 @@ class StateMachineExporter {
         child: _patternToSpec(child),
         symbolId: pattern.symbolId,
       ),
-      _ => throw UnsupportedError(
-        'Cannot serialize pattern: ${pattern.runtimeType}',
-      ),
+      _ => throw UnsupportedError('Cannot serialize pattern: ${pattern.runtimeType}'),
     };
   }
 }

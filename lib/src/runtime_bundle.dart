@@ -331,6 +331,7 @@ sealed class Pattern {
 sealed class TokenChoice {
   const TokenChoice();
   bool matches(int? value);
+  String get representation;
 }
 
 /// Matches any token (wildcard)
@@ -342,6 +343,9 @@ final class AnyToken extends TokenChoice {
 
   @override
   String toString() => 'any';
+
+  @override
+  String get representation => ":any";
 }
 
 /// Matches an exact code-point value
@@ -354,6 +358,9 @@ final class ExactToken extends TokenChoice {
 
   @override
   String toString() => String.fromCharCode(value);
+
+  @override
+  String get representation => ":$value";
 }
 
 /// Matches a code-point within an inclusive range
@@ -367,31 +374,53 @@ final class RangeToken extends TokenChoice {
 
   @override
   String toString() => '$start..$end';
+
+  @override
+  String get representation => "[$start..$end";
 }
 
 /// Matches a code-point <= bound
 final class LessToken extends TokenChoice {
   final int bound;
   const LessToken(this.bound);
+
   @override
   bool matches(int? token) => token != null && token <= bound;
+
   @override
   String toString() => 'less($bound)';
+
+  @override
+  String get representation => "<$bound";
 }
 
 /// Matches a code-point >= bound
 final class GreaterToken extends TokenChoice {
   final int bound;
   const GreaterToken(this.bound);
+
   @override
   bool matches(int? token) => token != null && token >= bound;
+
   @override
   String toString() => 'greater($bound)';
+
+  @override
+  String get representation => ">$bound";
 }
 
 /// Single token pattern
 class Token extends Pattern {
   final TokenChoice choice;
+  PatternSymbol? _symbolId;
+  PatternSymbol? get symbolId => _symbolId;
+
+  @override
+  void assignSymbolId(PatternSymbol? symbolId) {
+    /// We append the representation so that we can access
+    ///   The fundamental thing of the symbol.
+    _symbolId = PatternSymbol("$symbolId${choice.representation}");
+  }
 
   Token(this.choice);
   Token.char(String char) //
@@ -432,6 +461,7 @@ class Token extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -442,6 +472,15 @@ class Token extends Pattern {
 /// Marker for parse tracking
 class Marker extends Pattern {
   final String name;
+  PatternSymbol? _symbolId;
+  PatternSymbol? get symbolId => _symbolId;
+
+  @override
+  void assignSymbolId(PatternSymbol? symbolId) {
+    /// We append the representation so that we can access
+    ///   The fundamental thing of the symbol.
+    _symbolId = PatternSymbol("$symbolId\$${name}");
+  }
 
   Marker(this.name);
 
@@ -459,6 +498,7 @@ class Marker extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -487,6 +527,7 @@ class Eps extends Pattern {
 
   @override
   Set<Pattern> firstSet() => _emptySet;
+
   @override
   Set<Pattern> lastSet() => _emptySet;
 
@@ -1001,46 +1042,46 @@ class Action<T> extends Pattern {
 /// Example: In "6| $add EXPR^6 ... EXPR^7", the entire sequence gets precedenceLevel=6
 class PrecedenceLabeledPattern extends Pattern {
   final int precedenceLevel;
-  final Pattern pattern;
+  final Pattern child;
 
-  PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
+  PrecedenceLabeledPattern(this.precedenceLevel, this.child);
 
   @override
-  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, child.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = pattern.calculateEmpty(emptyRules);
+    final childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
 
   @override
-  bool isStatic() => pattern.isStatic();
+  bool isStatic() => child.isStatic();
 
   @override
-  Set<Pattern> firstSet() => pattern.firstSet();
+  Set<Pattern> firstSet() => child.firstSet();
   @override
-  Set<Pattern> lastSet() => pattern.lastSet();
+  Set<Pattern> lastSet() => child.lastSet();
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
-    pattern.eachPair(callback);
+    child.eachPair(callback);
   }
 
   @override
   void collectRules(Set<Rule> rules) {
-    pattern.collectRules(rules);
+    child.collectRules(rules);
   }
 
   @override
-  bool singleToken() => pattern.singleToken();
+  bool singleToken() => child.singleToken();
 
   @override
-  bool match(int? token) => pattern.match(token);
+  bool match(int? token) => child.match(token);
 
   @override
-  String toString() => '[$precedenceLevel] $pattern';
+  String toString() => '[$precedenceLevel] $child';
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1129,8 @@ typedef GrammarBuilder = Rule Function();
 // Grammar interface to avoid circular import
 sealed class GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
-  Map<String, Pattern> get symbolRegistry;
+  Map<PatternSymbol, Pattern> get symbolRegistry;
+  Map<PatternSymbol, Set<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
   List<Rule> get rules;
@@ -1103,7 +1145,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   /// Maps symbol IDs back to patterns for this grammar
   @override
-  final Map<String, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
@@ -1146,6 +1189,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
+    _fillChildrenMapping();
 
     _computeEmpty();
     _computeTransitions();
@@ -1168,7 +1212,27 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         pattern.assignSymbolId(PatternSymbol(symbolId));
       }
       final actualSymbolId = pattern.symbolId!;
-      symbolRegistry[actualSymbolId as String] = pattern;
+      symbolRegistry[actualSymbolId] = pattern;
+    }
+  }
+
+  void _fillChildrenMapping() {
+    for (final pattern in allPatterns) {
+      childrenRegistry[pattern.symbolId!] = switch (pattern) {
+        And() || Not() || Token() || Marker() || Eps() => {},
+
+        Alt(:var left, :var right) ||
+        Seq(:var left, :var right) ||
+        Conj(:var left, :var right) => {left.symbolId!, right.symbolId!},
+
+        Plus(:var child) ||
+        Star(:var child) ||
+        Action(:var child) ||
+        PrecedenceLabeledPattern(:var child) => {child.symbolId!},
+
+        Rule rule => {rule.body().symbolId!},
+        RuleCall(:var rule) || Call(:var rule) => {rule.symbolId!},
+      };
     }
   }
 
@@ -1200,13 +1264,21 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       case Action action:
         _collectPatternsFromPattern(action.child, patterns);
       case PrecedenceLabeledPattern plp:
-        _collectPatternsFromPattern(plp.pattern, patterns);
+        _collectPatternsFromPattern(plp.child, patterns);
       case Plus plus:
         _collectPatternsFromPattern(plus.child, patterns);
       case Star star:
         _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
+    }
+  }
+
+  Iterable<Pattern> get allPatterns sync* {
+    for (Rule rule in rules) {
+      Set<Pattern> patterns = {rule};
+      _collectPatternsFromRule(rule, patterns);
+      yield* patterns;
     }
   }
 
@@ -1351,7 +1423,10 @@ class GrammarAdapter implements GrammarInterface {
   final RuleCall startCall;
 
   @override
-  final Map<String, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+
+  @override
+  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
 
   GrammarAdapter(StateMachine sm)
     : rules = rules,
@@ -1570,11 +1645,11 @@ class StateMachine {
 
 /// Base class for all forest nodes
 sealed class ForestNode {
-  final Pattern pattern;
+  final PatternSymbol symbol;
   final int start;
   final int end;
 
-  ForestNode(this.start, this.end, this.pattern);
+  ForestNode(this.start, this.end, this.symbol);
 
   @override
   bool operator ==(Object other) =>
@@ -1583,10 +1658,10 @@ sealed class ForestNode {
           runtimeType == other.runtimeType &&
           start == other.start &&
           end == other.end &&
-          pattern == other.pattern;
+          symbol == other.symbol;
 
   @override
-  int get hashCode => start.hashCode ^ end.hashCode ^ pattern.hashCode;
+  int get hashCode => start.hashCode ^ end.hashCode ^ symbol.hashCode;
 }
 
 /// Terminal node (matches a token)
@@ -1610,7 +1685,7 @@ class TerminalNode extends ForestNode {
 class MarkerNode extends ForestNode {
   final String name;
 
-  MarkerNode(int position, Pattern pattern, this.name) : super(position, position, pattern);
+  MarkerNode(int position, PatternSymbol symbol, this.name) : super(position, position, symbol);
 
   @override
   bool operator ==(Object other) =>
@@ -1625,10 +1700,9 @@ class MarkerNode extends ForestNode {
 
 /// Symbolic node (non-terminal)
 class SymbolicNode extends ForestNode {
-  final PatternSymbol symbol;
-  final List<Family> families = [];
+  final Set<Family> families;
 
-  SymbolicNode(super.start, super.end, super.pattern, this.symbol);
+  SymbolicNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -1638,7 +1712,7 @@ class SymbolicNode extends ForestNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || super == other && other is SymbolicNode && symbol == (other).symbol;
+      identical(this, other) || super == other && other is SymbolicNode && symbol == other.symbol;
 
   @override
   int get hashCode => super.hashCode ^ symbol.hashCode;
@@ -1649,10 +1723,9 @@ class SymbolicNode extends ForestNode {
 
 /// Intermediate node (represents semantic actions on children)
 class IntermediateNode extends ForestNode {
-  final PatternSymbol description;
-  final List<Family> families = [];
+  final Set<Family> families;
 
-  IntermediateNode(super.start, super.end, super.pattern, this.description);
+  IntermediateNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
     if (!families.contains(family)) {
@@ -1663,52 +1736,81 @@ class IntermediateNode extends ForestNode {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      super == other && other is IntermediateNode && description == (other).description;
+      super == other &&
+          other is IntermediateNode &&
+          families.difference(other.families).isEmpty &&
+          families.length == other.families.length;
 
   @override
-  int get hashCode => super.hashCode ^ description.hashCode;
+  int get hashCode => super.hashCode;
 
   @override
-  String toString() => 'Intermediate($description, [$start, $end))';
+  String toString() => 'Intermediate($symbol, [$start, $end))';
 }
 
 /// Family of parse derivations (alternatives)
-class Family {
-  final List<ForestNode> children;
+sealed class Family {
   final List<Mark> marks;
+  const Family([this.marks = const []]);
+  const factory Family.epsilon([List<Mark> marks]) = _EpsilonFamily;
+  const factory Family.unary(ForestNode child, [List<Mark> marks]) = _UnaryFamily;
+  const factory Family.binary(ForestNode left, ForestNode right, [List<Mark> marks]) =
+      _BinaryFamily;
 
-  Family(this.children, [this.marks = const []]);
+  Iterable<ForestNode> get children sync* {
+    switch (this) {
+      case _EpsilonFamily _:
+        break;
+      case _UnaryFamily self:
+        yield self.child;
+      case _BinaryFamily self:
+        yield self.left;
+        yield self.right;
+    }
+  }
+}
+
+class _EpsilonFamily extends Family {
+  const _EpsilonFamily([super.marks]);
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is _EpsilonFamily;
+
+  @override
+  int get hashCode => marks.hashCode;
+}
+
+/// Single child — terminal, or a rule wrapping one sub-pattern
+class _UnaryFamily extends Family {
+  final ForestNode child;
+  const _UnaryFamily(this.child, [super.marks]);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is _UnaryFamily && child == other.child;
+
+  @override
+  int get hashCode => child.hashCode;
+}
+
+/// Binary Seq(left, right) — the normal case
+class _BinaryFamily extends Family {
+  final ForestNode left;
+  final ForestNode right;
+  const _BinaryFamily(this.left, this.right, [super.marks]);
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Family &&
-          runtimeType == other.runtimeType &&
-          _listEquals(children, (other).children) &&
-          _listEquals(marks, (other).marks);
+      other is _BinaryFamily && left == other.left && right == other.right;
 
   @override
-  int get hashCode =>
-      children.fold(0, (h, c) => h ^ c.hashCode) ^ marks.fold(0, (h, m) => h ^ m.hashCode);
-
-  bool _listEquals<T>(List<T> a, List<T> b) {
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
-
-  @override
-  String toString() {
-    final childStr = children.join(', ');
-    return 'Family([$childStr])';
-  }
+  int get hashCode => left.hashCode ^ right.hashCode;
 }
 
 /// Epsilon node (empty parse)
 class EpsilonNode extends ForestNode {
-  EpsilonNode(int position, Pattern pattern) : super(position, position, pattern);
+  EpsilonNode(int position, PatternSymbol symbol) : super(position, position, symbol);
 
   @override
   String toString() => 'ε[$start]';
@@ -1722,64 +1824,64 @@ class ForestNodeManager {
   final Set<IntermediateNode> _intermediateNodes = {};
   final Set<MarkerNode> _markerNodes = {};
 
-  String _makeCacheKey(String type, int start, int end, Pattern pattern, [String detail = '']) {
-    return '$type:$start:$end:${identityHashCode(pattern)}:$detail';
+  String _makeCacheKey(String type, int start, int end, PatternSymbol symbol) {
+    return '$type:$start:$end:$symbol';
   }
 
   /// Get or create a terminal node
-  TerminalNode terminal(int start, int end, Pattern pattern, int token) {
-    final key = _makeCacheKey('term', start, end, pattern, token.toString());
+  TerminalNode terminal(int start, int end, PatternSymbol symbol, int token) {
+    final key = _makeCacheKey('term', start, end, symbol);
     if (_nodeCache[key] case TerminalNode node) {
       return node;
     }
-    final node = TerminalNode(start, end, pattern, token);
+    final node = TerminalNode(start, end, symbol, token);
     _nodeCache[key] = node;
     _terminalNodes.add(node);
     return node;
   }
 
   /// Get or create a symbolic node
-  SymbolicNode symbolic(int start, int end, Pattern rule) {
-    final key = _makeCacheKey('sym', start, end, rule, rule.symbolId! as String);
+  SymbolicNode symbolic(int start, int end, PatternSymbol symbol) {
+    final key = _makeCacheKey('sym', start, end, symbol);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
-    final node = SymbolicNode(start, end, rule, rule.symbolId!);
+    final node = SymbolicNode(start, end, symbol);
     _nodeCache[key] = node;
     _symbolicNodes.add(node);
     return node;
   }
 
   /// Get or create an intermediate node
-  IntermediateNode intermediate(int start, int end, Pattern pattern, String description) {
-    final key = _makeCacheKey('inter', start, end, pattern, description);
+  IntermediateNode intermediate(int start, int end, PatternSymbol symbol) {
+    final key = _makeCacheKey('inter', start, end, symbol);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
-    final node = IntermediateNode(start, end, pattern, PatternSymbol(description));
+    final node = IntermediateNode(start, end, symbol);
     _nodeCache[key] = node;
     _intermediateNodes.add(node);
     return node;
   }
 
   /// Get or create an epsilon node
-  EpsilonNode epsilon(int position, Pattern pattern) {
-    final key = _makeCacheKey('eps', position, position, pattern);
+  EpsilonNode epsilon(int position, PatternSymbol symbol) {
+    final key = _makeCacheKey('eps', position, position, symbol);
     if (_nodeCache[key] case EpsilonNode node) {
       return node;
     }
-    final node = EpsilonNode(position, pattern);
+    final node = EpsilonNode(position, symbol);
     _nodeCache[key] = node;
     return node;
   }
 
   /// Get or create a marker node
-  MarkerNode marker(int position, Marker pattern) {
-    final key = _makeCacheKey('mark', position, position, pattern, pattern.name);
+  MarkerNode marker(int position, Marker marker) {
+    final key = _makeCacheKey('mark', position, position, marker.symbolId!);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
-    final node = MarkerNode(position, pattern, pattern.name);
+    final node = MarkerNode(position, marker.symbolId!, marker.name);
     _nodeCache[key] = node;
     _markerNodes.add(node);
     return node;
@@ -1836,16 +1938,9 @@ class ParseForest {
     visited.add(node);
 
     int count = 0;
-    if (node is SymbolicNode) {
-      count = node.families.length;
-      for (final family in node.families) {
-        for (final child in family.children) {
-          count += _countFamiliesRecursive(child, visited);
-        }
-      }
-    } else if (node is IntermediateNode) {
-      count = node.families.length;
-      for (final family in node.families) {
+    if (node case SymbolicNode(:var families) || IntermediateNode(:var families)) {
+      count = families.length;
+      for (final family in families) {
         for (final child in family.children) {
           count += _countFamiliesRecursive(child, visited);
         }
@@ -1864,7 +1959,7 @@ class ParseForest {
   /// - 'count': total number of derivations
   /// - 'hasCycles': whether the forest has cycles (left-recursion)
   /// - 'sccs': number of strongly connected components
-  Map<String, dynamic> countDerivationsWithSCC() {
+  Map<String, Object?> countDerivationsWithSCC() {
     final sccs = _findSCCs();
     final sccMap = <ForestNode, int>{};
 
@@ -2082,24 +2177,19 @@ class ParseForest {
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
   Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
-    // Collect sub-iterables for each child position
-    final childOptions = family.children.map((child) => _extractTrees(child).toList()).toList();
-    // Yield the Cartesian product of the child options as ParseTree nodes
-    for (final combination in _cartesianProduct(childOptions)) {
-      yield ParseTree(parent, combination);
-    }
-  }
-
-  /// Lazily yields every combination (one item from each of [lists] in order).
-  Iterable<List<ParseTree>> _cartesianProduct(List<List<ParseTree>> lists) sync* {
-    if (lists.isEmpty) {
-      yield const [];
-      return;
-    }
-    for (final head in lists.first) {
-      for (final tail in _cartesianProduct(lists.sublist(1))) {
-        yield [head, ...tail];
-      }
+    switch (family) {
+      case _EpsilonFamily():
+        break;
+      case _UnaryFamily(:final child):
+        for (final tree in _extractTrees(child)) {
+          yield ParseTree(parent, [tree]);
+        }
+      case _BinaryFamily(:final left, :final right):
+        for (final l in _extractTrees(left)) {
+          for (final r in _extractTrees(right)) {
+            yield ParseTree(parent, [l, r]);
+          }
+        }
     }
   }
 
@@ -2202,554 +2292,26 @@ class BsrSet {
 
   /// Total number of recorded rule-completion entries.
   int get length => _pivots.values.expand((v) => v).length;
-  Iterable<BsrEntry> get entries => _pivots.entries.expand(
-    (e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)),
-  );
+  Iterable<BsrEntry> get entries =>
+      _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
-  BsrPattern _serialize(Pattern pattern) {
-    return switch (pattern) {
-      Token(choice: ExactToken(:var value)) => BsrPattern("Token:$value"),
-      Token(choice: AnyToken()) => BsrPattern("Token:any"),
-      Token(choice: RangeToken(:var start, :var end)) => BsrPattern(
-        "Token:$start..$end",
-      ),
-      Token(choice: LessToken(:var bound)) => BsrPattern("Token:<$bound"),
-      Token(choice: GreaterToken(:var bound)) => BsrPattern("Token:>$bound"),
-      Marker() => BsrPattern("Marker"),
-      Eps() => BsrPattern("Eps"),
-      Alt() => BsrPattern("Alt"),
-      Seq() => BsrPattern("Seq"),
-      Conj() => BsrPattern("Conj"),
-      Plus() => BsrPattern("Plus"),
-      Star() => BsrPattern("Star"),
-      And() => BsrPattern("And"),
-      Not() => BsrPattern("Not"),
-      Rule() => BsrPattern("Rule"),
-      RuleCall() => BsrPattern("RuleCall"),
-      Call() => BsrPattern("Call"),
-      Action() => BsrPattern("Action"),
-      PrecedenceLabeledPattern() => BsrPattern("PrecedenceLabeledPattern"),
-    };
+  Set<int> pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
+    return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
   }
 
   /// Build an SPPF rooted at [startRule] over the full input.
   SymbolicNode? buildSppf(
+    GrammarInterface grammar,
     Rule startRule,
     String input,
     ForestNodeManager nodeManager,
   ) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
-    return _buildNode(
-      startRule,
-      input,
-      0,
-      input.length,
-      nodeManager,
-      memo,
-      inProgress,
-    ).run();
-  }
 
-  _Trampoline<SymbolicNode?> _buildNode(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress, {
-    int? minPrecedenceLevel,
-  }) {
-    final key = '${rule.name}:$start:$end';
-    if (memo.containsKey(key)) return _Done(memo[key]);
-    if (inProgress[key] == true) return _Done(null);
-
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule);
-
-    return _More(
-      () => _patternNodes(
-        rule.body(),
-        input,
-        start,
-        end,
-        nodeManager,
-        memo,
-        inProgress,
-        (childNodes) {
-          for (final child in childNodes) symNode.addFamily(Family([child]));
-          inProgress[key] = false;
-          final result = symNode.families.isNotEmpty ? symNode : null;
-          memo[key] = result;
-          return _Done(result);
-        },
-        rule,
-        start,
-        minPrecedenceLevel: minPrecedenceLevel,
-      ),
-    );
-  }
-
-  _Trampoline<T> _buildNodeWith<T>(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-    _Trampoline<T> Function(SymbolicNode?) cont, {
-    int? minPrecedenceLevel,
-  }) {
-    final key = '${rule.symbolId}:$start:$end:${minPrecedenceLevel ?? 'null'}';
-    if (memo.containsKey(key)) return cont(memo[key]);
-    if (inProgress[key] == true) return cont(null);
-
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule);
-
-    return _More(
-      () => _patternNodes(
-        rule.body(),
-        input,
-        start,
-        end,
-        nodeManager,
-        memo,
-        inProgress,
-        (childNodes) {
-          for (final child in childNodes) {
-            symNode.addFamily(Family([child]));
-          }
-
-          inProgress[key] = false;
-          final result = symNode.families.isNotEmpty ? symNode : null;
-          memo[key] = result;
-
-          return cont(result);
-        },
-        rule,
-        start,
-        minPrecedenceLevel: minPrecedenceLevel,
-      ),
-    );
-  }
-
-  Set<int> _pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
-    return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
-  }
-
-  _Trampoline<T> _patternNodes<T>(
-    Pattern pattern,
-    String input,
-    int start,
-    int end,
-    ForestNodeManager nodeManager,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-    _Trampoline<T> Function(List<ForestNode>) continuation,
-    Rule currentRule,
-    int ruleStart, {
-    int? minPrecedenceLevel,
-  }) {
-    switch (pattern) {
-      case Token():
-        if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          return continuation([
-            nodeManager.terminal(start, end, pattern, input.codeUnitAt(start)),
-          ]);
-        }
-        return continuation([]);
-      case Marker():
-        return continuation(
-          start == end ? [nodeManager.marker(start, pattern)] : [],
-        );
-      case Eps():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
-      case Alt():
-        return _More(
-          () => _patternNodes(
-            pattern.left,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            (left) => _More(
-              () => _patternNodes(
-                pattern.right,
-                input,
-                start,
-                end,
-                nodeManager,
-                memo,
-                inProgress,
-                (right) => continuation([...left, ...right]),
-                currentRule,
-                ruleStart,
-                minPrecedenceLevel: minPrecedenceLevel,
-              ),
-            ),
-            currentRule,
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case Seq():
-        IntermediateNode? seqNode;
-
-        // Pivot optimization only works when we're processing the full rule span
-        // starting from ruleStart. For sub-spans, we use exhaustive search.
-        Set<int> splitPoints = _pivotsFor(currentRule.symbolId!, start, end);
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext())
-            return continuation(seqNode != null ? [seqNode!] : []);
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              pattern.left,
-              input,
-              start,
-              mid,
-              nodeManager,
-              memo,
-              inProgress,
-              (leftNodes) {
-                if (leftNodes.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    pattern.right,
-                    input,
-                    mid,
-                    end,
-                    nodeManager,
-                    memo,
-                    inProgress,
-                    (rightNodes) {
-                      if (rightNodes.isNotEmpty) {
-                        seqNode ??= nodeManager.intermediate(
-                          start,
-                          end,
-                          pattern,
-                          pattern.symbolId! as String,
-                        );
-                        for (final l in leftNodes)
-                          for (final r in rightNodes)
-                            seqNode!.addFamily(Family([l, r]));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    currentRule,
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              currentRule,
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(splitPoints.iterator));
-
-      case Plus():
-        IntermediateNode? plusNode;
-        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
-
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) {
-            return _More(
-              () => _patternNodes(
-                pattern.child,
-                input,
-                start,
-                end,
-                nodeManager,
-                memo,
-                inProgress,
-                (nodes) {
-                  if (nodes.isNotEmpty) {
-                    plusNode ??= nodeManager.intermediate(
-                      start,
-                      end,
-                      pattern,
-                      pattern.symbolId! as String,
-                    );
-                    for (final n in nodes) plusNode!.addFamily(Family([n]));
-                  }
-                  return continuation(plusNode != null ? [plusNode!] : []);
-                },
-                currentRule,
-                ruleStart,
-                minPrecedenceLevel: minPrecedenceLevel,
-              ),
-            );
-          }
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              pattern.child,
-              input,
-              start,
-              mid,
-              nodeManager,
-              memo,
-              inProgress,
-              (head) {
-                if (head.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    pattern,
-                    input,
-                    mid,
-                    end,
-                    nodeManager,
-                    memo,
-                    inProgress,
-                    (tail) {
-                      if (tail.isNotEmpty) {
-                        plusNode ??= nodeManager.intermediate(
-                          start,
-                          end,
-                          pattern,
-                          pattern.symbolId! as String,
-                        );
-                        for (final h in head)
-                          for (final t in tail)
-                            plusNode!.addFamily(Family([h, t]));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    currentRule,
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              currentRule,
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(pivots.iterator));
-      case Star():
-        IntermediateNode? starNode;
-        final pivots = _pivotsFor(currentRule.symbolId!, ruleStart, end);
-
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) {
-            if (start == end) {
-              starNode ??= nodeManager.intermediate(
-                start,
-                end,
-                pattern,
-                pattern.symbolId! as String,
-              );
-              starNode!.addFamily(
-                Family([nodeManager.epsilon(start, pattern)]),
-              );
-            }
-            return continuation(starNode != null ? [starNode!] : []);
-          }
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              pattern.child,
-              input,
-              start,
-              mid,
-              nodeManager,
-              memo,
-              inProgress,
-              (head) {
-                if (head.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    pattern,
-                    input,
-                    mid,
-                    end,
-                    nodeManager,
-                    memo,
-                    inProgress,
-                    (tail) {
-                      if (tail.isNotEmpty) {
-                        starNode ??= nodeManager.intermediate(
-                          start,
-                          end,
-                          pattern,
-                          pattern.symbolId! as String,
-                        );
-                        for (final h in head)
-                          for (final t in tail)
-                            starNode!.addFamily(Family([h, t]));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    currentRule,
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              currentRule,
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(pivots.iterator));
-      case Conj():
-        return _More(
-          () => _patternNodes(
-            pattern.left,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            (left) {
-              if (left.isEmpty) return continuation([]);
-              return _More(
-                () => _patternNodes(
-                  pattern.right,
-                  input,
-                  start,
-                  end,
-                  nodeManager,
-                  memo,
-                  inProgress,
-                  (right) {
-                    if (right.isEmpty) return continuation([]);
-                    final node = nodeManager.intermediate(
-                      start,
-                      end,
-                      pattern,
-                      pattern.symbolId! as String,
-                    );
-                    for (final l in left)
-                      for (final r in right) node.addFamily(Family([l, r]));
-                    return continuation([node]);
-                  },
-                  currentRule,
-                  ruleStart,
-                  minPrecedenceLevel: minPrecedenceLevel,
-                ),
-              );
-            },
-            currentRule,
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case Rule():
-        return _More(
-          () => _patternNodes(
-            pattern.body(),
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            continuation,
-            pattern,
-            start,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case RuleCall():
-        // Extract the precedence constraint from the RuleCall pattern
-        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
-        return _More(
-          () => _buildNodeWith(
-            pattern.rule,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            (node) => continuation(node != null ? [node] : []),
-            minPrecedenceLevel: constraint,
-          ),
-        );
-      case Call():
-        // Extract the precedence constraint from the Call pattern
-        final constraint = pattern.minPrecedenceLevel ?? minPrecedenceLevel;
-        return _More(
-          () => _buildNodeWith(
-            pattern.rule,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            (node) => continuation(node != null ? [node] : []),
-            minPrecedenceLevel: constraint,
-          ),
-        );
-      case Action<dynamic>():
-        return _More(
-          () => _patternNodes(
-            pattern.child,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            (nodes) {
-              if (nodes.isEmpty) return continuation([]);
-              final node = nodeManager.intermediate(
-                start,
-                end,
-                pattern,
-                pattern.symbolId! as String,
-              );
-              for (final n in nodes) node.addFamily(Family([n]));
-              return continuation([node]);
-            },
-            currentRule,
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case PrecedenceLabeledPattern():
-        // Check if this alternative meets the minimum precedence level
-        if (minPrecedenceLevel != null &&
-            pattern.precedenceLevel < minPrecedenceLevel) {
-          // Skip this alternative - it doesn't meet the precedence requirement
-          return continuation([]);
-        }
-        return _More(
-          () => _patternNodes(
-            pattern.pattern,
-            input,
-            start,
-            end,
-            nodeManager,
-            memo,
-            inProgress,
-            continuation,
-            currentRule,
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case And() || Not():
-        return continuation(
-          start == end ? [nodeManager.epsilon(start, pattern)] : [],
-        );
-    }
+    return SppfBuilder(this, nodeManager) //
+        .buildNode(startRule, input, 0, input.length, memo, inProgress)
+        .run();
   }
 
   @override
@@ -2767,6 +2329,436 @@ final class BsrParseSuccess implements BsrParseOutcome {
   final BsrSet bsrSet;
   final List<Mark> marks;
   const BsrParseSuccess(this.bsrSet, this.marks);
+}
+
+class SppfBuilder {
+  final BsrSet bsr;
+  final ForestNodeManager nodeManager;
+
+  const SppfBuilder(this.bsr, this.nodeManager);
+
+  _Trampoline<SymbolicNode?> buildNode(
+    Rule rule,
+    String input,
+    int start,
+    int end,
+    Map<String, SymbolicNode?> memo,
+    Map<String, bool> inProgress, {
+    int? minPrecedenceLevel,
+  }) {
+    final key = '${rule.name}:$start:$end';
+    if (memo.containsKey(key)) return _Done(memo[key]);
+    if (inProgress[key] == true) return _Done(null);
+
+    inProgress[key] = true;
+    final symNode = nodeManager.symbolic(start, end, rule.symbolId!);
+
+    return _More(
+      () => _patternNodes(
+        rule,
+        rule.body(),
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        (childNodes) {
+          for (final child in childNodes) symNode.addFamily(Family.unary(child));
+          inProgress[key] = false;
+          final result = symNode.families.isNotEmpty ? symNode : null;
+          memo[key] = result;
+          return _Done(result);
+        },
+        start,
+        minPrecedenceLevel: minPrecedenceLevel,
+      ),
+    );
+  }
+
+  _Trampoline<T> _buildNodeWith<T>(
+    Rule rule,
+    String input,
+    int start,
+    int end,
+    Map<String, SymbolicNode?> memo,
+    Map<String, bool> inProgress,
+    _Trampoline<T> Function(SymbolicNode?) cont, {
+    int? minPrecedenceLevel,
+  }) {
+    final key = '${rule.symbolId}:$start:$end:${minPrecedenceLevel ?? 'null'}';
+    if (memo.containsKey(key)) return cont(memo[key]);
+    if (inProgress[key] == true) return cont(null);
+
+    inProgress[key] = true;
+    final symNode = nodeManager.symbolic(start, end, rule.symbolId!);
+
+    return _More(
+      () => _patternNodes(
+        rule,
+        rule.body(),
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        (childNodes) {
+          for (final child in childNodes) {
+            symNode.addFamily(Family.unary(child));
+          }
+
+          inProgress[key] = false;
+          final result = symNode.families.isNotEmpty ? symNode : null;
+          memo[key] = result;
+
+          return cont(result);
+        },
+        start,
+        minPrecedenceLevel: minPrecedenceLevel,
+      ),
+    );
+  }
+
+  _Trampoline<T> _patternNodes<T>(
+    Rule currentRule,
+    Pattern pattern,
+    String input,
+    int start,
+    int end,
+    Map<String, SymbolicNode?> memo,
+    Map<String, bool> inProgress,
+    _Trampoline<T> Function(List<ForestNode>) continuation,
+    int ruleStart, {
+    int? minPrecedenceLevel,
+  }) {
+    switch (pattern) {
+      case Token():
+        if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
+          return continuation([
+            nodeManager.terminal(start, end, pattern.symbolId!, input.codeUnitAt(start)),
+          ]);
+        }
+        return continuation([]);
+      case Marker():
+        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
+      case Eps():
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : []);
+      case Alt():
+        return _More(
+          () => _patternNodes(
+            currentRule,
+            pattern.left,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            (left) => _More(
+              () => _patternNodes(
+                currentRule,
+                pattern.right,
+                input,
+                start,
+                end,
+                memo,
+                inProgress,
+                (right) => continuation([...left, ...right]),
+                ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
+              ),
+            ),
+            ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+        );
+      case Seq():
+        IntermediateNode? seqNode;
+
+        // Pivot optimization only works when we're processing the full rule span
+        // starting from ruleStart. For sub-spans, we use exhaustive search.
+        Set<int> splitPoints = bsr.pivotsFor(currentRule.symbolId!, start, end);
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
+              currentRule,
+              pattern.left,
+              input,
+              start,
+              mid,
+              memo,
+              inProgress,
+              (leftNodes) {
+                if (leftNodes.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
+                    currentRule,
+                    pattern.right,
+                    input,
+                    mid,
+                    end,
+                    memo,
+                    inProgress,
+                    (rightNodes) {
+                      if (rightNodes.isNotEmpty) {
+                        seqNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
+                        for (final l in leftNodes)
+                          for (final r in rightNodes) seqNode!.addFamily(Family.binary(l, r));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
+                  ),
+                );
+              },
+              ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
+            ),
+          );
+        }
+        return _More(() => loop(splitPoints.iterator));
+
+      case Plus():
+        IntermediateNode? plusNode;
+        final pivots = bsr.pivotsFor(currentRule.symbolId!, ruleStart, end);
+
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) {
+            return _More(
+              () => _patternNodes(
+                currentRule,
+                pattern.child,
+                input,
+                start,
+                end,
+                memo,
+                inProgress,
+                (nodes) {
+                  if (nodes.isNotEmpty) {
+                    plusNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
+                    for (final n in nodes) plusNode!.addFamily(Family.unary(n));
+                  }
+                  return continuation(plusNode != null ? [plusNode!] : []);
+                },
+                ruleStart,
+                minPrecedenceLevel: minPrecedenceLevel,
+              ),
+            );
+          }
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
+              currentRule,
+              pattern.child,
+              input,
+              start,
+              mid,
+              memo,
+              inProgress,
+              (head) {
+                if (head.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
+                    currentRule,
+                    pattern,
+                    input,
+                    mid,
+                    end,
+                    memo,
+                    inProgress,
+                    (tail) {
+                      if (tail.isNotEmpty) {
+                        plusNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
+                        for (final h in head)
+                          for (final t in tail) plusNode!.addFamily(Family.binary(h, t));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
+                  ),
+                );
+              },
+              ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
+            ),
+          );
+        }
+        return _More(() => loop(pivots.iterator));
+      case Star():
+        IntermediateNode? starNode;
+        final pivots = bsr.pivotsFor(currentRule.symbolId!, ruleStart, end);
+
+        _Trampoline<T> loop(Iterator<int> it) {
+          if (!it.moveNext()) {
+            if (start == end) {
+              starNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
+              starNode!.addFamily(Family.unary(nodeManager.epsilon(start, pattern.symbolId!)));
+            }
+            return continuation(starNode != null ? [starNode!] : []);
+          }
+          final mid = it.current;
+          return _More(
+            () => _patternNodes(
+              currentRule,
+              pattern.child,
+              input,
+              start,
+              mid,
+              memo,
+              inProgress,
+              (head) {
+                if (head.isEmpty) return _More(() => loop(it));
+                return _More(
+                  () => _patternNodes(
+                    currentRule,
+                    pattern,
+                    input,
+                    mid,
+                    end,
+                    memo,
+                    inProgress,
+                    (tail) {
+                      if (tail.isNotEmpty) {
+                        starNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
+                        for (final h in head)
+                          for (final t in tail) starNode!.addFamily(Family.binary(h, t));
+                      }
+                      return _More(() => loop(it));
+                    },
+                    ruleStart,
+                    minPrecedenceLevel: minPrecedenceLevel,
+                  ),
+                );
+              },
+              ruleStart,
+              minPrecedenceLevel: minPrecedenceLevel,
+            ),
+          );
+        }
+        return _More(() => loop(pivots.iterator));
+      case Conj():
+        return _More(
+          () => _patternNodes(
+            currentRule,
+            pattern.left,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            (left) {
+              if (left.isEmpty) return continuation([]);
+              return _More(
+                () => _patternNodes(
+                  currentRule,
+                  pattern.right,
+                  input,
+                  start,
+                  end,
+                  memo,
+                  inProgress,
+                  (right) {
+                    if (right.isEmpty) {
+                      return continuation([]);
+                    }
+
+                    final node = nodeManager.intermediate(start, end, pattern.symbolId!);
+                    for (final l in left) {
+                      for (final r in right) {
+                        node.addFamily(Family.binary(l, r));
+                      }
+                    }
+                    return continuation([node]);
+                  },
+                  ruleStart,
+                  minPrecedenceLevel: minPrecedenceLevel,
+                ),
+              );
+            },
+            ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+        );
+      case Rule():
+        return _More(
+          () => _patternNodes(
+            pattern,
+            pattern.body(),
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            continuation,
+            start,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+        );
+      case RuleCall(minPrecedenceLevel: var prec, :var rule) ||
+          Call(minPrecedenceLevel: var prec, :var rule):
+        return _More(
+          () => _buildNodeWith(
+            rule,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            (node) => continuation(node != null ? [node] : []),
+            minPrecedenceLevel: prec ?? minPrecedenceLevel,
+          ),
+        );
+      case Action<dynamic>():
+        return _More(
+          () => _patternNodes(
+            currentRule,
+            pattern.child,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            (nodes) {
+              if (nodes.isEmpty) {
+                return continuation([]);
+              }
+              final node = nodeManager.intermediate(start, end, pattern.symbolId!);
+              for (final n in nodes) {
+                node.addFamily(Family.unary(n));
+              }
+
+              return continuation([node]);
+            },
+            ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+        );
+      case PrecedenceLabeledPattern():
+        // Check if this alternative meets the minimum precedence level
+        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
+          // Skip this alternative - it doesn't meet the precedence requirement
+          return continuation([]);
+        }
+        return _More(
+          () => _patternNodes(
+            currentRule,
+            pattern.child,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            continuation,
+            ruleStart,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+        );
+      case And() || Not():
+        return continuation(start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : []);
+    }
+  }
 }
 
 // --- $filename ---
@@ -3010,7 +3002,7 @@ class SMParser {
 
   GrammarInterface get grammar => stateMachine.grammar;
 
-  SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
+  SMParser(Grammar grammar) : stateMachine = StateMachine(grammar) {
     const initialContext = Context(RootCallerKey(), null);
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -3082,8 +3074,8 @@ class SMParser {
     final bsrSet = bsrSuccess.bsrSet;
     final startRule = stateMachine.grammar.startCall.rule;
     final nodeManager = ForestNodeManager();
-    final root = bsrSet.buildSppf(startRule, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
+    final root = bsrSet.buildSppf(grammar, startRule, input, nodeManager);
+    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule.symbolId!);
     final forest = ParseForest(nodeManager, effectiveRoot, []);
     return ParseForestSuccess(forest);
   }
@@ -3178,8 +3170,9 @@ class SMParser {
               final startRule = stateMachine.grammar.startCall.rule;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(startRule, fullInput, nodeManager);
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startRule);
+              final root = bsr.buildSppf(grammar, startRule, fullInput, nodeManager);
+              final effectiveRoot =
+                  root ?? nodeManager.symbolic(0, globalPosition, startRule.symbolId!);
               final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
               completer.complete(ParseForestSuccess(forest));
             } else {
@@ -3253,12 +3246,7 @@ class SMParser {
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
 
-    return ParseDerivation(
-      tree.node.pattern.symbolId!,
-      tree.node.start,
-      tree.node.end,
-      childDerivations,
-    );
+    return ParseDerivation(tree.node.symbol, tree.node.start, tree.node.end, childDerivations);
   }
 
   int _countDerivations(
@@ -3379,7 +3367,7 @@ class SMParser {
     }
 
     if (pattern is PrecedenceLabeledPattern) {
-      return _countAlternatives(pattern.pattern, input, start, end, memo, inProgress);
+      return _countAlternatives(pattern.child, input, start, end, memo, inProgress);
     }
 
     if (pattern is And || pattern is Not) {
@@ -3513,7 +3501,7 @@ class SMParser {
       }
       // Forward the minPrecedenceLevel to the wrapped pattern
       yield* _enumerateAlternatives(
-        pattern.pattern,
+        pattern.child,
         input,
         start,
         end,

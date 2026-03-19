@@ -165,6 +165,7 @@ sealed class Pattern {
 sealed class TokenChoice {
   const TokenChoice();
   bool matches(int? value);
+  String get representation;
 }
 
 /// Matches any token (wildcard)
@@ -176,6 +177,9 @@ final class AnyToken extends TokenChoice {
 
   @override
   String toString() => 'any';
+
+  @override
+  String get representation => ":any";
 }
 
 /// Matches an exact code-point value
@@ -188,6 +192,9 @@ final class ExactToken extends TokenChoice {
 
   @override
   String toString() => String.fromCharCode(value);
+
+  @override
+  String get representation => ":$value";
 }
 
 /// Matches a code-point within an inclusive range
@@ -201,31 +208,53 @@ final class RangeToken extends TokenChoice {
 
   @override
   String toString() => '$start..$end';
+
+  @override
+  String get representation => "[$start..$end";
 }
 
 /// Matches a code-point <= bound
 final class LessToken extends TokenChoice {
   final int bound;
   const LessToken(this.bound);
+
   @override
   bool matches(int? token) => token != null && token <= bound;
+
   @override
   String toString() => 'less($bound)';
+
+  @override
+  String get representation => "<$bound";
 }
 
 /// Matches a code-point >= bound
 final class GreaterToken extends TokenChoice {
   final int bound;
   const GreaterToken(this.bound);
+
   @override
   bool matches(int? token) => token != null && token >= bound;
+
   @override
   String toString() => 'greater($bound)';
+
+  @override
+  String get representation => ">$bound";
 }
 
 /// Single token pattern
 class Token extends Pattern {
   final TokenChoice choice;
+  PatternSymbol? _symbolId;
+  PatternSymbol? get symbolId => _symbolId;
+
+  @override
+  void assignSymbolId(PatternSymbol? symbolId) {
+    /// We append the representation so that we can access
+    ///   The fundamental thing of the symbol.
+    _symbolId = PatternSymbol("$symbolId${choice.representation}");
+  }
 
   Token(this.choice);
   Token.char(String char) //
@@ -266,6 +295,7 @@ class Token extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -276,6 +306,15 @@ class Token extends Pattern {
 /// Marker for parse tracking
 class Marker extends Pattern {
   final String name;
+  PatternSymbol? _symbolId;
+  PatternSymbol? get symbolId => _symbolId;
+
+  @override
+  void assignSymbolId(PatternSymbol? symbolId) {
+    /// We append the representation so that we can access
+    ///   The fundamental thing of the symbol.
+    _symbolId = PatternSymbol("$symbolId\$${name}");
+  }
 
   Marker(this.name);
 
@@ -293,6 +332,7 @@ class Marker extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -321,6 +361,7 @@ class Eps extends Pattern {
 
   @override
   Set<Pattern> firstSet() => _emptySet;
+
   @override
   Set<Pattern> lastSet() => _emptySet;
 
@@ -835,46 +876,46 @@ class Action<T> extends Pattern {
 /// Example: In "6| $add EXPR^6 ... EXPR^7", the entire sequence gets precedenceLevel=6
 class PrecedenceLabeledPattern extends Pattern {
   final int precedenceLevel;
-  final Pattern pattern;
+  final Pattern child;
 
-  PrecedenceLabeledPattern(this.precedenceLevel, this.pattern);
+  PrecedenceLabeledPattern(this.precedenceLevel, this.child);
 
   @override
-  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, pattern.copy());
+  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, child.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = pattern.calculateEmpty(emptyRules);
+    final childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
 
   @override
-  bool isStatic() => pattern.isStatic();
+  bool isStatic() => child.isStatic();
 
   @override
-  Set<Pattern> firstSet() => pattern.firstSet();
+  Set<Pattern> firstSet() => child.firstSet();
   @override
-  Set<Pattern> lastSet() => pattern.lastSet();
+  Set<Pattern> lastSet() => child.lastSet();
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
-    pattern.eachPair(callback);
+    child.eachPair(callback);
   }
 
   @override
   void collectRules(Set<Rule> rules) {
-    pattern.collectRules(rules);
+    child.collectRules(rules);
   }
 
   @override
-  bool singleToken() => pattern.singleToken();
+  bool singleToken() => child.singleToken();
 
   @override
-  bool match(int? token) => pattern.match(token);
+  bool match(int? token) => child.match(token);
 
   @override
-  String toString() => '[$precedenceLevel] $pattern';
+  String toString() => '[$precedenceLevel] $child';
 }
 
 // ---------------------------------------------------------------------------

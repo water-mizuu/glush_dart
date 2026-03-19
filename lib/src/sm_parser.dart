@@ -321,8 +321,8 @@ class SMParser {
     final bsrSet = bsrSuccess.bsrSet;
     final startRule = stateMachine.grammar.startCall.rule;
     final nodeManager = ForestNodeManager();
-    final root = bsrSet.buildSppf(startRule, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule);
+    final root = bsrSet.buildSppf(grammar, startRule, input, nodeManager);
+    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startRule.symbolId!);
     final forest = ParseForest(nodeManager, effectiveRoot, []);
     return ParseForestSuccess(forest);
   }
@@ -417,8 +417,9 @@ class SMParser {
               final startRule = stateMachine.grammar.startCall.rule;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(startRule, fullInput, nodeManager);
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startRule);
+              final root = bsr.buildSppf(grammar, startRule, fullInput, nodeManager);
+              final effectiveRoot =
+                  root ?? nodeManager.symbolic(0, globalPosition, startRule.symbolId!);
               final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
               completer.complete(ParseForestSuccess(forest));
             } else {
@@ -492,12 +493,7 @@ class SMParser {
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
 
-    return ParseDerivation(
-      tree.node.pattern.symbolId!,
-      tree.node.start,
-      tree.node.end,
-      childDerivations,
-    );
+    return ParseDerivation(tree.node.symbol, tree.node.start, tree.node.end, childDerivations);
   }
 
   int _countDerivations(
@@ -618,7 +614,7 @@ class SMParser {
     }
 
     if (pattern is PrecedenceLabeledPattern) {
-      return _countAlternatives(pattern.pattern, input, start, end, memo, inProgress);
+      return _countAlternatives(pattern.child, input, start, end, memo, inProgress);
     }
 
     if (pattern is And || pattern is Not) {
@@ -752,7 +748,7 @@ class SMParser {
       }
       // Forward the minPrecedenceLevel to the wrapped pattern
       yield* _enumerateAlternatives(
-        pattern.pattern,
+        pattern.child,
         input,
         start,
         end,
