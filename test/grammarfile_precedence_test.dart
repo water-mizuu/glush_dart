@@ -5,13 +5,12 @@ void main() {
   group('GrammarFileParser precedence', () {
     test('parses precedence levels correctly', () {
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  7| expr^7 '*' expr^8
-  6| expr^6 '+' expr^7
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+          7| expr^7 '*' expr^8
+          6| expr^6 '+' expr^7
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -28,13 +27,12 @@ expr =
 
     test('GrammarFileCompiler applies precedence levels correctly to each alternative', () {
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  7| expr^7 '*' expr^8
-  6| expr^6 '+' expr^6
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+          7 | expr^7 '*' expr^8
+          6 | expr^6 '+' expr^6
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -95,12 +93,11 @@ expr =
 
     test('precedence constraints are properly applied to rule calls', () {
       final grammarText = '''
-expr = 
-  11| [0-9]+
-  7| expr^7 '*' expr^8
-  6| expr^6 '+' expr^6
-  ;
-''';
+        expr =
+          11| [0-9]+
+          7| expr^7 '*' expr^8
+          6| expr^6 '+' expr^6
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -125,15 +122,15 @@ expr =
 
     test('multiple operations with correct precedence and associativity', () {
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  7| expr^7 '*' expr^8
-  7| expr^7 '/' expr^8
-  6| expr^6 '+' expr^6
-  6| expr^6 '-' expr^6
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+          7| expr^7 '*' expr^8
+          7| expr^7 '/' expr^8
+          6| expr^6 '+' expr^6
+          6| expr^6 '-' expr^6
+          ;
+      ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
