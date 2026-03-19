@@ -21,7 +21,7 @@ void main() {
 
       test('PrecedenceLabeledPattern wraps patterns with levels', () {
         final pattern = Token(ExactToken(42));
-        final labeled = PrecedenceLabeledPattern(6, pattern);
+        final labeled = Prec(6, pattern);
         expect(labeled.precedenceLevel, equals(6));
         expect(labeled.toString(), contains('[6]'));
       });
@@ -81,13 +81,13 @@ void main() {
     group('Defining Precedence with .atLevel()', () {
       test('patterns can be labeled with precedence levels', () {
         final num = Token(ExactToken(49)).atLevel(11);
-        expect(num, isA<PrecedenceLabeledPattern>());
+        expect(num, isA<Prec>());
         expect(num.toString(), contains('[11]'));
       });
 
       test('sequences can be labeled with precedence', () {
         final pattern = (Token(ExactToken(43)) >> Token(ExactToken(44))).atLevel(5);
-        expect(pattern, isA<PrecedenceLabeledPattern>());
+        expect(pattern, isA<Prec>());
       });
 
       test('alternations with precedence levels', () {
@@ -95,10 +95,12 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)).atLevel(11) | // number: level 11
-                (Call(expr) >> Token(ExactToken(43)) >> Call(expr))
-                    .atLevel(6) | // addition: level 6
-                (Call(expr) >> Token(ExactToken(42)) >> Call(expr))
-                    .atLevel(7); // multiplication: level 7
+                (Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(
+                  6,
+                ) | // addition: level 6
+                (Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(
+                  7,
+                ); // multiplication: level 7
           });
           return expr;
         });
@@ -108,7 +110,7 @@ void main() {
 
       test('.withPrecedence() alias works', () {
         final num = Token(ExactToken(49)).withPrecedence(11);
-        expect(num, isA<PrecedenceLabeledPattern>());
+        expect(num, isA<Prec>());
         expect(num.toString(), contains('[11]'));
       });
 
@@ -117,12 +119,15 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)).atLevel(11) | // '1' - level 11
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr))
-                    .atLevel(6) | // addition - level 6
-                (Marker('mul') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr))
-                    .atLevel(7) | // multiplication - level 7
-                (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41)))
-                    .atLevel(11); // parentheses - level 11
+                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(
+                  6,
+                ) | // addition - level 6
+                (Marker('mul') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(
+                  7,
+                ) | // multiplication - level 7
+                (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))).atLevel(
+                  11,
+                ); // parentheses - level 11
           });
           return expr;
         });

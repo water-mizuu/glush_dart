@@ -32,8 +32,6 @@ void main() {
           .toSet();
 
       final trees = forestResult.forest.extract().toList();
-      print(enumerations);
-      print(forestExtracted);
       expect(enumerations.difference(forestExtracted), equals(<String>{}));
       expect(forestExtracted.difference(enumerations), equals(<String>{}));
       // Both enumeration and forest extraction should find the same number

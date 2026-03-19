@@ -17,19 +17,11 @@ void main() {
       });
 
       SMParser parser = SMParser(grammar);
-      double previous = 1;
       for (int count = 20; count <= 500; count += 20) {
-        Stopwatch watch = Stopwatch()..start();
         final input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
         expect(parser.parseWithForest(input), isNotNull);
-        watch..stop();
-        print(
-          "Finished $count in ${watch.elapsedMicroseconds}us "
-          "(${watch.elapsedMicroseconds / previous}x)",
-        );
-        previous = watch.elapsedMicroseconds.toDouble();
       }
     });
 
@@ -48,19 +40,11 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      double previous = 1;
       for (int count = 20; count <= 500; count += 20) {
-        Stopwatch watch = Stopwatch()..start();
         final input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
         expect(parser.parseWithForest(input), isNotNull);
-        watch..stop();
-        print(
-          "Finished $count in ${watch.elapsedMicroseconds}us "
-          "(${watch.elapsedMicroseconds / previous}x)",
-        );
-        previous = watch.elapsedMicroseconds.toDouble();
       }
     });
   });
