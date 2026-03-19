@@ -46,21 +46,15 @@ class BsrSet {
   /// Build an SPPF rooted at [startRule] over the full input.
   SymbolicNode? buildSppf(
     GrammarInterface grammar,
-    Rule startRule,
+    PatternSymbol startSymbol,
     String input,
     ForestNodeManager nodeManager,
   ) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
 
-    return SppfBuilder(
-          this,
-          nodeManager,
-          input,
-          grammar.symbolRegistry,
-          grammar.childrenRegistry,
-        ) //
-        .buildNode(startRule.symbolId!, 0, input.length, memo, inProgress);
+    return SppfBuilder(this, nodeManager, input, grammar.childrenRegistry) //
+        .buildNode(startSymbol, 0, input.length, memo, inProgress);
   }
 
   @override
@@ -104,7 +98,7 @@ class _DoBuildNode extends _Task {
 
 class _EvalPattern extends _Task {
   final PatternSymbol currentRule;
-  final Pattern pattern;
+  final PatternSymbol pattern;
   final int start, end, ruleStart;
   final int? minPrecedenceLevel;
 
@@ -142,7 +136,7 @@ class _ContActionFinish extends _Task {
 // --- Loop State Tasks ---
 class _ContSeqLoop extends _Task {
   final PatternSymbol currentRule;
-  final Seq pattern;
+  final PatternSymbol pattern;
   final int start, end, ruleStart;
   final int? minPrecedenceLevel;
   final Iterator<int> it;
@@ -173,7 +167,7 @@ class _ContSeqRight extends _Task {
 
 class _ContPlusLoop extends _Task {
   final PatternSymbol currentRule;
-  final Plus pattern;
+  final PatternSymbol pattern;
   final int start, end, ruleStart;
   final int? minPrecedenceLevel;
   final Iterator<int> it;
@@ -209,7 +203,7 @@ class _ContPlusFinal extends _Task {
 
 class _ContStarLoop extends _Task {
   final PatternSymbol currentRule;
-  final Star pattern;
+  final PatternSymbol pattern;
   final int start, end, ruleStart;
   final int? minPrecedenceLevel;
   final Iterator<int> it;
@@ -240,7 +234,7 @@ class _ContStarRight extends _Task {
 
 class _ContConjLeft extends _Task {
   final PatternSymbol currentRule;
-  final Conj pattern;
+  final PatternSymbol pattern;
   final int start, end, ruleStart;
   final int? minPrecedenceLevel;
 
@@ -266,29 +260,15 @@ class SppfBuilder {
   final ForestNodeManager nodeManager;
   final String input;
 
-  final Map<PatternSymbol, Pattern> patternRegistry;
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
-  const SppfBuilder(
-    this.bsr,
-    this.nodeManager,
-    this.input,
-    this.patternRegistry,
-    this.childrenRegistry,
-  );
+  const SppfBuilder(this.bsr, this.nodeManager, this.input, this.childrenRegistry);
 
   List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
     if (childrenRegistry[symbol] case List<PatternSymbol> children) {
       return children;
     }
     throw StateError("Couldn't find the children of $symbol.");
-  }
-
-  Pattern getPatternOf(PatternSymbol symbol) {
-    if (patternRegistry[symbol] case Pattern pattern) {
-      return pattern;
-    }
-    throw StateError("Couldn't find the pattern of $symbol.");
   }
 
   // Unified public API - returns synchronously
@@ -328,7 +308,7 @@ class SppfBuilder {
         taskStack.add(_ContBuildNodeFinish(symNode, task.key));
 
         // 1. Evaluate the pattern
-        final patternToEval = getPatternOf(getChildrenOf(task.ruleSymbol).single);
+        final patternToEval = getChildrenOf(task.ruleSymbol).single;
 
         taskStack.add(
           _EvalPattern(
@@ -381,7 +361,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              task.pattern.right,
+              getChildrenOf(task.pattern).last,
               task.start,
               task.end,
               task.ruleStart,
@@ -397,7 +377,7 @@ class SppfBuilder {
           final node = nodeManager.intermediate(
             task.startTask.start,
             task.startTask.end,
-            task.startTask.pattern.symbolId!,
+            task.startTask.pattern,
           );
           for (final l in task.leftNodes) {
             for (final r in rightNodes) node.addFamily(Family.binary(l, r));
@@ -416,7 +396,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              task.pattern.left,
+              getChildrenOf(task.pattern).first,
               task.start,
               mid,
               task.ruleStart,
@@ -433,7 +413,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.loopTask.currentRule,
-              task.loopTask.pattern.right,
+              getChildrenOf(task.loopTask.pattern).last,
               task.mid,
               task.loopTask.end,
               task.loopTask.ruleStart,
@@ -447,7 +427,7 @@ class SppfBuilder {
           task.loopTask.seqNode ??= nodeManager.intermediate(
             task.loopTask.start,
             task.loopTask.end,
-            task.loopTask.pattern.symbolId!,
+            task.loopTask.pattern,
           );
           for (final l in task.leftNodes) {
             for (final r in rightNodes) task.loopTask.seqNode!.addFamily(Family.binary(l, r));
@@ -461,7 +441,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              task.pattern.child,
+              getChildrenOf(task.pattern).single,
               task.start,
               task.end,
               task.ruleStart,
@@ -475,7 +455,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              task.pattern.child,
+              getChildrenOf(task.pattern).single,
               task.start,
               mid,
               task.ruleStart,
@@ -504,7 +484,7 @@ class SppfBuilder {
           task.loopTask.plusNode ??= nodeManager.intermediate(
             task.loopTask.start,
             task.loopTask.end,
-            task.loopTask.pattern.symbolId!,
+            task.loopTask.pattern,
           );
           for (final h in task.headNodes) {
             for (final t in tailNodes) task.loopTask.plusNode!.addFamily(Family.binary(h, t));
@@ -516,7 +496,7 @@ class SppfBuilder {
           task.loopTask.plusNode ??= nodeManager.intermediate(
             task.loopTask.start,
             task.loopTask.end,
-            task.loopTask.pattern.symbolId!,
+            task.loopTask.pattern,
           );
           for (final n in nodes) task.loopTask.plusNode!.addFamily(Family.unary(n));
         }
@@ -526,14 +506,8 @@ class SppfBuilder {
       else if (task is _ContStarLoop) {
         if (!task.it.moveNext()) {
           if (task.start == task.end) {
-            task.starNode ??= nodeManager.intermediate(
-              task.start,
-              task.end,
-              task.pattern.symbolId!,
-            );
-            task.starNode!.addFamily(
-              Family.unary(nodeManager.epsilon(task.start, task.pattern.symbolId!)),
-            );
+            task.starNode ??= nodeManager.intermediate(task.start, task.end, task.pattern);
+            task.starNode!.addFamily(Family.unary(nodeManager.epsilon(task.start, task.pattern)));
           }
           valueStack.add(task.starNode != null ? [task.starNode!] : <ForestNode>[]);
         } else {
@@ -543,7 +517,7 @@ class SppfBuilder {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              task.pattern.child,
+              getChildrenOf(task.pattern).single,
               task.start,
               mid,
               task.ruleStart,
@@ -572,7 +546,7 @@ class SppfBuilder {
           task.loopTask.starNode ??= nodeManager.intermediate(
             task.loopTask.start,
             task.loopTask.end,
-            task.loopTask.pattern.symbolId!,
+            task.loopTask.pattern,
           );
           for (final h in task.headNodes) {
             for (final t in tailNodes) task.loopTask.starNode!.addFamily(Family.binary(h, t));
@@ -584,158 +558,76 @@ class SppfBuilder {
     return valueStack.removeLast() as SymbolicNode?;
   }
 
-  void _executePatternTask(_EvalPattern task, List<_Task> taskStack, List<dynamic> valueStack) {
-    final pattern = task.pattern;
+  void _executePatternTask(_EvalPattern task, List<_Task> taskStack, List<Object?> valueStack) {
+    final pattern = task.pattern as String;
     final start = task.start;
     final end = task.end;
 
-    switch (pattern) {
-      case Token():
-        if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          valueStack.add([
-            nodeManager.terminal(start, end, pattern.symbolId!, input.codeUnitAt(start)),
-          ]);
-        } else {
-          valueStack.add(<ForestNode>[]);
+    if (pattern == "eps") {
+      valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
+      return;
+    }
+
+    final [prefix, _, suffix] = pattern.split(":");
+    switch (prefix) {
+      case "tok":
+        {
+          late bool isMatching = switch (suffix[0]) {
+            "." => true,
+            ";" => input.codeUnitAt(start) == int.parse(suffix.substring(1)),
+            "<" => input.codeUnitAt(start) <= int.parse(suffix.substring(1)),
+            ">" => input.codeUnitAt(start) >= int.parse(suffix.substring(1)),
+            "[" => () {
+              final unit = input.codeUnitAt(start);
+              final [min, max] = suffix.substring(1).split(",").map(int.parse).toList();
+
+              return min <= unit && unit <= max;
+            }(),
+            _ => throw Exception(suffix[0]),
+          };
+          if (start + 1 == end && isMatching) {
+            valueStack.add([
+              nodeManager.terminal(start, end, task.pattern, input.codeUnitAt(start)),
+            ]);
+          } else {
+            valueStack.add(const <ForestNode>[]);
+          }
         }
-      case Marker():
-        valueStack.add(start == end ? [nodeManager.marker(start, pattern)] : <ForestNode>[]);
-      case Eps():
-      case And():
-      case Not():
-        valueStack.add(
-          start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : <ForestNode>[],
-        );
+      case "mar":
+        {
+          valueStack.add(
+            (start == end) //
+                ? [nodeManager.marker(start, task.pattern, suffix)]
+                : const <ForestNode>[],
+          );
+        }
+      case "and":
+      case "not":
+        {
+          valueStack.add(
+            (start == end) //
+                ? [nodeManager.epsilon(start, task.pattern)]
+                : <ForestNode>[],
+          );
+        }
+      case "alt":
+        {
+          taskStack.add(_ContAltCombine());
 
-      case Alt():
-        // LIFO: Right goes on first, so Left gets popped and evaluated first.
-        taskStack.add(_ContAltCombine());
-        taskStack.add(
-          _EvalPattern(
-            task.currentRule,
-            pattern.right,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-          ),
-        );
-        taskStack.add(
-          _EvalPattern(
-            task.currentRule,
-            pattern.left,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-          ),
-        );
-
-      case Seq():
-        final pivots = bsr.pivotsFor(task.currentRule, start, end);
-        taskStack.add(
-          _ContSeqLoop(
-            task.currentRule,
-            pattern,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-            pivots.iterator,
-          ),
-        );
-
-      case Plus():
-        final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
-        taskStack.add(
-          _ContPlusLoop(
-            task.currentRule,
-            pattern,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-            pivots.iterator,
-          ),
-        );
-
-      case Star():
-        final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
-        taskStack.add(
-          _ContStarLoop(
-            task.currentRule,
-            pattern,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-            pivots.iterator,
-          ),
-        );
-
-      case Conj():
-        taskStack.add(
-          _ContConjLeft(
-            task.currentRule,
-            pattern,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-          ),
-        );
-        taskStack.add(
-          _EvalPattern(
-            task.currentRule,
-            pattern.left,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-          ),
-        );
-
-      case Rule():
-        taskStack.add(
-          _EvalPattern(
-            pattern.symbolId!,
-            pattern.body(),
-            start,
-            end,
-            start,
-            task.minPrecedenceLevel,
-          ),
-        );
-
-      case RuleCall(minPrecedenceLevel: var prec, :var rule) ||
-          Call(minPrecedenceLevel: var prec, :var rule):
-        final effectivePrec = prec ?? task.minPrecedenceLevel;
-        final key = '${rule.symbolId!}:$start:$end:${effectivePrec ?? 'null'}';
-
-        taskStack.add(_ContRuleCallFinish());
-        taskStack.add(_DoBuildNode(key, rule.symbolId!, start, end, effectivePrec));
-
-      case Action():
-        taskStack.add(_ContActionFinish(start, end, pattern.symbolId!));
-        taskStack.add(
-          _EvalPattern(
-            task.currentRule,
-            pattern.child,
-            start,
-            end,
-            task.ruleStart,
-            task.minPrecedenceLevel,
-          ),
-        );
-
-      case PrecedenceLabeledPattern():
-        if (task.minPrecedenceLevel != null && pattern.precedenceLevel < task.minPrecedenceLevel!) {
-          valueStack.add(<ForestNode>[]); // Skip
-        } else {
           taskStack.add(
             _EvalPattern(
               task.currentRule,
-              pattern.child,
+              getChildrenOf(task.pattern).last,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).first,
               start,
               end,
               task.ruleStart,
@@ -743,6 +635,130 @@ class SppfBuilder {
             ),
           );
         }
+      case "seq":
+        {
+          final pivots = bsr.pivotsFor(task.currentRule, start, end);
+          taskStack.add(
+            _ContSeqLoop(
+              task.currentRule,
+              task.pattern,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+              pivots.iterator,
+            ),
+          );
+        }
+      case "plu":
+        {
+          final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
+          taskStack.add(
+            _ContPlusLoop(
+              task.currentRule,
+              task.pattern,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+              pivots.iterator,
+            ),
+          );
+        }
+      case "sta":
+        {
+          final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
+          taskStack.add(
+            _ContStarLoop(
+              task.currentRule,
+              task.pattern,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+              pivots.iterator,
+            ),
+          );
+        }
+      case "con":
+        {
+          taskStack.add(
+            _ContConjLeft(
+              task.currentRule,
+              task.pattern,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).first,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      case "rul":
+        {
+          taskStack.add(
+            _EvalPattern(
+              task.pattern,
+              getChildrenOf(task.pattern).single,
+              start,
+              end,
+              start,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      case "rca" || "cal":
+        {
+          final prec = suffix.isEmpty ? null : int.parse(suffix);
+          final effectivePrec = prec ?? task.minPrecedenceLevel;
+          final toCall = getChildrenOf(task.pattern).single;
+          final key = '$toCall:$start:$end:${effectivePrec ?? 'null'}';
+
+          taskStack.add(_ContRuleCallFinish());
+          taskStack.add(_DoBuildNode(key, toCall, start, end, effectivePrec));
+        }
+      case "act":
+        {
+          taskStack.add(_ContActionFinish(start, end, task.pattern));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).single,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      case "pre":
+        {
+          if (task.minPrecedenceLevel != null && int.parse(suffix) < task.minPrecedenceLevel!) {
+            valueStack.add(<ForestNode>[]); // Skip
+          } else {
+            taskStack.add(
+              _EvalPattern(
+                task.currentRule,
+                getChildrenOf(task.pattern).single,
+                start,
+                end,
+                task.ruleStart,
+                task.minPrecedenceLevel,
+              ),
+            );
+          }
+        }
+      case _:
+        throw StateError("Unhandled case: $prefix");
     }
   }
 }

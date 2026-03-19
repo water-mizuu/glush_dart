@@ -10,11 +10,18 @@ sealed class Pattern {
   /// Initially null, assigned during Grammar.finalize()
   PatternSymbol? _symbolId;
 
-  PatternSymbol? get symbolId => _symbolId;
+  PatternSymbol? get symbolId =>
+      (_symbolId == null) //
+      ? null
+      : PatternSymbol("$_symbolPrefix:$_symbolId:$_symbolSuffix");
 
   /// Called by Grammar during finalize to assign this pattern a symbol ID
   /// within the grammar's namespace
   void assignSymbolId(PatternSymbol id) {
+    if ((id as String).split(":") case [_, final mid, _]) {
+      _symbolId = PatternSymbol(mid);
+      return;
+    }
     _symbolId = id;
   }
 
@@ -148,6 +155,54 @@ sealed class Pattern {
     return inner();
   }
 
+  /// This discriminates the type of the pattern from the symbol
+  ///   without making an entire rule object.
+  String get _symbolPrefix {
+    return switch (this) {
+      Token() => "tok",
+      Marker() => "mar",
+      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Alt() => "alt",
+      Seq() => "seq",
+      Conj() => "con",
+      Plus() => "plu",
+      Star() => "sta",
+      And() => "and",
+      Not() => "not",
+      Rule() => "rul",
+      RuleCall() => "rca",
+      Call() => "cal",
+      Action() => "act",
+      Prec() => "pre",
+    };
+  }
+
+  String get _symbolSuffix {
+    return switch (this) {
+      Token(:var choice) => switch (choice) {
+        AnyToken() => ".any",
+        ExactToken(:var value) => ";$value",
+        RangeToken(:var start, :var end) => "[$start,$end",
+        LessToken(:var bound) => "<$bound",
+        GreaterToken(:var bound) => ">$bound",
+      },
+      Marker(:var name) => "$name",
+      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Alt() => "",
+      Seq() => "",
+      Conj() => "",
+      Plus() => "",
+      Star() => "",
+      And() => "",
+      Not() => "",
+      Rule() => "",
+      RuleCall(minPrecedenceLevel: var prec) ||
+      Call(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
+      Action() => "",
+      Prec(precedenceLevel: var prec) => "$prec",
+    };
+  }
+
   Alt maybe() => this | Eps();
 
   /// Positive lookahead predicate (AND) - succeeds if pattern matches at current position
@@ -165,7 +220,6 @@ sealed class Pattern {
 sealed class TokenChoice {
   const TokenChoice();
   bool matches(int? value);
-  String get representation;
 }
 
 /// Matches any token (wildcard)
@@ -177,9 +231,6 @@ final class AnyToken extends TokenChoice {
 
   @override
   String toString() => 'any';
-
-  @override
-  String get representation => ":any";
 }
 
 /// Matches an exact code-point value
@@ -192,9 +243,6 @@ final class ExactToken extends TokenChoice {
 
   @override
   String toString() => String.fromCharCode(value);
-
-  @override
-  String get representation => ":$value";
 }
 
 /// Matches a code-point within an inclusive range
@@ -208,9 +256,6 @@ final class RangeToken extends TokenChoice {
 
   @override
   String toString() => '$start..$end';
-
-  @override
-  String get representation => "[$start..$end";
 }
 
 /// Matches a code-point <= bound
@@ -223,9 +268,6 @@ final class LessToken extends TokenChoice {
 
   @override
   String toString() => 'less($bound)';
-
-  @override
-  String get representation => "<$bound";
 }
 
 /// Matches a code-point >= bound
@@ -238,23 +280,11 @@ final class GreaterToken extends TokenChoice {
 
   @override
   String toString() => 'greater($bound)';
-
-  @override
-  String get representation => ">$bound";
 }
 
 /// Single token pattern
 class Token extends Pattern {
   final TokenChoice choice;
-  PatternSymbol? _symbolId;
-  PatternSymbol? get symbolId => _symbolId;
-
-  @override
-  void assignSymbolId(PatternSymbol? symbolId) {
-    /// We append the representation so that we can access
-    ///   The fundamental thing of the symbol.
-    _symbolId = PatternSymbol("$symbolId${choice.representation}");
-  }
 
   Token(this.choice);
   Token.char(String char) //
@@ -306,15 +336,6 @@ class Token extends Pattern {
 /// Marker for parse tracking
 class Marker extends Pattern {
   final String name;
-  PatternSymbol? _symbolId;
-  PatternSymbol? get symbolId => _symbolId;
-
-  @override
-  void assignSymbolId(PatternSymbol? symbolId) {
-    /// We append the representation so that we can access
-    ///   The fundamental thing of the symbol.
-    _symbolId = PatternSymbol("$symbolId\$${name}");
-  }
 
   Marker(this.name);
 
@@ -848,11 +869,14 @@ class Action<T> extends Pattern {
   @override
   Set<Pattern> firstSet() => child.firstSet();
   @override
-  Set<Pattern> lastSet() => child.lastSet();
+  Set<Pattern> lastSet() => {this};
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
     child.eachPair(callback);
+    for (final l in child.lastSet()) {
+      callback(l, this);
+    }
   }
 
   @override
@@ -874,14 +898,14 @@ class Action<T> extends Pattern {
 /// When this pattern is part of a rule body alternation, the precedence level
 /// determines which alternatives can match based on precedence constraints.
 /// Example: In "6| $add EXPR^6 ... EXPR^7", the entire sequence gets precedenceLevel=6
-class PrecedenceLabeledPattern extends Pattern {
+class Prec extends Pattern {
   final int precedenceLevel;
   final Pattern child;
 
-  PrecedenceLabeledPattern(this.precedenceLevel, this.child);
+  Prec(this.precedenceLevel, this.child);
 
   @override
-  PrecedenceLabeledPattern copy() => PrecedenceLabeledPattern(precedenceLevel, child.copy());
+  Prec copy() => Prec(precedenceLevel, child.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -944,11 +968,11 @@ extension PrecedenceExtension on Pattern {
   /// - `6` - lower precedence (addition, subtraction)
   /// - `1` - lowest precedence (assignment-like operators)
   Pattern atLevel(int precedenceLevel) {
-    return PrecedenceLabeledPattern(precedenceLevel, this);
+    return Prec(precedenceLevel, this);
   }
 
   /// Alias for [atLevel]. Wrap this pattern with an explicit precedence level.
   Pattern withPrecedence(int precedenceLevel) {
-    return atLevel(precedenceLevel);
+    return Prec(precedenceLevel, this);
   }
 }

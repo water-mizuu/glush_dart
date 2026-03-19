@@ -248,7 +248,6 @@ class GrammarFileParser {
 
     while (!_isAtEnd()) {
       if (_peek().type == _TokenType.eof) break;
-      print(_peek());
 
       final rule = _parseRule();
       if (rule != null) {

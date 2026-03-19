@@ -104,20 +104,27 @@ class AcceptActionSpec extends StateActionSpec {
 
 class PredicateActionSpec extends StateActionSpec {
   final bool isAnd;
+  final PatternSymbol symbol;
   final int nextStateId;
 
-  const PredicateActionSpec({required this.isAnd, required this.nextStateId});
+  const PredicateActionSpec({
+    required this.isAnd,
+    required this.symbol,
+    required this.nextStateId,
+  });
 
   @override
   Map<String, dynamic> toJson() => {
     'type': 'predicate',
     'isAnd': isAnd,
+    'symbol': symbol,
     'nextStateId': nextStateId,
   };
 
   static PredicateActionSpec fromJson(Map<String, dynamic> json) {
     return PredicateActionSpec(
       isAnd: json['isAnd'] as bool,
+      symbol: PatternSymbol(json['symbol'] as String),
       nextStateId: json['nextStateId'] as int,
     );
   }
@@ -201,405 +208,6 @@ class RangeTokenSpec extends TokenSpec {
 // SERIALIZABLE PATTERN SPECIFICATIONS
 // ============================================================================
 
-/// Base class for serialized patterns
-sealed class PatternSpec {
-  const PatternSpec();
-
-  Map<String, dynamic> toJson();
-
-  /// Extract symbol ID if present, otherwise null
-  PatternSymbol? getSymbolId() {
-    return switch (this) {
-      TokenPatternSpec(:var symbolId) => symbolId,
-      EpsPatternSpec() => const PatternSymbol("eps"),
-      MarkerPatternSpec(:var symbolId) => symbolId,
-      AltPatternSpec(:var symbolId) => symbolId,
-      SeqPatternSpec(:var symbolId) => symbolId,
-      ConjPatternSpec(:var symbolId) => symbolId,
-      PlusPatternSpec(:var symbolId) => symbolId,
-      StarPatternSpec(:var symbolId) => symbolId,
-      AndPatternSpec(:var symbolId) => symbolId,
-      NotPatternSpec(:var symbolId) => symbolId,
-      RuleCallPatternSpec(:var symbolId) => symbolId,
-      CallPatternSpec(:var symbolId) => symbolId,
-      PrecedenceLabeledPatternSpec(:var symbolId) => symbolId,
-      ActionPatternSpec(:var symbolId) => symbolId,
-    };
-  }
-
-  static PatternSpec fromJson(Map<String, dynamic> json) {
-    final type = json['type'] as String;
-    return switch (type) {
-      'token' => TokenPatternSpec.fromJson(json),
-      'eps' => const EpsPatternSpec(),
-      'marker' => MarkerPatternSpec.fromJson(json),
-      'alt' => AltPatternSpec.fromJson(json),
-      'seq' => SeqPatternSpec.fromJson(json),
-      'conj' => ConjPatternSpec.fromJson(json),
-      'plus' => PlusPatternSpec.fromJson(json),
-      'star' => StarPatternSpec.fromJson(json),
-      'and' => AndPatternSpec.fromJson(json),
-      'not' => NotPatternSpec.fromJson(json),
-      'rulecall' => RuleCallPatternSpec.fromJson(json),
-      'call' => CallPatternSpec.fromJson(json),
-      'precedence' => PrecedenceLabeledPatternSpec.fromJson(json),
-      'action' => ActionPatternSpec.fromJson(json),
-      _ => throw UnsupportedError('Unknown pattern type: $type'),
-    };
-  }
-}
-
-class TokenPatternSpec extends PatternSpec {
-  final TokenSpec tokenSpec;
-  final PatternSymbol? symbolId;
-
-  const TokenPatternSpec({required this.tokenSpec, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'token',
-    'tokenSpec': tokenSpec.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static TokenPatternSpec fromJson(Map<String, dynamic> json) {
-    return TokenPatternSpec(
-      tokenSpec: TokenSpec.fromJson(json['tokenSpec'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException("Invalid Format"),
-      },
-    );
-  }
-}
-
-class EpsPatternSpec extends PatternSpec {
-  const EpsPatternSpec();
-
-  @override
-  Map<String, dynamic> toJson() => {'type': 'eps'};
-}
-
-class MarkerPatternSpec extends PatternSpec {
-  final String name;
-  final PatternSymbol? symbolId;
-
-  const MarkerPatternSpec({required this.name, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'marker',
-    'name': name,
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static MarkerPatternSpec fromJson(Map<String, dynamic> json) {
-    return MarkerPatternSpec(
-      name: json['name'] as String,
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class AltPatternSpec extends PatternSpec {
-  final PatternSpec left;
-  final PatternSpec right;
-  final PatternSymbol? symbolId;
-
-  const AltPatternSpec({required this.left, required this.right, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'alt',
-    'left': left.toJson(),
-    'right': right.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static AltPatternSpec fromJson(Map<String, dynamic> json) {
-    return AltPatternSpec(
-      left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
-      right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class SeqPatternSpec extends PatternSpec {
-  final PatternSpec left;
-  final PatternSpec right;
-  final PatternSymbol? symbolId;
-
-  const SeqPatternSpec({required this.left, required this.right, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'seq',
-    'left': left.toJson(),
-    'right': right.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static SeqPatternSpec fromJson(Map<String, dynamic> json) {
-    return SeqPatternSpec(
-      left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
-      right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class ConjPatternSpec extends PatternSpec {
-  final PatternSpec left;
-  final PatternSpec right;
-  final PatternSymbol? symbolId;
-
-  const ConjPatternSpec({required this.left, required this.right, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'conj',
-    'left': left.toJson(),
-    'right': right.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static ConjPatternSpec fromJson(Map<String, dynamic> json) {
-    return ConjPatternSpec(
-      left: PatternSpec.fromJson(json['left'] as Map<String, dynamic>),
-      right: PatternSpec.fromJson(json['right'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class PlusPatternSpec extends PatternSpec {
-  final PatternSpec child;
-  final PatternSymbol? symbolId;
-
-  const PlusPatternSpec({required this.child, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'plus',
-    'child': child.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static PlusPatternSpec fromJson(Map<String, dynamic> json) {
-    return PlusPatternSpec(
-      child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class StarPatternSpec extends PatternSpec {
-  final PatternSpec child;
-  final PatternSymbol? symbolId;
-
-  const StarPatternSpec({required this.child, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'star',
-    'child': child.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static StarPatternSpec fromJson(Map<String, dynamic> json) {
-    return StarPatternSpec(
-      child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class AndPatternSpec extends PatternSpec {
-  final PatternSpec pattern;
-  final PatternSymbol? symbolId;
-
-  const AndPatternSpec({required this.pattern, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'and',
-    'pattern': pattern.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static AndPatternSpec fromJson(Map<String, dynamic> json) {
-    return AndPatternSpec(
-      pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class NotPatternSpec extends PatternSpec {
-  final PatternSpec pattern;
-  final PatternSymbol? symbolId;
-
-  const NotPatternSpec({required this.pattern, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'not',
-    'pattern': pattern.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static NotPatternSpec fromJson(Map<String, dynamic> json) {
-    return NotPatternSpec(
-      pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class RuleCallPatternSpec extends PatternSpec {
-  final String ruleName;
-  final PatternSymbol? symbolId;
-
-  const RuleCallPatternSpec({required this.ruleName, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'rulecall',
-    'ruleName': ruleName,
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static RuleCallPatternSpec fromJson(Map<String, dynamic> json) {
-    return RuleCallPatternSpec(
-      ruleName: json['ruleName'] as String,
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class CallPatternSpec extends PatternSpec {
-  final String ruleName;
-  final int minPrecedenceLevel;
-  final PatternSymbol? symbolId;
-
-  const CallPatternSpec({required this.ruleName, required this.minPrecedenceLevel, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'call',
-    'ruleName': ruleName,
-    'minPrecedenceLevel': minPrecedenceLevel,
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static CallPatternSpec fromJson(Map<String, dynamic> json) {
-    return CallPatternSpec(
-      ruleName: json['ruleName'] as String,
-      minPrecedenceLevel: json['minPrecedenceLevel'] as int,
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class PrecedenceLabeledPatternSpec extends PatternSpec {
-  final int precedenceLevel;
-  final PatternSpec pattern;
-  final PatternSymbol? symbolId;
-
-  const PrecedenceLabeledPatternSpec({
-    required this.precedenceLevel,
-    required this.pattern,
-    this.symbolId,
-  });
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'precedence',
-    'precedenceLevel': precedenceLevel,
-    'pattern': pattern.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static PrecedenceLabeledPatternSpec fromJson(Map<String, dynamic> json) {
-    return PrecedenceLabeledPatternSpec(
-      precedenceLevel: json['precedenceLevel'] as int,
-      pattern: PatternSpec.fromJson(json['pattern'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
-class ActionPatternSpec extends PatternSpec {
-  final PatternSpec child;
-  final PatternSymbol? symbolId;
-
-  const ActionPatternSpec({required this.child, this.symbolId});
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'action',
-    'child': child.toJson(),
-    if (symbolId != null) 'symbolId': symbolId,
-  };
-
-  static ActionPatternSpec fromJson(Map<String, dynamic> json) {
-    return ActionPatternSpec(
-      child: PatternSpec.fromJson(json['child'] as Map<String, dynamic>),
-      symbolId: switch (json['symbolId']) {
-        String id => PatternSymbol(id),
-        null => null,
-        _ => throw FormatException(),
-      },
-    );
-  }
-}
-
 // ============================================================================
 // STATE AND RULE SPECIFICATIONS
 // ============================================================================
@@ -624,20 +232,13 @@ class RuleMetadataSpec {
   final String name;
   final List<int> firstStateIds;
   final bool isEmpty;
-  final PatternSpec? patternSpec;
 
-  const RuleMetadataSpec({
-    required this.name,
-    required this.firstStateIds,
-    required this.isEmpty,
-    this.patternSpec,
-  });
+  const RuleMetadataSpec({required this.name, required this.firstStateIds, required this.isEmpty});
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'firstStateIds': firstStateIds,
     'isEmpty': isEmpty,
-    if (patternSpec != null) 'patternSpec': patternSpec!.toJson(),
   };
 
   static RuleMetadataSpec fromJson(Map<String, dynamic> json) {
@@ -645,9 +246,6 @@ class RuleMetadataSpec {
       name: json['name'] as String,
       firstStateIds: (json['firstStateIds'] as List).cast<int>(),
       isEmpty: json['isEmpty'] as bool,
-      patternSpec: json['patternSpec'] != null
-          ? PatternSpec.fromJson(json['patternSpec'] as Map<String, dynamic>)
-          : null,
     );
   }
 }
@@ -659,18 +257,26 @@ class RuleMetadataSpec {
 class ExportedStateMachine {
   final List<StateSpec> states;
   final List<int> initialStateIds;
+  final PatternSymbol startSymbol;
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
   final Map<String, RuleMetadataSpec> rules;
-  final int version = 1;
+  final int version = 2;
 
   const ExportedStateMachine({
     required this.states,
     required this.initialStateIds,
+    required this.startSymbol,
+    required this.childrenRegistry,
     required this.rules,
   });
 
   String toJson() => jsonEncode({
     'version': version,
     'initialStates': initialStateIds,
+    'startSymbol': startSymbol,
+    'childrenRegistry': Map.fromEntries(
+      childrenRegistry.entries.map((e) => MapEntry(e.key as String, e.value)),
+    ),
     'states': states.map((s) => s.toJson()).toList(),
     'rules': rules.map((name, meta) => MapEntry(name, meta.toJson())),
   });
@@ -683,6 +289,13 @@ class ExportedStateMachine {
         .map(StateSpec.fromJson)
         .toList();
 
+    final childrenRegistry = (json['childrenRegistry'] as Map<String, dynamic>).map(
+      (key, value) => MapEntry(
+        PatternSymbol(key),
+        (value as List).cast<String>().map(PatternSymbol.new).toList(),
+      ),
+    );
+
     final rules = (json['rules'] as Map<String, dynamic>).map(
       (name, ruleJson) =>
           MapEntry(name, RuleMetadataSpec.fromJson(ruleJson as Map<String, dynamic>)),
@@ -691,6 +304,8 @@ class ExportedStateMachine {
     return ExportedStateMachine(
       states: states,
       initialStateIds: (json['initialStates'] as List).cast<int>(),
+      startSymbol: PatternSymbol(json['startSymbol'] as String),
+      childrenRegistry: childrenRegistry,
       rules: rules,
     );
   }
@@ -712,22 +327,22 @@ class StateMachineExporter {
       stateSpecs.add(StateSpec(state.id, actionSpecs));
     }
 
-    // Convert rule metadata and patterns
+    // Convert rule metadata
     final ruleMap = <String, RuleMetadataSpec>{};
     for (final rule in sm.rules) {
       final firstStateIds = sm.ruleFirst[rule]?.map((s) => s.id).toList() ?? [];
-      final patternSpec = _patternToSpec(rule.body());
       ruleMap[rule.name as String] = RuleMetadataSpec(
         name: rule.name as String,
         firstStateIds: firstStateIds,
         isEmpty: rule.empty(),
-        patternSpec: patternSpec,
       );
     }
 
     return ExportedStateMachine(
       states: stateSpecs,
       initialStateIds: sm.initialStates.map((s) => s.id).toList(),
+      startSymbol: sm.grammar.startSymbol,
+      childrenRegistry: sm.grammar.childrenRegistry,
       rules: ruleMap,
     );
   }
@@ -745,11 +360,12 @@ class StateMachineExporter {
       ),
       ReturnAction(:var rule) => ReturnActionSpec(rule.name as String),
       AcceptAction() => const AcceptActionSpec(),
-      PredicateAction(:var isAnd, :var nextState) => PredicateActionSpec(
+      PredicateAction(:var isAnd, :var nextState, :var symbol, :var pattern) => PredicateActionSpec(
         isAnd: isAnd,
+        symbol: symbol ?? pattern.symbolId!,
         nextStateId: nextState.id,
       ),
-      SemanticAction(:var nextState) => SemanticActionCallSpec('stub', nextState.id),
+      SemanticAction(:var nextState, :var pattern) => SemanticActionCallSpec((pattern?.symbolId as String?) ?? 'stub', nextState.id),
     };
   }
 
@@ -764,61 +380,5 @@ class StateMachineExporter {
       };
     }
     throw UnsupportedError('Cannot convert pattern to TokenSpec: ${pattern.runtimeType}');
-  }
-
-  static PatternSpec _patternToSpec(Pattern pattern) {
-    return switch (pattern) {
-      Token() => TokenPatternSpec(
-        tokenSpec: _tokenPatternToSpec(pattern),
-        symbolId: pattern.symbolId,
-      ),
-      Eps() => EpsPatternSpec(),
-      Marker(:var name) => MarkerPatternSpec(name: name, symbolId: pattern.symbolId),
-      Alt(:var left, :var right) => AltPatternSpec(
-        left: _patternToSpec(left),
-        right: _patternToSpec(right),
-        symbolId: pattern.symbolId,
-      ),
-      Seq(:var left, :var right) => SeqPatternSpec(
-        left: _patternToSpec(left),
-        right: _patternToSpec(right),
-        symbolId: pattern.symbolId,
-      ),
-      Conj(:var left, :var right) => ConjPatternSpec(
-        left: _patternToSpec(left),
-        right: _patternToSpec(right),
-        symbolId: pattern.symbolId,
-      ),
-      Plus(:var child) => PlusPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
-      Star(:var child) => StarPatternSpec(child: _patternToSpec(child), symbolId: pattern.symbolId),
-      And(:var pattern) => AndPatternSpec(
-        pattern: _patternToSpec(pattern),
-        symbolId: pattern.symbolId,
-      ),
-      Not(:var pattern) => NotPatternSpec(
-        pattern: _patternToSpec(pattern),
-        symbolId: pattern.symbolId,
-      ),
-      RuleCall(:var rule) => RuleCallPatternSpec(
-        ruleName: rule.name as String,
-        symbolId: pattern.symbolId,
-      ),
-      Call(:var rule, :var minPrecedenceLevel) => CallPatternSpec(
-        ruleName: rule.name as String,
-        minPrecedenceLevel: minPrecedenceLevel ?? 0,
-        symbolId: pattern.symbolId,
-      ),
-      PrecedenceLabeledPattern(:var precedenceLevel, child: var pattern) =>
-        PrecedenceLabeledPatternSpec(
-          precedenceLevel: precedenceLevel,
-          pattern: _patternToSpec(pattern),
-          symbolId: pattern.symbolId,
-        ),
-      Action(:var child) => ActionPatternSpec(
-        child: _patternToSpec(child),
-        symbolId: pattern.symbolId,
-      ),
-      _ => throw UnsupportedError('Cannot serialize pattern: ${pattern.runtimeType}'),
-    };
   }
 }

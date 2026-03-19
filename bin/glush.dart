@@ -20,8 +20,10 @@ void main() async {
     _ = [ \t\n\r]*
     """;
   final parser = SMParser(GrammarFileCompiler(GrammarFileParser(grammar).parse()).compile());
-  final result = parser.enumerateAllParsesWithResults('1 + 2 + 345');
-  for (final r in result) {
-    print(r);
+  final result = parser.parseWithForest('1 + 2 + 345');
+  if (result is ParseForestSuccess) {
+    for (final r in result.forest.extract()) {
+      print(r);
+    }
   }
 }

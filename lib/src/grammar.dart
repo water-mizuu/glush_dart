@@ -16,6 +16,7 @@ sealed class GrammarInterface {
   Map<PatternSymbol, List<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
+  PatternSymbol get startSymbol;
   List<Rule> get rules;
   bool isEmpty();
 }
@@ -26,21 +27,20 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   Map<Pattern, List<Pattern>>? transitions;
   sm.StateMachine? _stateMachine;
 
-  /// Maps symbol IDs back to patterns for this grammar
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
+  @override
+  PatternSymbol get startSymbol => startCall.rule.symbolId!;
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
 
   Grammar(GrammarBuilder builder) {
-    try {
-      final result = builder();
-      finalize(result.call());
-    } on TypeError {
-      throw GrammarError('the main pattern must be a rule call');
-    }
+    final result = builder();
+    finalize(result.call());
   }
 
   void finalize(RuleCall start) {
@@ -112,7 +112,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Plus(:var child) ||
         Star(:var child) ||
         Action(:var child) ||
-        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
+        Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -149,7 +149,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(not.pattern, patterns);
       case Action action:
         _collectPatternsFromPattern(action.child, patterns);
-      case PrecedenceLabeledPattern plp:
+      case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
       case Plus plus:
         _collectPatternsFromPattern(plus.child, patterns);
@@ -321,6 +321,9 @@ class GrammarAdapter implements GrammarInterface {
     : rules = sm.rules,
       startCall = sm.rules.isNotEmpty ? sm.rules[0].call() : Rule('_dummy', () => Eps()).call();
 
+  @override
+  PatternSymbol get startSymbol => startCall.rule.symbolId!;
+
   GrammarAdapter.withRules(this.rules, this.startCall) {
     _assignPatternSymbols();
     _fillChildrenMapping();
@@ -360,7 +363,7 @@ class GrammarAdapter implements GrammarInterface {
         Plus(:var child) ||
         Star(:var child) ||
         Action(:var child) ||
-        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
+        Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -397,7 +400,7 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(not.pattern, patterns);
       case Action action:
         _collectPatternsFromPattern(action.child, patterns);
-      case PrecedenceLabeledPattern plp:
+      case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
       case Plus plus:
         _collectPatternsFromPattern(plus.child, patterns);
@@ -418,4 +421,27 @@ class GrammarAdapter implements GrammarInterface {
 
   @override
   bool isEmpty() => rules.isEmpty;
+}
+
+class ShellGrammar implements GrammarInterface {
+  @override
+  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  @override
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
+  @override
+  final PatternSymbol startSymbol;
+  @override
+  final List<Rule> rules;
+  @override
+  final RuleCall startCall;
+
+  ShellGrammar({
+    required this.startSymbol,
+    required this.childrenRegistry,
+    required this.rules,
+    required this.startCall,
+  });
+
+  @override
+  bool isEmpty() => false; // Default for imported
 }

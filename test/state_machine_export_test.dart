@@ -334,7 +334,7 @@ void main() {
     // KNOWN LIMITATIONS DOCUMENTATION
     // =========================================================================
     group('Enumeration & Forest Parsing', () {
-      test('Enumeration works with imported machines (full pattern serialization)', () {
+      test('Enumeration works with imported machines (shell format)', () {
         final grammar = Grammar(() {
           late Rule a;
           a = Rule('A', () {
@@ -342,18 +342,18 @@ void main() {
           });
           return a;
         });
-
+ 
         const input = '1+1';
-
+ 
         // Create reimported parser
         final exported = StateMachineExporter.export(grammar.stateMachine);
         final imported = ImportedStateMachine(exported);
         final reimportedParser = imported.createParser();
-
-        // With full pattern serialization, enumeration now works!
+ 
+        // With shell grammar, enumeration now works!
         final parses = reimportedParser.enumerateAllParses(input).toList();
-        expect(parses, isNotEmpty, reason: 'Pattern serialization enables enumeration');
-
+        expect(parses, isNotEmpty, reason: 'Shell grammar enables enumeration');
+ 
         // Basic parsing still works perfectly
         final parseResult = reimportedParser.parse(input);
         expect(parseResult is ParseSuccess, isTrue);

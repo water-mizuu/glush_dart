@@ -2,7 +2,7 @@
 library glush.sppf;
 
 import 'mark.dart';
-import 'patterns.dart';
+import 'package:glush/src/patterns.dart' show PatternSymbol;
 
 /// Base class for all forest nodes
 sealed class ForestNode {
@@ -237,12 +237,12 @@ class ForestNodeManager {
   }
 
   /// Get or create a marker node
-  MarkerNode marker(int position, Marker marker) {
-    final key = _makeCacheKey('mark', position, position, marker.symbolId!);
+  MarkerNode marker(int position, PatternSymbol symbol, String name) {
+    final key = _makeCacheKey('mark', position, position, symbol);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
-    final node = MarkerNode(position, marker.symbolId!, marker.name);
+    final node = MarkerNode(position, symbol, name);
     _nodeCache[key] = node;
     _markerNodes.add(node);
     return node;

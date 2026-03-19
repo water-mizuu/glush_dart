@@ -1,184 +1,7 @@
-/// Code generation for exported state machines
-library glush.state_machine_codegen;
+/// Auto-generated standalone state machine for MinimalMath grammar
+/// Generated: 2026-03-20 02:00:38.353353
+import 'dart:convert';
 
-import 'state_machine_export.dart';
-
-class StateMachineCodeGenerator {
-  final ExportedStateMachine exported;
-  final String grammarName;
-
-  StateMachineCodeGenerator(this.exported, {required this.grammarName});
-
-  /// Generate a standalone Dart file that can be imported and used
-  String generateStandalone() {
-    final buffer = StringBuffer();
-    final pascalName = _toPascalCase(grammarName);
-
-    buffer.writeln('/// Auto-generated state machine for $grammarName grammar');
-    buffer.writeln('/// Generated: ${DateTime.now()}');
-    buffer.writeln("import 'package:glush/glush.dart';");
-    buffer.writeln();
-
-    // Generate state machine data
-    _generateStateData(buffer, pascalName);
-    buffer.writeln();
-
-    // Generate loader function
-    _generateLoaderFunction(buffer, pascalName);
-    buffer.writeln();
-
-    // Generate parser factory
-    _generateParserFactory(buffer, pascalName);
-
-    return buffer.toString();
-  }
-
-  /// Generate a standalone Dart file that includes a minimal runtime
-  String generateMinimalStandalone() {
-    final buffer = StringBuffer();
-    final pascalName = _toPascalCase(grammarName);
-
-    buffer.writeln('/// Auto-generated standalone state machine for $grammarName grammar');
-    buffer.writeln('/// Generated: ${DateTime.now()}');
-    buffer.writeln("import 'dart:convert';");
-    buffer.writeln();
-
-    buffer.write(_minimalRuntimeSource);
-    buffer.writeln();
-
-    // Generate state machine data
-    _generateStateData(buffer, pascalName);
-    buffer.writeln();
-
-    // Generate loader function
-    _generateLoaderFunction(buffer, pascalName);
-    buffer.writeln();
-
-    // Generate parser factory
-    _generateParserFactory(buffer, pascalName, minimal: true);
-
-    return buffer.toString();
-  }
-
-  void _generateStateData(StringBuffer buffer, String pascalName) {
-    // Export as JSON constant for easy serialization
-    buffer.writeln('/// Exported state machine specification as JSON');
-    buffer.writeln('const String _${grammarName}StateMachineJson = r"""');
-    buffer.writeln(exported.toJson());
-    buffer.writeln('""";');
-  }
-
-  void _generateLoaderFunction(StringBuffer buffer, String pascalName) {
-    buffer.writeln('/// Load the exported state machine specification');
-    buffer.writeln(
-      'ExportedStateMachine load${pascalName}StateMachine() => '
-      'ExportedStateMachine.fromJson(_${grammarName}StateMachineJson);',
-    );
-  }
-
-  void _generateParserFactory(StringBuffer buffer, String pascalName, {bool minimal = false}) {
-    // Collect all semantic action IDs used in the state machine
-    final actionIds = <String>{};
-    for (final state in exported.states) {
-      for (final action in state.actions) {
-        if (action is SemanticActionCallSpec) {
-          actionIds.add(action.actionId);
-        }
-      }
-    }
-
-    buffer.writeln();
-    buffer.writeln('/// Create an imported state machine with action stubs');
-    buffer.writeln('class ${pascalName}Actions {');
-    buffer.writeln('  /// Override these methods with your semantic actions');
-    buffer.writeln();
-
-    // Generate stub methods for each semantic action
-    final sortedActionIds = actionIds.toList()..sort();
-    for (final actionId in sortedActionIds) {
-      // Clean up the action ID for method name (remove prefixes/suffixes if present)
-      final methodName = _toSnakeCase(actionId.replaceAll(':', '_'));
-      
-      buffer.writeln('  /// Semantic action stub for: $actionId');
-      buffer.writeln(
-        '  static Object? ${methodName}Action(String span, List results) {',
-      );
-      buffer.writeln('    // TODO: Implement semantic action');
-      buffer.writeln('    // span: the matched substring');
-      buffer.writeln('    // results: list of child semantic values');
-      buffer.writeln(
-        '    throw UnimplementedError("Action not implemented for $actionId");',
-      );
-      buffer.writeln('  }');
-      buffer.writeln();
-    }
-
-    buffer.writeln('}');
-    buffer.writeln();
-
-    buffer.writeln('/// Create a parser using the ${pascalName} grammar');
-    buffer.writeln('class ${pascalName}Parser {');
-    buffer.writeln('  late final ImportedStateMachine _machine;');
-    buffer.writeln('  late final SMParser _parser;');
-    buffer.writeln();
-    buffer.writeln('  ${pascalName}Parser({Map<String, Function>? actions}) {');
-    buffer.writeln('    final spec = load${pascalName}StateMachine();');
-    buffer.writeln('    _machine = ImportedStateMachine(spec);');
-    buffer.writeln();
-    buffer.writeln('    // Attach default actions');
-    for (final actionId in sortedActionIds) {
-      final methodName = _toSnakeCase(actionId.replaceAll(':', '_'));
-      buffer.writeln(
-        '    _machine.attachAction("$actionId", ${pascalName}Actions.${methodName}Action);',
-      );
-    }
-    buffer.writeln();
-    buffer.writeln('    // Override with user-provided actions');
-    buffer.writeln(
-      '    actions?.forEach((id, fn) => _machine.attachAction(id, fn));',
-    );
-    buffer.writeln();
-    buffer.writeln('    _parser = _machine.createParser();');
-    buffer.writeln('  }');
-    buffer.writeln();
-    buffer.writeln('  SMParser get parser => _parser;');
-    buffer.writeln('  ImportedStateMachine get machine => _machine;');
-    buffer.writeln();
-    buffer.writeln(
-      '  ParseOutcome parse(String input) => _parser.parse(input);',
-    );
-    
-    if (!minimal) {
-      buffer.writeln(
-        '  Iterable<ParseDerivation> enumerateAllParses(String input) =>',
-      );
-      buffer.writeln('    _parser.enumerateAllParses(input);');
-      buffer.writeln(
-        '  Iterable<ParseDerivationWithValue> '
-        'enumerateAllParsesWithResults(String input) =>',
-      );
-      buffer.writeln('    _parser.enumerateAllParsesWithResults(input);');
-    }
-    
-    buffer.writeln('}');
-  }
-
-  String _toPascalCase(String input) {
-    return input
-        .split('_')
-        .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
-        .join('');
-  }
-
-  String _toSnakeCase(String input) {
-    return input.replaceAllMapped(
-      RegExp(r'([a-z])([A-Z])'),
-      (m) => '${m[1]}_${m[2]}'.toLowerCase(),
-    );
-  }
-}
-
-const String _minimalRuntimeSource = r'''
 // ============================================================================
 // MINIMAL GLUSH RUNTIME
 // ============================================================================
@@ -703,4 +526,77 @@ class _Step {
     }
   }
 }
-''';
+
+/// Exported state machine specification as JSON
+const String _MinimalMathStateMachineJson = r"""
+{"version":2,"initialStates":[0],"startSymbol":"rul:S0:","childrenRegistry":{"rul:S0:":["alt:S1:"],"alt:S1:":["alt:S2:","cal:S15:"],"alt:S2:":["act:S3:","act:S9:"],"act:S3:":["seq:S4:"],"seq:S4:":["seq:S5:","cal:S8:"],"seq:S5:":["cal:S6:","tok:S7:;43"],"cal:S6:":["rul:S0:"],"tok:S7:;43":[],"cal:S8:":["rul:S16:"],"act:S9:":["seq:S10:"],"seq:S10:":["seq:S11:","cal:S14:"],"seq:S11:":["cal:S12:","tok:S13:;45"],"cal:S12:":["rul:S0:"],"tok:S13:;45":[],"cal:S14:":["rul:S16:"],"cal:S15:":["rul:S16:"],"rul:S16:":["act:S17:"],"act:S17:":["rca:S18:"],"rca:S18:":["rul:S19:"],"rul:S19:":["alt:S20:"],"alt:S20:":["act:S21:","tok:S25:[48,57"],"act:S21:":["seq:S22:"],"seq:S22:":["rca:S23:","tok:S24:[48,57"],"rca:S23:":["rul:S19:"],"tok:S24:[48,57":[],"tok:S25:[48,57":[]},"states":[{"id":0,"actions":[{"type":"call","ruleName":"expr","nextStateId":1}]},{"id":1,"actions":[{"type":"accept"}]},{"id":2,"actions":[{"type":"call","ruleName":"expr","nextStateId":3},{"type":"call","ruleName":"expr","nextStateId":4},{"type":"call","ruleName":"term","nextStateId":5}]},{"id":3,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":43},"nextStateId":6}]},{"id":4,"actions":[{"type":"token","tokenSpec":{"type":"exact","value":45},"nextStateId":9}]},{"id":5,"actions":[{"type":"return","ruleName":"expr"}]},{"id":6,"actions":[{"type":"call","ruleName":"term","nextStateId":7}]},{"id":7,"actions":[{"type":"semantic","actionId":"act:S3:","nextStateId":8}]},{"id":8,"actions":[{"type":"return","ruleName":"expr"}]},{"id":9,"actions":[{"type":"call","ruleName":"term","nextStateId":10}]},{"id":10,"actions":[{"type":"semantic","actionId":"act:S9:","nextStateId":11}]},{"id":11,"actions":[{"type":"return","ruleName":"expr"}]},{"id":12,"actions":[{"type":"call","ruleName":"__0","nextStateId":13}]},{"id":13,"actions":[{"type":"semantic","actionId":"act:S17:","nextStateId":14}]},{"id":14,"actions":[{"type":"return","ruleName":"term"}]},{"id":15,"actions":[{"type":"call","ruleName":"__0","nextStateId":16},{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":17}]},{"id":16,"actions":[{"type":"token","tokenSpec":{"type":"range","start":48,"end":57},"nextStateId":18}]},{"id":17,"actions":[{"type":"return","ruleName":"__0"}]},{"id":18,"actions":[{"type":"semantic","actionId":"act:S21:","nextStateId":19}]},{"id":19,"actions":[{"type":"return","ruleName":"__0"}]}],"rules":{"expr":{"name":"expr","firstStateIds":[2],"isEmpty":false},"term":{"name":"term","firstStateIds":[12],"isEmpty":false},"__0":{"name":"__0","firstStateIds":[15],"isEmpty":false}}}
+""";
+
+/// Load the exported state machine specification
+ExportedStateMachine loadMinimalmathStateMachine() => ExportedStateMachine.fromJson(_MinimalMathStateMachineJson);
+
+
+/// Create an imported state machine with action stubs
+class MinimalmathActions {
+  /// Override these methods with your semantic actions
+
+  /// Semantic action stub for: act:S17:
+  static Object? act_S17_Action(String span, List results) {
+    // TODO: Implement semantic action
+    // span: the matched substring
+    // results: list of child semantic values
+    throw UnimplementedError("Action not implemented for act:S17:");
+  }
+
+  /// Semantic action stub for: act:S21:
+  static Object? act_S21_Action(String span, List results) {
+    // TODO: Implement semantic action
+    // span: the matched substring
+    // results: list of child semantic values
+    throw UnimplementedError("Action not implemented for act:S21:");
+  }
+
+  /// Semantic action stub for: act:S3:
+  static Object? act_S3_Action(String span, List results) {
+    // TODO: Implement semantic action
+    // span: the matched substring
+    // results: list of child semantic values
+    throw UnimplementedError("Action not implemented for act:S3:");
+  }
+
+  /// Semantic action stub for: act:S9:
+  static Object? act_S9_Action(String span, List results) {
+    // TODO: Implement semantic action
+    // span: the matched substring
+    // results: list of child semantic values
+    throw UnimplementedError("Action not implemented for act:S9:");
+  }
+
+}
+
+/// Create a parser using the Minimalmath grammar
+class MinimalmathParser {
+  late final ImportedStateMachine _machine;
+  late final SMParser _parser;
+
+  MinimalmathParser({Map<String, Function>? actions}) {
+    final spec = loadMinimalmathStateMachine();
+    _machine = ImportedStateMachine(spec);
+
+    // Attach default actions
+    _machine.attachAction("act:S17:", MinimalmathActions.act_S17_Action);
+    _machine.attachAction("act:S21:", MinimalmathActions.act_S21_Action);
+    _machine.attachAction("act:S3:", MinimalmathActions.act_S3_Action);
+    _machine.attachAction("act:S9:", MinimalmathActions.act_S9_Action);
+
+    // Override with user-provided actions
+    actions?.forEach((id, fn) => _machine.attachAction(id, fn));
+
+    _parser = _machine.createParser();
+  }
+
+  SMParser get parser => _parser;
+  ImportedStateMachine get machine => _machine;
+
+  ParseOutcome parse(String input) => _parser.parse(input);
+}

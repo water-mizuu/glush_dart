@@ -47,9 +47,9 @@ class AcceptAction implements StateAction {
 class SemanticAction implements StateAction {
   final Object? Function(String span, List<Object?> childResults) callback;
   final State nextState;
-  final Pattern? childPattern;
+  final Pattern? pattern;
 
-  const SemanticAction(this.callback, this.nextState, [this.childPattern]);
+  const SemanticAction(this.callback, this.nextState, [this.pattern]);
 }
 
 /// Predicate action for lookahead assertions (AND/NOT predicates)
@@ -61,13 +61,21 @@ class PredicateAction implements StateAction {
   // The pattern to check for the predicate
   final Pattern pattern;
 
+  // The symbol for the pattern (used by shell grammars)
+  final PatternSymbol? symbol;
+
   // Next state after successful predicate check
   final State nextState;
 
-  const PredicateAction({required this.isAnd, required this.pattern, required this.nextState});
+  const PredicateAction({
+    required this.isAnd,
+    required this.pattern,
+    required this.nextState,
+    this.symbol,
+  });
 
   @override
-  String toString() => isAnd ? 'Predicate(&${pattern})' : 'Predicate(!${pattern})';
+  String toString() => isAnd ? 'Predicate(&${symbol ?? pattern})' : 'Predicate(!${symbol ?? pattern})';
 }
 
 /// State in the state machine
@@ -164,6 +172,7 @@ class StateMachine {
         final action = PredicateAction(
           isAnd: true,
           pattern: terminal.pattern,
+          symbol: terminal.pattern.symbolId,
           nextState: nextState,
         );
         state.actions.add(action);
@@ -173,6 +182,7 @@ class StateMachine {
         final action = PredicateAction(
           isAnd: false,
           pattern: terminal.pattern,
+          symbol: terminal.pattern.symbolId,
           nextState: nextState,
         );
         state.actions.add(action);
@@ -183,11 +193,9 @@ class StateMachine {
       case Action<dynamic>():
         // Create a SemanticAction state machine action with the callback
         final nextState = _getOrCreateState(terminal);
-        final action = SemanticAction(terminal.callback, nextState, terminal.child);
+        final action = SemanticAction(terminal.callback, nextState, terminal);
         state.actions.add(action);
-        // Connect the semantic action's next state to the child pattern
-        _connect(nextState, terminal.child);
-      case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || PrecedenceLabeledPattern():
+      case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || Prec():
         // TODO: Handle this case.
         throw UnimplementedError();
     }
