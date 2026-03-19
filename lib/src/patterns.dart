@@ -121,8 +121,8 @@ sealed class Pattern {
   static int _customIds = 0;
 
   /// Repetition operators
-  Plus plus() => Plus(this);
-  Star star() => Star(this);
+  Pattern plus() => this.plusRewrite();
+  Pattern star() => this.starRewrite();
 
   Pattern plusRewrite() {
     late Rule inner;

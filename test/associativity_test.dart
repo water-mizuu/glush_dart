@@ -212,7 +212,7 @@ expr =
     test('Parentheses override precedence and associativity', () {
       // Parentheses should allow any grouping regardless of associativity
       final grammarText = '''
-expr = 
+expr =
   11| '(' expr^0 ')'
   11| [0-9]+
   6| expr^6 '^' expr^7

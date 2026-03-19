@@ -13,7 +13,7 @@ typedef GrammarBuilder = Rule Function();
 sealed class GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
   Map<PatternSymbol, Pattern> get symbolRegistry;
-  Map<PatternSymbol, Set<PatternSymbol>> get childrenRegistry;
+  Map<PatternSymbol, List<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
   List<Rule> get rules;
@@ -29,7 +29,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
-  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
@@ -101,20 +101,23 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
+      // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        And() || Not() || Token() || Marker() || Eps() => {},
+        Token() || Marker() || Eps() => [],
 
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
-        Conj(:var left, :var right) => {left.symbolId!, right.symbolId!},
+        Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
         Plus(:var child) ||
         Star(:var child) ||
         Action(:var child) ||
-        PrecedenceLabeledPattern(:var child) => {child.symbolId!},
+        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
 
-        Rule rule => {rule.body().symbolId!},
-        RuleCall(:var rule) || Call(:var rule) => {rule.symbolId!},
+        Rule rule => [rule.body().symbolId!],
+        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+
+        And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
     }
   }
@@ -309,13 +312,109 @@ class GrammarAdapter implements GrammarInterface {
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
 
   @override
-  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
+  /// Counter for assigning symbol IDs within this grammar
+  int _symbolCounter = 0;
 
   GrammarAdapter(StateMachine sm)
     : rules = sm.rules,
       startCall = sm.rules.isNotEmpty ? sm.rules[0].call() : Rule('_dummy', () => Eps()).call();
 
-  GrammarAdapter.withRules(this.rules, this.startCall);
+  GrammarAdapter.withRules(this.rules, this.startCall) {
+    _assignPatternSymbols();
+    _fillChildrenMapping();
+  }
+
+  /// Discovers all patterns in the grammar and assigns them symbol IDs
+  void _assignPatternSymbols() {
+    final allPatterns = <Pattern>{};
+
+    // Collect all patterns from the grammar's rules, including the rules themselves
+    for (final rule in rules) {
+      allPatterns.add(rule); // Add the rule itself
+      _collectPatternsFromRule(rule, allPatterns);
+    }
+
+    // Assign symbol IDs to each pattern in discovery order
+    for (final pattern in allPatterns) {
+      if (pattern.symbolId == null) {
+        final symbolId = 'S${_symbolCounter++}';
+        pattern.assignSymbolId(PatternSymbol(symbolId));
+      }
+      final actualSymbolId = pattern.symbolId!;
+      symbolRegistry[actualSymbolId] = pattern;
+    }
+  }
+
+  void _fillChildrenMapping() {
+    for (final pattern in allPatterns) {
+      // print(pattern.symbolId!);
+      childrenRegistry[pattern.symbolId!] = switch (pattern) {
+        Token() || Marker() || Eps() => [],
+
+        Alt(:var left, :var right) ||
+        Seq(:var left, :var right) ||
+        Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
+
+        Plus(:var child) ||
+        Star(:var child) ||
+        Action(:var child) ||
+        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
+
+        Rule rule => [rule.body().symbolId!],
+        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+
+        And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
+      };
+    }
+  }
+
+  /// Recursively collects all patterns used in a rule's body
+  void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
+    final body = rule.body();
+    _collectPatternsFromPattern(body, patterns);
+  }
+
+  /// Recursively collects patterns from a pattern structure
+  void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
+    if (patterns.contains(pattern)) return; // Avoid cycles
+    patterns.add(pattern);
+
+    switch (pattern) {
+      case Seq seq:
+        _collectPatternsFromPattern(seq.left, patterns);
+        _collectPatternsFromPattern(seq.right, patterns);
+      case Alt alt:
+        _collectPatternsFromPattern(alt.left, patterns);
+        _collectPatternsFromPattern(alt.right, patterns);
+      case Conj conj:
+        _collectPatternsFromPattern(conj.left, patterns);
+        _collectPatternsFromPattern(conj.right, patterns);
+      case And and:
+        _collectPatternsFromPattern(and.pattern, patterns);
+      case Not not:
+        _collectPatternsFromPattern(not.pattern, patterns);
+      case Action action:
+        _collectPatternsFromPattern(action.child, patterns);
+      case PrecedenceLabeledPattern plp:
+        _collectPatternsFromPattern(plp.child, patterns);
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+        break;
+    }
+  }
+
+  Iterable<Pattern> get allPatterns sync* {
+    for (Rule rule in rules) {
+      Set<Pattern> patterns = {rule};
+      _collectPatternsFromRule(rule, patterns);
+      yield* patterns;
+    }
+  }
 
   @override
   bool isEmpty() => rules.isEmpty;

@@ -287,8 +287,8 @@ sealed class Pattern {
   static int _customIds = 0;
 
   /// Repetition operators
-  Plus plus() => Plus(this);
-  Star star() => Star(this);
+  Pattern plus() => this.plusRewrite();
+  Pattern star() => this.starRewrite();
 
   Pattern plusRewrite() {
     late Rule inner;
@@ -1130,7 +1130,7 @@ typedef GrammarBuilder = Rule Function();
 sealed class GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
   Map<PatternSymbol, Pattern> get symbolRegistry;
-  Map<PatternSymbol, Set<PatternSymbol>> get childrenRegistry;
+  Map<PatternSymbol, List<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
   List<Rule> get rules;
@@ -1146,7 +1146,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
-  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
@@ -1218,20 +1218,23 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
+      // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        And() || Not() || Token() || Marker() || Eps() => {},
+        Token() || Marker() || Eps() => [],
 
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
-        Conj(:var left, :var right) => {left.symbolId!, right.symbolId!},
+        Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
         Plus(:var child) ||
         Star(:var child) ||
         Action(:var child) ||
-        PrecedenceLabeledPattern(:var child) => {child.symbolId!},
+        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
 
-        Rule rule => {rule.body().symbolId!},
-        RuleCall(:var rule) || Call(:var rule) => {rule.symbolId!},
+        Rule rule => [rule.body().symbolId!],
+        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+
+        And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
     }
   }
@@ -1426,13 +1429,109 @@ class GrammarAdapter implements GrammarInterface {
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
 
   @override
-  final Map<PatternSymbol, Set<PatternSymbol>> childrenRegistry = {};
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
+  /// Counter for assigning symbol IDs within this grammar
+  int _symbolCounter = 0;
 
   GrammarAdapter(StateMachine sm)
     : rules = rules,
       startCall = rules.isNotEmpty ? rules[0].call() : Rule('_dummy', () => Eps()).call();
 
-  GrammarAdapter.withRules(this.rules, this.startCall);
+  GrammarAdapter.withRules(this.rules, this.startCall) {
+    _assignPatternSymbols();
+    _fillChildrenMapping();
+  }
+
+  /// Discovers all patterns in the grammar and assigns them symbol IDs
+  void _assignPatternSymbols() {
+    final allPatterns = <Pattern>{};
+
+    // Collect all patterns from the grammar's rules, including the rules themselves
+    for (final rule in rules) {
+      allPatterns.add(rule); // Add the rule itself
+      _collectPatternsFromRule(rule, allPatterns);
+    }
+
+    // Assign symbol IDs to each pattern in discovery order
+    for (final pattern in allPatterns) {
+      if (pattern.symbolId == null) {
+        final symbolId = 'S${_symbolCounter++}';
+        pattern.assignSymbolId(PatternSymbol(symbolId));
+      }
+      final actualSymbolId = pattern.symbolId!;
+      symbolRegistry[actualSymbolId] = pattern;
+    }
+  }
+
+  void _fillChildrenMapping() {
+    for (final pattern in allPatterns) {
+      // print(pattern.symbolId!);
+      childrenRegistry[pattern.symbolId!] = switch (pattern) {
+        Token() || Marker() || Eps() => [],
+
+        Alt(:var left, :var right) ||
+        Seq(:var left, :var right) ||
+        Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
+
+        Plus(:var child) ||
+        Star(:var child) ||
+        Action(:var child) ||
+        PrecedenceLabeledPattern(:var child) => [child.symbolId!],
+
+        Rule rule => [rule.body().symbolId!],
+        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+
+        And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
+      };
+    }
+  }
+
+  /// Recursively collects all patterns used in a rule's body
+  void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
+    final body = rule.body();
+    _collectPatternsFromPattern(body, patterns);
+  }
+
+  /// Recursively collects patterns from a pattern structure
+  void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
+    if (patterns.contains(pattern)) return; // Avoid cycles
+    patterns.add(pattern);
+
+    switch (pattern) {
+      case Seq seq:
+        _collectPatternsFromPattern(seq.left, patterns);
+        _collectPatternsFromPattern(seq.right, patterns);
+      case Alt alt:
+        _collectPatternsFromPattern(alt.left, patterns);
+        _collectPatternsFromPattern(alt.right, patterns);
+      case Conj conj:
+        _collectPatternsFromPattern(conj.left, patterns);
+        _collectPatternsFromPattern(conj.right, patterns);
+      case And and:
+        _collectPatternsFromPattern(and.pattern, patterns);
+      case Not not:
+        _collectPatternsFromPattern(not.pattern, patterns);
+      case Action action:
+        _collectPatternsFromPattern(action.child, patterns);
+      case PrecedenceLabeledPattern plp:
+        _collectPatternsFromPattern(plp.child, patterns);
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+        break;
+    }
+  }
+
+  Iterable<Pattern> get allPatterns sync* {
+    for (Rule rule in rules) {
+      Set<Pattern> patterns = {rule};
+      _collectPatternsFromRule(rule, patterns);
+      yield* patterns;
+    }
+  }
 
   @override
   bool isEmpty() => rules.isEmpty;
@@ -2245,30 +2344,6 @@ class ParseTree {
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 
 
-// ---------------------------------------------------------------------------
-// Trampoline for CPS-based recursion management
-// ---------------------------------------------------------------------------
-
-abstract class _Trampoline<T> {
-  T run() {
-    _Trampoline<T> current = this;
-    while (current is _More<T>) {
-      current = current.next();
-    }
-    return (current as _Done<T>).result;
-  }
-}
-
-class _More<T> extends _Trampoline<T> {
-  final _Trampoline<T> Function() next;
-  _More(this.next);
-}
-
-class _Done<T> extends _Trampoline<T> {
-  final T result;
-  _Done(this.result);
-}
-
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
 typedef BsrEntry = (PatternSymbol slot, int start, int pivot, int end);
 
@@ -2309,9 +2384,14 @@ class BsrSet {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
 
-    return SppfBuilder(this, nodeManager) //
-        .buildNode(startRule, input, 0, input.length, memo, inProgress)
-        .run();
+    return SppfBuilder(
+          this,
+          nodeManager,
+          input,
+          grammar.symbolRegistry,
+          grammar.childrenRegistry,
+        ) //
+        .buildNode(startRule.symbolId!, 0, input.length, memo, inProgress);
   }
 
   @override
@@ -2331,432 +2411,669 @@ final class BsrParseSuccess implements BsrParseOutcome {
   const BsrParseSuccess(this.bsrSet, this.marks);
 }
 
+sealed class _Task {
+  const _Task();
+}
+
+// --- Core Execution Tasks ---
+class _DoBuildNode extends _Task {
+  final String key;
+  final PatternSymbol ruleSymbol;
+  final int start, end;
+  final int? minPrecedenceLevel;
+  final bool isRoot;
+
+  const _DoBuildNode(
+    this.key,
+    this.ruleSymbol,
+    this.start,
+    this.end,
+    this.minPrecedenceLevel, {
+    this.isRoot = false,
+  });
+}
+
+class _EvalPattern extends _Task {
+  final PatternSymbol currentRule;
+  final Pattern pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+
+  const _EvalPattern(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+  );
+}
+
+// --- Continuation Tasks (Replacing callbacks) ---
+class _ContBuildNodeFinish extends _Task {
+  final SymbolicNode symNode;
+  final String key;
+  const _ContBuildNodeFinish(this.symNode, this.key);
+}
+
+class _ContAltCombine extends _Task {
+  const _ContAltCombine();
+}
+
+class _ContRuleCallFinish extends _Task {
+  const _ContRuleCallFinish();
+}
+
+class _ContActionFinish extends _Task {
+  final int start, end;
+  final PatternSymbol symbolId;
+  const _ContActionFinish(this.start, this.end, this.symbolId);
+}
+
+// --- Loop State Tasks ---
+class _ContSeqLoop extends _Task {
+  final PatternSymbol currentRule;
+  final Seq pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? seqNode;
+
+  _ContSeqLoop(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+    this.it,
+  );
+}
+
+class _ContSeqLeft extends _Task {
+  final _ContSeqLoop loopTask;
+  final int mid;
+  _ContSeqLeft(this.loopTask, this.mid);
+}
+
+class _ContSeqRight extends _Task {
+  final _ContSeqLoop loopTask;
+  final List<ForestNode> leftNodes;
+  _ContSeqRight(this.loopTask, this.leftNodes);
+}
+
+class _ContPlusLoop extends _Task {
+  final PatternSymbol currentRule;
+  final Plus pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? plusNode;
+
+  _ContPlusLoop(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+    this.it,
+  );
+}
+
+class _ContPlusLeft extends _Task {
+  final _ContPlusLoop loopTask;
+  final int mid;
+  _ContPlusLeft(this.loopTask, this.mid);
+}
+
+class _ContPlusRight extends _Task {
+  final _ContPlusLoop loopTask;
+  final List<ForestNode> headNodes;
+  _ContPlusRight(this.loopTask, this.headNodes);
+}
+
+class _ContPlusFinal extends _Task {
+  final _ContPlusLoop loopTask;
+  _ContPlusFinal(this.loopTask);
+}
+
+class _ContStarLoop extends _Task {
+  final PatternSymbol currentRule;
+  final Star pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? starNode;
+
+  _ContStarLoop(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+    this.it,
+  );
+}
+
+class _ContStarLeft extends _Task {
+  final _ContStarLoop loopTask;
+  final int mid;
+  const _ContStarLeft(this.loopTask, this.mid);
+}
+
+class _ContStarRight extends _Task {
+  final _ContStarLoop loopTask;
+  final List<ForestNode> headNodes;
+  const _ContStarRight(this.loopTask, this.headNodes);
+}
+
+class _ContConjLeft extends _Task {
+  final PatternSymbol currentRule;
+  final Conj pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+
+  const _ContConjLeft(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+  );
+}
+
+class _ContConjRight extends _Task {
+  final _ContConjLeft startTask;
+  final List<ForestNode> leftNodes;
+
+  const _ContConjRight(this.startTask, this.leftNodes);
+}
+
 class SppfBuilder {
   final BsrSet bsr;
   final ForestNodeManager nodeManager;
+  final String input;
 
-  const SppfBuilder(this.bsr, this.nodeManager);
+  final Map<PatternSymbol, Pattern> patternRegistry;
+  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
-  _Trampoline<SymbolicNode?> buildNode(
-    Rule rule,
-    String input,
+  const SppfBuilder(
+    this.bsr,
+    this.nodeManager,
+    this.input,
+    this.patternRegistry,
+    this.childrenRegistry,
+  );
+
+  List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
+    if (childrenRegistry[symbol] case List<PatternSymbol> children) {
+      return children;
+    }
+    throw StateError("Couldn't find the children of $symbol.");
+  }
+
+  Pattern getPatternOf(PatternSymbol symbol) {
+    if (patternRegistry[symbol] case Pattern pattern) {
+      return pattern;
+    }
+    throw StateError("Couldn't find the pattern of $symbol.");
+  }
+
+  // Unified public API - returns synchronously
+  SymbolicNode? buildNode(
+    PatternSymbol ruleSymbol,
     int start,
     int end,
     Map<String, SymbolicNode?> memo,
     Map<String, bool> inProgress, {
     int? minPrecedenceLevel,
   }) {
-    final key = '${rule.name}:$start:$end';
-    if (memo.containsKey(key)) return _Done(memo[key]);
-    if (inProgress[key] == true) return _Done(null);
+    final key = '$ruleSymbol:$start:$end';
 
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule.symbolId!);
+    // The Two-Stack VM
+    final taskStack = <_Task>[
+      _DoBuildNode(key, ruleSymbol, start, end, minPrecedenceLevel, isRoot: true),
+    ];
+    final valueStack = <Object?>[]; // Holds List<ForestNode> and SymbolicNode?
 
-    return _More(
-      () => _patternNodes(
-        rule,
-        rule.body(),
-        input,
-        start,
-        end,
-        memo,
-        inProgress,
-        (childNodes) {
-          for (final child in childNodes) symNode.addFamily(Family.unary(child));
-          inProgress[key] = false;
-          final result = symNode.families.isNotEmpty ? symNode : null;
-          memo[key] = result;
-          return _Done(result);
-        },
-        start,
-        minPrecedenceLevel: minPrecedenceLevel,
-      ),
-    );
-  }
+    while (taskStack.isNotEmpty) {
+      final task = taskStack.removeLast();
 
-  _Trampoline<T> _buildNodeWith<T>(
-    Rule rule,
-    String input,
-    int start,
-    int end,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-    _Trampoline<T> Function(SymbolicNode?) cont, {
-    int? minPrecedenceLevel,
-  }) {
-    final key = '${rule.symbolId}:$start:$end:${minPrecedenceLevel ?? 'null'}';
-    if (memo.containsKey(key)) return cont(memo[key]);
-    if (inProgress[key] == true) return cont(null);
+      if (task is _DoBuildNode) {
+        if (memo.containsKey(task.key)) {
+          valueStack.add(memo[task.key]);
+          continue;
+        }
+        if (inProgress[task.key] == true) {
+          valueStack.add(null);
+          continue;
+        }
 
-    inProgress[key] = true;
-    final symNode = nodeManager.symbolic(start, end, rule.symbolId!);
+        inProgress[task.key] = true;
+        final symNode = nodeManager.symbolic(task.start, task.end, task.ruleSymbol);
 
-    return _More(
-      () => _patternNodes(
-        rule,
-        rule.body(),
-        input,
-        start,
-        end,
-        memo,
-        inProgress,
-        (childNodes) {
-          for (final child in childNodes) {
-            symNode.addFamily(Family.unary(child));
+        // 2. Schedule the completion logic for AFTER the pattern evaluates
+        taskStack.add(_ContBuildNodeFinish(symNode, task.key));
+
+        // 1. Evaluate the pattern
+        final patternToEval = getPatternOf(getChildrenOf(task.ruleSymbol).single);
+
+        taskStack.add(
+          _EvalPattern(
+            task.ruleSymbol,
+            patternToEval,
+            task.start,
+            task.end,
+            task.start,
+            task.minPrecedenceLevel,
+          ),
+        );
+      } else if (task is _ContBuildNodeFinish) {
+        final childNodes = valueStack.removeLast() as List<ForestNode>;
+        for (final child in childNodes) {
+          task.symNode.addFamily(Family.unary(child));
+        }
+
+        inProgress[task.key] = false;
+        final result = task.symNode.families.isNotEmpty ? task.symNode : null;
+        memo[task.key] = result;
+        valueStack.add(result);
+      } else if (task is _EvalPattern) {
+        _executePatternTask(task, taskStack, valueStack);
+      }
+      // --- Structural Continuations ---
+      else if (task is _ContAltCombine) {
+        final rightRes = valueStack.removeLast() as List<ForestNode>;
+        final leftRes = valueStack.removeLast() as List<ForestNode>;
+        valueStack.add([...leftRes, ...rightRes]);
+      } else if (task is _ContRuleCallFinish) {
+        final node = valueStack.removeLast() as SymbolicNode?;
+        valueStack.add(node != null ? [node] : <ForestNode>[]);
+      } else if (task is _ContActionFinish) {
+        final nodes = valueStack.removeLast() as List<ForestNode>;
+        if (nodes.isEmpty) {
+          valueStack.add(<ForestNode>[]);
+        } else {
+          final node = nodeManager.intermediate(task.start, task.end, task.symbolId);
+          for (final n in nodes) node.addFamily(Family.unary(n));
+          valueStack.add([node]);
+        }
+      }
+      // --- Conj ---
+      else if (task is _ContConjLeft) {
+        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        if (leftNodes.isEmpty) {
+          valueStack.add(<ForestNode>[]); // Short circuit
+        } else {
+          taskStack.add(_ContConjRight(task, leftNodes));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              task.pattern.right,
+              task.start,
+              task.end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContConjRight) {
+        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        if (rightNodes.isEmpty) {
+          valueStack.add(<ForestNode>[]);
+        } else {
+          final node = nodeManager.intermediate(
+            task.startTask.start,
+            task.startTask.end,
+            task.startTask.pattern.symbolId!,
+          );
+          for (final l in task.leftNodes) {
+            for (final r in rightNodes) node.addFamily(Family.binary(l, r));
           }
+          valueStack.add([node]);
+        }
+      }
+      // --- Seq Loop ---
+      else if (task is _ContSeqLoop) {
+        if (!task.it.moveNext()) {
+          valueStack.add(task.seqNode != null ? [task.seqNode!] : <ForestNode>[]);
+        } else {
+          final mid = task.it.current;
+          taskStack.add(task); // Re-queue loop state
+          taskStack.add(_ContSeqLeft(task, mid));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              task.pattern.left,
+              task.start,
+              mid,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContSeqLeft) {
+        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        if (leftNodes.isEmpty) {
+          // Skip right evaluation, let loop continue on next tick
+        } else {
+          taskStack.add(_ContSeqRight(task.loopTask, leftNodes));
+          taskStack.add(
+            _EvalPattern(
+              task.loopTask.currentRule,
+              task.loopTask.pattern.right,
+              task.mid,
+              task.loopTask.end,
+              task.loopTask.ruleStart,
+              task.loopTask.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContSeqRight) {
+        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        if (rightNodes.isNotEmpty) {
+          task.loopTask.seqNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern.symbolId!,
+          );
+          for (final l in task.leftNodes) {
+            for (final r in rightNodes) task.loopTask.seqNode!.addFamily(Family.binary(l, r));
+          }
+        }
+      }
+      // --- Plus Loop ---
+      else if (task is _ContPlusLoop) {
+        if (!task.it.moveNext()) {
+          taskStack.add(_ContPlusFinal(task));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              task.pattern.child,
+              task.start,
+              task.end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        } else {
+          final mid = task.it.current;
+          taskStack.add(task); // Re-queue loop state
+          taskStack.add(_ContPlusLeft(task, mid));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              task.pattern.child,
+              task.start,
+              mid,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContPlusLeft) {
+        final headNodes = valueStack.removeLast() as List<ForestNode>;
+        if (headNodes.isNotEmpty) {
+          taskStack.add(_ContPlusRight(task.loopTask, headNodes));
+          taskStack.add(
+            _EvalPattern(
+              task.loopTask.currentRule,
+              task.loopTask.pattern,
+              task.mid,
+              task.loopTask.end,
+              task.loopTask.ruleStart,
+              task.loopTask.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContPlusRight) {
+        final tailNodes = valueStack.removeLast() as List<ForestNode>;
+        if (tailNodes.isNotEmpty) {
+          task.loopTask.plusNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern.symbolId!,
+          );
+          for (final h in task.headNodes) {
+            for (final t in tailNodes) task.loopTask.plusNode!.addFamily(Family.binary(h, t));
+          }
+        }
+      } else if (task is _ContPlusFinal) {
+        final nodes = valueStack.removeLast() as List<ForestNode>;
+        if (nodes.isNotEmpty) {
+          task.loopTask.plusNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern.symbolId!,
+          );
+          for (final n in nodes) task.loopTask.plusNode!.addFamily(Family.unary(n));
+        }
+        valueStack.add(task.loopTask.plusNode != null ? [task.loopTask.plusNode!] : <ForestNode>[]);
+      }
+      // --- Star Loop ---
+      else if (task is _ContStarLoop) {
+        if (!task.it.moveNext()) {
+          if (task.start == task.end) {
+            task.starNode ??= nodeManager.intermediate(
+              task.start,
+              task.end,
+              task.pattern.symbolId!,
+            );
+            task.starNode!.addFamily(
+              Family.unary(nodeManager.epsilon(task.start, task.pattern.symbolId!)),
+            );
+          }
+          valueStack.add(task.starNode != null ? [task.starNode!] : <ForestNode>[]);
+        } else {
+          final mid = task.it.current;
+          taskStack.add(task); // Re-queue loop state
+          taskStack.add(_ContStarLeft(task, mid));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              task.pattern.child,
+              task.start,
+              mid,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContStarLeft) {
+        final headNodes = valueStack.removeLast() as List<ForestNode>;
+        if (headNodes.isNotEmpty) {
+          taskStack.add(_ContStarRight(task.loopTask, headNodes));
+          taskStack.add(
+            _EvalPattern(
+              task.loopTask.currentRule,
+              task.loopTask.pattern,
+              task.mid,
+              task.loopTask.end,
+              task.loopTask.ruleStart,
+              task.loopTask.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContStarRight) {
+        final tailNodes = valueStack.removeLast() as List<ForestNode>;
+        if (tailNodes.isNotEmpty) {
+          task.loopTask.starNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern.symbolId!,
+          );
+          for (final h in task.headNodes) {
+            for (final t in tailNodes) task.loopTask.starNode!.addFamily(Family.binary(h, t));
+          }
+        }
+      }
+    }
 
-          inProgress[key] = false;
-          final result = symNode.families.isNotEmpty ? symNode : null;
-          memo[key] = result;
-
-          return cont(result);
-        },
-        start,
-        minPrecedenceLevel: minPrecedenceLevel,
-      ),
-    );
+    return valueStack.removeLast() as SymbolicNode?;
   }
 
-  _Trampoline<T> _patternNodes<T>(
-    Rule currentRule,
-    Pattern pattern,
-    String input,
-    int start,
-    int end,
-    Map<String, SymbolicNode?> memo,
-    Map<String, bool> inProgress,
-    _Trampoline<T> Function(List<ForestNode>) continuation,
-    int ruleStart, {
-    int? minPrecedenceLevel,
-  }) {
+  void _executePatternTask(_EvalPattern task, List<_Task> taskStack, List<dynamic> valueStack) {
+    final pattern = task.pattern;
+    final start = task.start;
+    final end = task.end;
+
     switch (pattern) {
       case Token():
         if (start + 1 == end && pattern.match(input.codeUnitAt(start))) {
-          return continuation([
+          valueStack.add([
             nodeManager.terminal(start, end, pattern.symbolId!, input.codeUnitAt(start)),
           ]);
+        } else {
+          valueStack.add(<ForestNode>[]);
         }
-        return continuation([]);
       case Marker():
-        return continuation(start == end ? [nodeManager.marker(start, pattern)] : []);
+        valueStack.add(start == end ? [nodeManager.marker(start, pattern)] : <ForestNode>[]);
       case Eps():
-        return continuation(start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : []);
+      case And():
+      case Not():
+        valueStack.add(
+          start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : <ForestNode>[],
+        );
+
       case Alt():
-        return _More(
-          () => _patternNodes(
-            currentRule,
-            pattern.left,
-            input,
+        // LIFO: Right goes on first, so Left gets popped and evaluated first.
+        taskStack.add(_ContAltCombine());
+        taskStack.add(
+          _EvalPattern(
+            task.currentRule,
+            pattern.right,
             start,
             end,
-            memo,
-            inProgress,
-            (left) => _More(
-              () => _patternNodes(
-                currentRule,
-                pattern.right,
-                input,
-                start,
-                end,
-                memo,
-                inProgress,
-                (right) => continuation([...left, ...right]),
-                ruleStart,
-                minPrecedenceLevel: minPrecedenceLevel,
-              ),
-            ),
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
+            task.ruleStart,
+            task.minPrecedenceLevel,
           ),
         );
-      case Seq():
-        IntermediateNode? seqNode;
+        taskStack.add(
+          _EvalPattern(
+            task.currentRule,
+            pattern.left,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+          ),
+        );
 
-        // Pivot optimization only works when we're processing the full rule span
-        // starting from ruleStart. For sub-spans, we use exhaustive search.
-        Set<int> splitPoints = bsr.pivotsFor(currentRule.symbolId!, start, end);
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) return continuation(seqNode != null ? [seqNode!] : []);
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              currentRule,
-              pattern.left,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-              (leftNodes) {
-                if (leftNodes.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    currentRule,
-                    pattern.right,
-                    input,
-                    mid,
-                    end,
-                    memo,
-                    inProgress,
-                    (rightNodes) {
-                      if (rightNodes.isNotEmpty) {
-                        seqNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
-                        for (final l in leftNodes)
-                          for (final r in rightNodes) seqNode!.addFamily(Family.binary(l, r));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(splitPoints.iterator));
+      case Seq():
+        final pivots = bsr.pivotsFor(task.currentRule, start, end);
+        taskStack.add(
+          _ContSeqLoop(
+            task.currentRule,
+            pattern,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+            pivots.iterator,
+          ),
+        );
 
       case Plus():
-        IntermediateNode? plusNode;
-        final pivots = bsr.pivotsFor(currentRule.symbolId!, ruleStart, end);
-
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) {
-            return _More(
-              () => _patternNodes(
-                currentRule,
-                pattern.child,
-                input,
-                start,
-                end,
-                memo,
-                inProgress,
-                (nodes) {
-                  if (nodes.isNotEmpty) {
-                    plusNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
-                    for (final n in nodes) plusNode!.addFamily(Family.unary(n));
-                  }
-                  return continuation(plusNode != null ? [plusNode!] : []);
-                },
-                ruleStart,
-                minPrecedenceLevel: minPrecedenceLevel,
-              ),
-            );
-          }
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              currentRule,
-              pattern.child,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-              (head) {
-                if (head.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    currentRule,
-                    pattern,
-                    input,
-                    mid,
-                    end,
-                    memo,
-                    inProgress,
-                    (tail) {
-                      if (tail.isNotEmpty) {
-                        plusNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
-                        for (final h in head)
-                          for (final t in tail) plusNode!.addFamily(Family.binary(h, t));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(pivots.iterator));
-      case Star():
-        IntermediateNode? starNode;
-        final pivots = bsr.pivotsFor(currentRule.symbolId!, ruleStart, end);
-
-        _Trampoline<T> loop(Iterator<int> it) {
-          if (!it.moveNext()) {
-            if (start == end) {
-              starNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
-              starNode!.addFamily(Family.unary(nodeManager.epsilon(start, pattern.symbolId!)));
-            }
-            return continuation(starNode != null ? [starNode!] : []);
-          }
-          final mid = it.current;
-          return _More(
-            () => _patternNodes(
-              currentRule,
-              pattern.child,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-              (head) {
-                if (head.isEmpty) return _More(() => loop(it));
-                return _More(
-                  () => _patternNodes(
-                    currentRule,
-                    pattern,
-                    input,
-                    mid,
-                    end,
-                    memo,
-                    inProgress,
-                    (tail) {
-                      if (tail.isNotEmpty) {
-                        starNode ??= nodeManager.intermediate(start, end, pattern.symbolId!);
-                        for (final h in head)
-                          for (final t in tail) starNode!.addFamily(Family.binary(h, t));
-                      }
-                      return _More(() => loop(it));
-                    },
-                    ruleStart,
-                    minPrecedenceLevel: minPrecedenceLevel,
-                  ),
-                );
-              },
-              ruleStart,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ),
-          );
-        }
-        return _More(() => loop(pivots.iterator));
-      case Conj():
-        return _More(
-          () => _patternNodes(
-            currentRule,
-            pattern.left,
-            input,
-            start,
-            end,
-            memo,
-            inProgress,
-            (left) {
-              if (left.isEmpty) return continuation([]);
-              return _More(
-                () => _patternNodes(
-                  currentRule,
-                  pattern.right,
-                  input,
-                  start,
-                  end,
-                  memo,
-                  inProgress,
-                  (right) {
-                    if (right.isEmpty) {
-                      return continuation([]);
-                    }
-
-                    final node = nodeManager.intermediate(start, end, pattern.symbolId!);
-                    for (final l in left) {
-                      for (final r in right) {
-                        node.addFamily(Family.binary(l, r));
-                      }
-                    }
-                    return continuation([node]);
-                  },
-                  ruleStart,
-                  minPrecedenceLevel: minPrecedenceLevel,
-                ),
-              );
-            },
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case Rule():
-        return _More(
-          () => _patternNodes(
+        final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
+        taskStack.add(
+          _ContPlusLoop(
+            task.currentRule,
             pattern,
-            pattern.body(),
-            input,
             start,
             end,
-            memo,
-            inProgress,
-            continuation,
-            start,
-            minPrecedenceLevel: minPrecedenceLevel,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+            pivots.iterator,
           ),
         );
+
+      case Star():
+        final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
+        taskStack.add(
+          _ContStarLoop(
+            task.currentRule,
+            pattern,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+            pivots.iterator,
+          ),
+        );
+
+      case Conj():
+        taskStack.add(
+          _ContConjLeft(
+            task.currentRule,
+            pattern,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+          ),
+        );
+        taskStack.add(
+          _EvalPattern(
+            task.currentRule,
+            pattern.left,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+          ),
+        );
+
+      case Rule():
+        taskStack.add(
+          _EvalPattern(
+            pattern.symbolId!,
+            pattern.body(),
+            start,
+            end,
+            start,
+            task.minPrecedenceLevel,
+          ),
+        );
+
       case RuleCall(minPrecedenceLevel: var prec, :var rule) ||
           Call(minPrecedenceLevel: var prec, :var rule):
-        return _More(
-          () => _buildNodeWith(
-            rule,
-            input,
-            start,
-            end,
-            memo,
-            inProgress,
-            (node) => continuation(node != null ? [node] : []),
-            minPrecedenceLevel: prec ?? minPrecedenceLevel,
-          ),
-        );
-      case Action<dynamic>():
-        return _More(
-          () => _patternNodes(
-            currentRule,
-            pattern.child,
-            input,
-            start,
-            end,
-            memo,
-            inProgress,
-            (nodes) {
-              if (nodes.isEmpty) {
-                return continuation([]);
-              }
-              final node = nodeManager.intermediate(start, end, pattern.symbolId!);
-              for (final n in nodes) {
-                node.addFamily(Family.unary(n));
-              }
+        final effectivePrec = prec ?? task.minPrecedenceLevel;
+        final key = '${rule.symbolId!}:$start:$end:${effectivePrec ?? 'null'}';
 
-              return continuation([node]);
-            },
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-        );
-      case PrecedenceLabeledPattern():
-        // Check if this alternative meets the minimum precedence level
-        if (minPrecedenceLevel != null && pattern.precedenceLevel < minPrecedenceLevel) {
-          // Skip this alternative - it doesn't meet the precedence requirement
-          return continuation([]);
-        }
-        return _More(
-          () => _patternNodes(
-            currentRule,
+        taskStack.add(_ContRuleCallFinish());
+        taskStack.add(_DoBuildNode(key, rule.symbolId!, start, end, effectivePrec));
+
+      case Action():
+        taskStack.add(_ContActionFinish(start, end, pattern.symbolId!));
+        taskStack.add(
+          _EvalPattern(
+            task.currentRule,
             pattern.child,
-            input,
             start,
             end,
-            memo,
-            inProgress,
-            continuation,
-            ruleStart,
-            minPrecedenceLevel: minPrecedenceLevel,
+            task.ruleStart,
+            task.minPrecedenceLevel,
           ),
         );
-      case And() || Not():
-        return continuation(start == end ? [nodeManager.epsilon(start, pattern.symbolId!)] : []);
+
+      case PrecedenceLabeledPattern():
+        if (task.minPrecedenceLevel != null && pattern.precedenceLevel < task.minPrecedenceLevel!) {
+          valueStack.add(<ForestNode>[]); // Skip
+        } else {
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              pattern.child,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
     }
   }
 }
@@ -3002,7 +3319,7 @@ class SMParser {
 
   GrammarInterface get grammar => stateMachine.grammar;
 
-  SMParser(Grammar grammar) : stateMachine = StateMachine(grammar) {
+  SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
     const initialContext = Context(RootCallerKey(), null);
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -4172,8 +4489,8 @@ class Step {
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
-  /// Frames created during CPS processing that need conditional adding to nextFrames
-  final Set<Frame> _localFramesInCurrentProcessing = {};
+  // /// Frames created during CPS processing that need conditional adding to nextFrames
+  // final Set<Frame> _localFramesInCurrentProcessing = {};
 
   Step(
     this.parser,
@@ -4192,23 +4509,15 @@ class Step {
     return markList.toList().cast<Mark>();
   }
 
-  /// Work queue for CPS trampoline - stores frame/state pairs to process
-  late final DoubleLinkedQueue<_ProcessWork> _workQueue = DoubleLinkedQueue<_ProcessWork>();
-
-  /// Create a local frame that will be conditionally added to nextFrames if it has states
-  Frame _createLocalFrame(Context context) {
+  void _withFrame(Context context, void Function(Frame) callback) {
     final frame = Frame(context);
-    _localFramesInCurrentProcessing.add(frame);
-    return frame;
+    callback(frame);
+    if (frame.nextStates.isNotEmpty) {
+      nextFrames.add(frame);
+    }
   }
 
-  /// Enqueue work to process a frame/state pair (CPS continuation)
-  void _enqueueProcess(Frame frame, State state) {
-    _workQueue.add(_ProcessWork(frame, state));
-  }
-
-  /// CPS-style processing: instead of recursive _process calls, we handle with a trampoline
-  void _processWork(Frame frame, State state) {
+  void _process(Frame frame, State state) {
     for (final action in state.actions) {
       switch (action) {
         case SemanticAction():
@@ -4246,8 +4555,10 @@ class Step {
             frame.context.pivot,
             computedValue,
           );
-          final nextFrame = _createLocalFrame(semanticCtx);
-          _enqueueProcess(nextFrame, action.nextState);
+
+          _withFrame(semanticCtx, (frame) {
+            _process(frame, action.nextState);
+          });
         case TokenAction():
           if (token case var token? when action.pattern.match(token)) {
             // If token matches, add a StringMark with the captured token if not ExactToken
@@ -4291,10 +4602,9 @@ class Step {
             bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
           }
 
-          // Create local frame that will be conditionally added to nextFrames
-          final markFrame = _createLocalFrame(markCtx);
-          // Enqueue instead of _withFrame callback
-          _enqueueProcess(markFrame, action.nextState);
+          _withFrame(markCtx, (nextFrame) {
+            _process(nextFrame, action.nextState);
+          });
         case PredicateAction():
           // Predicate checking (lookahead without consumption)
           // Buffer ensures we have the data needed for lookahead
@@ -4307,8 +4617,9 @@ class Step {
           if (shouldContinue) {
             // Predicate succeeded - enqueue next state processing
             // Zero-width: processed with the same token in this frame step
-            final predFrame = _createLocalFrame(frame.context);
-            _enqueueProcess(predFrame, action.nextState);
+            _withFrame(frame.context, (nextFrame) {
+              _process(nextFrame, action.nextState);
+            });
           }
         // If predicate failed, we simply don't enqueue (backtrack)
         case CallAction():
@@ -4324,11 +4635,12 @@ class Step {
             caller.callStart = position;
             final callCtx = Context(caller, const GlushList.empty(), position);
             // Create local frame that will be conditionally added to nextFrames
-            final callFrame = _createLocalFrame(callCtx);
-            // Enqueue first states instead of _withFrame callback
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
-              _enqueueProcess(callFrame, firstState);
-            }
+
+            _withFrame(callCtx, (nextFrame) {
+              for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+                _process(nextFrame, firstState);
+              }
+            });
           }
         case ReturnAction():
           final rule = action.rule;
@@ -4385,10 +4697,9 @@ class Step {
                     ]).addList(frame.marks ?? const GlushList.empty());
 
               final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
-              // Create local frame that will be conditionally added to nextFrames
-              final nextFrame = _createLocalFrame(nextContext);
-              // Enqueue instead of _withFrame callback
-              _enqueueProcess(nextFrame, nextState);
+              _withFrame(nextContext, (nextFrame) {
+                _process(nextFrame, nextState);
+              });
             });
           }
         case AcceptAction():
@@ -4398,43 +4709,256 @@ class Step {
   }
 
   void _processFrame(Frame frame) {
-    _workQueue.clear();
-    _localFramesInCurrentProcessing.clear();
-    final nextFrame = Frame(frame.copy().context);
-
-    // Initialize work queue with all states from the frame
-    for (final state in frame.nextStates) {
-      _enqueueProcess(nextFrame, state);
-    }
-
-    // Trampoline loop: process all enqueued work iteratively
-    while (_workQueue.isNotEmpty) {
-      final work = _workQueue.removeFirst();
-      _processWork(work.frame, work.state);
-    }
-
-    // After all work is done, add frames that have states to nextFrames
-    // Local frames (created within _processWork) are only added if they have states
-    for (final localFrame in _localFramesInCurrentProcessing) {
-      if (localFrame.nextStates.isNotEmpty) {
-        nextFrames.add(localFrame);
+    _withFrame(frame.copy().context, (nextFrame) {
+      for (final state in frame.nextStates) {
+        _process(nextFrame, state);
       }
-    }
-
-    // Add the main nextFrame if it has states
-    if (nextFrame.nextStates.isNotEmpty) {
-      nextFrames.add(nextFrame);
-    }
+    });
   }
+
+  // /// Work queue for CPS trampoline - stores frame/state pairs to process
+  // // late final DoubleLinkedQueue<_ProcessWork> _workQueue = DoubleLinkedQueue<_ProcessWork>();
+
+  // /// Create a local frame that will be conditionally added to nextFrames if it has states
+  // Frame _createLocalFrame(Context context) {
+  //   final frame = Frame(context);
+  //   _localFramesInCurrentProcessing.add(frame);
+  //   return frame;
+  // }
+
+  // /// Enqueue work to process a frame/state pair (CPS continuation)
+  // void _enqueueProcess(Frame frame, State state) {
+  //   _workQueue.add(_ProcessWork(frame, state));
+  // }
+
+  // /// CPS-style processing: instead of recursive _process calls, we handle with a trampoline
+  // void _processWork(Frame frame, State state) {
+  //   for (final action in state.actions) {
+  //     switch (action) {
+  //       case SemanticAction():
+  //         // Evaluate semantic action during parsing
+  //         // Extract child results from marks (StringMark values)
+  //         final marks = frame.marks?.toList() ?? [];
+  //         final childResults = <Object?>[];
+  //         int spanStart = position;
+  //         int spanEnd = position;
+
+  //         for (final mark in marks) {
+  //           if (mark is StringMark) {
+  //             childResults.add(mark.value);
+  //             spanStart = spanStart > mark.position ? mark.position : spanStart;
+  //             spanEnd = mark.position + 1; // Update end position
+  //           } else if (mark is NamedMark) {
+  //             spanStart = spanStart > mark.position ? mark.position : spanStart;
+  //             spanEnd = spanEnd < mark.position ? mark.position : spanEnd;
+  //           }
+  //         }
+
+  //         // Compute the span string from input
+  //         final span = spanStart < input.length && spanEnd <= input.length
+  //             ? input.substring(spanStart, spanEnd)
+  //             : '';
+
+  //         // Call the semantic action callback with computed span and child results
+  //         final computedValue = action.callback(span, childResults);
+
+  //         // Create new context with computed semantic value
+  //         final semanticCtx = Context(
+  //           frame.caller,
+  //           frame.marks,
+  //           frame.context.callStart,
+  //           frame.context.pivot,
+  //           computedValue,
+  //         );
+  //         final nextFrame = _createLocalFrame(semanticCtx);
+  //         _enqueueProcess(nextFrame, action.nextState);
+  //       case TokenAction():
+  //         if (token case var token? when action.pattern.match(token)) {
+  //           // If token matches, add a StringMark with the captured token if not ExactToken
+  //           // So ranges and 'any' tokens are captured into the marks array too
+  //           var newMarks = frame.marks;
+  //           if (action.pattern case Token(:var choice) when choice is! ExactToken) {
+  //             final strMark = StringMark(String.fromCharCode(token), position);
+  //             newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
+  //           }
+
+  //           final bsrSet = bsr;
+  //           if (bsrSet != null && frame.caller is Caller) {
+  //             final rule = (frame.caller as Caller).rule;
+  //             bsrSet.add(
+  //               rule.symbolId!,
+  //               frame.context.callStart!,
+  //               position, // Use current position as pivot for this token
+  //               position + 1,
+  //             );
+  //           }
+
+  //           final nextFrame = Frame(
+  //             Context(frame.caller, newMarks, frame.context.callStart, position + 1),
+  //           );
+  //           nextFrame.nextStates.add(action.nextState);
+  //           nextFrames.add(nextFrame);
+  //           // TokenAction does NOT enqueue - it defers to next token step
+  //         }
+  //       case MarkAction():
+  //         final mark = NamedMark(action.name, position);
+  //         final markCtx = Context(
+  //           frame.caller,
+  //           (frame.marks ?? const GlushList.empty()).add(mark),
+  //           frame.context.callStart,
+  //           frame.context.pivot,
+  //         );
+
+  //         final bsrSet = bsr;
+  //         if (bsrSet != null && frame.caller is Caller) {
+  //           final rule = (frame.caller as Caller).rule;
+  //           bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
+  //         }
+
+  //         // Create local frame that will be conditionally added to nextFrames
+  //         final markFrame = _createLocalFrame(markCtx);
+  //         // Enqueue instead of _withFrame callback
+  //         _enqueueProcess(markFrame, action.nextState);
+  //       case PredicateAction():
+  //         // Predicate checking (lookahead without consumption)
+  //         // Buffer ensures we have the data needed for lookahead
+  //         bool predicateMatches = parser._checkPredicatePattern(action.pattern, position);
+
+  //         // For AND (&pattern), continue if pattern matches
+  //         // For NOT (!pattern), continue if pattern does NOT match
+  //         final shouldContinue = action.isAnd ? predicateMatches : !predicateMatches;
+
+  //         if (shouldContinue) {
+  //           // Predicate succeeded - enqueue next state processing
+  //           // Zero-width: processed with the same token in this frame step
+  //           final predFrame = _createLocalFrame(frame.context);
+  //           _enqueueProcess(predFrame, action.nextState);
+  //         }
+  //       // If predicate failed, we simply don't enqueue (backtrack)
+  //       case CallAction():
+  //         final rule = action.rule;
+  //         final pattern = action.pattern;
+  //         final key = (rule, pattern);
+  //         final isExecuted = _callers.containsKey(key);
+  //         final caller = _callers.putIfAbsent(key, () => Caller(rule, pattern));
+
+  //         caller.addReturn(frame.context, action.returnState);
+  //         if (!isExecuted) {
+  //           // Store callStart on the Caller so ReturnAction can emit BSR entries.
+  //           caller.callStart = position;
+  //           final callCtx = Context(caller, const GlushList.empty(), position);
+  //           // Create local frame that will be conditionally added to nextFrames
+  //           final callFrame = _createLocalFrame(callCtx);
+  //           // Enqueue first states instead of _withFrame callback
+  //           for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+  //             _enqueueProcess(callFrame, firstState);
+  //           }
+  //         }
+  //       case ReturnAction():
+  //         final rule = action.rule;
+
+  //         if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+  //           continue;
+  //         }
+
+  //         // Record BSR rule-completion entry BEFORE the ambiguity guard,
+  //         // so every distinct (rule, callStart, position) span is captured.
+  //         // The _returnedCallers guard below is only for parsing-state correctness.
+  //         final callStart =
+  //             frame.context.callStart ??
+  //             (frame.caller is Caller ? (frame.caller as Caller).callStart : null);
+  //         final lastPivot = frame.context.pivot;
+  //         if ((bsr, callStart, lastPivot ?? callStart) case (
+  //           var bsr?,
+  //           var callStart?,
+  //           var pivot?,
+  //         )) {
+  //           bsr.add(rule.symbolId!, callStart, pivot, position);
+  //         }
+
+  //         final caller = frame.caller;
+
+  //         // Record BSR entries for all parent rules being returned to.
+  //         // This must happen BEFORE the ambiguity guard because different
+  //         // derivations of 'rule' might return to the same 'caller' context,
+  //         // providing alternative pivots for the parent rule's sequence.
+  //         final bsrSet = bsr;
+  //         if (bsrSet != null && caller is Caller) {
+  //           caller.forEach((ccaller, nextState, ccontext) {
+  //             if (ccaller is Caller) {
+  //               bsrSet.add(
+  //                 ccaller.rule.symbolId!,
+  //                 ccontext.callStart!,
+  //                 caller.callStart!,
+  //                 position,
+  //               );
+  //             }
+  //           });
+  //         }
+
+  //         // Simple ambiguity handling: only process each caller once
+  //         final shouldProcess = _returnedCallers.add(caller);
+  //         if (!shouldProcess) continue;
+
+  //         if (caller is Caller) {
+  //           caller.forEach((ccaller, nextState, ccontext) {
+  //             final nextMarks = ccontext.marks == null
+  //                 ? frame.marks
+  //                 : GlushList.branched<Mark>([
+  //                     ccontext.marks!,
+  //                   ]).addList(frame.marks ?? const GlushList.empty());
+
+  //             final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
+  //             // Create local frame that will be conditionally added to nextFrames
+  //             final nextFrame = _createLocalFrame(nextContext);
+  //             // Enqueue instead of _withFrame callback
+  //             _enqueueProcess(nextFrame, nextState);
+  //           });
+  //         }
+  //       case AcceptAction():
+  //         _acceptedContexts.add(frame.context);
+  //     }
+  //   }
+  // }
+
+  // void _processFrame(Frame frame) {
+  //   _workQueue.clear();
+  //   _localFramesInCurrentProcessing.clear();
+  //   final nextFrame = Frame(frame.copy().context);
+
+  //   // Initialize work queue with all states from the frame
+  //   for (final state in frame.nextStates) {
+  //     _enqueueProcess(nextFrame, state);
+  //   }
+
+  //   // Trampoline loop: process all enqueued work iteratively
+  //   while (_workQueue.isNotEmpty) {
+  //     final work = _workQueue.removeFirst();
+  //     _processWork(work.frame, work.state);
+  //   }
+
+  //   // After all work is done, add frames that have states to nextFrames
+  //   // Local frames (created within _processWork) are only added if they have states
+  //   for (final localFrame in _localFramesInCurrentProcessing) {
+  //     if (localFrame.nextStates.isNotEmpty) {
+  //       nextFrames.add(localFrame);
+  //     }
+  //   }
+
+  //   // Add the main nextFrame if it has states
+  //   if (nextFrame.nextStates.isNotEmpty) {
+  //     nextFrames.add(nextFrame);
+  //   }
+  // }
 }
 
-/// Work item for CPS trampoline - represents the continuation to process a frame/state pair
-class _ProcessWork {
-  final Frame frame;
-  final State state;
+// /// Work item for CPS trampoline - represents the continuation to process a frame/state pair
+// class _ProcessWork {
+//   final Frame frame;
+//   final State state;
 
-  _ProcessWork(this.frame, this.state);
-}
+//   _ProcessWork(this.frame, this.state);
+// }
 
 
 ''';

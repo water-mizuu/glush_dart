@@ -2,7 +2,6 @@
 library glush.sm_parser;
 
 import 'dart:async';
-import 'dart:collection';
 
 import 'package:glush/src/grammar.dart';
 
@@ -1419,8 +1418,8 @@ class Step {
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
-  /// Frames created during CPS processing that need conditional adding to nextFrames
-  final Set<Frame> _localFramesInCurrentProcessing = {};
+  // /// Frames created during CPS processing that need conditional adding to nextFrames
+  // final Set<Frame> _localFramesInCurrentProcessing = {};
 
   Step(
     this.parser,
@@ -1439,23 +1438,15 @@ class Step {
     return markList.toList().cast<Mark>();
   }
 
-  /// Work queue for CPS trampoline - stores frame/state pairs to process
-  late final DoubleLinkedQueue<_ProcessWork> _workQueue = DoubleLinkedQueue<_ProcessWork>();
-
-  /// Create a local frame that will be conditionally added to nextFrames if it has states
-  Frame _createLocalFrame(Context context) {
+  void _withFrame(Context context, void Function(Frame) callback) {
     final frame = Frame(context);
-    _localFramesInCurrentProcessing.add(frame);
-    return frame;
+    callback(frame);
+    if (frame.nextStates.isNotEmpty) {
+      nextFrames.add(frame);
+    }
   }
 
-  /// Enqueue work to process a frame/state pair (CPS continuation)
-  void _enqueueProcess(Frame frame, State state) {
-    _workQueue.add(_ProcessWork(frame, state));
-  }
-
-  /// CPS-style processing: instead of recursive _process calls, we handle with a trampoline
-  void _processWork(Frame frame, State state) {
+  void _process(Frame frame, State state) {
     for (final action in state.actions) {
       switch (action) {
         case SemanticAction():
@@ -1493,8 +1484,10 @@ class Step {
             frame.context.pivot,
             computedValue,
           );
-          final nextFrame = _createLocalFrame(semanticCtx);
-          _enqueueProcess(nextFrame, action.nextState);
+
+          _withFrame(semanticCtx, (frame) {
+            _process(frame, action.nextState);
+          });
         case TokenAction():
           if (token case var token? when action.pattern.match(token)) {
             // If token matches, add a StringMark with the captured token if not ExactToken
@@ -1538,10 +1531,9 @@ class Step {
             bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
           }
 
-          // Create local frame that will be conditionally added to nextFrames
-          final markFrame = _createLocalFrame(markCtx);
-          // Enqueue instead of _withFrame callback
-          _enqueueProcess(markFrame, action.nextState);
+          _withFrame(markCtx, (nextFrame) {
+            _process(nextFrame, action.nextState);
+          });
         case PredicateAction():
           // Predicate checking (lookahead without consumption)
           // Buffer ensures we have the data needed for lookahead
@@ -1554,8 +1546,9 @@ class Step {
           if (shouldContinue) {
             // Predicate succeeded - enqueue next state processing
             // Zero-width: processed with the same token in this frame step
-            final predFrame = _createLocalFrame(frame.context);
-            _enqueueProcess(predFrame, action.nextState);
+            _withFrame(frame.context, (nextFrame) {
+              _process(nextFrame, action.nextState);
+            });
           }
         // If predicate failed, we simply don't enqueue (backtrack)
         case CallAction():
@@ -1571,11 +1564,12 @@ class Step {
             caller.callStart = position;
             final callCtx = Context(caller, const GlushList.empty(), position);
             // Create local frame that will be conditionally added to nextFrames
-            final callFrame = _createLocalFrame(callCtx);
-            // Enqueue first states instead of _withFrame callback
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
-              _enqueueProcess(callFrame, firstState);
-            }
+
+            _withFrame(callCtx, (nextFrame) {
+              for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+                _process(nextFrame, firstState);
+              }
+            });
           }
         case ReturnAction():
           final rule = action.rule;
@@ -1632,10 +1626,9 @@ class Step {
                     ]).addList(frame.marks ?? const GlushList.empty());
 
               final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
-              // Create local frame that will be conditionally added to nextFrames
-              final nextFrame = _createLocalFrame(nextContext);
-              // Enqueue instead of _withFrame callback
-              _enqueueProcess(nextFrame, nextState);
+              _withFrame(nextContext, (nextFrame) {
+                _process(nextFrame, nextState);
+              });
             });
           }
         case AcceptAction():
@@ -1645,40 +1638,10 @@ class Step {
   }
 
   void _processFrame(Frame frame) {
-    _workQueue.clear();
-    _localFramesInCurrentProcessing.clear();
-    final nextFrame = Frame(frame.copy().context);
-
-    // Initialize work queue with all states from the frame
-    for (final state in frame.nextStates) {
-      _enqueueProcess(nextFrame, state);
-    }
-
-    // Trampoline loop: process all enqueued work iteratively
-    while (_workQueue.isNotEmpty) {
-      final work = _workQueue.removeFirst();
-      _processWork(work.frame, work.state);
-    }
-
-    // After all work is done, add frames that have states to nextFrames
-    // Local frames (created within _processWork) are only added if they have states
-    for (final localFrame in _localFramesInCurrentProcessing) {
-      if (localFrame.nextStates.isNotEmpty) {
-        nextFrames.add(localFrame);
+    _withFrame(frame.copy().context, (nextFrame) {
+      for (final state in frame.nextStates) {
+        _process(nextFrame, state);
       }
-    }
-
-    // Add the main nextFrame if it has states
-    if (nextFrame.nextStates.isNotEmpty) {
-      nextFrames.add(nextFrame);
-    }
+    });
   }
-}
-
-/// Work item for CPS trampoline - represents the continuation to process a frame/state pair
-class _ProcessWork {
-  final Frame frame;
-  final State state;
-
-  _ProcessWork(this.frame, this.state);
 }
