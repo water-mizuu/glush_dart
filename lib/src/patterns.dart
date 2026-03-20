@@ -161,7 +161,7 @@ sealed class Pattern {
     return switch (this) {
       Token() => "tok",
       Marker() => "mar",
-      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Eps() => "eps",
       Alt() => "alt",
       Seq() => "seq",
       Conj() => "con",
@@ -187,7 +187,7 @@ sealed class Pattern {
         GreaterToken(:var bound) => ">$bound",
       },
       Marker(:var name) => "$name",
-      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Eps() => "",
       Alt() => "",
       Seq() => "",
       Conj() => "",
@@ -364,9 +364,6 @@ class Marker extends Pattern {
 /// Epsilon (empty pattern)
 class Eps extends Pattern {
   static const Set<Pattern> _emptySet = <Pattern>{};
-
-  @override
-  PatternSymbol get symbolId => const PatternSymbol("eps");
 
   @override
   Eps consume() => this;

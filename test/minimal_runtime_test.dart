@@ -96,8 +96,6 @@ void main() {
       final actionIdMatch = RegExp(r'_machine\.attachAction\("([^"]+)",').firstMatch(generated);
       final actionId = actionIdMatch?.group(1) ?? 'act:A_action:';
 
-      print('DEBUG: Found actionId: $actionId');
-
       final tempDir = Directory.systemTemp.createTempSync('glush_test_action');
       final parserFile = File('${tempDir.path}/action_parser.dart');
       parserFile.writeAsStringSync(generated);

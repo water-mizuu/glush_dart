@@ -382,6 +382,46 @@ void main() {
       expect(forestResult, isA<ParseForestSuccess>());
 
       if (forestResult is ParseForestSuccess) {
+        final trees = forestResult.forest.extract().toList();
+        Set<String> enumerations =
+            derivations //
+                .map((s) => s.toPrecedenceString(testInput))
+                .toSet();
+        Set<String> forestExtracted = forestResult.forest
+            .extract()
+            .map((s) => s.toPrecedenceString(testInput))
+            .toSet();
+
+        expect(enumerations, equals(forestExtracted));
+        expect(forestExtracted, equals(enumerations));
+        expect(enumerations.difference(forestExtracted), equals(<String>{}));
+        expect(forestExtracted.difference(enumerations), equals(<String>{}));
+        expect(derivations.length, equals(trees.length));
+        expect(derivations.length, equals(derivationCount));
+        expect(derivations.length, equals(44));
+      }
+    });
+
+    test('counts match for more complex ambiguity cleanly S->SSS|SS|s', () {
+      final grammar = Grammar(() {
+        late final Rule s;
+        s = Rule('S', () {
+          return Token.char('s') | // s
+              (s() >> s()) | // SS
+              (s() >> s() >> s()) |
+              (s() >> s() >> s() >> s()); // SSS
+        });
+        return s;
+      });
+
+      final parser = SMParser(grammar);
+      const testInput = 'sssss';
+      final derivationCount = parser.countAllParses(testInput);
+      final derivations = parser.enumerateAllParses(testInput).toList();
+      final forestResult = parser.parseWithForest(testInput);
+      expect(forestResult, isA<ParseForestSuccess>());
+
+      if (forestResult is ParseForestSuccess) {
         Set<String> enumerations =
             derivations //
                 .map((s) => s.toPrecedenceString(testInput))
@@ -396,13 +436,8 @@ void main() {
         expect(forestExtracted, equals(enumerations));
         expect(enumerations.difference(forestExtracted), equals(<String>{}));
         expect(forestExtracted.difference(enumerations), equals(<String>{}));
-        // Both enumeration and forest extraction should find the same number
         expect(derivations.length, equals(trees.length));
         expect(derivations.length, equals(derivationCount));
-        // sss has 3 parse trees:
-        // 1. SSS -> s+s+s
-        // 2. SS -> (s+s)+s
-        // 3. SS -> s+(s+s)
         expect(derivations.length, equals(44));
       }
     });

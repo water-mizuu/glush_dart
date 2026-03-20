@@ -258,9 +258,8 @@ class ForestNodeManager {
 class ParseForest {
   final ForestNodeManager nodeManager;
   final SymbolicNode root;
-  final List<Mark> marks;
 
-  ParseForest(this.nodeManager, this.root, this.marks);
+  const ParseForest(this.nodeManager, this.root);
 
   /// Count total nodes in the forest
   int countNodes() {

@@ -7,6 +7,7 @@ import 'patterns.dart';
 import 'state_machine.dart';
 import 'state_machine_export.dart';
 import 'sm_parser.dart';
+
 /// Reconstructs and manages an imported (exported) state machine
 /// Allows reattaching semantic actions at runtime
 class ImportedStateMachine {
@@ -51,7 +52,7 @@ class ImportedStateMachine {
     // Create rule placeholders (shell rules)
     final ruleMap = <String, Rule>{};
     for (final ruleName in spec.rules.keys) {
-      ruleMap[ruleName] = Rule(ruleName, () => throw UnsupportedError('Imported shell rule has no body'));
+      ruleMap[ruleName] = Rule(ruleName, () => throw UnsupportedError('shell rule has no body'));
       ruleMap[ruleName]!.assignSymbolId(PatternSymbol('rul:$ruleName:'));
     }
 

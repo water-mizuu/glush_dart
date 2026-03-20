@@ -563,13 +563,10 @@ class SppfBuilder {
     final start = task.start;
     final end = task.end;
 
-    if (pattern == "eps") {
-      valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
-      return;
-    }
-
     final [prefix, _, suffix] = pattern.split(":");
     switch (prefix) {
+      case "eps":
+        valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
       case "tok":
         {
           late bool isMatching = switch (suffix[0]) {

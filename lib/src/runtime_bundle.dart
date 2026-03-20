@@ -326,7 +326,7 @@ sealed class Pattern {
     return switch (this) {
       Token() => "tok",
       Marker() => "mar",
-      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Eps() => "eps",
       Alt() => "alt",
       Seq() => "seq",
       Conj() => "con",
@@ -352,7 +352,7 @@ sealed class Pattern {
         GreaterToken(:var bound) => ">$bound",
       },
       Marker(:var name) => "$name",
-      Eps() => throw UnsupportedError("The epsilon has a special symbol."),
+      Eps() => "",
       Alt() => "",
       Seq() => "",
       Conj() => "",
@@ -529,9 +529,6 @@ class Marker extends Pattern {
 /// Epsilon (empty pattern)
 class Eps extends Pattern {
   static const Set<Pattern> _emptySet = <Pattern>{};
-
-  @override
-  PatternSymbol get symbolId => const PatternSymbol("eps");
 
   @override
   Eps consume() => this;
@@ -1662,7 +1659,9 @@ class PredicateAction implements StateAction {
 
   @override
   String toString() =>
-      isAnd ? 'Predicate(&${symbol ?? pattern})' : 'Predicate(!${symbol ?? pattern})';
+      isAnd //
+      ? 'Predicate(&${symbol ?? pattern})'
+      : 'Predicate(!${symbol ?? pattern})';
 }
 
 /// State in the state machine
@@ -2054,9 +2053,8 @@ class ForestNodeManager {
 class ParseForest {
   final ForestNodeManager nodeManager;
   final SymbolicNode root;
-  final List<Mark> marks;
 
-  ParseForest(this.nodeManager, this.root, this.marks);
+  const ParseForest(this.nodeManager, this.root);
 
   /// Count total nodes in the forest
   int countNodes() {
@@ -2952,13 +2950,10 @@ class SppfBuilder {
     final start = task.start;
     final end = task.end;
 
-    if (pattern == "eps") {
-      valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
-      return;
-    }
-
     final [prefix, _, suffix] = pattern.split(":");
     switch (prefix) {
+      case "eps":
+        valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
       case "tok":
         {
           late bool isMatching = switch (suffix[0]) {
@@ -3467,7 +3462,7 @@ class SMParser {
     final nodeManager = ForestNodeManager();
     final root = bsrSet.buildSppf(grammar, startSymbol, input, nodeManager);
     final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startSymbol);
-    final forest = ParseForest(nodeManager, effectiveRoot, []);
+    final forest = ParseForest(nodeManager, effectiveRoot);
     return ParseForestSuccess(forest);
   }
 
@@ -3547,23 +3542,13 @@ class SMParser {
             final lastStep = _processToken(null, globalPosition, frames, bsr: bsr);
 
             if (lastStep.accept) {
-              // Now do a second pass over the buffered input to get marks
-              // (matches the sync algorithm's approach)
-              _predicateBuffer.initializeFromString(String.fromCharCodes(allInput));
-              var marksFrames = _initialFrames;
-              for (int i = 0; i < allInput.length; i++) {
-                final stepResult = _processToken(allInput[i], i, marksFrames, bsr: null);
-                marksFrames = stepResult.nextFrames;
-              }
-              final marksStep = _processToken(null, allInput.length, marksFrames, bsr: null);
-
               // Build SPPF from the recorded BSR
               final startSymbol = stateMachine.grammar.startSymbol;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
               final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeManager);
               final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
-              final forest = ParseForest(nodeManager, effectiveRoot, marksStep.marks);
+              final forest = ParseForest(nodeManager, effectiveRoot);
               completer.complete(ParseForestSuccess(forest));
             } else {
               completer.complete(ParseError(globalPosition));
@@ -3690,16 +3675,16 @@ class SMParser {
     Map<String, bool> inProgress,
   ) {
     final pattern = symbol.symbol;
-    if (pattern == "eps") {
-      return start == end ? 1 : 0;
-    }
-
     final children = grammar.childrenRegistry[symbol] ?? [];
     final split = pattern.split(":");
     if (split.length < 3) return 0;
     final [prefix, _, suffix] = split;
 
     switch (prefix) {
+      case "eps":
+        {
+          return start == end ? 1 : 0;
+        }
       case "tok":
         {
           if (start + 1 != end) return 0;
@@ -3878,17 +3863,18 @@ class SMParser {
     int? minPrecedenceLevel,
   }) sync* {
     final pattern = symbol.symbol;
-    if (pattern == "eps") {
-      if (start == end) yield ParseDerivation(symbol, start, end, []);
-      return;
-    }
-
     final children = grammar.childrenRegistry[symbol] ?? [];
     final split = pattern.split(":");
     if (split.length < 3) return;
     final [prefix, _, suffix] = split;
 
     switch (prefix) {
+      case "eps":
+        {
+          if (start == end) {
+            yield ParseDerivation(symbol, start, end, []);
+          }
+        }
       case "tok":
         {
           late bool isMatching = switch (suffix[0]) {
@@ -4122,8 +4108,6 @@ class SMParser {
 
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
     final symbol = tree.symbol.symbol;
-    if (symbol == "eps") return "";
-
     final split = symbol.split(":");
     if (split.length < 3) {
       // Fallback for symbols that don't follow the prefix:id:suffix format
@@ -4132,6 +4116,8 @@ class SMParser {
     final [prefix, _, suffix] = split;
 
     switch (prefix) {
+      case "eps":
+        return "";
       case "tok":
         return tree.getMatchedText(input);
       case "mar":
@@ -4201,14 +4187,16 @@ class SMParser {
 
   bool _checkPredicateSymbol(PatternSymbol symbol, int startPos) {
     final pattern = symbol.symbol;
-    if (pattern == "eps") return true;
-
     final children = grammar.childrenRegistry[symbol] ?? [];
     final split = pattern.split(":");
     if (split.length < 3) return true;
     final [prefix, _, suffix] = split;
 
     switch (prefix) {
+      case "eps":
+        {
+          return true;
+        }
       case "tok":
         {
           if (startPos >= _predicateBuffer.length) return false;
