@@ -1,6 +1,9 @@
 /// Compiles a parsed grammar file into an executable Grammar
 library glush.grammar_file_compiler;
 
+import 'package:glush/src/grammar_file_parser.dart';
+import 'package:glush/src/sm_parser.dart';
+
 import 'grammar_file_format.dart';
 import 'patterns.dart';
 import 'grammar.dart';
@@ -110,4 +113,8 @@ class GrammarFileCompiler {
         return _compilePattern(expr.inner, precedenceLevels);
     }
   }
+}
+
+extension GrammarFileExtension on String {
+  SMParser toSMParser() => SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
 }

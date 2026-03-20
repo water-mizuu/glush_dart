@@ -93,3 +93,70 @@ class Concat<T> extends GlushList<T> {
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
 }
+
+extension GlushListVisualizer<T> on GlushList<T> {
+  List<List<T>> allPaths() {
+    return _collect(this);
+  }
+
+  List<List<T>> _collect(GlushList<T> node) {
+    if (node is EmptyList<T>) {
+      return [[]];
+    } else if (node is Push<T>) {
+      return _collect(node.parent).map((path) => [...path, node.data]).toList();
+    } else if (node is Concat<T>) {
+      final leftPaths = _collect(node.left);
+      final rightPaths = _collect(node.right);
+      return [
+        for (final l in leftPaths)
+          for (final r in rightPaths) [...l, ...r],
+      ];
+    } else if (node is BranchedList<T>) {
+      return [for (final alt in node.alternatives) ..._collect(alt)];
+    }
+    return [];
+  }
+
+  String visualize() {
+    final buffer = StringBuffer();
+    _visualize(this, buffer, "", true);
+    return buffer.toString();
+  }
+
+  void _visualize(
+    GlushList<T> node,
+    StringBuffer buffer,
+    String prefix,
+    bool isLast,
+  ) {
+    final connector = isLast ? "└── " : "├── ";
+    buffer.write(prefix);
+    buffer.write(connector);
+
+    if (node is EmptyList<T>) {
+      buffer.writeln("Empty");
+    } else if (node is Push<T>) {
+      buffer.writeln("Push(${node.data})");
+      _visualize(
+        node.parent,
+        buffer,
+        prefix + (isLast ? "    " : "│   "),
+        true,
+      );
+    } else if (node is Concat<T>) {
+      buffer.writeln("Concat");
+      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false);
+      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true);
+    } else if (node is BranchedList<T>) {
+      buffer.writeln("Branched");
+      for (int i = 0; i < node.alternatives.length; i++) {
+        _visualize(
+          node.alternatives[i],
+          buffer,
+          prefix + (isLast ? "    " : "│   "),
+          i == node.alternatives.length - 1,
+        );
+      }
+    }
+  }
+}

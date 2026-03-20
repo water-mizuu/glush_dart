@@ -37,6 +37,12 @@ final class ParseSuccess extends ParseOutcome {
   ParseSuccess(this.result);
 }
 
+final class ParseAmbiguousSuccess extends ParseOutcome {
+  final List<ParserResult> results;
+
+  ParseAmbiguousSuccess(this.results);
+}
+
 /// Returned when parsing succeeds with a full parse forest.
 final class ParseForestSuccess extends ParseOutcome {
   final ParseForest forest;
@@ -102,8 +108,6 @@ class ParseDerivation {
     return input.substring(start, actualEnd);
   }
 
-  /// Convert to flat tree string showing matched content and structure
-  /// Example: for input "sss" with grammar S=s|SS|SSS might show (s(ss))
   String toTreeString(String input, [int indent = 0]) {
     final prefix = '  ' * indent;
     final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
@@ -249,7 +253,7 @@ class SMParser {
   GrammarInterface get grammar => stateMachine.grammar;
 
   SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar) {
-    const initialContext = Context(RootCallerKey(), null);
+    const initialContext = Context(RootCallerKey(), const GlushList.empty());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -258,7 +262,7 @@ class SMParser {
 
   /// Create parser from a pre-built state machine (used for imported machines)
   SMParser.fromStateMachine(this.stateMachine) {
-    const initialContext = Context(RootCallerKey(), null);
+    const initialContext = Context(RootCallerKey(), const GlushList.empty());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -299,6 +303,34 @@ class SMParser {
 
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
+    } else {
+      return ParseError(position);
+    }
+  }
+
+  ParseOutcome parseAmbiguous(String input) {
+    _predicateBuffer.initializeFromString(input);
+    var frames = _initialFrames;
+    int position = 0;
+
+    for (final codepoint in input.codeUnits) {
+      final stepResult = _processToken(codepoint, position, frames, isSupportingAmbiguity: true);
+      frames = stepResult.nextFrames;
+      if (frames.isEmpty) {
+        return ParseError(position);
+      }
+      position++;
+    }
+
+    final lastStep = _processToken(null, position, frames, isSupportingAmbiguity: true);
+
+    if (lastStep.accept) {
+      List<ParserResult> results = [];
+      for (final context in lastStep._acceptedContexts) {
+        results.add(ParserResult(context.marks.allPaths().single));
+      }
+
+      return ParseAmbiguousSuccess(results);
     } else {
       return ParseError(position);
     }
@@ -993,14 +1025,14 @@ class SMParser {
         }
         return null;
       case "seq":
-        final results = <dynamic>[];
+        final results = <Object?>[];
         for (final child in tree.children) {
           results.add(_evaluateParseDerivation(child, input));
         }
         return results;
       case "plu":
       case "sta":
-        final results = <dynamic>[];
+        final results = <Object?>[];
         if (tree.children.isNotEmpty) {
           results.add(_evaluateParseDerivation(tree.children[0], input));
           if (tree.children.length > 1) {
@@ -1030,13 +1062,111 @@ class SMParser {
                 .map((c) => _evaluateParseDerivation(c, input))
                 .toList();
             final span = tree.getMatchedText(input);
-            if (childResults.length == 1 && childResults.single is List) {
-              return action.callback(span, childResults.single as List);
+            if (childResults case List(length: 1, :List<Object?> single)) {
+              return action.callback(span, single);
             }
             return action.callback(span, childResults);
           }(),
           _ => tree.children.isNotEmpty ? _evaluateParseDerivation(tree.children[0], input) : null,
         };
+    }
+  }
+
+  List<String> extractParseTreeMarks(ParseTree tree, String input) {
+    return _aggregateMarks(
+      _flattenParseTreeMarks(_extractParseTreeMarks(parseTreeToDerivation(tree, input), input)),
+    );
+  }
+
+  List<String> _aggregateMarks(List<Mark> marks) {
+    final List<String> result = [];
+
+    StringMark? builtMark;
+    for (int i = 0; i < marks.length; ++i) {
+      Object? current = marks[i];
+
+      if (current is StringMark) {
+        if (builtMark == null) {
+          builtMark = current;
+        } else {
+          builtMark = StringMark(builtMark.value + current.value, builtMark.position);
+        }
+      } else if (current is NamedMark) {
+        if (builtMark != null) {
+          result.add(builtMark.value);
+          builtMark = null;
+        }
+        result.add(current.name);
+      }
+    }
+
+    // Add any remaining built mark at the end
+    if (builtMark != null) {
+      result.add(builtMark.value);
+    }
+
+    return result;
+  }
+
+  List<Mark> _flattenParseTreeMarks(Object? marks) {
+    if (marks is StringMark) return [marks];
+    if (marks is NamedMark) return [marks];
+    if (marks is List<Object?>) return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
+    return [];
+  }
+
+  Object? _extractParseTreeMarks(ParseDerivation tree, String input) {
+    final symbol = tree.symbol.symbol;
+    final split = symbol.split(":");
+    if (split.length < 3) {
+      // Fallback for symbols that don't follow the prefix:id:suffix format
+      return null;
+    }
+
+    final [prefix, _, suffix] = split;
+    switch (prefix) {
+      case "eps":
+        return "";
+      case "tok":
+        return StringMark(tree.getMatchedText(input), tree.start);
+      case "mar":
+        return NamedMark(suffix, tree.start);
+      case "alt":
+      case "act":
+      case "pre":
+      case "cal":
+      case "rca":
+      case "rul":
+        if (tree.children.isNotEmpty) {
+          return _extractParseTreeMarks(tree.children[0], input);
+        }
+        return null;
+      case "seq":
+        final results = <Object?>[];
+        for (final child in tree.children) {
+          results.add(_extractParseTreeMarks(child, input));
+        }
+        return results;
+      case "plu":
+      case "sta":
+        final results = <Object?>[];
+        if (tree.children.isNotEmpty) {
+          results.add(_extractParseTreeMarks(tree.children[0], input));
+          if (tree.children.length > 1) {
+            final rest = _extractParseTreeMarks(tree.children[1], input);
+            if (rest is List) {
+              results.addAll(rest);
+            } else if (rest != "") {
+              results.add(rest);
+            }
+          }
+        }
+        return results;
+      case "and":
+      case "not":
+        return [];
+      case _:
+        throw Error();
     }
   }
 
@@ -1109,8 +1239,17 @@ class SMParser {
     List<Frame> frames, {
     String input = '',
     BsrSet? bsr,
+    bool isSupportingAmbiguity = false,
   }) {
-    final step = Step(this, token, position, input: input, bsr: bsr, buffer: _predicateBuffer);
+    final step = Step(
+      this,
+      token,
+      position,
+      input: input,
+      bsr: bsr,
+      buffer: _predicateBuffer,
+      isSupportingAmbiguity: isSupportingAmbiguity,
+    );
     for (final frame in frames) {
       step._processFrame(frame);
     }
@@ -1396,7 +1535,7 @@ final class Caller extends CallerKey {
 /// Context for parsing (tracks marks, callers, and BSR call-start position).
 class Context {
   final CallerKey caller;
-  final GlushList<Mark>? marks;
+  final GlushList<Mark> marks;
 
   /// The input position at which the rule associated with this context
   /// was invoked.  Used to record BSR rule-completion entries.
@@ -1419,7 +1558,7 @@ class Frame {
   Frame copy() => Frame(context);
 
   CallerKey get caller => context.caller;
-  GlushList<Mark>? get marks => context.marks;
+  GlushList<Mark> get marks => context.marks;
 }
 
 /// Single step in parsing
@@ -1436,13 +1575,12 @@ class Step {
   /// Predicate lookahead buffer for checking patterns without full input access
   final PredicateLookaheadBuffer buffer;
 
+  final bool isSupportingAmbiguity;
+
   final List<Frame> nextFrames = [];
   final Map<(Rule, Pattern), Caller> _callers = {};
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
-
-  // /// Frames created during CPS processing that need conditional adding to nextFrames
-  // final Set<Frame> _localFramesInCurrentProcessing = {};
 
   Step(
     this.parser,
@@ -1451,13 +1589,14 @@ class Step {
     required this.input,
     this.bsr,
     required this.buffer,
+    required this.isSupportingAmbiguity,
   });
 
   bool get accept => _acceptedContexts.isNotEmpty;
 
   List<Mark> get marks {
     final markList = _acceptedContexts[0].marks;
-    if (markList == null) return [];
+
     return markList.toList().cast<Mark>();
   }
 
@@ -1475,30 +1614,10 @@ class Step {
         case SemanticAction():
           // Evaluate semantic action during parsing
           // Extract child results from marks (StringMark values)
-          final marks = frame.marks?.toList() ?? [];
-          final childResults = <Object?>[];
-          int spanStart = position;
-          int spanEnd = position;
+          // final marks = frame.marks.toList();
+          // int spanStart = position;
+          // int spanEnd = position;
 
-          for (final mark in marks) {
-            if (mark is StringMark) {
-              childResults.add(mark.value);
-              spanStart = spanStart > mark.position ? mark.position : spanStart;
-              spanEnd = mark.position + 1; // Update end position
-            } else if (mark is NamedMark) {
-              spanStart = spanStart > mark.position ? mark.position : spanStart;
-              spanEnd = spanEnd < mark.position ? mark.position : spanEnd;
-            }
-          }
-
-          // // Compute the span string from input
-          // final span = spanStart < input.length && spanEnd <= input.length
-          //     ? input.substring(spanStart, spanEnd)
-          //     : '';
-
-          // final computedValue = action.callback(span, childResults);
-
-          // Create new context with computed semantic value
           final semanticCtx = Context(
             frame.caller,
             frame.marks,
@@ -1516,7 +1635,7 @@ class Step {
             var newMarks = frame.marks;
             if (action.pattern case Token(:var choice) when choice is! ExactToken) {
               final strMark = StringMark(String.fromCharCode(token), position);
-              newMarks = (newMarks ?? const GlushList.empty()).add(strMark);
+              newMarks = newMarks.add(strMark);
             }
 
             final bsrSet = bsr;
@@ -1541,7 +1660,7 @@ class Step {
           final mark = NamedMark(action.name, position);
           final markCtx = Context(
             frame.caller,
-            (frame.marks ?? const GlushList.empty()).add(mark),
+            frame.marks.add(mark),
             frame.context.callStart,
             frame.context.pivot,
           );
@@ -1639,16 +1758,13 @@ class Step {
           }
 
           // Simple ambiguity handling: only process each caller once
-          final shouldProcess = _returnedCallers.add(caller);
-          if (!shouldProcess) continue;
+          if (!isSupportingAmbiguity && !_returnedCallers.add(caller)) {
+            continue;
+          }
 
           if (caller is Caller) {
             caller.forEach((ccaller, nextState, ccontext) {
-              final nextMarks = ccontext.marks == null
-                  ? frame.marks
-                  : GlushList.branched<Mark>([
-                      ccontext.marks!,
-                    ]).addList(frame.marks ?? const GlushList.empty());
+              final nextMarks = GlushList.branched<Mark>([ccontext.marks]).addList(frame.marks);
 
               final nextContext = Context(ccaller, nextMarks, ccontext.callStart, position);
               _withFrame(nextContext, (nextFrame) {

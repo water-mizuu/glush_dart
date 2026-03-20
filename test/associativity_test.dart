@@ -8,12 +8,11 @@ void main() {
       // Tree 0 is left-assoc: ((2^3)^4)
       // Tree 1 is right-assoc: (2^(3^4))
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+           6| expr^6 '^' expr
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -44,21 +43,16 @@ expr =
       // Using different levels: expr^6 '^' expr^7 filters out right-assoc
       // expr^7 constraint on right means it can only match atoms (level 11), not operators (level 6)
       // Result: Only left-assoc possible
-      final grammarText = '''
-expr = 
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr^7
-  ;
-''';
+      final grammarText =
+          '''
+          expr =
+            11| '(' expr^0 ')'
+            11| [0-9]+
+             6| expr^6 '^' expr^7
+          '''
+              .toSMParser();
 
-      final parser = GrammarFileParser(grammarText);
-      final grammarFile = parser.parse();
-      final compiler = GrammarFileCompiler(grammarFile);
-      final grammar = compiler.compile();
-      final smParser = SMParser(grammar);
-
-      final result = smParser.parseWithForest('2^3^4');
+      final result = grammarText.parseWithForest('2^3^4');
       expect(result, isA<ParseForestSuccess>());
 
       if (result is ParseForestSuccess) {
@@ -74,12 +68,11 @@ expr =
       // Using same levels: expr^6 '^' expr^6 allows BOTH left-assoc and right-assoc parses
       // This is the ambiguous case - the grammar is naturally ambiguous
       final grammarText = '''
-expr = 
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr^6
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+           6| expr^6 '^' expr^6
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -106,13 +99,12 @@ expr =
       // Test that different operator levels maintain independent associativity
       // + is left-assoc (level 6), * is right-assoc (no constraint)
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  7| expr^6 '*' expr^7
-  6| expr^6 '+' expr^7
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+           7| expr^6 '*' expr^7
+           6| expr^6 '+' expr^7
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -137,12 +129,11 @@ expr =
     test('Both parsing pathways produce identical parse trees', () {
       // Verify that forest-based and enumeration-based parsing produce same results
       final grammarText = '''
-expr = 
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+           6| expr^6 '^' expr
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -175,12 +166,11 @@ expr =
     test('Deeply nested expressions maintain associativity constraints', () {
       // Test that constraints are properly propagated through deep nesting
       final grammarText = '''
-expr = 
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '+' expr^7
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+          6| expr^6 '+' expr^7
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -204,12 +194,11 @@ expr =
     test('Parentheses override precedence and associativity', () {
       // Parentheses should allow any grouping regardless of associativity
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr^7
-  ;
-''';
+        expr =
+          11| '(' expr^0 ')'
+          11| [0-9]+
+          6| expr^6 '^' expr^7
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -234,13 +223,12 @@ expr =
     test('Mixed operators with different constraints produce correct precedence', () {
       // Test complex expression with multiple operator types
       final grammarText = '''
-expr = 
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  7| expr^7 '*' expr^8
-  6| expr^6 '+' expr^7
-  ;
-''';
+          expr =
+            11| '(' expr^0 ')'
+            11| [0-9]+
+             7| expr^7 '*' expr^8
+             6| expr^6 '+' expr^7
+          ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -279,13 +267,12 @@ expr =
       // This test specifically verifies the memoization fix:
       // Same rule called at same span with different constraints should produce different results
       final grammarText = '''
-expr =
-  11| '(' expr^0 ')'
-  11| [0-9]+
-  6| expr^6 '^' expr^7
-  6| expr^6 '+' expr
-  ;
-''';
+          expr =
+            11| '(' expr^0 ')'
+            11| [0-9]+
+            6| expr^6 '^' expr^7
+            6| expr^6 '+' expr
+          ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
@@ -321,11 +308,10 @@ expr =
     test('Empty alternatives and edge cases', () {
       // Test boundary case: very simple grammar
       final grammarText = '''
-expr =
-  11| [0-9]+
-  6| expr^6 '+' expr^6
-  ;
-''';
+        expr =
+          11| [0-9]+
+           6| expr^6 '+' expr^6
+        ''';
 
       final parser = GrammarFileParser(grammarText);
       final grammarFile = parser.parse();
