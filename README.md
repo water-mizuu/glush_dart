@@ -223,9 +223,9 @@ Token.char('a').star()  // Matches "", "a", "aa", "aaa", ...
 Token.char('a').plus()  // Matches "a", "aa", "aaa", ... (not "")
 ```
 
-**Tree structure:** 
-- Star with zero matches: empty children list
-- Star with matches: `[first_item, star_of_rest]` (recursive)
+**Tree structure:**
+- Star with zero matches: epsilon
+- Star with matches: `[[s, s], s]` (recursive)
 - Plus: Always at least 2 children
 
 ---

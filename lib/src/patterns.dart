@@ -33,6 +33,10 @@ sealed class Pattern {
       return Eps();
     }
 
+    if (pattern.length == 1) {
+      return Token(ExactToken(pattern.codeUnits.single));
+    }
+
     List<int> codeUnits = pattern.codeUnits;
     Pattern result = codeUnits
         .map((u) => Token(ExactToken(u)))
@@ -165,8 +169,6 @@ sealed class Pattern {
       Alt() => "alt",
       Seq() => "seq",
       Conj() => "con",
-      Plus() => "plu",
-      Star() => "sta",
       And() => "and",
       Not() => "not",
       Rule() => "rul",
@@ -191,8 +193,6 @@ sealed class Pattern {
       Alt() => "",
       Seq() => "",
       Conj() => "",
-      Plus() => "",
-      Star() => "",
       And() => "",
       Not() => "",
       Rule() => "",
@@ -550,92 +550,6 @@ class Conj extends Pattern {
 
   @override
   String toString() => 'conj($left, $right)';
-}
-
-/// Repetition (one or more)
-class Plus extends Pattern {
-  final Pattern child;
-
-  Plus(Pattern c) : child = c.consume();
-
-  @override
-  Plus copy() => Plus(child);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
-    setEmpty(childEmpty);
-    return childEmpty;
-  }
-
-  @override
-  bool isStatic() => child.isStatic();
-
-  @override
-  Set<Pattern> firstSet() => child.firstSet();
-  @override
-  Set<Pattern> lastSet() => child.lastSet();
-
-  @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
-        callback(a, b);
-      }
-    }
-  }
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    child.collectRules(rules);
-  }
-
-  @override
-  String toString() => 'plus($child)';
-}
-
-/// Repetition (zero or more)
-class Star extends Pattern {
-  final Pattern child;
-
-  Star(Pattern c) : child = c.consume();
-
-  @override
-  Star copy() => Star(child);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    child.calculateEmpty(emptyRules);
-    setEmpty(true);
-    return true;
-  }
-
-  @override
-  bool isStatic() => true;
-
-  @override
-  Set<Pattern> firstSet() => child.firstSet();
-  @override
-  Set<Pattern> lastSet() => child.lastSet();
-
-  @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
-        callback(a, b);
-      }
-    }
-  }
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    child.collectRules(rules);
-  }
-
-  @override
-  String toString() => 'star($child)';
 }
 
 /// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming

@@ -108,10 +108,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
-        Plus(:var child) ||
-        Star(:var child) ||
-        Action(:var child) ||
-        Prec(:var child) => [child.symbolId!],
+        Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -178,10 +175,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(action.child);
         case Prec plp:
           queue.add(plp.child);
-        case Plus plus:
-          queue.add(plus.child);
-        case Star star:
-          queue.add(star.child);
         default:
           break;
       }
@@ -210,10 +203,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }
@@ -421,10 +410,7 @@ class GrammarAdapter implements GrammarInterface {
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
-        Plus(:var child) ||
-        Star(:var child) ||
-        Action(:var child) ||
-        Prec(:var child) => [child.symbolId!],
+        Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -463,10 +449,6 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }

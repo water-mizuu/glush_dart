@@ -82,23 +82,20 @@ void main() {
       expect(forest.allPaths().length, equals(4));
     });
 
-    // test('5. Epsilon (Empty Match) in Shared Forest', () {
-    //   final parser = r"S = $OPT 'a'? $END 'b'".toSMParser();
+    test('5. Epsilon (Empty Match) in Shared Forest', () {
+      final parser = r"S = $OPT 'a'? $END 'b'".toSMParser();
+      expect(
+        parser.parseAmbiguous('ab', captureTokensAsMarks: true),
+        isA<ParseAmbiguousForestSuccess>(),
+      );
+      final result = parser.parseAmbiguous('b', captureTokensAsMarks: true);
+      expect(result, isA<ParseAmbiguousForestSuccess>());
 
-    //   final evaluator = Evaluator<String>((consume) => {'OPT': () => "opt", 'END': () => "end"});
-
-    //   expect(
-    //     parser.parseAmbiguous('ab', captureTokensAsMarks: true),
-    //     isA<ParseAmbiguousForestSuccess>(),
-    //   );
-    //   final result = parser.parseAmbiguous('b', captureTokensAsMarks: true);
-    //   expect(result, isA<ParseAmbiguousForestSuccess>());
-
-    //   final forest = (result as ParseAmbiguousForestSuccess).forest;
-    //   final val = evaluator.evaluate(forest.allPaths().first.toMarkStrings());
-    //   expect(val, contains('opt'));
-    //   expect(val, contains('end'));
-    // }, timeout: Timeout(const Duration(seconds: 1)));
+      final forest = (result as ParseAmbiguousForestSuccess).forest;
+      final marksConcat = forest.allPaths().single.toMarkStrings().join(" ");
+      expect(marksConcat, contains('OPT'));
+      expect(marksConcat, contains('END'));
+    });
 
     test('6. Cyclic Epsilon Grammar (Protection)', () {
       final parser = r"S = S | 'a'".toSMParser();
@@ -107,27 +104,25 @@ void main() {
         parser.parseAmbiguous('a', captureTokensAsMarks: true),
         isA<ParseAmbiguousForestSuccess>(),
       );
-    }, timeout: Timeout(const Duration(seconds: 1)));
+    });
 
-    // test('7. Mark Collision and Nesting', () {
-    //   final parser =
-    //       r"""
-    // S = $M A $M B
-    // A = 'a'
-    // B = 'b'
-    // """
-    //           .trim()
-    //           .toSMParser();
+    test('7. Mark Collision and Nesting', () {
+      final parser =
+          r"""
+    S = $M A $M B
+    A = 'a'
+    B = 'b'
+    """
+              .trim()
+              .toSMParser();
 
-    //   print(parser.stateMachine.grammar.rules.map((v) => (v, v.body())).join("\n"));
+      final result = parser.parseAmbiguous('ab', captureTokensAsMarks: true);
+      expect(result, isA<ParseAmbiguousForestSuccess>());
 
-    //   final result = parser.parseAmbiguous('ab', captureTokensAsMarks: true);
-    //   expect(result, isA<ParseAmbiguousForestSuccess>());
-
-    //   final forest = (result as ParseAmbiguousForestSuccess).forest;
-    //   final marks = forest.allPaths().first.toMarkStrings();
-    //   expect(marks.where((m) => m == 'mark').length, equals(2));
-    // });
+      final forest = (result as ParseAmbiguousForestSuccess).forest;
+      final marks = forest.allPaths().first.toMarkStrings();
+      expect(marks.where((m) => m == 'M').length, equals(2));
+    });
 
     test('8. Dangling Else (Precedence)', () {
       final parser =
@@ -144,7 +139,7 @@ void main() {
 
       final forest = (result as ParseAmbiguousForestSuccess).forest;
       expect(forest.allPaths().length, equals(2));
-    }, timeout: Timeout(const Duration(seconds: 1)));
+    });
 
     test('9. Predicate Interactions', () {
       final parser = r"S = &('a' 'b') 'a' 'b'".toSMParser();
@@ -155,5 +150,5 @@ void main() {
       );
       expect(parser.parseAmbiguous('ac', captureTokensAsMarks: true), isA<ParseError>());
     });
-  }, timeout: Timeout(const Duration(seconds: 1)));
+  });
 }

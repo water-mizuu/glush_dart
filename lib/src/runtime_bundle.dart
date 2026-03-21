@@ -416,6 +416,10 @@ sealed class Pattern {
       return Eps();
     }
 
+    if (pattern.length == 1) {
+      return Token(ExactToken(pattern.codeUnits.single));
+    }
+
     List<int> codeUnits = pattern.codeUnits;
     Pattern result = codeUnits
         .map((u) => Token(ExactToken(u)))
@@ -548,8 +552,6 @@ sealed class Pattern {
       Alt() => "alt",
       Seq() => "seq",
       Conj() => "con",
-      Plus() => "plu",
-      Star() => "sta",
       And() => "and",
       Not() => "not",
       Rule() => "rul",
@@ -574,8 +576,6 @@ sealed class Pattern {
       Alt() => "",
       Seq() => "",
       Conj() => "",
-      Plus() => "",
-      Star() => "",
       And() => "",
       Not() => "",
       Rule() => "",
@@ -933,92 +933,6 @@ class Conj extends Pattern {
 
   @override
   String toString() => 'conj($left, $right)';
-}
-
-/// Repetition (one or more)
-class Plus extends Pattern {
-  final Pattern child;
-
-  Plus(Pattern c) : child = c.consume();
-
-  @override
-  Plus copy() => Plus(child);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
-    setEmpty(childEmpty);
-    return childEmpty;
-  }
-
-  @override
-  bool isStatic() => child.isStatic();
-
-  @override
-  Set<Pattern> firstSet() => child.firstSet();
-  @override
-  Set<Pattern> lastSet() => child.lastSet();
-
-  @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
-        callback(a, b);
-      }
-    }
-  }
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    child.collectRules(rules);
-  }
-
-  @override
-  String toString() => 'plus($child)';
-}
-
-/// Repetition (zero or more)
-class Star extends Pattern {
-  final Pattern child;
-
-  Star(Pattern c) : child = c.consume();
-
-  @override
-  Star copy() => Star(child);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    child.calculateEmpty(emptyRules);
-    setEmpty(true);
-    return true;
-  }
-
-  @override
-  bool isStatic() => true;
-
-  @override
-  Set<Pattern> firstSet() => child.firstSet();
-  @override
-  Set<Pattern> lastSet() => child.lastSet();
-
-  @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
-        callback(a, b);
-      }
-    }
-  }
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    child.collectRules(rules);
-  }
-
-  @override
-  String toString() => 'star($child)';
 }
 
 /// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming
@@ -1465,10 +1379,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
-        Plus(:var child) ||
-        Star(:var child) ||
-        Action(:var child) ||
-        Prec(:var child) => [child.symbolId!],
+        Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -1535,10 +1446,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(action.child);
         case Prec plp:
           queue.add(plp.child);
-        case Plus plus:
-          queue.add(plus.child);
-        case Star star:
-          queue.add(star.child);
         default:
           break;
       }
@@ -1567,10 +1474,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }
@@ -1778,10 +1681,7 @@ class GrammarAdapter implements GrammarInterface {
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
 
-        Plus(:var child) ||
-        Star(:var child) ||
-        Action(:var child) ||
-        Prec(:var child) => [child.symbolId!],
+        Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
@@ -1820,10 +1720,6 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
         break;
     }
@@ -2082,7 +1978,7 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Alt() || Seq() || Rule() || Plus() || Star() || Prec():
+      case Alt() || Seq() || Rule() || Prec():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
     }
@@ -2103,10 +1999,6 @@ class StateMachine {
     } else if (pattern is Seq) {
       _buildPrecedenceMap(pattern.left, current, map);
       _buildPrecedenceMap(pattern.right, current, map);
-    } else if (pattern is Plus) {
-      _buildPrecedenceMap(pattern.child, current, map);
-    } else if (pattern is Star) {
-      _buildPrecedenceMap(pattern.child, current, map);
     } else if (pattern is Action) {
       _buildPrecedenceMap(pattern.child, current, map);
     }
@@ -2885,73 +2777,6 @@ class _ContSeqRight extends _Task {
   _ContSeqRight(this.loopTask, this.leftNodes);
 }
 
-class _ContPlusLoop extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-  final Iterator<int> it;
-  IntermediateNode? plusNode;
-
-  _ContPlusLoop(
-    this.currentRule,
-    this.pattern,
-    this.start,
-    this.end,
-    this.ruleStart,
-    this.minPrecedenceLevel,
-    this.it,
-  );
-}
-
-class _ContPlusLeft extends _Task {
-  final _ContPlusLoop loopTask;
-  final int mid;
-  _ContPlusLeft(this.loopTask, this.mid);
-}
-
-class _ContPlusRight extends _Task {
-  final _ContPlusLoop loopTask;
-  final List<ForestNode> headNodes;
-  _ContPlusRight(this.loopTask, this.headNodes);
-}
-
-class _ContPlusFinal extends _Task {
-  final _ContPlusLoop loopTask;
-  _ContPlusFinal(this.loopTask);
-}
-
-class _ContStarLoop extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-  final Iterator<int> it;
-  IntermediateNode? starNode;
-
-  _ContStarLoop(
-    this.currentRule,
-    this.pattern,
-    this.start,
-    this.end,
-    this.ruleStart,
-    this.minPrecedenceLevel,
-    this.it,
-  );
-}
-
-class _ContStarLeft extends _Task {
-  final _ContStarLoop loopTask;
-  final int mid;
-  const _ContStarLeft(this.loopTask, this.mid);
-}
-
-class _ContStarRight extends _Task {
-  final _ContStarLoop loopTask;
-  final List<ForestNode> headNodes;
-  const _ContStarRight(this.loopTask, this.headNodes);
-}
-
 class _ContConjLeft extends _Task {
   final PatternSymbol currentRule;
   final PatternSymbol pattern;
@@ -3154,125 +2979,6 @@ class SppfBuilder {
           }
         }
       }
-      // --- Plus Loop ---
-      else if (task is _ContPlusLoop) {
-        if (!task.it.moveNext()) {
-          taskStack.add(_ContPlusFinal(task));
-          taskStack.add(
-            _EvalPattern(
-              task.currentRule,
-              getChildrenOf(task.pattern).single,
-              task.start,
-              task.end,
-              task.ruleStart,
-              task.minPrecedenceLevel,
-            ),
-          );
-        } else {
-          final mid = task.it.current;
-          taskStack.add(task); // Re-queue loop state
-          taskStack.add(_ContPlusLeft(task, mid));
-          taskStack.add(
-            _EvalPattern(
-              task.currentRule,
-              getChildrenOf(task.pattern).single,
-              task.start,
-              mid,
-              task.ruleStart,
-              task.minPrecedenceLevel,
-            ),
-          );
-        }
-      } else if (task is _ContPlusLeft) {
-        final headNodes = valueStack.removeLast() as List<ForestNode>;
-        if (headNodes.isNotEmpty) {
-          taskStack.add(_ContPlusRight(task.loopTask, headNodes));
-          taskStack.add(
-            _EvalPattern(
-              task.loopTask.currentRule,
-              task.loopTask.pattern,
-              task.mid,
-              task.loopTask.end,
-              task.loopTask.ruleStart,
-              task.loopTask.minPrecedenceLevel,
-            ),
-          );
-        }
-      } else if (task is _ContPlusRight) {
-        final tailNodes = valueStack.removeLast() as List<ForestNode>;
-        if (tailNodes.isNotEmpty) {
-          task.loopTask.plusNode ??= nodeManager.intermediate(
-            task.loopTask.start,
-            task.loopTask.end,
-            task.loopTask.pattern,
-          );
-          for (final h in task.headNodes) {
-            for (final t in tailNodes) task.loopTask.plusNode!.addFamily(Family.binary(h, t));
-          }
-        }
-      } else if (task is _ContPlusFinal) {
-        final nodes = valueStack.removeLast() as List<ForestNode>;
-        if (nodes.isNotEmpty) {
-          task.loopTask.plusNode ??= nodeManager.intermediate(
-            task.loopTask.start,
-            task.loopTask.end,
-            task.loopTask.pattern,
-          );
-          for (final n in nodes) task.loopTask.plusNode!.addFamily(Family.unary(n));
-        }
-        valueStack.add(task.loopTask.plusNode != null ? [task.loopTask.plusNode!] : <ForestNode>[]);
-      }
-      // --- Star Loop ---
-      else if (task is _ContStarLoop) {
-        if (!task.it.moveNext()) {
-          if (task.start == task.end) {
-            task.starNode ??= nodeManager.intermediate(task.start, task.end, task.pattern);
-            task.starNode!.addFamily(Family.unary(nodeManager.epsilon(task.start, task.pattern)));
-          }
-          valueStack.add(task.starNode != null ? [task.starNode!] : <ForestNode>[]);
-        } else {
-          final mid = task.it.current;
-          taskStack.add(task); // Re-queue loop state
-          taskStack.add(_ContStarLeft(task, mid));
-          taskStack.add(
-            _EvalPattern(
-              task.currentRule,
-              getChildrenOf(task.pattern).single,
-              task.start,
-              mid,
-              task.ruleStart,
-              task.minPrecedenceLevel,
-            ),
-          );
-        }
-      } else if (task is _ContStarLeft) {
-        final headNodes = valueStack.removeLast() as List<ForestNode>;
-        if (headNodes.isNotEmpty) {
-          taskStack.add(_ContStarRight(task.loopTask, headNodes));
-          taskStack.add(
-            _EvalPattern(
-              task.loopTask.currentRule,
-              task.loopTask.pattern,
-              task.mid,
-              task.loopTask.end,
-              task.loopTask.ruleStart,
-              task.loopTask.minPrecedenceLevel,
-            ),
-          );
-        }
-      } else if (task is _ContStarRight) {
-        final tailNodes = valueStack.removeLast() as List<ForestNode>;
-        if (tailNodes.isNotEmpty) {
-          task.loopTask.starNode ??= nodeManager.intermediate(
-            task.loopTask.start,
-            task.loopTask.end,
-            task.loopTask.pattern,
-          );
-          for (final h in task.headNodes) {
-            for (final t in tailNodes) task.loopTask.starNode!.addFamily(Family.binary(h, t));
-          }
-        }
-      }
     }
 
     return valueStack.removeLast() as SymbolicNode?;
@@ -3357,36 +3063,6 @@ class SppfBuilder {
           final pivots = bsr.pivotsFor(task.currentRule, start, end);
           taskStack.add(
             _ContSeqLoop(
-              task.currentRule,
-              task.pattern,
-              start,
-              end,
-              task.ruleStart,
-              task.minPrecedenceLevel,
-              pivots.iterator,
-            ),
-          );
-        }
-      case "plu":
-        {
-          final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
-          taskStack.add(
-            _ContPlusLoop(
-              task.currentRule,
-              task.pattern,
-              start,
-              end,
-              task.ruleStart,
-              task.minPrecedenceLevel,
-              pivots.iterator,
-            ),
-          );
-        }
-      case "sta":
-        {
-          final pivots = bsr.pivotsFor(task.currentRule, task.ruleStart, end);
-          taskStack.add(
-            _ContStarLoop(
               task.currentRule,
               task.pattern,
               start,
@@ -3628,10 +3304,8 @@ class ParseDerivation {
 
   String toTreeString(String input, [int indent = 0]) {
     final prefix = '  ' * indent;
-    final str =
-        '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
-    return str +
-        children.map((c) => c.toTreeString(input, indent + 1)).join('');
+    final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
+    return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
   }
 
   String toPrecedenceString(String input) {
@@ -3760,10 +3434,7 @@ class SMParser {
   ///
   /// Skips state machine construction (which has already been done elsewhere)
   /// and creates a parser ready to parse input using the provided machine.
-  SMParser.fromStateMachine(
-    this.stateMachine, {
-    this.captureTokensAsMarks = false,
-  }) {
+  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
     const initialContext = Context(RootCallerKey(), const GlushList.empty());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -3779,12 +3450,7 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(
-        codepoint,
-        position,
-        frames,
-        predecessors: {},
-      );
+      final stepResult = _processToken(codepoint, position, frames, predecessors: {});
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return false;
@@ -3809,12 +3475,7 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(
-        codepoint,
-        position,
-        frames,
-        predecessors: {},
-      );
+      final stepResult = _processToken(codepoint, position, frames, predecessors: {});
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError(position);
@@ -3840,10 +3501,7 @@ class SMParser {
   /// Returns:
   /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
   /// - [ParseError] if parsing fails
-  ParseOutcome parseAmbiguous(
-    String input, {
-    bool captureTokensAsMarks = false,
-  }) {
+  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
     final Map<_ParseNode, Set<_Predecessor>> predecessors = {};
     var frames = _initialFrames;
     int position = 0;
@@ -3910,28 +3568,13 @@ class SMParser {
     try {
       for (final (source, action, marks, callSite) in preds) {
         if (action is ReturnAction) {
-          final ruleForest = _extractForestFromGraph(
-            source!,
-            memo,
-            predecessors,
-            currentVisiting,
-          );
+          final ruleForest = _extractForestFromGraph(source!, memo, predecessors, currentVisiting);
           final parentForest = callSite != null
-              ? _extractForestFromGraph(
-                  callSite,
-                  memo,
-                  predecessors,
-                  currentVisiting,
-                )
+              ? _extractForestFromGraph(callSite, memo, predecessors, currentVisiting)
               : const GlushList<Mark>.empty();
           alts.add(parentForest.addList(_markManager, ruleForest));
         } else if (source != null) {
-          final base = _extractForestFromGraph(
-            source,
-            memo,
-            predecessors,
-            currentVisiting,
-          );
+          final base = _extractForestFromGraph(source, memo, predecessors, currentVisiting);
           alts.add(base.addList(_markManager, marks));
         } else {
           alts.add(marks);
@@ -3968,8 +3611,7 @@ class SMParser {
     final startSymbol = stateMachine.grammar.startSymbol;
     final nodeManager = ForestNodeManager();
     final root = bsrSet.buildSppf(grammar, startSymbol, input, nodeManager);
-    final effectiveRoot =
-        root ?? nodeManager.symbolic(0, input.length, startSymbol);
+    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startSymbol);
     final forest = ParseForest(nodeManager, effectiveRoot);
     return ParseForestSuccess(forest);
   }
@@ -4072,14 +3714,8 @@ class SMParser {
               final startSymbol = stateMachine.grammar.startSymbol;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(
-                grammar,
-                startSymbol,
-                fullInput,
-                nodeManager,
-              );
-              final effectiveRoot =
-                  root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
+              final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeManager);
+              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
               final forest = ParseForest(nodeManager, effectiveRoot);
               completer.complete(ParseForestSuccess(forest));
             } else {
@@ -4119,13 +3755,7 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(
-        codepoint,
-        position,
-        frames,
-        bsr: bsr,
-        predecessors: {},
-      );
+      final stepResult = _processToken(codepoint, position, frames, bsr: bsr, predecessors: {});
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -4133,13 +3763,7 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(
-      null,
-      position,
-      frames,
-      bsr: bsr,
-      predecessors: {},
-    );
+    final lastStep = _processToken(null, position, frames, bsr: bsr, predecessors: {});
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -4175,14 +3799,7 @@ class SMParser {
     final startSymbol = stateMachine.grammar.startSymbol;
     final memo = <String, List<ParseDerivation>?>{};
 
-    yield* _enumerateDerivations(
-      bsrSet,
-      startSymbol,
-      0,
-      input.length,
-      input,
-      memo,
-    );
+    yield* _enumerateDerivations(bsrSet, startSymbol, 0, input.length, input, memo);
   }
 
   /// Enumerate all possible parse trees with evaluated semantic values.
@@ -4193,9 +3810,7 @@ class SMParser {
   /// semantic actions to produce a value. Returns an iterable of
   /// [ParseDerivationWithValue] objects containing both the derivation
   /// and its evaluated result.
-  Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(
-    String input,
-  ) sync* {
+  Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
       final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
@@ -4213,12 +3828,7 @@ class SMParser {
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
 
-    return ParseDerivation(
-      tree.node.symbol,
-      tree.node.start,
-      tree.node.end,
-      childDerivations,
-    );
+    return ParseDerivation(tree.node.symbol, tree.node.start, tree.node.end, childDerivations);
   }
 
   /// Count the total number of parse trees for a rule without building them.
@@ -4256,24 +3866,10 @@ class SMParser {
 
     if (symbol.symbol.startsWith('rul:')) {
       if (children.isNotEmpty) {
-        totalCount = _countAlternatives(
-          children.single,
-          input,
-          start,
-          end,
-          memo,
-          inProgress,
-        );
+        totalCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
       }
     } else {
-      totalCount = _countAlternatives(
-        symbol,
-        input,
-        start,
-        end,
-        memo,
-        inProgress,
-      );
+      totalCount = _countAlternatives(symbol, input, start, end, memo, inProgress);
     }
 
     inProgress[key] = false;
@@ -4337,22 +3933,8 @@ class SMParser {
       case "mar":
         return start == end ? 1 : 0;
       case "alt":
-        return _countAlternatives(
-              children.first,
-              input,
-              start,
-              end,
-              memo,
-              inProgress,
-            ) +
-            _countAlternatives(
-              children.last,
-              input,
-              start,
-              end,
-              memo,
-              inProgress,
-            );
+        return _countAlternatives(children.first, input, start, end, memo, inProgress) +
+            _countAlternatives(children.last, input, start, end, memo, inProgress);
       case "seq":
         {
           int totalCount = 0;
@@ -4379,43 +3961,8 @@ class SMParser {
           }
           return totalCount;
         }
-      case "plu":
-        {
-          int totalCount = 0;
-          for (int mid = start + 1; mid <= end; mid++) {
-            final childCount = _countAlternatives(
-              children.single,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-            );
-            if (childCount > 0) {
-              final starCount = _countStar(
-                children.single,
-                input,
-                mid,
-                end,
-                memo,
-                inProgress,
-              );
-              totalCount += childCount * starCount;
-            }
-          }
-          return totalCount;
-        }
-      case "sta":
-        return _countStar(children.single, input, start, end, memo, inProgress);
       case "cal" || "rca" || "rul" || "act" || "pre":
-        return _countDerivations(
-          children.single,
-          input,
-          start,
-          end,
-          memo,
-          inProgress,
-        );
+        return _countDerivations(children.single, input, start, end, memo, inProgress);
       case "and":
       case "not":
         if (start == end) {
@@ -4435,50 +3982,6 @@ class SMParser {
       default:
         return 0;
     }
-  }
-
-  // Count zero or more matches of a pattern
-  /// Count all derivations for zero or more matches of a pattern.
-  ///
-  /// Returns 1 at start==end (zero matches). For remaining space, tries to
-  /// split at each position mid (start < mid <= end):
-  /// - Count childCount matches in [start:mid]
-  /// - Recursively count restCount matches in [mid:end]
-  /// - Multiply and sum
-  ///
-  /// This is the Kleene star counting logic: sum over all ways to partition
-  /// the span into zero or more repetitions.
-  int _countStar(
-    PatternSymbol symbol,
-    String input,
-    int start,
-    int end,
-    Map<String, int> memo,
-    Map<String, bool> inProgress,
-  ) {
-    if (start == end) {
-      return 1; // Zero matches
-    }
-
-    int totalCount = 1; // Zero matches at current position
-
-    // One or more matches
-    for (int mid = start + 1; mid <= end; mid++) {
-      final childCount = _countAlternatives(
-        symbol,
-        input,
-        start,
-        mid,
-        memo,
-        inProgress,
-      );
-      if (childCount > 0) {
-        final restCount = _countStar(symbol, input, mid, end, memo, inProgress);
-        totalCount += childCount * restCount;
-      }
-    }
-
-    return totalCount;
   }
 
   /// Enumerate all parse derivations for a rule (or pattern with rules).
@@ -4676,49 +4179,6 @@ class SMParser {
             }
           }
         }
-      case "plu":
-        {
-          for (int mid = start + 1; mid <= end; mid++) {
-            final childList = _enumerateAlternatives(
-              bsr,
-              children.single,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-              minPrecedenceLevel: minPrecedenceLevel,
-            ).toList();
-            if (childList.isEmpty) continue;
-            for (final child in childList) {
-              for (final star in _enumerateStar(
-                bsr,
-                children.single,
-                input,
-                mid,
-                end,
-                symbol,
-                memo,
-                inProgress,
-              )) {
-                if (star.end == end) {
-                  yield ParseDerivation(symbol, start, end, [child, star]);
-                }
-              }
-            }
-          }
-        }
-      case "sta":
-        yield* _enumerateStar(
-          bsr,
-          children.single,
-          input,
-          start,
-          end,
-          symbol,
-          memo,
-          inProgress,
-        );
       case "cal" || "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
@@ -4777,64 +4237,6 @@ class SMParser {
           yield ParseDerivation(symbol, start, end, []);
         }
     }
-  }
-
-  /// Enumerate all derivations for zero or more matches (Kleene star).
-  ///
-  /// Yields a tree with:
-  /// - Empty derivation if start == end (zero matches)
-  /// - [child, star] pairs where child is one match and star is the rest
-  ///
-  /// Uses greedy, longest-match semantics (tries longest match first):
-  /// iterates mid from end down to start+1, halting at the first successful match.
-  /// This ensures PEG-like determinism: the parser commits to the longest match.
-  Iterable<ParseDerivation> _enumerateStar(
-    BsrSet bsr,
-    PatternSymbol childSymbol,
-    String input,
-    int start,
-    int end,
-    PatternSymbol starSymbol,
-    Map<String, List<ParseDerivation>?> memo,
-    Map<String, bool> inProgress,
-  ) sync* {
-    if (start == end) {
-      yield ParseDerivation(starSymbol, start, end, []);
-      return;
-    }
-
-    // PEG greedy matching: try longest match first
-    for (int mid = end; mid > start; mid--) {
-      final childList = _enumerateAlternatives(
-        bsr,
-        childSymbol,
-        input,
-        start,
-        mid,
-        memo,
-        inProgress,
-      ).toList();
-      if (childList.isNotEmpty) {
-        for (final child in childList) {
-          for (final star in _enumerateStar(
-            bsr,
-            childSymbol,
-            input,
-            mid,
-            end,
-            starSymbol,
-            memo,
-            inProgress,
-          )) {
-            final actualEnd = star.end;
-            yield ParseDerivation(starSymbol, start, actualEnd, [child, star]);
-          }
-        }
-        return;
-      }
-    }
-
-    yield ParseDerivation(starSymbol, start, start, []);
   }
 
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
@@ -4901,21 +4303,6 @@ class SMParser {
           results.add(_evaluateParseDerivation(child, input));
         }
         return results;
-      case "plu":
-      case "sta":
-        final results = <Object?>[];
-        if (tree.children.isNotEmpty) {
-          results.add(_evaluateParseDerivation(tree.children[0], input));
-          if (tree.children.length > 1) {
-            final rest = _evaluateParseDerivation(tree.children[1], input);
-            if (rest is List) {
-              results.addAll(rest);
-            } else if (rest != "") {
-              results.add(rest);
-            }
-          }
-        }
-        return results;
       case "and":
       case "not":
         return [];
@@ -4938,10 +4325,7 @@ class SMParser {
             }
             return action.callback(span, childResults);
           }(),
-          _ =>
-            tree.children.isNotEmpty
-                ? _evaluateParseDerivation(tree.children[0], input)
-                : null,
+          _ => tree.children.isNotEmpty ? _evaluateParseDerivation(tree.children[0], input) : null,
         };
     }
   }
@@ -4979,10 +4363,7 @@ class SMParser {
         if (builtMark == null) {
           builtMark = current;
         } else {
-          builtMark = StringMark(
-            builtMark.value + current.value,
-            builtMark.position,
-          );
+          builtMark = StringMark(builtMark.value + current.value, builtMark.position);
         }
       } else if (current is NamedMark) {
         if (builtMark != null) {
@@ -5009,8 +4390,7 @@ class SMParser {
   List<Mark> _flattenParseTreeMarks(Object? marks) {
     if (marks is StringMark) return [marks];
     if (marks is NamedMark) return [marks];
-    if (marks is List<Object?>)
-      return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
+    if (marks is List<Object?>) return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
     return [];
   }
 
@@ -5048,21 +4428,6 @@ class SMParser {
         final results = <Object?>[];
         for (final child in tree.children) {
           results.add(_extractParseTreeMarks(child, input));
-        }
-        return results;
-      case "plu":
-      case "sta":
-        final results = <Object?>[];
-        if (tree.children.isNotEmpty) {
-          results.add(_extractParseTreeMarks(tree.children[0], input));
-          if (tree.children.length > 1) {
-            final rest = _extractParseTreeMarks(tree.children[1], input);
-            if (rest is List) {
-              results.addAll(rest);
-            } else if (rest != "") {
-              results.add(rest);
-            }
-          }
         }
         return results;
       case "and":
@@ -5134,9 +4499,7 @@ class SMParser {
       final posFrames = workQueue.remove(pos)!;
 
       final currentStep = stepsAtPosition.putIfAbsent(pos, () {
-        final posToken = (pos == position)
-            ? token
-            : _historyByPosition[pos]?.unit;
+        final posToken = (pos == position) ? token : _historyByPosition[pos]?.unit;
         return Step(
           this,
           posToken,
@@ -5192,10 +4555,7 @@ class SMParser {
   ///
   /// This method is called after processing all frames at a position, ensuring
   /// that negative lookahead assertions are properly satisfied before moving forward.
-  void _checkExhaustedPredicates(
-    SplayTreeMap<int, List<Frame>> workQueue,
-    int currentPosition,
-  ) {
+  void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
     final toRemove = <(PatternSymbol, int)>{};
     for (final entry in _predicateTrackers.entries) {
       final tracker = entry.value;
@@ -5255,9 +4615,7 @@ final class PredicateCallerKey extends CallerKey {
 
   @override
   bool operator ==(Object other) =>
-      other is PredicateCallerKey &&
-      pattern == other.pattern &&
-      startPos == other.startPos;
+      other is PredicateCallerKey && pattern == other.pattern && startPos == other.startPos;
 
   @override
   int get hashCode => Object.hash(pattern, startPos);
@@ -5298,16 +4656,9 @@ final class Caller extends CallerKey {
 
   Caller(this.rule, this.pattern, this.startPos, this.minPrecedenceLevel);
 
-  bool addWaiter(
-    CallerKey? parent,
-    State next,
-    int? minPrec,
-    Context cctx,
-    _ParseNode node,
-  ) {
+  bool addWaiter(CallerKey? parent, State next, int? minPrec, Context cctx, _ParseNode node) {
     for (final w in waiters) {
-      if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx)
-        return false;
+      if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx) return false;
     }
     waiters.add((parent, next, minPrec, cctx, node));
     return true;
@@ -5319,9 +4670,7 @@ final class Caller extends CallerKey {
     return true;
   }
 
-  void forEach(
-    void Function(CallerKey?, State, int?, Context, _ParseNode) callback,
-  ) {
+  void forEach(void Function(CallerKey?, State, int?, Context, _ParseNode) callback) {
     for (final (key, state, minPrec, ctx, node) in waiters) {
       callback(key, state, minPrec, ctx, node);
     }
@@ -5467,10 +4816,8 @@ class Step {
   final Map<_ParseNode, Set<_Predecessor>> predecessors;
 
   final List<Frame> nextFrames = [];
-  final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups =
-      {};
-  final Map<(State, CallerKey, int?), Set<_Predecessor>>
-  _nextPredecessorGroups = {};
+  final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups = {};
+  final Map<(State, CallerKey, int?), Set<_Predecessor>> _nextPredecessorGroups = {};
   final Map<(State, CallerKey, int?), GlushList<Mark>> _activeContexts = {};
   final Queue<(State, Context)> _currentWorkList = DoubleLinkedQueue();
 
@@ -5500,8 +4847,7 @@ class Step {
       tracker.matched = true;
       for (final (parentCtx, nextState) in tracker.waiters) {
         if (parentCtx.caller case PredicateCallerKey pk) {
-          final parentTracker =
-              parser._predicateTrackers[(pk.pattern, pk.startPos)];
+          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
           parentTracker?.activeFrames--;
         }
 
@@ -5513,8 +4859,7 @@ class Step {
     } else if (tracker.activeFrames == 0) {
       for (final (parentCtx, nextState) in tracker.waiters) {
         if (parentCtx.caller case PredicateCallerKey pk) {
-          final parentTracker =
-              parser._predicateTrackers[(pk.pattern, pk.startPos)];
+          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
           parentTracker?.activeFrames--;
         }
 
@@ -5558,12 +4903,7 @@ class Step {
     if (isSupportingAmbiguity) {
       if (source != null) {
         final target = (state.id, position, context.caller);
-        predecessors.putIfAbsent(target, () => {}).add((
-          source,
-          action,
-          marks,
-          callSite,
-        ));
+        predecessors.putIfAbsent(target, () => {}).add((source, action, marks, callSite));
       }
 
       final existingMarks = _activeContexts[key];
@@ -5611,12 +4951,7 @@ class Step {
 
             if (bsr != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
-              bsr!.add(
-                rule.symbolId!,
-                frame.context.callStart!,
-                position,
-                position + 1,
-              );
+              bsr!.add(rule.symbolId!, frame.context.callStart!, position, position + 1);
             }
 
             final nextKey = (
@@ -5643,10 +4978,7 @@ class Step {
           }
         case MarkAction():
           final mark = NamedMark(action.name, position);
-          final deltaMarks = const GlushList<Mark>.empty().add(
-            markManager,
-            mark,
-          );
+          final deltaMarks = const GlushList<Mark>.empty().add(markManager, mark);
           _enqueue(
             action.nextState,
             Context(
@@ -5671,17 +5003,13 @@ class Step {
           tracker.waiters.add((frame.context, action.nextState));
 
           if (frame.context.caller case PredicateCallerKey pk) {
-            parser
-                ._predicateTrackers[(pk.pattern, pk.startPos)]
-                ?.activeFrames++;
+            parser._predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames++;
           }
 
           if (isFirst) {
             final states = parser.stateMachine.ruleFirst[symbol];
             if (states == null) {
-              throw StateError(
-                'Predicate symbol must resolve to a rule: $symbol',
-              );
+              throw StateError('Predicate symbol must resolve to a rule: $symbol');
             }
             for (final firstState in states) {
               _enqueue(
@@ -5701,12 +5029,7 @@ class Step {
           final isNewCaller = !_callers.containsKey(key);
           final caller = _callers.putIfAbsent(
             key,
-            () => Caller(
-              action.rule,
-              action.pattern,
-              position,
-              action.minPrecedenceLevel,
-            ),
+            () => Caller(action.rule, action.pattern, position, action.minPrecedenceLevel),
           );
           final isNewWaiter = caller.addWaiter(
             frame.caller,
@@ -5717,8 +5040,7 @@ class Step {
           );
 
           if (isNewCaller) {
-            final states =
-                parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
+            final states = parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
             for (final fs in states) {
               _enqueue(
                 fs,
@@ -5757,45 +5079,26 @@ class Step {
             continue;
 
           final caller = frame.caller;
-          final callStart =
-              frame.context.callStart ??
-              (caller is Caller ? caller.startPos : null);
+          final callStart = frame.context.callStart ?? (caller is Caller ? caller.startPos : null);
           if (bsr != null && callStart != null)
-            bsr!.add(
-              action.rule.symbolId!,
-              callStart,
-              frame.context.pivot ?? callStart,
-              position,
-            );
+            bsr!.add(action.rule.symbolId!, callStart, frame.context.pivot ?? callStart, position);
 
           if (caller is PredicateCallerKey) {
-            _finishPredicate(
-              parser._predicateTrackers[(caller.pattern, caller.startPos)]!,
-              true,
-            );
+            _finishPredicate(parser._predicateTrackers[(caller.pattern, caller.startPos)]!, true);
             continue;
           }
 
           if (bsr != null && caller is Caller) {
             caller.forEach((p, s, mp, pc, node) {
-              if (p is Caller)
-                bsr!.add(
-                  p.rule.symbolId!,
-                  pc.callStart!,
-                  caller.startPos,
-                  position,
-                );
+              if (p is Caller) bsr!.add(p.rule.symbolId!, pc.callStart!, caller.startPos, position);
             });
           }
 
-          if (!isSupportingAmbiguity &&
-              !_returnedCallers.add(caller ?? const RootCallerKey()))
+          if (!isSupportingAmbiguity && !_returnedCallers.add(caller ?? const RootCallerKey()))
             continue;
 
           if (caller is Caller) {
-            final returnContext = frame.context.copyWith(
-              precedenceLevel: action.precedenceLevel,
-            );
+            final returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
             if (caller.addReturn(returnContext)) {
               for (final waiter in caller.waiters) {
                 _triggerReturn(
@@ -5847,29 +5150,16 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
     if (bsr != null && parent is Caller) {
-      bsr!.add(
-        parent.rule.symbolId!,
-        parentContext.callStart!,
-        caller.startPos,
-        position,
-      );
+      bsr!.add(parent.rule.symbolId!, parentContext.callStart!, caller.startPos, position);
     }
-    _enqueue(
-      nextState,
-      nextContext,
-      source: source,
-      action: action,
-      callSite: callSite,
-    );
+    _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
   }
 
   void _finalize() {
     for (final entry in _nextFrameGroups.entries) {
       final (state, caller, minP) = entry.key;
       final merged = markManager.branched(entry.value);
-      int? nCS = (caller is Caller)
-          ? caller.startPos
-          : (caller is RootCallerKey ? 0 : null);
+      int? nCS = (caller is Caller) ? caller.startPos : (caller is RootCallerKey ? 0 : null);
       final nextFrame = Frame(
         Context(
           caller,
@@ -5882,9 +5172,7 @@ class Step {
       );
       nextFrame.nextStates.add(state);
       if (caller case PredicateCallerKey predicateKey) {
-        parser
-            ._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]
-            ?.activeFrames++;
+        parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]?.activeFrames++;
       }
 
       if (isSupportingAmbiguity) {
@@ -5908,11 +5196,7 @@ class Step {
         parser._predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
       }
       final currentMarks = isSupportingAmbiguity
-          ? _activeContexts[(
-              state,
-              context.caller,
-              context.minPrecedenceLevel,
-            )]!
+          ? _activeContexts[(state, context.caller, context.minPrecedenceLevel)]!
           : context.marks;
       _process(
         Frame(

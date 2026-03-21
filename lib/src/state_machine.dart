@@ -218,7 +218,7 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Alt() || Seq() || Rule() || Plus() || Star() || Prec():
+      case Alt() || Seq() || Rule() || Prec():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
     }
@@ -239,10 +239,6 @@ class StateMachine {
     } else if (pattern is Seq) {
       _buildPrecedenceMap(pattern.left, current, map);
       _buildPrecedenceMap(pattern.right, current, map);
-    } else if (pattern is Plus) {
-      _buildPrecedenceMap(pattern.child, current, map);
-    } else if (pattern is Star) {
-      _buildPrecedenceMap(pattern.child, current, map);
     } else if (pattern is Action) {
       _buildPrecedenceMap(pattern.child, current, map);
     }

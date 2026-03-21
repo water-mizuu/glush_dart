@@ -35,10 +35,7 @@ class GrammarFileCompiler {
   }
 
   /// Compile a pattern expression into a Pattern
-  Pattern _compilePattern(
-    PatternExpr expr,
-    Map<PatternExpr, int> precedenceLevels,
-  ) {
+  Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
       case LiteralPattern(:var literal):
         return Pattern.string(literal);
@@ -49,13 +46,9 @@ class GrammarFileCompiler {
           return Token(RangeToken(range.startCode, range.endCode));
         }
         // Multiple ranges: use alternation
-        Pattern result = Token(
-          RangeToken(ranges[0].startCode, ranges[0].endCode),
-        );
+        Pattern result = Token(RangeToken(ranges[0].startCode, ranges[0].endCode));
         for (int i = 1; i < ranges.length; i++) {
-          result =
-              result |
-              Token(RangeToken(ranges[i].startCode, ranges[i].endCode));
+          result = result | Token(RangeToken(ranges[i].startCode, ranges[i].endCode));
         }
         return result;
       case LessThanPattern(:var codePoint):
@@ -77,8 +70,7 @@ class GrammarFileCompiler {
       case SequencePattern():
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
         for (int i = 1; i < expr.patterns.length; i++) {
-          result =
-              result >> _compilePattern(expr.patterns[i], precedenceLevels);
+          result = result >> _compilePattern(expr.patterns[i], precedenceLevels);
         }
         return result;
 
@@ -141,28 +133,32 @@ class GrammarFileCompiler {
           't' => Token(ExactToken(9)),
           'd' => Token(RangeToken(48, 57)),
           'D' => Token(RangeToken(48, 57)).invert(),
-          'w' => Token(RangeToken(65, 90)) |
-              Token(RangeToken(97, 122)) |
-              Token(RangeToken(48, 57)) |
-              Token(ExactToken(95)),
-          'W' => (Token(RangeToken(65, 90)) |
-                  Token(RangeToken(97, 122)) |
-                  Token(RangeToken(48, 57)) |
-                  Token(ExactToken(95)))
-              .invert(),
-          's' => Token(ExactToken(32)) | // space
-              Token(ExactToken(9)) | // tab
-              Token(ExactToken(10)) | // nl
-              Token(ExactToken(13)) | // cr
-              Token(ExactToken(12)) | // ff
-              Token(ExactToken(11)), // vt
-          'S' => (Token(ExactToken(32)) |
-                  Token(ExactToken(9)) |
-                  Token(ExactToken(10)) |
-                  Token(ExactToken(13)) |
-                  Token(ExactToken(12)) |
-                  Token(ExactToken(11)))
-              .invert(),
+          'w' =>
+            Token(RangeToken(65, 90)) |
+                Token(RangeToken(97, 122)) |
+                Token(RangeToken(48, 57)) |
+                Token(ExactToken(95)),
+          'W' =>
+            (Token(RangeToken(65, 90)) |
+                    Token(RangeToken(97, 122)) |
+                    Token(RangeToken(48, 57)) |
+                    Token(ExactToken(95)))
+                .invert(),
+          's' =>
+            Token(ExactToken(32)) | // space
+                Token(ExactToken(9)) | // tab
+                Token(ExactToken(10)) | // nl
+                Token(ExactToken(13)) | // cr
+                Token(ExactToken(12)) | // ff
+                Token(ExactToken(11)), // vt
+          'S' =>
+            (Token(ExactToken(32)) |
+                    Token(ExactToken(9)) |
+                    Token(ExactToken(10)) |
+                    Token(ExactToken(13)) |
+                    Token(ExactToken(12)) |
+                    Token(ExactToken(11)))
+                .invert(),
           _ => throw Exception('Unsupported backslash literal: \\$char'),
         };
     }
@@ -170,6 +166,5 @@ class GrammarFileCompiler {
 }
 
 extension GrammarFileExtension on String {
-  SMParser toSMParser() =>
-      SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
+  SMParser toSMParser() => SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
 }
