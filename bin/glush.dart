@@ -31,18 +31,18 @@ void ambiguous() {
       r"""
         S = $TWO S S
           | $ONE s
-        s = 's'
+        s = [s];
       """
           .toSMParser();
 
   final evaluator = Evaluator(
     ($) => {
       r'TWO': () => "(${$<String>()}${$<String>()})", //
-      r'ONE': () => 's',
+      r'ONE': () => $<String>(),
     },
   );
 
-  for (int length = 1; length <= 4; ++length) {
+  for (int length = 1; length <= 5; ++length) {
     final input = 's' * length;
     final result = parser.parseAmbiguous(input);
     if (result is! ParseAmbiguousForestSuccess) {
@@ -66,4 +66,12 @@ void ambiguous() {
 void main() async {
   mathSimple();
   ambiguous();
+  final thing = "rule='s'+'s'".toSMParser();
+
+  print(
+    (thing.parseWithForest('sssss') as ParseForestSuccess).forest
+        .extract()
+        .first
+        .toPrecedenceString('sssss'),
+  );
 }

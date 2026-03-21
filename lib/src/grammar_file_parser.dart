@@ -50,7 +50,10 @@ enum _TokenType {
   rbrace, // }
   ampersand, // &
   bang, // !
-  eof,
+  eof, // \0
+  lesser, // <
+  greater, // >
+  backslashLiteral, // \n, \s, etc.
 }
 
 class _Tokenizer {
@@ -90,6 +93,12 @@ class _Tokenizer {
         continue;
       }
 
+      // Backslash literals (e.g., \n, \s)
+      if (ch == '\\') {
+        tokens.add(_readBackslashLiteral());
+        continue;
+      }
+
       // Single-character tokens
       final tokenMap = {
         '=': _TokenType.equals,
@@ -106,6 +115,8 @@ class _Tokenizer {
         '}': _TokenType.rbrace,
         '&': _TokenType.ampersand,
         '!': _TokenType.bang,
+        '<': _TokenType.lesser,
+        '>': _TokenType.greater,
       };
 
       if (tokenMap.containsKey(ch)) {
@@ -120,7 +131,11 @@ class _Tokenizer {
         continue;
       }
 
-      throw GrammarFileParseError('Unexpected character: $ch', line: line, column: column);
+      throw GrammarFileParseError(
+        'Unexpected character: $ch',
+        line: line,
+        column: column,
+      );
     }
 
     tokens.add(_Token(_TokenType.eof, '', line, column));
@@ -146,11 +161,33 @@ class _Tokenizer {
     }
 
     if (position >= source.length) {
-      throw GrammarFileParseError('Unterminated string literal', line: startLine, column: startCol);
+      throw GrammarFileParseError(
+        'Unterminated string literal',
+        line: startLine,
+        column: startCol,
+      );
     }
 
     _advance(); // closing quote
     return _Token(_TokenType.literal, buffer.toString(), startLine, startCol);
+  }
+
+  _Token _readBackslashLiteral() {
+    final startLine = line;
+    final startCol = column;
+    _advance(); // \
+
+    if (position >= source.length) {
+      throw GrammarFileParseError(
+        'Unexpected end of file after \\',
+        line: startLine,
+        column: startCol,
+      );
+    }
+
+    final char = source[position];
+    _advance();
+    return _Token(_TokenType.backslashLiteral, char, startLine, startCol);
   }
 
   _Token _readCharRange() {
@@ -190,7 +227,12 @@ class _Tokenizer {
       _advance();
     }
 
-    return _Token(_TokenType.identifier, buffer.toString(), startLine, startCol);
+    return _Token(
+      _TokenType.identifier,
+      buffer.toString(),
+      startLine,
+      startCol,
+    );
   }
 
   void _skipWhitespace() {
@@ -270,7 +312,6 @@ class GrammarFileParser {
     }
 
     final ruleName = _advance().value;
-    final marks = <String>[];
 
     if (_peek().type != _TokenType.equals) {
       throw GrammarFileParseError(
@@ -292,7 +333,6 @@ class GrammarFileParser {
     return RuleDefinition(
       name: ruleName,
       pattern: pattern,
-      marks: marks,
       precedenceLevels: lastParsedPrecedenceLevels,
     );
   }
@@ -348,7 +388,8 @@ class GrammarFileParser {
       final token = _peek().value;
       if (int.tryParse(token) != null) {
         final nextIndex = tokenIndex + 1;
-        return nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe;
+        return nextIndex < tokens.length &&
+            tokens[nextIndex].type == _TokenType.pipe;
       }
     }
     return false;
@@ -364,7 +405,8 @@ class GrammarFileParser {
         final level = int.parse(token);
         // Look ahead to see if next token is pipe
         final nextIndex = tokenIndex + 1;
-        if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe) {
+        if (nextIndex < tokens.length &&
+            tokens[nextIndex].type == _TokenType.pipe) {
           _advance(); // consume the number
           _advance(); // consume the pipe
           return level;
@@ -421,7 +463,8 @@ class GrammarFileParser {
       final token = _peek().value;
       if (int.tryParse(token) != null) {
         final nextIndex = tokenIndex + 1;
-        if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe) {
+        if (nextIndex < tokens.length &&
+            tokens[nextIndex].type == _TokenType.pipe) {
           return false; // This is a precedence prefix, not a sequence continuation
         }
       }
@@ -429,14 +472,16 @@ class GrammarFileParser {
 
     if (type == _TokenType.identifier) {
       final nextIndex = tokenIndex + 1;
-      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.equals) {
+      if (nextIndex < tokens.length &&
+          tokens[nextIndex].type == _TokenType.equals) {
         return false; // This is now a new rule.
       }
     }
 
     if (type == _TokenType.dollar) {
       final nextIndex = tokenIndex + 1;
-      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.identifier) {
+      if (nextIndex < tokens.length &&
+          tokens[nextIndex].type == _TokenType.identifier) {
         return true; // This is now a new rule.
       }
     }
@@ -444,6 +489,7 @@ class GrammarFileParser {
     return type == _TokenType.identifier ||
         type == _TokenType.literal ||
         type == _TokenType.charRange ||
+        type == _TokenType.backslashLiteral ||
         type == _TokenType.lparen;
   }
 
@@ -485,6 +531,11 @@ class GrammarFileParser {
       return CharRangePattern(ranges);
     }
 
+    if (type == _TokenType.backslashLiteral) {
+      final char = _advance().value;
+      return BackslashLiteralPattern(char);
+    }
+
     if (type == _TokenType.dollar) {
       _advance(); // consume $
       if (_peek().type != _TokenType.identifier) {
@@ -514,14 +565,49 @@ class GrammarFileParser {
         }
       }
 
-      return RuleRefPattern(ruleName, precedenceConstraint: precedenceConstraint);
+      return RuleRefPattern(
+        ruleName,
+        precedenceConstraint: precedenceConstraint,
+      );
+    }
+
+    if (type == _TokenType.lesser) {
+      _advance();
+      final codePoint = int.tryParse(_peek().value);
+      if (codePoint == null) {
+        throw GrammarFileParseError(
+          'Expected integer after "<"',
+          line: _peek().line,
+          column: _peek().column,
+        );
+      }
+      _advance();
+      return LessThanPattern(codePoint);
+    }
+
+    if (type == _TokenType.greater) {
+      _advance();
+      final codePoint = int.tryParse(_peek().value);
+      if (codePoint == null) {
+        throw GrammarFileParseError(
+          'Expected integer after ">"',
+          line: _peek().line,
+          column: _peek().column,
+        );
+      }
+      _advance();
+      return GreaterThanPattern(codePoint);
     }
 
     if (type == _TokenType.lparen) {
       _advance();
       final pattern = _parsePattern();
       if (_peek().type != _TokenType.rparen) {
-        throw GrammarFileParseError('Expected ")"', line: _peek().line, column: _peek().column);
+        throw GrammarFileParseError(
+          'Expected ")"',
+          line: _peek().line,
+          column: _peek().column,
+        );
       }
       _advance();
       return GroupPattern(pattern);

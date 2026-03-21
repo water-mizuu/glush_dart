@@ -17,7 +17,9 @@ class GrammarCodeGenerator {
     final buffer = StringBuffer();
     final grammarName = _toPascalCase(grammarFile.name);
 
-    buffer.writeln('/// Auto-generated standalone parser for ${grammarFile.name}');
+    buffer.writeln(
+      '/// Auto-generated standalone parser for ${grammarFile.name}',
+    );
     buffer.writeln('/// Generated: ${DateTime.now()}');
     buffer.writeln();
     buffer.writeln('// --- BEGIN GLUSH RUNTIME ---');
@@ -27,7 +29,9 @@ class GrammarCodeGenerator {
     buffer.writeln('GrammarInterface _create${grammarName}Grammar() {');
     buffer.writeln('  return Grammar(() {');
     buffer.writeln(_generateRuleDeclarations());
-    buffer.writeln('    return ${_getRuleVariable(grammarFile.startRule!.name)};');
+    buffer.writeln(
+      '    return ${_getRuleVariable(grammarFile.startRule!.name)};',
+    );
     buffer.writeln('  });');
     buffer.writeln('}');
     buffer.writeln();
@@ -36,17 +40,27 @@ class GrammarCodeGenerator {
       'late final SMParser _${grammarFile.name}Parser = SMParser(_create${grammarName}Grammar());',
     );
     buffer.writeln();
-    buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
+    buffer.writeln(
+      '/// Parse input text using the ${grammarFile.name} grammar',
+    );
     buffer.writeln(
       '/// Returns the parse outcome containing the parse forest or error information',
     );
-    buffer.writeln('Iterable<ParseDerivation> parse${grammarName}(String input) {');
-    buffer.writeln('  return _${grammarFile.name}Parser.enumerateAllParses(input);');
+    buffer.writeln(
+      'Iterable<ParseDerivation> parse${grammarName}(String input) {',
+    );
+    buffer.writeln(
+      '  return _${grammarFile.name}Parser.enumerateAllParses(input);',
+    );
     buffer.writeln('}');
     buffer.writeln();
-    buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
+    buffer.writeln(
+      '/// Parse input text using the ${grammarFile.name} grammar',
+    );
     buffer.writeln('/// Returns the marks from the grammar');
-    buffer.writeln('ParseOutcome<Object?> parse${grammarName}Marks(String input) {');
+    buffer.writeln(
+      'ParseOutcome<Object?> parse${grammarName}Marks(String input) {',
+    );
     buffer.writeln('  return _${grammarFile.name}Parser.parse(input);');
     buffer.writeln('}');
 
@@ -60,13 +74,17 @@ class GrammarCodeGenerator {
 
     buffer.writeln("import 'package:$packageName/glush.dart';");
     buffer.writeln();
-    buffer.writeln('/// Auto-generated grammar library from ${grammarFile.name}');
+    buffer.writeln(
+      '/// Auto-generated grammar library from ${grammarFile.name}',
+    );
     buffer.writeln('/// Generated: ${DateTime.now()}');
     buffer.writeln();
     buffer.writeln('GrammarInterface _create${grammarName}Grammar() {');
     buffer.writeln('  return Grammar(() {');
     buffer.writeln(_generateRuleDeclarations());
-    buffer.writeln('    return ${_getRuleVariable(grammarFile.startRule!.name)};');
+    buffer.writeln(
+      '    return ${_getRuleVariable(grammarFile.startRule!.name)};',
+    );
     buffer.writeln('  });');
     buffer.writeln('}');
     buffer.writeln();
@@ -76,7 +94,9 @@ class GrammarCodeGenerator {
       'SMParser(_create${grammarName}Grammar());',
     );
     buffer.writeln();
-    buffer.writeln('/// Parse input text using the ${grammarFile.name} grammar');
+    buffer.writeln(
+      '/// Parse input text using the ${grammarFile.name} grammar',
+    );
     buffer.writeln(
       '/// Returns the parse outcome containing the ' //
       'parse forest or error information',
@@ -97,7 +117,9 @@ class GrammarCodeGenerator {
 
     // Late declarations for mutually recursive rules
     if (ruleNames.length > 1) {
-      buffer.writeln('    late Rule ${ruleNames.map((n) => _getRuleVariable(n)).join(', ')};');
+      buffer.writeln(
+        '    late Rule ${ruleNames.map((n) => _getRuleVariable(n)).join(', ')};',
+      );
     }
 
     // Rule definitions
@@ -109,12 +131,10 @@ class GrammarCodeGenerator {
         ', () => ',
       );
 
-      String patternCode = _generatePatternCode(rule.pattern, rule.precedenceLevels);
-      if (rule.marks.isNotEmpty) {
-        final marksCode = rule.marks.map((m) => 'Marker("$m")').join(' >> ');
-        patternCode = '$marksCode >> ($patternCode)';
-      }
-
+      String patternCode = _generatePatternCode(
+        rule.pattern,
+        rule.precedenceLevels,
+      );
       buffer.write(patternCode);
       buffer.writeln(');');
     }
@@ -129,7 +149,10 @@ class GrammarCodeGenerator {
     Map<PatternExpr, int> precedenceLevels = const {},
   ]) {
     if (pattern is LiteralPattern) {
-      final codes = pattern.literal.split('').map((c) => c.codeUnitAt(0)).toList();
+      final codes = pattern.literal
+          .split('')
+          .map((c) => c.codeUnitAt(0))
+          .toList();
       if (codes.length == 1) {
         return 'Token(ExactToken(${codes[0]}))';
       }
@@ -166,7 +189,9 @@ class GrammarCodeGenerator {
 
       // Create RuleCall with precedence constraint if specified
       if (pattern.precedenceConstraint != null) {
-        callCode = 'Call($ruleVar, minPrecedenceLevel: ${pattern.precedenceConstraint})';
+        callCode =
+            'Call($ruleVar, minPrecedenceLevel: '
+            '${pattern.precedenceConstraint})';
       } else {
         callCode = 'Call($ruleVar)';
       }
@@ -203,7 +228,9 @@ class GrammarCodeGenerator {
 
     if (pattern is RepetitionPattern) {
       final inner = _generatePatternCode(pattern.pattern, precedenceLevels);
-      final code = (pattern.pattern is SequencePattern || pattern.pattern is AlternationPattern)
+      final code =
+          (pattern.pattern is SequencePattern ||
+              pattern.pattern is AlternationPattern)
           ? '($inner)'
           : inner;
 
@@ -219,7 +246,9 @@ class GrammarCodeGenerator {
     }
 
     if (pattern is ConjunctionPattern) {
-      final parts = pattern.patterns.map((p) => _generatePatternCode(p, precedenceLevels)).toList();
+      final parts = pattern.patterns
+          .map((p) => _generatePatternCode(p, precedenceLevels))
+          .toList();
       return parts.join(' & ');
     }
 
@@ -227,12 +256,17 @@ class GrammarCodeGenerator {
   }
 
   /// Generate a simple runner function
-  String generateParserRunner({required String testInput, String functionName = 'parseExample'}) {
+  String generateParserRunner({
+    required String testInput,
+    String functionName = 'parseExample',
+  }) {
     final buffer = StringBuffer();
 
     buffer.writeln('/// Parse test input: "$testInput"');
     buffer.writeln('ParseOutcome parseExample() {');
-    buffer.writeln('  final grammar = create${_toPascalCase(grammarFile.name)}Grammar();');
+    buffer.writeln(
+      '  final grammar = create${_toPascalCase(grammarFile.name)}Grammar();',
+    );
     buffer.writeln('  final parser = SMParser(grammar);');
     buffer.writeln(
       '  final result = parser.parse('
@@ -249,7 +283,10 @@ class GrammarCodeGenerator {
   String _toPascalCase(String str) {
     return str
         .split(RegExp(r'[_-]'))
-        .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .map(
+          (word) =>
+              word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1),
+        )
         .join('');
   }
 
@@ -264,7 +301,10 @@ class GrammarCodeGenerator {
 }
 
 /// Helper function to generate a complete Dart file from grammar text
-String generateGrammarDartFile(String grammarText, {String packageName = 'glush'}) {
+String generateGrammarDartFile(
+  String grammarText, {
+  String packageName = 'glush',
+}) {
   ensureRuntimeBundleUpToDate();
   final parser = GrammarFileParser(grammarText);
   final grammarFile = parser.parse();
@@ -294,7 +334,10 @@ String generateStandaloneGrammarDartFile(String grammarText) {
 /// Returns true if the bundle was regenerated, false if it was already up-to-date.
 bool ensureRuntimeBundleUpToDate() {
   try {
-    final result = Process.runSync('dart', ['run', 'tool/check_bundle_hash.dart']);
+    final result = Process.runSync('dart', [
+      'run',
+      'tool/check_bundle_hash.dart',
+    ]);
 
     if (result.exitCode != 0) {
       print('WARNING: Bundle hash check failed');

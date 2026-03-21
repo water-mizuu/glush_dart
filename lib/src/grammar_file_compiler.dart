@@ -35,26 +35,37 @@ class GrammarFileCompiler {
   }
 
   /// Compile a pattern expression into a Pattern
-  Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
+  Pattern _compilePattern(
+    PatternExpr expr,
+    Map<PatternExpr, int> precedenceLevels,
+  ) {
     switch (expr) {
-      case LiteralPattern():
-        return Pattern.string(expr.literal);
+      case LiteralPattern(:var literal):
+        return Pattern.string(literal);
 
-      case CharRangePattern():
-        final ranges = expr.ranges;
+      case CharRangePattern(:var ranges):
         if (ranges.length == 1) {
           final range = ranges[0];
           return Token(RangeToken(range.startCode, range.endCode));
         }
         // Multiple ranges: use alternation
-        Pattern result = Token(RangeToken(ranges[0].startCode, ranges[0].endCode));
+        Pattern result = Token(
+          RangeToken(ranges[0].startCode, ranges[0].endCode),
+        );
         for (int i = 1; i < ranges.length; i++) {
-          result = result | Token(RangeToken(ranges[i].startCode, ranges[i].endCode));
+          result =
+              result |
+              Token(RangeToken(ranges[i].startCode, ranges[i].endCode));
         }
         return result;
+      case LessThanPattern(:var codePoint):
+        return Token(LessToken(codePoint));
 
-      case MarkerPattern():
-        return Marker(expr.name);
+      case GreaterThanPattern(:var codePoint):
+        return Token(GreaterToken(codePoint));
+
+      case MarkerPattern(:var name):
+        return Marker(name);
 
       case RuleRefPattern():
         final rule = _rules[expr.ruleName];
@@ -66,7 +77,8 @@ class GrammarFileCompiler {
       case SequencePattern():
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
         for (int i = 1; i < expr.patterns.length; i++) {
-          result = result >> _compilePattern(expr.patterns[i], precedenceLevels);
+          result =
+              result >> _compilePattern(expr.patterns[i], precedenceLevels);
         }
         return result;
 
@@ -121,10 +133,43 @@ class GrammarFileCompiler {
         } else {
           return Not(inner);
         }
+
+      case BackslashLiteralPattern(:var char):
+        return switch (char) {
+          'n' => Token(ExactToken(10)),
+          'r' => Token(ExactToken(13)),
+          't' => Token(ExactToken(9)),
+          'd' => Token(RangeToken(48, 57)),
+          'D' => Token(RangeToken(48, 57)).invert(),
+          'w' => Token(RangeToken(65, 90)) |
+              Token(RangeToken(97, 122)) |
+              Token(RangeToken(48, 57)) |
+              Token(ExactToken(95)),
+          'W' => (Token(RangeToken(65, 90)) |
+                  Token(RangeToken(97, 122)) |
+                  Token(RangeToken(48, 57)) |
+                  Token(ExactToken(95)))
+              .invert(),
+          's' => Token(ExactToken(32)) | // space
+              Token(ExactToken(9)) | // tab
+              Token(ExactToken(10)) | // nl
+              Token(ExactToken(13)) | // cr
+              Token(ExactToken(12)) | // ff
+              Token(ExactToken(11)), // vt
+          'S' => (Token(ExactToken(32)) |
+                  Token(ExactToken(9)) |
+                  Token(ExactToken(10)) |
+                  Token(ExactToken(13)) |
+                  Token(ExactToken(12)) |
+                  Token(ExactToken(11)))
+              .invert(),
+          _ => throw Exception('Unsupported backslash literal: \\$char'),
+        };
     }
   }
 }
 
 extension GrammarFileExtension on String {
-  SMParser toSMParser() => SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
+  SMParser toSMParser() =>
+      SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
 }

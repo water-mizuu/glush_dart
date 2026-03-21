@@ -689,6 +689,10 @@ class Token extends Pattern {
         return Token(LessToken(value - 1)) | Token(GreaterToken(value + 1));
       case RangeToken(:final start, :final end):
         return Token(LessToken(start - 1)) | Token(GreaterToken(end + 1));
+      case LessToken(:final bound):
+        return Token(GreaterToken(bound + 1));
+      case GreaterToken(:final bound):
+        return Token(LessToken(bound - 1));
       default:
         throw Exception('Cannot invert $choice');
     }
