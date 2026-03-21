@@ -3882,7 +3882,7 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, input: input, bsr: bsr);
+      final stepResult = _processToken(codepoint, position, frames, bsr: bsr);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -3890,7 +3890,7 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, input: input, bsr: bsr);
+    final lastStep = _processToken(null, position, frames, bsr: bsr);
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -4613,7 +4613,6 @@ class SMParser {
     int? token,
     int position,
     List<Frame> frames, {
-    String input = '',
     BsrSet? bsr,
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
