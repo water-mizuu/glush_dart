@@ -69,6 +69,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     }
 
     rules.addAll(discoveredRules);
+    _normalizePredicates();
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
@@ -129,6 +130,66 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   }
 
   /// Recursively collects patterns from a pattern structure
+  static int _syntheticRuleCounter = 0;
+
+  void _normalizePredicates() {
+    for (int i = 0; i < rules.length; i++) {
+      _normalizePattern(rules[i].body());
+    }
+  }
+
+  void _normalizePattern(Pattern pattern) {
+    // We use a set to avoid infinite recursion in graph
+    final seen = <Pattern>{};
+    final queue = <Pattern>[pattern];
+
+    while (queue.isNotEmpty) {
+      final p = queue.removeAt(0);
+      if (seen.contains(p)) continue;
+      seen.add(p);
+
+      if (p is And || p is Not) {
+        final dynamic pred = p;
+        final child = pred.pattern;
+        if (child is! RuleCall && child is! Call) {
+          final syntheticName = 'pred\$${_syntheticRuleCounter++}';
+          final syntheticRule = Rule(syntheticName, () => child);
+          rules.add(syntheticRule);
+          pred.pattern = syntheticRule.call();
+          // The new RuleCall will be seen in the next iteration or via recursive discovery
+          queue.add(pred.pattern);
+        }
+      }
+
+      // Traditional discovery of children to continue walk
+      switch (p) {
+        case Seq seq:
+          queue.add(seq.left);
+          queue.add(seq.right);
+        case Alt alt:
+          queue.add(alt.left);
+          queue.add(alt.right);
+        case Conj conj:
+          queue.add(conj.left);
+          queue.add(conj.right);
+        case And and:
+          queue.add(and.pattern);
+        case Not not:
+          queue.add(not.pattern);
+        case Action action:
+          queue.add(action.child);
+        case Prec plp:
+          queue.add(plp.child);
+        case Plus plus:
+          queue.add(plus.child);
+        case Star star:
+          queue.add(star.child);
+        default:
+          break;
+      }
+    }
+  }
+
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
     if (patterns.contains(pattern)) return; // Avoid cycles
     patterns.add(pattern);
@@ -270,8 +331,12 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         transitions![lst]!.add(rule);
       }
 
+      // Static rules (consisting only of markers/predicates) are allowed even if
+      // they don't return true for empty(), as they are handled by the state machine
+      // without consuming input.
       if (!rule.body().empty() && rule.body().isStatic()) {
-        throw GrammarError('rule $rule contains markers in empty position');
+        // This used to throw, but we allow it now to support nested predicates
+        // and markers in rules.
       }
     }
 

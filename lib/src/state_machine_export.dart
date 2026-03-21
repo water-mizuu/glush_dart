@@ -67,31 +67,42 @@ class MarkActionSpec extends StateActionSpec {
 class CallActionSpec extends StateActionSpec {
   final String ruleName;
   final int nextStateId;
+  final int? minPrecedenceLevel;
 
-  const CallActionSpec(this.ruleName, this.nextStateId);
+  const CallActionSpec(this.ruleName, this.nextStateId, [this.minPrecedenceLevel]);
 
   @override
   Map<String, dynamic> toJson() => {
     'type': 'call',
     'ruleName': ruleName,
     'nextStateId': nextStateId,
+    if (minPrecedenceLevel != null) 'minPrecedenceLevel': minPrecedenceLevel,
   };
 
   static CallActionSpec fromJson(Map<String, dynamic> json) {
-    return CallActionSpec(json['ruleName'] as String, json['nextStateId'] as int);
+    return CallActionSpec(
+      json['ruleName'] as String,
+      json['nextStateId'] as int,
+      json['minPrecedenceLevel'] as int?,
+    );
   }
 }
 
 class ReturnActionSpec extends StateActionSpec {
   final String ruleName;
+  final int? precedenceLevel;
 
-  const ReturnActionSpec(this.ruleName);
+  const ReturnActionSpec(this.ruleName, [this.precedenceLevel]);
 
   @override
-  Map<String, dynamic> toJson() => {'type': 'return', 'ruleName': ruleName};
+  Map<String, dynamic> toJson() => {
+    'type': 'return',
+    'ruleName': ruleName,
+    if (precedenceLevel != null) 'precedenceLevel': precedenceLevel,
+  };
 
   static ReturnActionSpec fromJson(Map<String, dynamic> json) {
-    return ReturnActionSpec(json['ruleName'] as String);
+    return ReturnActionSpec(json['ruleName'] as String, json['precedenceLevel'] as int?);
   }
 }
 
@@ -354,11 +365,15 @@ class StateMachineExporter {
         nextState.id,
       ),
       MarkAction(:var name, :var nextState) => MarkActionSpec(name, nextState.id),
-      CallAction(:var rule, :var returnState) => CallActionSpec(
+      CallAction(:var rule, :var returnState, :var minPrecedenceLevel) => CallActionSpec(
         rule.name as String,
         returnState.id,
+        minPrecedenceLevel,
       ),
-      ReturnAction(:var rule) => ReturnActionSpec(rule.name as String),
+      ReturnAction(:var rule, :var precedenceLevel) => ReturnActionSpec(
+        rule.name as String,
+        precedenceLevel,
+      ),
       AcceptAction() => const AcceptActionSpec(),
       PredicateAction(:var isAnd, :var nextState, :var symbol, :var pattern) => PredicateActionSpec(
         isAnd: isAnd,

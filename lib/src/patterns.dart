@@ -637,7 +637,7 @@ class Star extends Pattern {
 /// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming
 /// Example: &('a' >> 'b') >> 'a' will only match 'a' if followed by 'b'
 class And extends Pattern {
-  final Pattern pattern;
+  Pattern pattern;
 
   And(Pattern p) : pattern = p.consume();
 
@@ -646,8 +646,6 @@ class And extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    // A predicate always matches without consuming, so it's never empty in terms of requiring input
-    // But for epsilon purposes, it depends on the child pattern
     pattern.calculateEmpty(emptyRules);
     setEmpty(false);
     return false;
@@ -679,7 +677,7 @@ class And extends Pattern {
 /// Negative lookahead predicate (NOT) - matches if pattern fails without consuming
 /// Example: !('a' >> 'b') >> 'a' will only match 'a' if NOT followed by 'b'
 class Not extends Pattern {
-  final Pattern pattern;
+  Pattern pattern;
 
   Not(Pattern p) : pattern = p.consume();
 
@@ -688,7 +686,6 @@ class Not extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    // A predicate always matches without consuming, so it's never empty in terms of requiring input
     pattern.calculateEmpty(emptyRules);
     setEmpty(false);
     return false;

@@ -19,9 +19,9 @@ void mathSimple() {
       'num': () => $<String>().trim(),
     },
   );
-  if (ambiguousResult is ParseAmbiguousSuccess) {
-    for (var result in ambiguousResult.results) {
-      print(evaluator.evaluate(result.marks));
+  if (ambiguousResult is ParseAmbiguousForestSuccess) {
+    for (var result in ambiguousResult.forest.allPaths()) {
+      print(evaluator.evaluate(result.toShortMarks()));
     }
   }
 }

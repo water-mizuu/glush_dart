@@ -8,22 +8,13 @@ library glush.list;
 /// pattern where results can be combined, branched, and ultimately converted
 /// to a flat list when needed.
 sealed class GlushList<T> {
-  static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
-    if (alternatives.isEmpty) return EmptyList<T>._();
-    if (alternatives.length == 1) return alternatives[0];
-    return BranchedList<T>._(alternatives);
-  }
-
   const GlushList();
   const factory GlushList.empty() = EmptyList<T>._;
 
-  GlushList<T> add(T data) => Push<T>._(this, data);
+  GlushList<T> add(GlushListManager<T> manager, T data) => manager.push(this, data);
 
-  GlushList<T> addList(GlushList<T> list) {
-    if (list is EmptyList<T>) return this;
-    if (this is EmptyList<T>) return list;
-    return Concat<T>._(this, list);
-  }
+  GlushList<T> addList(GlushListManager<T> manager, GlushList<T> list) =>
+      manager.concat(this, list);
 
   List<T> toList() {
     final result = <T>[];
@@ -36,6 +27,51 @@ sealed class GlushList<T> {
   bool get isEmpty;
 }
 
+/// Manages deduplication of [GlushList] nodes to form a shared forest.
+class GlushListManager<T> {
+  final Map<Object, GlushList<T>> _cache = {};
+
+  GlushList<T> branched(List<GlushList<T>> alternatives) {
+    if (alternatives.isEmpty) return const EmptyList._();
+    if (alternatives.length == 1) return alternatives[0];
+
+    // Deduplicate alternatives
+    final uniqueAlt = alternatives.toSet().toList();
+    if (uniqueAlt.length == 1) return uniqueAlt[0];
+
+    final key = _BranchedKey(uniqueAlt);
+    return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(uniqueAlt)));
+  }
+
+  GlushList<T> push(GlushList<T> parent, T data) {
+    final key = ('push', parent, data);
+    return _cache.putIfAbsent(key, () => Push<T>._(parent, data));
+  }
+
+  GlushList<T> concat(GlushList<T> left, GlushList<T> right) {
+    if (left is EmptyList<T>) return right;
+    if (right is EmptyList<T>) return left;
+    final key = ('concat', left, right);
+    return _cache.putIfAbsent(key, () => Concat<T>._(left, right));
+  }
+
+  void clear() => _cache.clear();
+}
+
+class _BranchedKey {
+  final List<Object?> elements;
+  _BranchedKey(this.elements);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _BranchedKey &&
+      elements.length == other.elements.length &&
+      elements.indexed.every((e) => e.$2 == other.elements[e.$1]);
+
+  @override
+  int get hashCode => Object.hashAll(elements);
+}
+
 class EmptyList<T> extends GlushList<T> {
   const EmptyList._();
 
@@ -44,6 +80,12 @@ class EmptyList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => true;
+
+  @override
+  bool operator ==(Object other) => other is EmptyList;
+
+  @override
+  int get hashCode => 0;
 }
 
 class BranchedList<T> extends GlushList<T> {
@@ -60,6 +102,16 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => alternatives.every((a) => a.isEmpty);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BranchedList<T> &&
+          alternatives.length == other.alternatives.length &&
+          alternatives.indexed.every((e) => e.$2 == other.alternatives[e.$1]);
+
+  @override
+  int get hashCode => Object.hashAll(alternatives);
 }
 
 class Push<T> extends GlushList<T> {
@@ -76,6 +128,13 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is Push<T> && parent == other.parent && data == other.data;
+
+  @override
+  int get hashCode => Object.hash(parent, data);
 }
 
 class Concat<T> extends GlushList<T> {
@@ -92,34 +151,66 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is Concat<T> && left == other.left && right == other.right;
+
+  @override
+  int get hashCode => Object.hash(left, right);
 }
 
 extension GlushListVisualizer<T> on GlushList<T> {
+  static const int maxPaths = 10000;
+
   List<List<T>> allPaths() {
-    return _collect(this);
+    return _collect(this, {});
   }
 
-  List<List<T>> _collect(GlushList<T> node) {
-    if (node is EmptyList<T>) {
-      return [[]];
-    } else if (node is Push<T>) {
-      return _collect(node.parent).map((path) => [...path, node.data]).toList();
-    } else if (node is Concat<T>) {
-      final leftPaths = _collect(node.left);
-      final rightPaths = _collect(node.right);
-      return [
-        for (final l in leftPaths)
-          for (final r in rightPaths) [...l, ...r],
-      ];
-    } else if (node is BranchedList<T>) {
-      return [for (final alt in node.alternatives) ..._collect(alt)];
+  List<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) {
+    if (memo.containsKey(node)) return memo[node]!;
+    if (memo.length > 50000) {
+      throw Exception('GlushList: Forest enumeration protection triggered - too many nodes');
     }
-    return [];
+
+    List<List<T>> result;
+    if (node is EmptyList<T>) {
+      result = [[]];
+    } else if (node is Push<T>) {
+      result = _collect(node.parent, memo).map((path) => [...path, node.data]).toList();
+    } else if (node is Concat<T>) {
+      final leftPaths = _collect(node.left, memo);
+      final rightPaths = _collect(node.right, memo);
+      result = [];
+      for (final l in leftPaths) {
+        for (final r in rightPaths) {
+          result.add([...l, ...r]);
+          if (result.length > maxPaths)
+            throw Exception(
+              'GlushList: Forest enumeration protection triggered - too many paths ($maxPaths)',
+            );
+        }
+      }
+    } else if (node is BranchedList<T>) {
+      result = [];
+      for (final alt in node.alternatives) {
+        result.addAll(_collect(alt, memo));
+        if (result.length > maxPaths)
+          throw Exception(
+            'GlushList: Forest enumeration protection triggered - too many paths ($maxPaths)',
+          );
+      }
+    } else {
+      result = [];
+    }
+
+    memo[node] = result;
+    return result;
   }
 
   String visualize() {
     final buffer = StringBuffer();
-    _visualize(this, buffer, "", true);
+    _visualize(this, buffer, "", true, {});
     return buffer.toString();
   }
 
@@ -128,25 +219,27 @@ extension GlushListVisualizer<T> on GlushList<T> {
     StringBuffer buffer,
     String prefix,
     bool isLast,
+    Set<GlushList<T>> visited,
   ) {
     final connector = isLast ? "└── " : "├── ";
     buffer.write(prefix);
     buffer.write(connector);
 
+    if (visited.contains(node)) {
+      buffer.writeln("(shared ...)");
+      return;
+    }
+    visited.add(node);
+
     if (node is EmptyList<T>) {
       buffer.writeln("Empty");
     } else if (node is Push<T>) {
       buffer.writeln("Push(${node.data})");
-      _visualize(
-        node.parent,
-        buffer,
-        prefix + (isLast ? "    " : "│   "),
-        true,
-      );
+      _visualize(node.parent, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
     } else if (node is Concat<T>) {
       buffer.writeln("Concat");
-      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false);
-      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true);
+      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
+      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
     } else if (node is BranchedList<T>) {
       buffer.writeln("Branched");
       for (int i = 0; i < node.alternatives.length; i++) {
@@ -155,6 +248,7 @@ extension GlushListVisualizer<T> on GlushList<T> {
           buffer,
           prefix + (isLast ? "    " : "│   "),
           i == node.alternatives.length - 1,
+          visited,
         );
       }
     }

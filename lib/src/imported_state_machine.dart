@@ -52,8 +52,9 @@ class ImportedStateMachine {
     // Create rule placeholders (shell rules)
     final ruleMap = <String, Rule>{};
     for (final ruleName in spec.rules.keys) {
-      ruleMap[ruleName] = Rule(ruleName, () => throw UnsupportedError('shell rule has no body'));
-      ruleMap[ruleName]!.assignSymbolId(PatternSymbol('rul:$ruleName:'));
+      final rule = Rule(ruleName, () => throw UnsupportedError('shell rule has no body'));
+      rule.assignSymbolId(PatternSymbol('rul:$ruleName:'));
+      ruleMap[ruleName] = rule;
     }
 
     // Reconstruct state actions
@@ -117,13 +118,18 @@ class ImportedStateMachine {
         Marker(name),
         stateMap[nextStateId]!,
       ),
-      CallActionSpec(:var ruleName, :var nextStateId) => CallAction(
+      CallActionSpec(:var ruleName, :var nextStateId, :var minPrecedenceLevel) => CallAction(
         ruleMap[ruleName]!,
         // Create a dummy RuleCall - won't be used since we have state transitions
         RuleCall('${ruleName}_call', ruleMap[ruleName]!),
         stateMap[nextStateId]!,
+        minPrecedenceLevel,
       ),
-      ReturnActionSpec(:var ruleName) => ReturnAction(ruleMap[ruleName]!, Eps()),
+      ReturnActionSpec(:var ruleName, :var precedenceLevel) => ReturnAction(
+        ruleMap[ruleName]!,
+        Eps(),
+        precedenceLevel,
+      ),
       AcceptActionSpec() => const AcceptAction(),
       PredicateActionSpec(:var isAnd, :var nextStateId, :var symbol) => PredicateAction(
         isAnd: isAnd,

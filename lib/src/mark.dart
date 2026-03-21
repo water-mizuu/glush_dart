@@ -48,3 +48,28 @@ class StringMark extends Mark {
   @override
   String toString() => 'StringMark($value, $position)';
 }
+
+extension MarkListExtension on List<Mark> {
+  List<String> toShortMarks() {
+    final result = <String>[];
+    String? currentStringMark;
+
+    for (final mark in this) {
+      if (mark is NamedMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        currentStringMark = (currentStringMark ?? '') + mark.value;
+      }
+    }
+
+    if (currentStringMark != null) {
+      result.add(currentStringMark);
+    }
+
+    return result;
+  }
+}

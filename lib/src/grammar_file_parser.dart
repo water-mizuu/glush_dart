@@ -49,6 +49,7 @@ enum _TokenType {
   lbrace, // {
   rbrace, // }
   ampersand, // &
+  bang, // !
   eof,
 }
 
@@ -104,6 +105,7 @@ class _Tokenizer {
         '{': _TokenType.lbrace,
         '}': _TokenType.rbrace,
         '&': _TokenType.ampersand,
+        '!': _TokenType.bang,
       };
 
       if (tokenMap.containsKey(ch)) {
@@ -386,15 +388,26 @@ class GrammarFileParser {
 
   /// Parse: expr & expr & expr
   PatternExpr _parseConjunction() {
-    final parts = [_parseRepetition()];
+    final parts = [_parsePrefix()];
 
     while (_peek().type == _TokenType.ampersand) {
       _advance(); // consume &
-      parts.add(_parseRepetition());
+      parts.add(_parsePrefix());
     }
 
     if (parts.length == 1) return parts[0];
     return ConjunctionPattern(parts);
+  }
+
+  /// Parse prefix predicates: &expr, !expr
+  PatternExpr _parsePrefix() {
+    final type = _peek().type;
+    if (type == _TokenType.ampersand || type == _TokenType.bang) {
+      _advance();
+      final inner = _parseRepetition();
+      return PredicatePattern(inner, isAnd: type == _TokenType.ampersand);
+    }
+    return _parseRepetition();
   }
 
   bool _isSequenceContinuation() {

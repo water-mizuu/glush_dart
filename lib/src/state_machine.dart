@@ -29,15 +29,27 @@ class CallAction implements StateAction {
   final Rule rule;
   final Pattern pattern;
   final State returnState;
+  final int? minPrecedenceLevel;
 
-  const CallAction(this.rule, this.pattern, this.returnState);
+  const CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel]);
+
+  @override
+  String toString() => minPrecedenceLevel != null
+      ? 'CallAction(${rule.name}^$minPrecedenceLevel)'
+      : 'CallAction(${rule.name})';
 }
 
 class ReturnAction implements StateAction {
   final Rule rule;
   final Pattern lastPattern;
+  final int? precedenceLevel;
 
-  const ReturnAction(this.rule, this.lastPattern);
+  const ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel]);
+
+  @override
+  String toString() => precedenceLevel != null
+      ? 'ReturnAction(${rule.name}, prec: $precedenceLevel)'
+      : 'ReturnAction(${rule.name})';
 }
 
 class AcceptAction implements StateAction {
@@ -135,6 +147,10 @@ class StateMachine {
       final firstState = _getOrCreateState(rule);
       ruleFirst[rule] = [firstState];
 
+      // Pre-calculate precedence mapping for this rule's body
+      final precMap = <Pattern, int?>{};
+      _buildPrecedenceMap(rule.body(), null, precMap);
+
       // Connect to first patterns
       for (final fst in rule.body().firstSet()) {
         _connect(firstState, fst);
@@ -148,7 +164,10 @@ class StateMachine {
       // Mark states before returns
       for (final lst in rule.body().lastSet()) {
         final state = _getOrCreateState(lst);
-        state.actions.add(ReturnAction(rule, lst));
+        state.actions.add(ReturnAction(rule, lst, precMap[lst]));
+      }
+      if (rule.body().empty()) {
+        firstState.actions.add(ReturnAction(rule, Eps()));
       }
     }
   }
@@ -191,16 +210,47 @@ class StateMachine {
         state.actions.add(action);
       case RuleCall(:var rule) || Call(:var rule):
         final returnState = _getOrCreateState(terminal);
-        final action = CallAction(rule, terminal, returnState);
+        // Get minPrecedenceLevel from Call/RuleCall
+        final minPrec = terminal is Call
+            ? terminal.minPrecedenceLevel
+            : (terminal as RuleCall).minPrecedenceLevel;
+        final action = CallAction(rule, terminal, returnState, minPrec);
         state.actions.add(action);
       case Action<dynamic>():
         // Create a SemanticAction state machine action with the callback
         final nextState = _getOrCreateState(terminal);
         final action = SemanticAction(terminal.callback, nextState, terminal);
         state.actions.add(action);
-      case Eps() || Alt() || Seq() || Rule() || Plus() || Star() || Prec():
-        // TODO: Handle this case.
-        throw UnimplementedError();
+      case Eps():
+        // Epsilon doesn't create transitions
+        break;
+      case Alt() || Seq() || Rule() || Plus() || Star() || Prec():
+        // These should have been decomposed by Glushkov construction
+        throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
+    }
+  }
+
+  void _buildPrecedenceMap(Pattern pattern, int? current, Map<Pattern, int?> map) {
+    if (pattern is Prec) {
+      _buildPrecedenceMap(pattern.child, pattern.precedenceLevel, map);
+      return;
+    }
+
+    // Leaf nodes or other nodes that might be in lastSet()
+    map[pattern] = current;
+
+    if (pattern is Alt) {
+      _buildPrecedenceMap(pattern.left, current, map);
+      _buildPrecedenceMap(pattern.right, current, map);
+    } else if (pattern is Seq) {
+      _buildPrecedenceMap(pattern.left, current, map);
+      _buildPrecedenceMap(pattern.right, current, map);
+    } else if (pattern is Plus) {
+      _buildPrecedenceMap(pattern.child, current, map);
+    } else if (pattern is Star) {
+      _buildPrecedenceMap(pattern.child, current, map);
+    } else if (pattern is Action) {
+      _buildPrecedenceMap(pattern.child, current, map);
     }
   }
 

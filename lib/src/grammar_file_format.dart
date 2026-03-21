@@ -139,6 +139,17 @@ enum RepetitionKind {
   const RepetitionKind(this.suffix);
 }
 
+/// Predicate pattern (e.g., &expr, !expr)
+class PredicatePattern extends PatternExpr {
+  final PatternExpr pattern;
+  final bool isAnd;
+
+  PredicatePattern(this.pattern, {required this.isAnd});
+
+  @override
+  String toString() => '${isAnd ? '&' : '!'}$pattern';
+}
+
 /// Grouped pattern (e.g., (expr '+' term))
 class GroupPattern extends PatternExpr {
   final PatternExpr inner;

@@ -41,6 +41,7 @@ class StateMachineCodeGenerator {
     buffer.writeln('/// Auto-generated standalone state machine for $grammarName grammar');
     buffer.writeln('/// Generated: ${DateTime.now()}');
     buffer.writeln("import 'dart:convert';");
+    buffer.writeln("import 'dart:collection';");
     buffer.writeln();
 
     buffer.write(_minimalRuntimeSource);
@@ -98,17 +99,13 @@ class StateMachineCodeGenerator {
     for (final actionId in sortedActionIds) {
       // Clean up the action ID for method name (remove prefixes/suffixes if present)
       final methodName = _toSnakeCase(actionId.replaceAll(':', '_'));
-      
+
       buffer.writeln('  /// Semantic action stub for: $actionId');
-      buffer.writeln(
-        '  static Object? ${methodName}Action(String span, List results) {',
-      );
+      buffer.writeln('  static Object? ${methodName}Action(String span, List results) {');
       buffer.writeln('    // TODO: Implement semantic action');
       buffer.writeln('    // span: the matched substring');
       buffer.writeln('    // results: list of child semantic values');
-      buffer.writeln(
-        '    throw UnimplementedError("Action not implemented for $actionId");',
-      );
+      buffer.writeln('    throw UnimplementedError("Action not implemented for $actionId");');
       buffer.writeln('  }');
       buffer.writeln();
     }
@@ -134,9 +131,7 @@ class StateMachineCodeGenerator {
     }
     buffer.writeln();
     buffer.writeln('    // Override with user-provided actions');
-    buffer.writeln(
-      '    actions?.forEach((id, fn) => _machine.attachAction(id, fn));',
-    );
+    buffer.writeln('    actions?.forEach((id, fn) => _machine.attachAction(id, fn));');
     buffer.writeln();
     buffer.writeln('    _parser = _machine.createParser();');
     buffer.writeln('  }');
@@ -144,14 +139,10 @@ class StateMachineCodeGenerator {
     buffer.writeln('  SMParser get parser => _parser;');
     buffer.writeln('  ImportedStateMachine get machine => _machine;');
     buffer.writeln();
-    buffer.writeln(
-      '  ParseOutcome parse(String input) => _parser.parse(input);',
-    );
-    
+    buffer.writeln('  ParseOutcome parse(String input) => _parser.parse(input);');
+
     if (!minimal) {
-      buffer.writeln(
-        '  Iterable<ParseDerivation> enumerateAllParses(String input) =>',
-      );
+      buffer.writeln('  Iterable<ParseDerivation> enumerateAllParses(String input) =>');
       buffer.writeln('    _parser.enumerateAllParses(input);');
       buffer.writeln(
         '  Iterable<ParseDerivationWithValue> '
@@ -159,7 +150,7 @@ class StateMachineCodeGenerator {
       );
       buffer.writeln('    _parser.enumerateAllParsesWithResults(input);');
     }
-    
+
     buffer.writeln('}');
   }
 
@@ -365,17 +356,30 @@ class MarkActionSpec extends StateActionSpec {
 class CallActionSpec extends StateActionSpec {
   final String ruleName;
   final int nextStateId;
-  const CallActionSpec(this.ruleName, this.nextStateId);
+  final int? minPrecedenceLevel;
+  const CallActionSpec(this.ruleName, this.nextStateId, [this.minPrecedenceLevel]);
   @override
-  Map<String, dynamic> toJson() => {'type': 'call', 'ruleName': ruleName, 'nextStateId': nextStateId};
-  static CallActionSpec fromJson(Map<String, dynamic> json) => CallActionSpec(json['ruleName'], json['nextStateId']);
+  Map<String, dynamic> toJson() => {
+    'type': 'call',
+    'ruleName': ruleName,
+    'nextStateId': nextStateId,
+    if (minPrecedenceLevel != null) 'minPrecedenceLevel': minPrecedenceLevel,
+  };
+  static CallActionSpec fromJson(Map<String, dynamic> json) => 
+    CallActionSpec(json['ruleName'], json['nextStateId'], json['minPrecedenceLevel']);
 }
 class ReturnActionSpec extends StateActionSpec {
   final String ruleName;
-  const ReturnActionSpec(this.ruleName);
+  final int? precedenceLevel;
+  const ReturnActionSpec(this.ruleName, [this.precedenceLevel]);
   @override
-  Map<String, dynamic> toJson() => {'type': 'return', 'ruleName': ruleName};
-  static ReturnActionSpec fromJson(Map<String, dynamic> json) => ReturnActionSpec(json['ruleName']);
+  Map<String, dynamic> toJson() => {
+    'type': 'return',
+    'ruleName': ruleName,
+    if (precedenceLevel != null) 'precedenceLevel': precedenceLevel,
+  };
+  static ReturnActionSpec fromJson(Map<String, dynamic> json) => 
+    ReturnActionSpec(json['ruleName'], json['precedenceLevel']);
 }
 class AcceptActionSpec extends StateActionSpec {
   const AcceptActionSpec();
@@ -463,11 +467,13 @@ class MarkAction extends StateAction {
 class CallAction extends StateAction {
   final String ruleName;
   final State returnState;
-  const CallAction(this.ruleName, this.returnState);
+  final int? minPrecedenceLevel;
+  const CallAction(this.ruleName, this.returnState, [this.minPrecedenceLevel]);
 }
 class ReturnAction extends StateAction {
   final String ruleName;
-  const ReturnAction(this.ruleName);
+  final int? precedenceLevel;
+  const ReturnAction(this.ruleName, [this.precedenceLevel]);
 }
 class AcceptAction extends StateAction { const AcceptAction(); }
 class PredicateAction extends StateAction {
@@ -518,8 +524,8 @@ class ImportedStateMachine {
   StateAction _reconstruct(StateActionSpec aSpec, Map<int, State> stateMap) {
     if (aSpec is TokenActionSpec) return TokenAction(aSpec.tokenSpec.matches, stateMap[aSpec.nextStateId]!);
     if (aSpec is MarkActionSpec) return MarkAction(aSpec.name, stateMap[aSpec.nextStateId]!);
-    if (aSpec is CallActionSpec) return CallAction(aSpec.ruleName, stateMap[aSpec.nextStateId]!);
-    if (aSpec is ReturnActionSpec) return ReturnAction(aSpec.ruleName);
+    if (aSpec is CallActionSpec) return CallAction(aSpec.ruleName, stateMap[aSpec.nextStateId]!, aSpec.minPrecedenceLevel);
+    if (aSpec is ReturnActionSpec) return ReturnAction(aSpec.ruleName, aSpec.precedenceLevel);
     if (aSpec is AcceptActionSpec) return const AcceptAction();
     if (aSpec is PredicateActionSpec) return PredicateAction(isAnd: aSpec.isAnd, symbol: aSpec.symbol, nextState: stateMap[aSpec.nextStateId]!);
     if (aSpec is SemanticActionCallSpec) return SemanticAction((span, results) {
@@ -568,73 +574,40 @@ class PredicateLookaheadBuffer {
   int get length => _buffer.length;
 }
 
-class SMParser {
-  final StateMachine machine;
-  final PredicateLookaheadBuffer _buffer = PredicateLookaheadBuffer();
-  SMParser(this.machine);
-
-  ParseOutcome parse(String input) {
-    _buffer.initialize(input);
-    var frames = machine.initialStates.map((s) => Frame(const Context(RootCallerKey(), null, 0), {s})).toList();
-    int pos = 0;
-    for (final unit in input.codeUnits) {
-      final step = _process(unit, pos, frames);
-      frames = step.nextFrames;
-      if (frames.isEmpty) return ParseError(pos);
-      pos++;
-    }
-    final finalStep = _process(null, pos, frames);
-    return finalStep.accept ? ParseSuccess(ParserResult(finalStep.marks), finalStep.semanticValue) : ParseError(pos);
-  }
-
-  _Step _process(int? token, int pos, List<Frame> frames) {
-    final step = _Step(this, token, pos);
-    for (final f in frames) step._processFrame(f);
-    return step;
-  }
-
-  bool _checkPredicate(PatternSymbol symbol, int pos) {
-    final s = symbol.symbol;
-    if (s == 'eps') return true;
-    final split = s.split(':');
-    if (split.length < 3) return true;
-    final prefix = split[0];
-    final suffix = split[2];
-    if (prefix == 'tok') {
-      if (pos >= _buffer.length) return false;
-      final unit = _buffer.codeUnitAt(pos);
-      if (suffix.isEmpty) return false;
-      return switch (suffix[0]) {
-        '.' => true,
-        ';' => unit == int.parse(suffix.substring(1)),
-        '<' => unit <= int.parse(suffix.substring(1)),
-        '>' => unit >= int.parse(suffix.substring(1)),
-        '[' => () {
-          final parts = suffix.substring(1).split(',');
-          return unit >= int.parse(parts[0]) && unit <= int.parse(parts[1]);
-        }(),
-        _ => false,
-      };
-    }
-    return true;
-  }
-}
-
-sealed class CallerKey { const CallerKey(); }
-class RootCallerKey extends CallerKey { const RootCallerKey(); }
-class Caller extends CallerKey {
-  final String ruleName;
-  final Map<(CallerKey, State), List<Context>> _grouped = {};
-  Caller(this.ruleName);
-  void addReturn(Context ctx, State next) => _grouped.putIfAbsent((ctx.caller, next), () => []).add(ctx);
+// --- Token History Node ---
+class TokenNode {
+  final int unit;
+  TokenNode? next;
+  TokenNode(this.unit);
 }
 
 class Context {
   final CallerKey caller;
   final GlushList<Mark>? marks;
+  final int? callStart;
+  final int pivot;
+  final TokenNode? tokenHistory;
+  final int? minPrecedenceLevel;
   final Object? semanticValue;
-  final int callStart;
-  const Context(this.caller, this.marks, this.callStart, [this.semanticValue]);
+  final GlushList<PredicateFrame> predicateStack;
+
+  const Context(
+    this.caller,
+    this.marks, {
+    this.callStart,
+    this.pivot = 0,
+    this.tokenHistory,
+    this.minPrecedenceLevel,
+    this.semanticValue,
+    this.predicateStack = const GlushList.empty(),
+  });
+}
+
+class PredicateFrame {
+  final PatternSymbol symbol;
+  final int startPos;
+  final bool isAnd;
+  const PredicateFrame(this.symbol, this.startPos, {required this.isAnd});
 }
 
 class Frame {
@@ -643,63 +616,227 @@ class Frame {
   Frame(this.context, [Set<State>? states]) : nextStates = states ?? {};
 }
 
+class CallerKey { const CallerKey(); }
+class RootCallerKey extends CallerKey { const RootCallerKey(); }
+class PredicateCallerKey extends CallerKey {
+  final PatternSymbol symbol;
+  final int startPos;
+  const PredicateCallerKey(this.symbol, this.startPos);
+}
+
+class Caller extends CallerKey {
+  final String ruleName;
+  final Map<(CallerKey, State, int?), List<Context>> _grouped = {};
+  int? callStart;
+  Caller(this.ruleName);
+  void addReturn(Context ctx, State next) => _grouped.putIfAbsent((ctx.caller, next, ctx.minPrecedenceLevel), () => []).add(ctx);
+}
+
+class SMParser {
+  final StateMachine machine;
+  final PredicateLookaheadBuffer _buffer = PredicateLookaheadBuffer();
+
+  TokenNode? _historyTail;
+  final Map<int, TokenNode> _historyByPosition = {};
+  final Map<(PatternSymbol, int), bool> _predicateResults = {};
+
+  SMParser(this.machine);
+
+  ParseOutcome parse(String input) {
+    _buffer.initialize(input);
+    _historyTail = null;
+    _historyByPosition.clear();
+    _predicateResults.clear();
+
+    var frames = machine.initialStates.map((s) => Frame(const Context(RootCallerKey(), null, callStart: 0, pivot: 0), {s})).toList();
+    int pos = 0;
+    while (true) {
+      final unit = pos < input.length ? input.codeUnitAt(pos) : null;
+      final step = _processToken(unit, pos, frames);
+      if (pos >= input.length) {
+        return step.accept ? ParseSuccess(ParserResult(step.marks), step.semanticValue) : ParseError(pos);
+      }
+      frames = step.nextFrames;
+      if (frames.isEmpty) return ParseError(pos);
+      pos++;
+    }
+  }
+
+  _Step _processToken(int? token, int position, List<Frame> frames) {
+    if (token != null) {
+      final node = TokenNode(token);
+      if (_historyTail == null) {
+        _historyTail = node;
+      } else {
+        _historyTail!.next = node;
+        _historyTail = node;
+      }
+      _historyByPosition[position] = node;
+    }
+
+    final stepsAtPosition = <int, _Step>{};
+    final workQueue = SplayTreeMap<int, List<Frame>>((a, b) => a.compareTo(b));
+
+    void addFramesToQueue(List<Frame> newFrames) {
+      for (final f in newFrames) {
+        final pos = f.context.pivot;
+        workQueue.putIfAbsent(pos, () => []).add(f);
+      }
+    }
+
+    addFramesToQueue(frames);
+
+    while (workQueue.isNotEmpty) {
+      final pos = workQueue.firstKey()!;
+      if (pos > position) break;
+
+      final posFrames = workQueue.remove(pos)!;
+      final currentStep = stepsAtPosition.putIfAbsent(pos, () {
+        final posToken = (pos == position) ? token : _historyByPosition[pos]?.unit;
+        return _Step(this, posToken, pos);
+      });
+
+      for (final f in posFrames) {
+        currentStep._processFrame(f);
+      }
+
+      if (pos < position) {
+        currentStep.finalize();
+        addFramesToQueue(currentStep.nextFrames);
+        currentStep.nextFrames.clear();
+      }
+    }
+
+    final resultStep = stepsAtPosition[position] ?? _Step(this, token, position);
+    resultStep.finalize();
+    return resultStep;
+  }
+}
+
 class _Step {
   final SMParser parser;
   final int? token;
   final int position;
   final List<Frame> nextFrames = [];
   final Map<String, Caller> _callers = {};
-  final Set<CallerKey> _returned = {};
+  final Set<(State, CallerKey, int?)> _active = {};
   final List<Context> _accepted = [];
+
+  final Map<(State, CallerKey, int?), List<(GlushList<Mark>?, Object?)>> _nextGroups = {};
 
   _Step(this.parser, this.token, this.position);
   bool get accept => _accepted.isNotEmpty;
   List<Mark> get marks => _accepted.isEmpty ? [] : _accepted[0].marks?.toList().cast<Mark>() ?? [];
   Object? get semanticValue => _accepted.isEmpty ? null : _accepted[0].semanticValue;
 
+  int? _getTokenFor(Context ctx) {
+    if (ctx.pivot == position) return token;
+    return parser._historyByPosition[ctx.pivot]?.unit;
+  }
+
   void _processFrame(Frame f) {
-    for (final s in f.nextStates) _run(f.context, s);
+    for (final s in f.nextStates) _enqueue(s, f.context);
+  }
+
+  void _enqueue(State s, Context ctx) {
+    final key = (s, ctx.caller, ctx.minPrecedenceLevel);
+    if (!_active.add(key)) return;
+    _run(ctx, s);
   }
 
   void _run(Context ctx, State s) {
     for (final a in s.actions) {
       if (a is TokenAction) {
-        if (token != null && a.match(token)) {
-          final val = String.fromCharCode(token!);
+        final t = _getTokenFor(ctx);
+        if (t != null && a.match(t)) {
+          final val = String.fromCharCode(t);
           final nextVal = ctx.semanticValue == null ? val : [ctx.semanticValue, val];
-          nextFrames.add(Frame(Context(ctx.caller, ctx.marks, ctx.callStart, nextVal), {a.nextState}));
+          final nextKey = (a.nextState, ctx.caller, ctx.minPrecedenceLevel);
+          _nextGroups.putIfAbsent(nextKey, () => []).add((ctx.marks, nextVal));
         }
       } else if (a is MarkAction) {
-        _run(Context(ctx.caller, (ctx.marks ?? const GlushList.empty()).add(NamedMark(a.name, position)), ctx.callStart, ctx.semanticValue), a.nextState);
+        _run(Context(ctx.caller, (ctx.marks ?? const GlushList.empty()).add(NamedMark(a.name, position)), callStart: ctx.callStart, pivot: position, tokenHistory: ctx.tokenHistory, minPrecedenceLevel: ctx.minPrecedenceLevel, semanticValue: ctx.semanticValue, predicateStack: ctx.predicateStack), a.nextState);
       } else if (a is SemanticAction) {
         final res = <Object?>[ctx.semanticValue];
-        final span = (ctx.callStart < parser._buffer.length && position <= parser._buffer.length) ? String.fromCharCodes(parser._buffer._buffer.sublist(ctx.callStart, position)) : '';
+        final span = (ctx.callStart != null && ctx.callStart! < parser._buffer.length && position <= parser._buffer.length) ? String.fromCharCodes(parser._buffer._buffer.sublist(ctx.callStart!, position)) : '';
         final val = a.callback(span, res);
-        _run(Context(ctx.caller, ctx.marks, ctx.callStart, val), a.nextState);
+        _run(Context(ctx.caller, ctx.marks, callStart: ctx.callStart, pivot: position, tokenHistory: ctx.tokenHistory, minPrecedenceLevel: ctx.minPrecedenceLevel, semanticValue: val, predicateStack: ctx.predicateStack), a.nextState);
       } else if (a is PredicateAction) {
-        if (parser._checkPredicate(a.symbol, position) == a.isAnd) _run(ctx, a.nextState);
+        final res = parser._predicateResults[(a.symbol, position)];
+        if (res != null) {
+          if (res == a.isAnd) _run(ctx, a.nextState);
+          continue;
+        }
+        
+        // Integrated sub-parse for lookahead
+        final subParser = SMParser(parser.machine);
+        // Copy buffer and history
+        subParser._buffer._buffer.addAll(parser._buffer._buffer);
+        subParser._historyByPosition.addAll(parser._historyByPosition);
+        
+        final subResult = subParser._checkRuleAt(a.symbol, position);
+        parser._predicateResults[(a.symbol, position)] = subResult;
+        if (subResult == a.isAnd) _run(ctx, a.nextState);
       } else if (a is CallAction) {
         final c = _callers.putIfAbsent(a.ruleName, () => Caller(a.ruleName));
         final exists = c._grouped.isNotEmpty;
         c.addReturn(ctx, a.returnState);
         if (!exists) {
-          for (final start in parser.machine.ruleFirst[a.ruleName] ?? []) _run(Context(c, const GlushList.empty(), position), start);
+          c.callStart = position;
+          for (final start in parser.machine.ruleFirst[a.ruleName] ?? []) _run(Context(c, const GlushList.empty(), callStart: position, pivot: position, tokenHistory: parser._historyByPosition[position], minPrecedenceLevel: a.minPrecedenceLevel, predicateStack: ctx.predicateStack), start);
         }
       } else if (a is ReturnAction) {
+        if (ctx.minPrecedenceLevel != null && a.precedenceLevel != null && a.precedenceLevel! < ctx.minPrecedenceLevel!) continue;
         final c = ctx.caller;
-        if (!_returned.add(c)) continue;
         if (c is Caller) {
           for (var entry in c._grouped.entries) {
             for (var cctx in entry.value) {
               final nextMarks = cctx.marks == null ? ctx.marks : GlushList.branched<Mark>([cctx.marks!]).addList(ctx.marks ?? const GlushList.empty());
               final nextVal = cctx.semanticValue == null ? ctx.semanticValue : [cctx.semanticValue, ctx.semanticValue];
-              _run(Context(entry.key.$1, nextMarks, cctx.callStart, nextVal), entry.key.$2);
+              _run(Context(entry.key.$1, nextMarks, callStart: cctx.callStart, pivot: position, tokenHistory: cctx.tokenHistory, minPrecedenceLevel: entry.key.$3, semanticValue: nextVal, predicateStack: ctx.predicateStack), entry.key.$2);
             }
           }
+        } else if (c is PredicateCallerKey) {
+          // Handled by _checkRuleAt
         }
       } else if (a is AcceptAction) {
         _accepted.add(ctx);
       }
+    }
+  }
+
+  void finalize() {
+    for (final e in _nextGroups.entries) {
+      final key = e.key;
+      final items = e.value;
+      final mergedMarks = GlushList.branched<Mark>(items.map((i) => i.$1 ?? const GlushList.empty()).toList());
+      final mergedVal = items.length == 1 ? items[0].$2 : items.map((i) => i.$2).toList();
+      
+      int? nextCallStart;
+      if (key.$2 is Caller) nextCallStart = (key.$2 as Caller).callStart;
+      else if (key.$2 is RootCallerKey) nextCallStart = 0;
+
+      nextFrames.add(Frame(Context(key.$2, mergedMarks, callStart: nextCallStart, pivot: position + 1, tokenHistory: parser._historyByPosition[position], minPrecedenceLevel: key.$3, semanticValue: mergedVal), {key.$1}));
+    }
+  }
+}
+
+extension on SMParser {
+  bool _checkRuleAt(PatternSymbol symbol, int pos) {
+    var frames = machine.ruleFirst[symbol.symbol]?.map((s) => Frame(Context(PredicateCallerKey(symbol, pos), null, callStart: pos, pivot: pos), {s})).toList() ?? [];
+    if (frames.isEmpty) return false;
+    
+    int current = pos;
+    final inputLen = _buffer.length;
+    
+    while (true) {
+      final unit = current < inputLen ? _buffer.codeUnitAt(current) : null;
+      final step = _processToken(unit, current, frames);
+      if (step.accept) return true;
+      if (current >= inputLen) return false;
+      frames = step.nextFrames;
+      if (frames.isEmpty) return false;
+      current++;
     }
   }
 }

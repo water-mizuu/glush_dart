@@ -502,10 +502,14 @@ class ParseForest {
 
   /// Lazily yields all parse trees contained in the forest.
   Iterable<ParseTree> extract() sync* {
-    yield* _extractTrees(root);
+    yield* _extractTrees(root, {});
   }
 
-  Iterable<ParseTree> _extractTrees(ForestNode node) sync* {
+  Iterable<ParseTree> _extractTrees(ForestNode node, Set<ForestNode> ancestors) sync* {
+    if (ancestors.contains(node)) return;
+
+    final childAncestors = {...ancestors, node};
+
     if (node is SymbolicNode) {
       if (node.families.isEmpty) {
         yield ParseTree(node, const []);
@@ -515,7 +519,7 @@ class ParseForest {
         if (family.children.isEmpty) {
           yield ParseTree(node, const []);
         } else {
-          yield* _extractFamilyTrees(node, family);
+          yield* _extractFamilyTrees(node, family, childAncestors);
         }
       }
     } else if (node is IntermediateNode) {
@@ -527,7 +531,7 @@ class ParseForest {
         if (family.children.isEmpty) {
           yield ParseTree(node, const []);
         } else {
-          yield* _extractFamilyTrees(node, family);
+          yield* _extractFamilyTrees(node, family, childAncestors);
         }
       }
     } else {
@@ -536,17 +540,21 @@ class ParseForest {
   }
 
   /// Lazily yields one [ParseTree] per combination of child subtrees for [family].
-  Iterable<ParseTree> _extractFamilyTrees(ForestNode parent, Family family) sync* {
+  Iterable<ParseTree> _extractFamilyTrees(
+    ForestNode parent,
+    Family family,
+    Set<ForestNode> ancestors,
+  ) sync* {
     switch (family) {
       case _EpsilonFamily():
         break;
       case _UnaryFamily(:final child):
-        for (final tree in _extractTrees(child)) {
+        for (final tree in _extractTrees(child, ancestors)) {
           yield ParseTree(parent, [tree]);
         }
       case _BinaryFamily(:final left, :final right):
-        for (final l in _extractTrees(left)) {
-          for (final r in _extractTrees(right)) {
+        for (final l in _extractTrees(left, ancestors)) {
+          for (final r in _extractTrees(right, ancestors)) {
             yield ParseTree(parent, [l, r]);
           }
         }

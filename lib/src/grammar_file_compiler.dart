@@ -111,6 +111,17 @@ class GrammarFileCompiler {
 
       case GroupPattern():
         return _compilePattern(expr.inner, precedenceLevels);
+
+      case ActionExpr():
+        throw Exception('ActionExpr cannot be compiled as a pattern');
+
+      case PredicatePattern():
+        final inner = _compilePattern(expr.pattern, precedenceLevels);
+        if (expr.isAnd) {
+          return And(inner);
+        } else {
+          return Not(inner);
+        }
     }
   }
 }
