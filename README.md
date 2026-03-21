@@ -5,13 +5,15 @@ A powerful, flexible parsing library for Dart that supports **CFG Parsing**, **s
 > Note: This library and its tooling were developed with the help of AI-assisted generation.
 
 **Key Features:**
-- 🎯 **Pattern-based DSL** — Define grammars using Dart-native operators (`>>`, `|`, `*`, `+`, `?`)
-- 🔍 **Multiple parsing methods** — Recognition, parse tree enumeration, full parse forests (SPPF)
-- 📍 **Mark collection & Evaluation** — Track positions and capture spans; evaluate results elegantly with the `Evaluator` class
-- ⚙️ **Semantic actions** — Attach callbacks to patterns to evaluate or transform results during parsing
-- 🌳 **Parse forest support** — Handle ambiguous grammars efficiently with SPPF (Shared Packed Parse Forest)
-- ✨ **Lookahead predicates** — Use AND (`&`) and NOT (`!`) for contextual matching without consuming input
-- ⚡ **No external dependencies** — Pure Dart implementation
+- **Pattern-based DSL** — Define grammars using Dart-native operators (`>>`, `|`, `*`, `+`, `?`)
+- **Multiple parsing methods** — Recognition, parse tree enumeration, full parse forests (SPPF), streaming parse forests
+- **Mark collection & Evaluation** — Track positions and capture spans; evaluate results elegantly with the `Evaluator` class
+- **Semantic actions** — Attach callbacks to patterns to evaluate or transform results during parsing
+- **Parse forest support** — Handle ambiguous grammars efficiently with SPPF (Shared Packed Parse Forest)
+- **Forest analysis** — Count derivations, detect cycles, and analyze grammar with SCC-based metrics
+- **Streaming support** — Parse large files or network streams with bounded memory using `parseWithForestAsync()`
+- **Lookahead predicates** — Use AND (`&`) and NOT (`!`) for contextual matching without consuming input
+- **No external dependencies** — Pure Dart implementation
 
 ---
 
@@ -21,14 +23,15 @@ A powerful, flexible parsing library for Dart that supports **CFG Parsing**, **s
 2. [Core Concepts](#core-concepts)
 3. [Patterns and Operations](#patterns-and-operations)
 4. [Parsing Methods](#parsing-methods)
-5. [Mark Collection](#mark-collection)
-6. [Semantic Actions](#semantic-actions)
-7. [Operator Precedence](#operator-precedence)
-8. [Lookahead Predicates](#lookahead-predicates)
-9. [Code Generation](#code-generation)
-10. [Examples](#examples)
-11. [Best Practices](#best-practices)
-12. [API Reference](#api-reference)
+5. [Parse Forest Analysis](#parse-forest-analysis)
+6. [Mark Collection](#mark-collection)
+7. [Semantic Actions](#semantic-actions)
+8. [Operator Precedence](#operator-precedence)
+9. [Lookahead Predicates](#lookahead-predicates)
+10. [Code Generation](#code-generation)
+11. [Examples](#examples)
+12. [Best Practices](#best-practices)
+13. [API Reference](#api-reference)
 
 ---
 
@@ -52,32 +55,32 @@ void main() {
 
     // factor = number | '(' expr ')'
     factor = Rule('factor', () =>
-      Call(number) |
+      number() |
       (Token.char('(') >>
-       Call(expr) >>
+       expr() >>
        Token.char(')'))
         .withAction<int>((_, children) => children[1])
     );
 
     // term = factor (('*' | '/') factor)*
     term = Rule('term', () =>
-      Call(factor) |
-      (Marker('mul') >> Call(term) >> Token.char('*') >> Call(factor))
+      factor() |
+      (Marker('mul') >> term() >> Token.char('*') >> factor())
         .withAction<int>((_, children) => children[1] * children[3]) |
-      (Marker('div') >> Call(term) >> Token.char('/') >> Call(factor))
+      (Marker('div') >> term() >> Token.char('/') >> factor())
         .withAction<int>((_, children) => children[1] ~/ children[3])
     );
 
     // expr = term (('+' | '-') term)*
     expr = Rule('expr', () =>
-      Call(term) |
-      (Marker('add') >> Call(expr) >> Token.char('+') >> Call(term))
+      term() |
+      (Marker('add') >> expr() >> Token.char('+') >> term())
         .withAction<int>((_, children) => children[1] + children[3]) |
-      (Marker('sub') >> Call(expr) >> Token.char('-') >> Call(term))
+      (Marker('sub') >> expr() >> Token.char('-') >> term())
         .withAction<int>((_, children) => children[1] - children[3])
     );
 
-    return Call(expr);
+    return expr();
   });
 
   final parser = SMParser(grammar);
@@ -112,15 +115,15 @@ A **Grammar** is a collection of rules. Each rule defines how to match part of t
 final grammar = Grammar(() {
   late Rule expr, term;
 
-  expr = Rule('expr', () => 
-    Call(term) >> (Token.char('+') >> Call(term)).star()
+  expr = Rule('expr', () =>
+    term() >> (Token.char('+') >> term()).star()
   );
 
   term = Rule('term', () =>
     Token.charRange('0', '9').plus()
   );
 
-  return Call(expr);  // Return the start rule
+  return expr();  // Return the start rule
 });
 ```
 
@@ -154,7 +157,7 @@ Patterns combine tokens and rules to form larger expressions:
 | Repeat (0+) | `A.star()` | Match A zero or more times |
 | Repeat (1+) | `A.plus()` | Match A one or more times |
 | Empty | `Eps()` | Match nothing (zero-length) |
-| Call | `Call(rule)` | Reference another rule |
+| Call | `rule()` | Reference another rule |
 | Predicate (AND) | `A.and() >> B` | Look ahead for A without consuming |
 | Predicate (NOT) | `A.not() >> B` | Lo ahead, fail if A matches |
 
@@ -224,9 +227,7 @@ Token.char('a').plus()  // Matches "a", "aa", "aaa", ... (not "")
 ```
 
 **Tree structure:**
-- Star with zero matches: epsilon
-- Star with matches: `[[s, s], s]` (recursive)
-- Plus: Always at least 2 children
+Both operators natively return a flat `List` of their child elements during semantic action evaluation or SPPF forest extraction, making AST generation trivial rather than dealing with nested sequential structures.
 
 ---
 
@@ -253,10 +254,10 @@ final grammar = Grammar(() {
   digit = Rule('digit', () => Token.charRange('0', '9'));
 
   number = Rule('number', () =>
-    Call(digit) >> Call(digit).star()
+    digit() >> digit().star()
   );
 
-  return Call(number);
+  return number;
 });
 ```
 
@@ -289,9 +290,9 @@ if (parser.recognize('12+34')) {
 }
 ```
 
-**Returns:** `bool`  
-**Time:** O(n) where n = input length  
-**Space:** O(n)  
+**Returns:** `bool`
+**Time:** O(n) where n = input length
+**Space:** O(n)
 **Use when:** Just need validation
 
 ---
@@ -306,7 +307,7 @@ final trees = parser.enumerateAllParses('12+34').toList();
 for (final tree in trees) {
   print(tree.symbol);           // Rule name
   print(tree.toTreeString());   // Visual tree
-  
+
   // Access span
   print(tree.start);            // Start position
   print(tree.end);              // End position
@@ -314,11 +315,11 @@ for (final tree in trees) {
 }
 ```
 
-**Returns:** `Iterable<ParseDerivation>`  
-**Time to 1st tree:** O(depth)  
-**Time for D trees:** O(n² + D×depth)  
-**Space:** O(n²) memoization  
-**Laziness:** ✅ Builds trees on-demand  
+**Returns:** `Iterable<ParseDerivation>`
+**Time to 1st tree:** O(depth)
+**Time for D trees:** O(n² + D×depth)
+**Space:** O(n²) memoization
+**Laziness:** ✅ Builds trees on-demand
 **Use when:**
 - Need all possible parses
 - Memory is tight
@@ -339,8 +340,8 @@ for (final result in results) {
 }
 ```
 
-**Returns:** `Iterable<ParseDerivationWithValue<T>>`  
-**Semantics:** Bottom-up evaluation of `.withAction()` callbacks  
+**Returns:** `Iterable<ParseDerivationWithValue<T>>`
+**Semantics:** Bottom-up evaluation of `.withAction()` callbacks
 **Use when:** Combining parsing and semantic evaluation
 
 ---
@@ -364,7 +365,7 @@ if (outcome is ParseForestSuccess) {
   for (final tree in trees) {
     print(tree.toTreeString());
   }
-  
+
   // Extract with semantic results (March 2026)
   final results = parser.enumerateForestWithResults<int>(outcome, '12+34');
   for (final result in results) {
@@ -375,39 +376,158 @@ if (outcome is ParseForestSuccess) {
 }
 ```
 
-**Returns:** `ParseOutcome<T>` = `ParseForestSuccess<T> | ParseError<T>`  
-**Time to build:** O(n³) (CYK-like)  
-**Time to extract:** O(D) where D = derivations  
-**Space:** O(F) forest nodes  
-**Laziness:** ❌ Builds entire forest upfront  
+**Returns:** `ParseOutcome<T>` = `ParseForestSuccess<T> | ParseError<T>`
+**Time to build:** O(n³) (CYK-like)
+**Time to extract:** O(D) where D = derivations
+**Space:** O(F) forest nodes
+**Laziness:** ❌ Builds entire forest upfront
 **Use when:**
 - Highly ambiguous grammars
 - Need all possible parses
 - Forest structure saves memory vs reconstruction
 - Can afford upfront O(n³) cost
+- **Cyclic Grammars:** Robustly handles cyclic ε-grammars with built-in cycle detection to prevent infinite recursion and stack overflows.
 
 ---
 
-## Comparison: `enumerateAllParses()` vs `parseWithForest()`
+### Method 5: `parseAmbiguous()` — Ambiguity with GSS
 
-| Aspect | `enumerateAllParses()` | `parseWithForest()` |
-|--------|--|--|
-| **Time to first tree** | Fast: O(depth) | Slow: O(n³) |
-| **Time for all D trees** | O(n² + D×K) | O(n³ + D) |
-| **Laziness** | ✅ Lazy | ❌ Eager |
-| **Space** | O(n²) | O(F) forest nodes |
-| **Best for** | Small input, few trees | Highly ambiguous, all trees |
+Parse ambiguous grammars efficiently without building a full SPPF, returning multiple valid sequences of marks:
+
+```dart
+final outcome = parser.parseAmbiguous('12+34');
+if (outcome is ParseAmbiguousForestSuccess) {
+  // Use outcome...
+}
+```
+
+**Key Features:**
+- Powered by a **Graph-Structured Stack (GSS)** and a branching list (`GlushList`) to handle multiple parse paths without exponential memory growth.
+- Built on the marks system — returns multiple sequences of marks representing different successful parses, which can be evaluated elegantly with the `Evaluator` class. (Note: standard `parse()` also relies on the marks system).
+
+**Returns:** `ParseAmbiguousForestSuccess | ParseFailure` containing mark lists
+**Use when:** You need to evaluate multiple valid parses of a string efficiently using a mark evaluator.
+
+---
+
+### Method 6: `parseWithForestAsync()` — Streaming Parse Forest
+
+Build a parse forest from streaming input without loading the entire input into memory:
+
+```dart
+// Stream input from network, file, or any async source
+Stream<String> inputStream = ...;
+
+final outcome = await parser.parseWithForestAsync(inputStream);
+
+if (outcome is ParseForestSuccess) {
+  final forest = outcome.forest;
+
+  // Forest statistics
+  print('Nodes: ${forest.countNodes()}');
+  print('Families: ${forest.countFamilies()}');
+
+  // Extract all trees
+  final trees = forest.extract().toList();
+  for (final tree in trees) {
+    print(tree.toTreeString());
+  }
+
+  // Extract with semantic results
+  final results = parser.enumerateForestWithResults<int>(outcome, inputStream);
+  for (final result in results) {
+    print('Value: ${result.value}');
+  }
+} else if (outcome is ParseError) {
+  print('Parse error at position ${outcome.position}');
+}
+```
+
+**Parameters:**
+- `input: Stream<String>` — Async stream of input chunks
+- `lookaheadWindowSize: int` — Maximum lookahead buffer size (default: 1MB) to prevent unbounded memory growth
+
+**Returns:** `Future<ParseOutcome>` = `Future<ParseForestSuccess | ParseError>`
+**Time to build:** O(n³) (CYK-like)
+**Space:** O(F) forest nodes + O(w) lookahead window (bounded)
+**Streaming:** ✅ Processes input incrementally
+**Use when:**
+- Parsing large files or network streams
+- Input size exceeds available memory
+- Real-time parsing with buffered lookahead
+- Need parse forest from streaming data
+
+---
+
+## Parsing Methods Comparison
+
+| Method | Returns | Time Profile | Space Profile | Streaming | Best for |
+|--------|---------|--------------|---------------|-----------|----------|
+| `recognize()` | `bool` | O(n) | O(n) | ❌ | Fast validation |
+| `parse()` | `ParseSuccess` (Marks)| O(n) | O(n) | ❌ | Unambiguous parsing evaluated via `Evaluator` |
+| `parseAmbiguous()` | `ParseAmbiguousForestSuccess`| Fast: O(depth) to first | O(n) GSS | ❌ | Ambiguous parsing evaluated via `Evaluator` |
+| `enumerateAllParses()` | `Iterable<ParseDerivation>`| Fast: O(depth) to first | O(n²) | ❌ | Small input, few AST trees |
+| `enumerateAllParsesWithResults()`| `Iterable<Value>`| Fast: O(depth) to first | O(n²) | ❌ | Direct evaluation, few outcomes |
+| `parseWithForest()` | `ParseForestSuccess` | Slow: O(n³) upfront | O(F) set nodes | ❌ | Highly ambiguous, all trees via SPPF |
+| `parseWithForestAsync()` | `Future<ParseForestSuccess>` | Slow: O(n³) upfront | O(F) + O(w) bounded | ✅ | Streaming input, bounded memory |
+
+---
+
+## Parse Forest Analysis
+
+After building a parse forest, you can analyze its structure and count derivations using strongly connected component (SCC) analysis.
+
+### Forest Statistics
+
+```dart
+final outcome = parser.parseWithForest('a+a');
+if (outcome is ParseForestSuccess) {
+  final forest = outcome.forest;
+
+  // Basic metrics
+  print('Total nodes: ${forest.countNodes()}');
+  print('Total families (alternatives): ${forest.countFamilies()}');
+}
+```
+
+### Derivation Counting with SCC Analysis
+
+Count the total number of distinct parse derivations using Tarjan's strongly connected component algorithm:
+
+```dart
+final outcome = parser.parseWithForest('2+3*4');
+if (outcome is ParseForestSuccess) {
+  final forest = outcome.forest;
+  final counts = forest.countDerivationsWithSCC();
+
+  print('Total derivations: ${counts['count']}');           // BigInt (unbounded)
+  print('Has cycles (left recursion): ${counts['hasCycles']}'); // bool
+  print('Number of SCCs: ${counts['sccs']}');               // int
+  print('Forest size: ${counts['forestSize']}');            // int
+}
+```
+
+**Why SCC Analysis?**
+- **Cycle Detection:** Identifies left-recursive or cyclic grammars that produce infinite derivations
+- **Precise Counting:** Uses dynamic programming with memoization to count exact derivations even in recursive grammars
+- **BigInt Support:** Handles grammars with very large (or infinite) numbers of derivations
+
+**Key Points:**
+- `count`: Total number of distinct parse trees (as `BigInt` for unbounded counts)
+- `hasCycles`: `true` if the grammar has left-recursion or cycles
+- `sccs`: Number of strongly connected components in the parse forest
+- `forestSize`: Total number of nodes in the forest
+
+### When to Use SCC Analysis
+
+- Detect **left-recursive grammars** (common in expression parsing)
+- **Validate ambiguity** — Understand how many ways input can be parsed
+- **Grammar debugging** — Check if precedence rules are working as expected
+- **Performance analysis** — Identify grammars with exponential derivation counts
 
 ---
 
 ## Mark Collection
-
-**Marks** track parse positions and named spans during parsing. Use them to capture semantic information about where things happen in the input.
-
-### Named Marks
-
-Name the position where something occurs:
-
 ```dart
 final grammar = Grammar(() {
   late Rule expr;
@@ -421,7 +541,7 @@ final grammar = Grammar(() {
     Token.char('5')
   );
 
-  return Call(expr);
+  return expr();
 });
 
 // After parsing, marks are available in the parse state
@@ -448,7 +568,7 @@ final grammar = Grammar(() {
     return span;  // Return matched text
   });
 
-  return Call(Rule('kw', () => keyword));
+  return Rule('kw', () => keyword)();
 });
 ```
 
@@ -512,18 +632,18 @@ final grammar = Grammar(() {
   );
 
   term = Rule('term', () =>
-    Call(number) |
-    (Call(term) >> Token.char('*') >> Call(number))
+    number() |
+    (term() >> Token.char('*') >> number())
       .withAction<int>((_, c) => c[0] * c[2])
   );
 
   expr = Rule('expr', () =>
-    Call(term) |
-    (Call(expr) >> Token.char('+') >> Call(term))
+    term() |
+    (expr() >> Token.char('+') >> term())
       .withAction<int>((_, c) => c[0] + c[2])
   );
 
-  return Call(expr);
+  return expr();
 });
 
 final parser = SMParser(grammar);
@@ -576,18 +696,18 @@ final grammar = Grammar(() {
   );
 
   term = Rule('term', () =>
-    Call(number) |
-    (Call(term) >> Token.char('*') >> Call(number))
+    number() |
+    (term() >> Token.char('*') >> number())
       .withAction<BinOpExpr>((_, c) => BinOpExpr('*', c[0], c[2]))
   );
 
   expr = Rule('expr', () =>
-    Call(term) |
-    (Call(expr) >> Token.char('+') >> Call(term))
+    term() |
+    (expr() >> Token.char('+') >> term())
       .withAction<BinOpExpr>((_, c) => BinOpExpr('+', c[0], c[2]))
   );
 
-  return Call(expr);
+  return expr();
 });
 ```
 
@@ -624,32 +744,32 @@ final grammar = Grammar(() {
 
   // Highest precedence: parentheses and numbers
   factor = Rule('factor', () =>
-    Call(number) |
-    (Token.char('(') >> Call(expr) >> Token.char(')'))
+    number() |
+    (Token.char('(') >> expr() >> Token.char(')'))
   );
 
   // Medium precedence: * and /
   term = Rule('term', () =>
-    Call(factor)
+    factor()
       .withAction<int>((_, c) => c[0]) |
-    (Call(term) >> Token.char('*') >> Call(factor))
+    (term() >> Token.char('*') >> factor())
       .withAction<int>((_, c) => c[0] * c[2]) |
-    (Call(term) >> Token.char('/') >> Call(factor))
+    (term() >> Token.char('/') >> factor())
       .withAction<int>((_, c) => c[0] ~/ c[2])
   );
 
   // Lowest precedence: + and -
   // Left-recursive for left-associativity: expr → expr '+' term
   expr = Rule('expr', () =>
-    Call(term)
+    term()
       .withAction<int>((_, c) => c[0]) |
-    (Call(expr) >> Token.char('+') >> Call(term))
+    (expr() >> Token.char('+') >> term())
       .withAction<int>((_, c) => c[0] + c[2]) |
-    (Call(expr) >> Token.char('-') >> Call(term))
+    (expr() >> Token.char('-') >> term())
       .withAction<int>((_, c) => c[0] - c[2])
   );
 
-  return Call(expr);
+  return expr();
 });
 
 // Usage:
@@ -671,13 +791,13 @@ print(results[0].value);  // 14 (correct precedence)
 // LEFT-ASSOCIATIVE (standard):
 // 10 - 5 - 2 = (10 - 5) - 2 = 3
 expr = Rule('expr', () =>
-  Call(expr) >> Token.char('-') >> Call(term)  // Left recursion
+  expr() >> Token.char('-') >> term()  // Left recursion
 );
 
 // RIGHT-ASSOCIATIVE:
 // a ^ b ^ c = a ^ (b ^ c)
 expr = Rule('expr', () =>
-  Call(term) >> Token.char('^') >> Call(expr)  // Right recursion
+  term() >> Token.char('^') >> expr()  // Right recursion
 );
 ```
 
@@ -699,11 +819,11 @@ expr =
 
 ```dart
 expr = Rule('expr', () {
-  return (Marker('pair') >> Call(expr) >> Token.char('=') >> Token.char('>') >> Call(expr))
+  return (Marker('pair') >> expr() >> Token.char('=') >> Token.char('>') >> expr())
     .atLevel(1) |
-    (Marker('add') >> Call(expr) >> Token.char('+') >> Call(expr))
+    (Marker('add') >> expr() >> Token.char('+') >> expr())
       .atLevel(2) |
-    (Marker('mul') >> Call(expr) >> Token.char('*') >> Call(expr))
+    (Marker('mul') >> expr() >> Token.char('*') >> expr())
       .atLevel(3) |
     Token.charRange('0', '9').plus()
       .atLevel(11);
@@ -711,8 +831,8 @@ expr = Rule('expr', () {
 
 // With precedence constraints (filter which alternatives can be called):
 expr = Rule('expr', () {
-  return Call(expr, minPrecedenceLevel: 2) >> Token.char('+') >> Call(expr, minPrecedenceLevel: 3) |
-         Call(expr, minPrecedenceLevel: 3) >> Token.char('*') >> Call(expr);
+  return expr(minPrecedenceLevel: 2) >> Token.char('+') >> expr(minPrecedenceLevel: 3) |
+         expr(minPrecedenceLevel: 3) >> Token.char('*') >> expr();
 });
 ```
 
@@ -720,7 +840,7 @@ expr = Rule('expr', () {
 
 ## Lookahead Predicates
 
-Test conditions without consuming input. Use AND (`&`) and NOT (`!`) predicates:
+Test conditions without consuming input. Predicates are fully integrated into the state machine resolution without fallback overhead, allowing for highly efficient parsing of complex lookahead grammars. Use AND (`&`) and NOT (`!`) predicates:
 
 ### AND Predicate (`A.and()`)
 
@@ -773,6 +893,68 @@ final identifier = Token.charRange('a', 'z').plus() >>
   Token.charRange('0', '9').star();  // Then digits optional
 ```
 
+### How Lookahead Predicates Work (Implementation Details)
+
+Glush implements lookahead predicates (&pattern and !pattern) with **zero runtime overhead** by fully integrating them into the state machine resolution process, rather than using backtracking or fallback mechanisms.
+
+**The Mechanism:**
+
+1. **Separate Sub-Parse**: When the parser encounters a predicate, it spawns a lightweight **sub-parse** (tracked by `PredicateTracker`) that runs on the same state machine alongside the main parse. The sub-parse is pinned to a fixed input position—it never consumes input.
+
+2. **Concurrent Resolution with Work Queue**: The sub-parse and main parse run concurrently within the same work queue, sharing:
+   - The same set of parser states and transitions
+   - The same memoization tables (no redundant work)
+   - The state machine's efficient frame-based resolution
+
+3. **Frame Catch-Up from Earlier Positions**: When a predicate sub-parse spawns at position M while the main parser is at position N (where N > M), the frames from the predicate sub-parse need to "catch up" to the current position:
+   - The work queue is a priority queue ordered by input position (earliest first)
+   - A predicate frame at position M is processed through M → M+1 → M+2 → ... → N
+   - At each position, the frame transitions are resolved and result frames advance to the next position
+   - Token history is maintained so frames can access already-parsed characters from earlier positions
+   - Once the sub-parse frame catches up to the current position, it determines success/failure
+
+4. **Outcome Determination**:
+   - **AND Predicate (`&A`)**: Succeeds if the sub-parse for `A` finds at least one match. The main parse is allowed to proceed past the predicate.
+   - **NOT Predicate (`!A`)**: Succeeds if the sub-parse for `A` is exhausted without finding any match. This is checked when the sub-parse's active frame count reaches zero.
+   - **Predicate Completion**: When a predicate matches or exhausts, the `PredicateTracker` is marked as completed, and waiting parent frames are resumed at their correct position.
+
+5. **No Backtracking**: Because predicates run in parallel with the main parse (not sequentially before/after), there's no need for expensive backtracking. The state machine's built-in support for non-determinism handles multiple paths naturally.
+
+**Why This is Efficient:**
+
+- **Shared Infrastructure**: Lookahead uses the same grammar, state machine, and frame machinery as regular parsing—no special case handling needed.
+- **Memoization**: Sub-parses benefit from the parser's existing memoization of rule calls and positions, preventing redundant work.
+- **Lazy Evaluation**: Sub-parses only proceed as far as necessary to determine success/failure; they don't compute full parse trees.
+- **No Rollback Cost**: Unlike traditional PEG backtracking or parser combinators, there's no parsing state to save and restore—frames naturally progress through the work queue.
+- **Token History**: Frames at lagging positions can access already-parsed tokens via a linked-list history, eliminating the need to re-process characters.
+
+**Example: Internal Flow**
+
+```dart
+final grammar = Grammar(() {
+  // Match 'a' only if followed by 'b'
+  return Rule('test', () =>
+    Token.char('a').and() >> Token.char('b')
+  );
+});
+
+final parser = SMParser(grammar);
+parser.recognize('ab');  // true
+```
+
+**What happens internally:**
+
+1. Parser is at position 0, encounters `Token.char('a').and()`
+2. A sub-parse frame is spawned: "can 'b' match at position 1?"
+3. The sub-parse frame is enqueued in the work queue with position = 1
+4. After processing position 0, the work queue pops the sub-parse frame (position 1)
+5. Sub-parse frame transitions are resolved: does the state machine accept 'b' at position 1?
+6. Sub-parse succeeds, `PredicateTracker` is marked as matched
+7. Waiting parent frame (for the AND predicate) is resumed
+8. Main parse allows `Token.char('a')` to match at position 0
+9. Parser continues with `Token.char('b')` at position 1
+10. Result: true (entire input matched)
+
 ---
 
 ## Code Generation
@@ -812,7 +994,7 @@ void main() {
   final dartCode = codegen.generateGrammarFile();
 
   print(dartCode);  // Full Dart grammar class
-  
+
   // Or generate standalone (no dependency on glush):
   final standalone = codegen.generateStandaloneGrammarFile();
   File('my_parser.dart').writeAsStringSync(standalone);
@@ -828,7 +1010,7 @@ import 'my_parser.dart';
 
 void main() {
   final parser = MyGrammarParser();
-  
+
   if (parser.recognize('123+456')) {
     print('Valid');
   }
@@ -850,6 +1032,11 @@ void main() {
 digit = [0-9] ;
 letter = [a-zA-Z] ;
 word = letter+ ;
+
+# Backslash literals are supported
+identifier = \w+ ;
+whitespace = \s* ;
+numberInfo = \d+ ;
 
 # Sequences
 pair = "(" expr ")" ;
@@ -912,7 +1099,7 @@ void main() {
     // Array: [ value, value, ... ]
     array = Rule('array', () =>
       Token.char('[') >> ws >>
-      (Call(value) >> (Token.char(',') >> ws >> Call(value)).star()).maybe() >>
+      (value() >> (Token.char(',') >> ws >> value()).star()).maybe() >>
       ws >> Token.char(']')
         .withAction<List>((_, _) => [])  // Simplified
     );
@@ -920,8 +1107,8 @@ void main() {
     // Object: { "key": value, ... }
     object = Rule('object', () =>
       Token.char('{') >> ws >>
-      (Call(string) >> ws >> Token.char(':') >> ws >> Call(value) >>
-       (Token.char(',') >> ws >> Call(string) >> ws >> Token.char(':') >> ws >> Call(value)).star()
+      (string() >> ws >> Token.char(':') >> ws >> value() >>
+       (Token.char(',') >> ws >> string() >> ws >> Token.char(':') >> ws >> value()).star()
       ).maybe() >>
       ws >> Token.char('}')
         .withAction<Map>((_, _) => {})  // Simplified
@@ -929,20 +1116,20 @@ void main() {
 
     // Value: any JSON value
     value = Rule('value', () =>
-      Call(string) |
-      Call(number) |
-      Call(array) |
-      Call(object) |
+      string() |
+      number() |
+      array() |
+      object() |
       nullVal |
       trueVal |
       falseVal
     );
 
-    return Call(value);
+    return value();
   });
 
   final parser = SMParser(grammar);
-  
+
   print(parser.recognize('[1, 2, 3]'));              // true
   print(parser.recognize('{"key": "value"}'));       // true
   print(parser.recognize('{"key": [1, 2, 3]}'));    // true
@@ -972,16 +1159,16 @@ final grammar = Grammar(() {
 
   // Setting: key = value
   setting = Rule('setting', () =>
-    Call(key) >> ws >> Token.char('=') >> ws >> Call(value)
+    key() >> ws >> Token.char('=') >> ws >> value()
       .withAction<Map>((_, c) => {c[0]: c[2]})
   );
 
   // Config: multiple settings
   config = Rule('config', () =>
-    Call(setting) >> (Token.char('\n') >> Call(setting)).star()
+    setting() >> (Token.char('\n') >> setting()).star()
   );
 
-  return Call(config);
+  return config();
 });
 
 final parser = SMParser(grammar);
@@ -1003,19 +1190,19 @@ Instead of explicit precedence levels, use separate rules for each level:
 ```dart
 // ✅ Good
 expr = Rule('expr', () =>
-  Call(term) |
-  (Call(expr) >> Token.char('+') >> Call(term))
+  term() |
+  (expr() >> Token.char('+') >> term())
 );
 
 term = Rule('term', () =>
-  Call(factor) |
-  (Call(term) >> Token.char('*') >> Call(factor))
+  factor() |
+  (term() >> Token.char('*') >> factor())
 );
 
 // ❌ Harder to read
 expr = Rule('expr', () =>
-  (Call(expr) >> Token(RangeToken(42, 42)) >> Call(expr)).atLevel(7) |
-  (Call(expr) >> Token(RangeToken(43, 43)) >> Call(expr)).atLevel(6)
+  (expr() >> Token(RangeToken(42, 42)) >> expr()).atLevel(7) |
+  (expr() >> Token(RangeToken(43, 43)) >> expr()).atLevel(6)
 );
 ```
 
@@ -1143,13 +1330,9 @@ extension PrecedenceLevel on Pattern {
   Pattern atLevel(int level);
 }
 
-class Call extends Pattern {
-  Call(Rule rule, {int? minPrecedenceLevel});
-}
-
 // Rules
 class RuleCall extends Pattern {
-  RuleCall(Rule rule, {int? minPrecedenceLevel});
+  RuleCall(String name, Rule rule, {int? minPrecedenceLevel});
 }
 ```
 
@@ -1159,18 +1342,57 @@ class RuleCall extends Pattern {
 class SMParser {
   SMParser(Grammar grammar);
 
+  // Fast validation
   bool recognize(String input);
-  
+
+  // Marks-based parsing
+  ParseOutcome parse(String input);
+
+  // Ambiguous parsing with efficient GSS
+  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false});
+
+  // Full parse forest (SPPF)
+  ParseOutcome parseWithForest(String input);
+
+  // Streaming parse forest
+  Future<ParseOutcome> parseWithForestAsync(
+    Stream<String> input,
+    {int lookaheadWindowSize = 1048576},
+  );
+
+  // Tree enumeration
   Iterable<ParseDerivation> enumerateAllParses(String input);
-  
+
   Iterable<ParseDerivationWithValue<T>> enumerateAllParsesWithResults<T>(String input);
-  
-  ParseOutcome<Never> parseWithForest(String input);
-  
+
+  // Forest evaluation
   Iterable<ParseDerivationWithValue<T>> enumerateForestWithResults<T>(
     ParseForestSuccess forest,
     String input,
   );
+}
+
+// Parse result types
+sealed class ParseOutcome {}
+final class ParseSuccess extends ParseOutcome {
+  final ParserResult result;
+}
+final class ParseError extends ParseOutcome {
+  final int position;
+}
+final class ParseAmbiguousForestSuccess extends ParseOutcome {
+  final GlushList<Mark> forest;
+}
+final class ParseForestSuccess extends ParseOutcome {
+  final ParseForest forest;
+}
+
+// Parse forest analysis
+class ParseForest {
+  int countNodes();
+  int countFamilies();
+  Map<String, Object?> countDerivationsWithSCC();
+  Iterable<ParseDerivation> extract();
 }
 ```
 
@@ -1216,7 +1438,7 @@ class StringMark extends Mark {
 ```dart
 class GrammarCodeGenerator {
   GrammarCodeGenerator(GrammarFile grammarFile);
-  
+
   String generateGrammarFile();                    // Dependent on glush
   String generateStandaloneGrammarFile();          // Fully standalone
 }

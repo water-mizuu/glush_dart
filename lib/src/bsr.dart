@@ -497,7 +497,7 @@ class SppfBuilder {
             ),
           );
         }
-      case "rca" || "cal":
+      case "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
           final effectivePrec = prec ?? task.minPrecedenceLevel;

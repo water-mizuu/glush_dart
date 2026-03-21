@@ -111,7 +111,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
-        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+        RuleCall(:var rule) => [rule.symbolId!],
 
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
@@ -146,7 +146,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       if (p is And || p is Not) {
         final dynamic pred = p;
         final child = pred.pattern;
-        if (child is! RuleCall && child is! Call) {
+        if (child is! RuleCall) {
           final syntheticName = 'pred\$${_syntheticRuleCounter++}';
           final syntheticRule = Rule(syntheticName, () => child);
           rules.add(syntheticRule);
@@ -203,7 +203,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+      case Token() || Marker() || Eps() || Rule() || RuleCall():
         break;
     }
   }
@@ -413,7 +413,7 @@ class GrammarAdapter implements GrammarInterface {
         Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
-        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+        RuleCall(:var rule) => [rule.symbolId!],
 
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
@@ -449,7 +449,7 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+      case Token() || Marker() || Eps() || Rule() || RuleCall():
         break;
     }
   }

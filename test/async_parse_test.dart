@@ -50,7 +50,7 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (Call(expr) >>
+              (expr() >>
                   Token(ExactToken(43)) >>
                   Token(ExactToken(49))); // 1 | expr+1
         });
@@ -101,13 +101,13 @@ void main() {
         num = Rule('num', () => Token(ExactToken(49))); // '1'
 
         term = Rule('term', () {
-          return Call(num) |
-              (Call(term) >> Token(ExactToken(42)) >> Call(num)); // term*num
+          return num() |
+              (term() >> Token(ExactToken(42)) >> num()); // term*num
         });
 
         expr = Rule('expr', () {
-          return Call(term) |
-              (Call(expr) >> Token(ExactToken(43)) >> Call(term)); // expr+term
+          return term() |
+              (expr() >> Token(ExactToken(43)) >> term()); // expr+term
         });
 
         return expr;
@@ -132,7 +132,7 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+              (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
@@ -152,7 +152,7 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+              (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
@@ -173,9 +173,9 @@ void main() {
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
               (Marker('add') >>
-                  Call(expr) >>
+                  expr() >>
                   Token(ExactToken(43)) >>
-                  Call(expr));
+                  expr());
         });
         return expr;
       });
@@ -234,7 +234,7 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+              (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });

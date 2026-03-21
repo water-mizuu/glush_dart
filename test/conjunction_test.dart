@@ -11,7 +11,7 @@ void main() {
       ''';
 
       final dartCode = generateGrammarDartFile(grammarText);
-      expect(dartCode, contains('Call(digit) & Call(even)'));
+      expect(dartCode, contains('digit() & even()'));
     });
 
     test('verifies conjunction logic at runtime', () {

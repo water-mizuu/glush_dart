@@ -187,7 +187,6 @@ class StateMachine {
           isAnd: true,
           symbol: switch (terminal.pattern) {
             RuleCall(:var rule) => rule.symbolId!,
-            Call(:var rule) => rule.symbolId!,
             _ => throw UnsupportedError('Invalid pattern type for predicate action'),
           },
           nextState: nextState,
@@ -202,12 +201,10 @@ class StateMachine {
           nextState: nextState,
         );
         state.actions.add(action);
-      case RuleCall(:var rule) || Call(:var rule):
+      case RuleCall(:var rule):
         final returnState = _getOrCreateState(terminal);
         // Get minPrecedenceLevel from Call/RuleCall
-        final minPrec = terminal is Call
-            ? terminal.minPrecedenceLevel
-            : (terminal as RuleCall).minPrecedenceLevel;
+        final minPrec = terminal.minPrecedenceLevel;
         final action = CallAction(rule, terminal, returnState, minPrec);
         state.actions.add(action);
       case Action<dynamic>():

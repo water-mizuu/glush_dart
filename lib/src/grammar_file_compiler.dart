@@ -65,7 +65,7 @@ class GrammarFileCompiler {
         if (rule == null) {
           throw Exception('Undefined rule: ${expr.ruleName}');
         }
-        return Call(rule, minPrecedenceLevel: expr.precedenceConstraint);
+        return rule(minPrecedenceLevel: expr.precedenceConstraint);
 
       case SequencePattern():
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);

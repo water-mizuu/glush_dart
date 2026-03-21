@@ -240,7 +240,7 @@ void main() {
         final a = Token(ExactToken(97));
         final b = Token(ExactToken(98));
 
-        expr = Rule('expr', () => b.not() >> a | Call(expr) >> a);
+        expr = Rule('expr', () => b.not() >> a | expr() >> a);
         return expr;
       });
 
@@ -403,8 +403,8 @@ void main() {
         final a = Token(ExactToken(97));
         final b = Token(ExactToken(98));
 
-        e1 = Rule('e1', () => a | Call(e2));
-        e2 = Rule('e2', () => b.not() >> Call(e3));
+        e1 = Rule('e1', () => a | e2());
+        e2 = Rule('e2', () => b.not() >> e3());
         e3 = Rule('e3', () => a);
 
         return e1;

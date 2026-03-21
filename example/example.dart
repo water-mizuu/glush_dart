@@ -8,19 +8,19 @@ void main() {
     late Rule expr, term, factor;
 
     expr = Rule('expr', () {
-      return (Marker('add') >> (Call(expr) >> Pattern.char('+') >> Call(term))) |
-          (Marker('sub') >> (Call(expr) >> Pattern.char('-') >> Call(term))) |
-          Call(term);
+      return (Marker('add') >> (expr() >> Pattern.char('+') >> term())) |
+          (Marker('sub') >> (expr() >> Pattern.char('-') >> term())) |
+          term();
     });
 
     term = Rule('term', () {
-      return (Marker('mul') >> (Call(term) >> Pattern.char('*') >> Call(factor))) |
-          (Marker('div') >> (Call(term) >> Pattern.char('/') >> Call(factor))) |
-          Call(factor);
+      return (Marker('mul') >> (term() >> Pattern.char('*') >> factor())) |
+          (Marker('div') >> (term() >> Pattern.char('/') >> factor())) |
+          factor();
     });
 
     factor = Rule('factor', () {
-      return (Pattern.char('(') >> Call(expr) >> Pattern.char(')')) |
+      return (Pattern.char('(') >> expr() >> Pattern.char(')')) |
           (Marker('number') >> (Token(RangeToken(48, 57)).plus()));
     });
 
@@ -32,39 +32,39 @@ void main() {
     late Rule expr, term, factor;
 
     expr = Rule('expr', () {
-      return (Call(expr) >> Pattern.char('+') >> Call(term)).withAction((span, results) {
+      return (expr() >> Pattern.char('+') >> term()).withAction((span, results) {
             if (results case [[num l, '+'], num r]) {
               return l + r;
             }
             throw Exception(results);
           }) |
-          (Call(expr) >> Pattern.char('-') >> Call(term)).withAction((span, results) {
+          (expr() >> Pattern.char('-') >> term()).withAction((span, results) {
             if (results case [[num l, '-'], num r]) {
               return l - r;
             }
             throw Exception(results);
           }) |
-          Call(term);
+          term();
     });
 
     term = Rule('term', () {
-      return (Call(term) >> Pattern.char('*') >> Call(factor)).withAction((span, results) {
+      return (term() >> Pattern.char('*') >> factor()).withAction((span, results) {
             if (results case [[num l, '*'], num r]) {
               return l * r;
             }
             throw Exception(results);
           }) |
-          (Call(term) >> Pattern.char('/') >> Call(factor)).withAction((span, results) {
+          (term() >> Pattern.char('/') >> factor()).withAction((span, results) {
             if (results case [[num l, '/'], num r]) {
               return l / r;
             }
             throw Exception(results);
           }) |
-          Call(factor);
+          factor();
     });
 
     factor = Rule('factor', () {
-      return (Pattern.char('(') >> Call(expr) >> Pattern.char(')')).withAction((span, results) {
+      return (Pattern.char('(') >> expr() >> Pattern.char(')')).withAction((span, results) {
             if (results case [['(', num middle], ')']) {
               return middle;
             }
@@ -81,20 +81,19 @@ void main() {
     late Rule expr, term, factor;
 
     expr = Rule('expr', () {
-      return (Call(expr) >> Pattern.char('+') >> Call(term)) |
-          (Call(expr) >> Pattern.char('-') >> Call(term)) |
-          Call(term);
+      return (expr() >> Pattern.char('+') >> term()) |
+          (expr() >> Pattern.char('-') >> term()) |
+          term();
     });
 
     term = Rule('term', () {
-      return (Call(term) >> Pattern.char('*') >> Call(factor)) |
-          (Call(term) >> Pattern.char('/') >> Call(factor)) |
-          Call(factor);
+      return (term() >> Pattern.char('*') >> factor()) |
+          (term() >> Pattern.char('/') >> factor()) |
+          factor();
     });
 
     factor = Rule('factor', () {
-      return (Pattern.char('(') >> Call(expr) >> Pattern.char(')')) |
-          Token.charRange('0', '9').plus();
+      return (Pattern.char('(') >> expr() >> Pattern.char(')')) | Token.charRange('0', '9').plus();
     });
 
     return expr;

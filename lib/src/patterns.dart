@@ -173,7 +173,6 @@ sealed class Pattern {
       Not() => "not",
       Rule() => "rul",
       RuleCall() => "rca",
-      Call() => "cal",
       Action() => "act",
       Prec() => "pre",
     };
@@ -196,8 +195,7 @@ sealed class Pattern {
       And() => "",
       Not() => "",
       Rule() => "",
-      RuleCall(minPrecedenceLevel: var prec) ||
-      Call(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
+      RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
       Action() => "",
       Prec(precedenceLevel: var prec) => "$prec",
     };
@@ -719,44 +717,6 @@ class RuleCall extends Pattern {
   String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
-/// Lazy call to a rule (defers the call until needed), with optional precedence constraint
-class Call extends Pattern {
-  final Rule rule;
-
-  /// Minimum precedence level filter. If set, only alternatives in the ruled
-  /// with precedenceLevel >= minPrecedenceLevel will match.
-  final int? minPrecedenceLevel;
-
-  Call(this.rule, {this.minPrecedenceLevel});
-
-  @override
-  Call copy() => Call(rule, minPrecedenceLevel: minPrecedenceLevel);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(emptyRules.contains(rule));
-    return _isEmpty ?? false;
-  }
-
-  @override
-  Set<Pattern> firstSet() => {this};
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  bool isStatic() => false;
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    rules.add(rule);
-    // Don't call rule.body() here to avoid circular initialization issues
-  }
-
-  @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
-}
-
 /// Semantic action pattern - executes a callback when child pattern matches.
 /// The callback receives (span, childResults) where childResults are the evaluated semantic values.
 class Action<T> extends Pattern {
@@ -864,8 +824,8 @@ class Prec extends Pattern {
 /// ```dart
 /// expr = Rule('expr', () {
 ///   return Token(ExactToken(49)).atLevel(11) |
-///       (Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(6) |
-///       (Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(7);
+///       (expr() >> Token(ExactToken(43)) >> expr()).atLevel(6) |
+///       (expr() >> Token(ExactToken(42)) >> expr()).atLevel(7);
 /// });
 /// ```
 extension PrecedenceExtension on Pattern {

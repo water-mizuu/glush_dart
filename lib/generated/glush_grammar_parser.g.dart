@@ -16,29 +16,24 @@ Grammar _createGrammarGrammar() {
         charRange,
         literal,
         identifier;
-    grammar = Rule('grammar', () => Call(rule).plus());
+    grammar = Rule('grammar', () => rule().plus());
     rule = Rule(
       'rule',
-      () =>
-          Call(identifier) >>
-          Token(ExactToken(61)) >>
-          Call(pattern) >>
-          (Token(ExactToken(59))).maybe(),
+      () => identifier() >> Token(ExactToken(61)) >> pattern() >> (Token(ExactToken(59))).maybe(),
     );
-    pattern = Rule('pattern', () => Call(alternation));
+    pattern = Rule('pattern', () => alternation());
     alternation = Rule(
       'alternation',
-      () => Call(sequence) >> (Token(ExactToken(124)) >> Call(sequence)).star(),
+      () => sequence() >> (Token(ExactToken(124)) >> sequence()).star(),
     );
-    sequence = Rule('sequence', () => Call(repetition) >> (Call(repetition)).star());
+    sequence = Rule('sequence', () => repetition() >> (repetition()).star());
     repetition = Rule(
       'repetition',
       () =>
-          Call(atom) >>
-          (Token(ExactToken(42)) | Token(ExactToken(43)) | Token(ExactToken(63))).maybe(),
+          atom() >> (Token(ExactToken(42)) | Token(ExactToken(43)) | Token(ExactToken(63))).maybe(),
     );
-    atom = Rule('atom', () => Call(group) | Call(charRange) | Call(literal) | Call(identifier));
-    group = Rule('group', () => Token(ExactToken(40)) >> Call(pattern) >> Token(ExactToken(41)));
+    atom = Rule('atom', () => group() | charRange() | literal() | identifier());
+    group = Rule('group', () => Token(ExactToken(40)) >> pattern >> Token(ExactToken(41)));
     charRange = Rule(
       'charRange',
       () =>

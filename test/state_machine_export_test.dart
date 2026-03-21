@@ -100,7 +100,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr;
           expr = Rule('expr', () {
-            return (Call(expr) >> Pattern.char('+') >> Token.char('1')) | Token.char('1');
+            return (expr() >> Pattern.char('+') >> Token.char('1')) | Token.char('1');
           });
           return expr;
         });
@@ -120,7 +120,7 @@ void main() {
           late Rule expr, term;
 
           expr = Rule('expr', () {
-            return (Call(expr) >> Pattern.char('+') >> Call(term)) | Call(term);
+            return (expr() >> Pattern.char('+') >> term()) | term();
           });
 
           term = Rule('term', () {
@@ -144,7 +144,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule a;
           a = Rule('A', () {
-            return (Call(a) >> Pattern.char('+') >> Call(a)) | Pattern.char('1');
+            return (a() >> Pattern.char('+') >> a()) | Pattern.char('1');
           });
           return a;
         });
@@ -167,7 +167,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr;
           expr = Rule('expr', () {
-            return (Marker('add') >> (Call(expr) >> Pattern.char('+') >> Call(expr))) |
+            return (Marker('add') >> (expr() >> Pattern.char('+') >> expr())) |
                 (Marker('num') >> Token.charRange('0', '9'));
           });
           return expr;
@@ -229,7 +229,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr;
           expr = Rule('expr', () {
-            return (Call(expr) >> Pattern.char('+') >> Token.char('1')) | Token.char('1');
+            return (expr() >> Pattern.char('+') >> Token.char('1')) | Token.char('1');
           });
           return expr;
         });
@@ -250,7 +250,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr;
           expr = Rule('expr', () {
-            return (Call(expr) >> Pattern.char('+') >> Call(expr)) | Token.charRange('0', '9');
+            return (expr() >> Pattern.char('+') >> expr()) | Token.charRange('0', '9');
           });
           return expr;
         });
@@ -279,7 +279,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr;
           expr = Rule('expr', () {
-            return (Call(expr) >> Pattern.char('+') >> Token.charRange('0', '9').plus()) |
+            return (expr() >> Pattern.char('+') >> Token.charRange('0', '9').plus()) |
                 Token.charRange('0', '9').plus();
           });
           return expr;
@@ -369,7 +369,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule a;
           a = Rule('A', () {
-            return (Call(a) >> Pattern.char('+') >> Call(a)) | Pattern.char('1');
+            return (a() >> Pattern.char('+') >> a()) | Pattern.char('1');
           });
           return a;
         });
@@ -394,7 +394,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule a;
           a = Rule('A', () {
-            return (Call(a) >> Pattern.char('+') >> Call(a)) | Pattern.char('1');
+            return (a() >> Pattern.char('+') >> a()) | Pattern.char('1');
           });
           return a;
         });

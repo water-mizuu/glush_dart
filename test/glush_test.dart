@@ -54,7 +54,7 @@ void main() {
       final grammar = Grammar(() {
         late final expr;
         expr = Rule('expr', () {
-          return Eps() | (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))); // ( expr )
+          return Eps() | (Token(ExactToken(40)) >> expr() >> Token(ExactToken(41))); // ( expr )
         });
         return expr;
       });
@@ -208,7 +208,7 @@ void main() {
     test('counts match for simple ambiguous grammar S->SS|ε', () {
       final grammar = Grammar(() {
         late final s;
-        s = Rule('S', () => Eps() | (Call(s) >> Call(s)));
+        s = Rule('S', () => Eps() | (s() >> s()));
         return s;
       });
 
@@ -229,7 +229,7 @@ void main() {
     test('counts match for ambiguous grammar with input', () {
       final grammar = Grammar(() {
         late final s;
-        s = Rule('S', () => Eps() | (Token(ExactToken(97)) >> Call(s) >> Call(s)));
+        s = Rule('S', () => Eps() | (Token(ExactToken(97)) >> s() >> s()));
         return s;
       });
 
@@ -250,7 +250,7 @@ void main() {
       final grammar = Grammar(() {
         late final s;
         s = Rule('S', () {
-          return Token(ExactToken(115)) | (Call(s) >> Call(s)); // s | SS
+          return Token(ExactToken(115)) | (s() >> s()); // s | SS
         });
         return s;
       });
@@ -283,7 +283,7 @@ void main() {
         expr = Rule('expr', () {
           return Token(ExactToken(97)) // a
               |
-              (Call(expr) >> Token(ExactToken(43)) >> Call(expr)); // expr+expr
+              (expr() >> Token(ExactToken(43)) >> expr()); // expr+expr
         });
         return expr;
       });
@@ -306,10 +306,10 @@ void main() {
         late final a;
         late final b;
         a = Rule('A', () {
-          return (Token(ExactToken(97)) >> Call(b)) | Eps();
+          return (Token(ExactToken(97)) >> b()) | Eps();
         });
         b = Rule('B', () {
-          return (Token(ExactToken(98)) >> Call(a)) | Eps();
+          return (Token(ExactToken(98)) >> a()) | Eps();
         });
         return a;
       });

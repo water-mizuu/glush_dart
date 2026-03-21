@@ -190,10 +190,10 @@ class GrammarCodeGenerator {
       // Create RuleCall with precedence constraint if specified
       if (pattern.precedenceConstraint != null) {
         callCode =
-            'Call($ruleVar, minPrecedenceLevel: '
+            '$ruleVar(minPrecedenceLevel: '
             '${pattern.precedenceConstraint})';
       } else {
-        callCode = 'Call($ruleVar)';
+        callCode = '$ruleVar()';
       }
 
       return callCode;

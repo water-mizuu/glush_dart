@@ -20,39 +20,39 @@ void main() {
     late Rule expr, term, factor;
 
     expr = Rule('expr', () {
-      return (Call(expr) >> Pattern.char('+') >> Call(term)).withAction((span, results) {
+      return (expr() >> Pattern.char('+') >> term()).withAction((span, results) {
             if (results case [[num l, '+'], num r]) {
               return l + r;
             }
             return null;
           }) |
-          (Call(expr) >> Pattern.char('-') >> Call(term)).withAction((span, results) {
+          (expr() >> Pattern.char('-') >> term()).withAction((span, results) {
             if (results case [[num l, '-'], num r]) {
               return l - r;
             }
             return null;
           }) |
-          Call(term);
+          term();
     });
 
     term = Rule('term', () {
-      return (Call(term) >> Pattern.char('*') >> Call(factor)).withAction((span, results) {
+      return (term() >> Pattern.char('*') >> factor()).withAction((span, results) {
             if (results case [[num l, '*'], num r]) {
               return l * r;
             }
             return null;
           }) |
-          (Call(term) >> Pattern.char('/') >> Call(factor)).withAction((span, results) {
+          (term() >> Pattern.char('/') >> factor()).withAction((span, results) {
             if (results case [[num l, '/'], num r]) {
               return l / r;
             }
             return null;
           }) |
-          Call(factor);
+          factor();
     });
 
     factor = Rule('factor', () {
-      return (Pattern.char('(') >> Call(expr) >> Pattern.char(')')).withAction((span, results) {
+      return (Pattern.char('(') >> expr() >> Pattern.char(')')).withAction((span, results) {
             if (results case [['(', num middle], ')']) {
               return middle;
             }

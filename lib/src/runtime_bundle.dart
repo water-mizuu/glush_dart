@@ -556,7 +556,6 @@ sealed class Pattern {
       Not() => "not",
       Rule() => "rul",
       RuleCall() => "rca",
-      Call() => "cal",
       Action() => "act",
       Prec() => "pre",
     };
@@ -579,8 +578,7 @@ sealed class Pattern {
       And() => "",
       Not() => "",
       Rule() => "",
-      RuleCall(minPrecedenceLevel: var prec) ||
-      Call(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
+      RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
       Action() => "",
       Prec(precedenceLevel: var prec) => "$prec",
     };
@@ -1102,44 +1100,6 @@ class RuleCall extends Pattern {
   String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
 }
 
-/// Lazy call to a rule (defers the call until needed), with optional precedence constraint
-class Call extends Pattern {
-  final Rule rule;
-
-  /// Minimum precedence level filter. If set, only alternatives in the ruled
-  /// with precedenceLevel >= minPrecedenceLevel will match.
-  final int? minPrecedenceLevel;
-
-  Call(this.rule, {this.minPrecedenceLevel});
-
-  @override
-  Call copy() => Call(rule, minPrecedenceLevel: minPrecedenceLevel);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(emptyRules.contains(rule));
-    return _isEmpty ?? false;
-  }
-
-  @override
-  Set<Pattern> firstSet() => {this};
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  bool isStatic() => false;
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    rules.add(rule);
-    // Don't call rule.body() here to avoid circular initialization issues
-  }
-
-  @override
-  String toString() =>
-      minPrecedenceLevel != null ? '<${rule.name}^$minPrecedenceLevel>' : '<${rule.name}>';
-}
-
 /// Semantic action pattern - executes a callback when child pattern matches.
 /// The callback receives (span, childResults) where childResults are the evaluated semantic values.
 class Action<T> extends Pattern {
@@ -1247,8 +1207,8 @@ class Prec extends Pattern {
 /// ```dart
 /// expr = Rule('expr', () {
 ///   return Token(ExactToken(49)).atLevel(11) |
-///       (Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(6) |
-///       (Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(7);
+///       (expr() >> Token(ExactToken(43)) >> expr()).atLevel(6) |
+///       (expr() >> Token(ExactToken(42)) >> expr()).atLevel(7);
 /// });
 /// ```
 extension PrecedenceExtension on Pattern {
@@ -1382,7 +1342,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
-        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+        RuleCall(:var rule) => [rule.symbolId!],
 
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
@@ -1417,7 +1377,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       if (p is And || p is Not) {
         final dynamic pred = p;
         final child = pred.pattern;
-        if (child is! RuleCall && child is! Call) {
+        if (child is! RuleCall) {
           final syntheticName = 'pred\$${_syntheticRuleCounter++}';
           final syntheticRule = Rule(syntheticName, () => child);
           rules.add(syntheticRule);
@@ -1474,7 +1434,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+      case Token() || Marker() || Eps() || Rule() || RuleCall():
         break;
     }
   }
@@ -1684,7 +1644,7 @@ class GrammarAdapter implements GrammarInterface {
         Action(:var child) || Prec(:var child) => [child.symbolId!],
 
         Rule rule => [rule.body().symbolId!],
-        RuleCall(:var rule) || Call(:var rule) => [rule.symbolId!],
+        RuleCall(:var rule) => [rule.symbolId!],
 
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
@@ -1720,7 +1680,7 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || Call():
+      case Token() || Marker() || Eps() || Rule() || RuleCall():
         break;
     }
   }
@@ -1947,7 +1907,6 @@ class StateMachine {
           isAnd: true,
           symbol: switch (terminal.pattern) {
             RuleCall(:var rule) => rule.symbolId!,
-            Call(:var rule) => rule.symbolId!,
             _ => throw UnsupportedError('Invalid pattern type for predicate action'),
           },
           nextState: nextState,
@@ -1962,12 +1921,10 @@ class StateMachine {
           nextState: nextState,
         );
         state.actions.add(action);
-      case RuleCall(:var rule) || Call(:var rule):
+      case RuleCall(:var rule):
         final returnState = _getOrCreateState(terminal);
         // Get minPrecedenceLevel from Call/RuleCall
-        final minPrec = terminal is Call
-            ? terminal.minPrecedenceLevel
-            : (terminal as RuleCall).minPrecedenceLevel;
+        final minPrec = terminal.minPrecedenceLevel;
         final action = CallAction(rule, terminal, returnState, minPrec);
         state.actions.add(action);
       case Action<dynamic>():
@@ -3109,7 +3066,7 @@ class SppfBuilder {
             ),
           );
         }
-      case "rca" || "cal":
+      case "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
           final effectivePrec = prec ?? task.minPrecedenceLevel;
@@ -3205,32 +3162,57 @@ void printDebug(String message) {
 
 /// Sealed result type returned by [SMParser.parse] and [SMParser.parseWithForest].
 /// Allows type-safe handling of success vs. failure outcomes.
+///
+/// This sealed class serves as the base for all parse operation outcomes,
+/// enabling type-safe pattern matching to distinguish between parse success
+/// (with various result representations) and parse failures.
 sealed class ParseOutcome {}
 
 /// Returned when parsing fails.
 /// Contains the input position where parsing could not continue.
+///
+/// Critical for error reporting and diagnostics. Indicates that the input
+/// does not conform to the grammar starting at the given position.
 final class ParseError extends ParseOutcome implements Exception {
+  /// The input position where parsing failed.
+  /// Indicates where the parser could no longer match input to grammar rules.
   final int position;
 
+  /// Constructs a ParseError at the given position.
   ParseError(this.position);
 
+  /// Returns a human-readable error message showing the failure position.
   @override
   String toString() => 'ParseError at position $position';
 }
 
 /// Returned when parsing succeeds (marks-based parse).
 /// Contains a [ParserResult] with all accumulated marks.
+///
+/// Used by the basic [parse] and [recognize] methods. Provides semantic
+/// annotations (marks) from the parse, useful for simple parsing tasks
+/// that don't need full forest enumeration.
 final class ParseSuccess extends ParseOutcome {
+  /// The result object containing accumulated marks from the successful parse.
+  /// Access marks via [ParserResult.marks] for semantic annotations.
   final ParserResult result;
 
+  /// Constructs a ParseSuccess with the given parser result.
   ParseSuccess(this.result);
 }
 
 /// Returned when parsing succeeds with an ambiguous forest.
 /// Contains all possible parse tree derivations merged into a single list.
+///
+/// Used by [parseAmbiguous] to support grammar ambiguity detection.
+/// Merges marks from all interpretations, allowing users to analyze
+/// which derivations are possible for a given input.
 final class ParseAmbiguousForestSuccess extends ParseOutcome {
+  /// Merged marks from all possible parse interpretations.
+  /// Represents the combined result of all ambiguous derivations.
   final GlushList<Mark> forest;
 
+  /// Constructs a ParseAmbiguousForestSuccess with the merged forest.
   ParseAmbiguousForestSuccess(this.forest);
 }
 
@@ -3238,22 +3220,41 @@ final class ParseAmbiguousForestSuccess extends ParseOutcome {
 /// The forest enables enumeration of all derivations and evaluation of
 /// semantic values. Forest extraction uses BSR (Binarised Shared Representation)
 /// to constrain the search space to only reachable spans.
+///
+/// Most powerful parse result. Enables full control over derivation enumeration,
+/// semantic evaluation, and ambiguity handling. Essential for complex applications
+/// like compilers or grammar analysis tools.
 final class ParseForestSuccess extends ParseOutcome {
+  /// The parse forest supporting full derivation enumeration.
+  /// Use for traversing all possible parses and their semantic values.
   final ParseForest forest;
 
+  /// Constructs a ParseForestSuccess with the given forest.
   ParseForestSuccess(this.forest);
 
+  /// Returns a string representation of the forest success.
   @override
   String toString() => 'ParseForestSuccess(forest=$forest)';
 }
 
 // ---------------------------------------------------------------------------
 
+/// Holds the results of a basic [parse] operation.
+///
+/// Encapsulates accumulated semantic marks (NamedMark and StringMark)
+/// and provides convenient access via the [marks] property which
+/// aggregates consecutive string marks.
 class ParserResult {
+  /// Raw list of marks accumulated during parsing (before aggregation).
+  /// Contains both NamedMark and StringMark objects in parse order.
   final List<Mark> _rawMarks;
 
+  /// Creates a ParserResult with the given accumulated marks.
   ParserResult(this._rawMarks);
 
+  /// Returns aggregated marks where consecutive StringMarks are concatenated.
+  /// Each NamedMark acts as a delimiter.
+  /// Use this for accessing the final semantic annotation sequence.
   List<String> get marks {
     final result = <String>[];
     String? currentStringMark;
@@ -3277,6 +3278,8 @@ class ParserResult {
     return result;
   }
 
+  /// Converts raw marks to nested list representation.
+  /// Each mark becomes a list containing its components.
   List<List<Object?>> toList() => _rawMarks.map((m) {
     if (m is NamedMark) return m.toList();
     if (m is StringMark) return m.toList();
@@ -3284,16 +3287,31 @@ class ParserResult {
   }).toList();
 }
 
-/// Represents a single parse tree derivation
+/// Represents a single parse tree derivation.
+///
+/// An immutable tree structure representing one complete parse of the input.
+/// Each node contains a symbol, span [start:end], and child derivations.
+/// Used by enumeration methods ([enumerateAllParses]) and for evaluating
+/// semantic values. Supports conversion to strings and precedence analysis.
 class ParseDerivation {
+  /// The grammar symbol or pattern that this node represents.
   final PatternSymbol symbol;
+
+  /// Start position in the input where this derivation begins.
   final int start;
+
+  /// End position in the input where this derivation ends.
   final int end;
+
+  /// Child derivations for the child symbols of this pattern.
   final List<ParseDerivation> children;
 
+  /// Creates a parse derivation for a symbol spanning [start] to [end].
+  /// Creates a parse derivation for a symbol spanning [start] to [end].
   const ParseDerivation(this.symbol, this.start, this.end, this.children);
 
-  /// Get substring that this derivation matched
+  /// Returns the substring of the input that this derivation matched.
+  /// Safe for out-of-bounds positions.
   String getMatchedText(String input) {
     if (input.isEmpty || start >= input.length) {
       return '';
@@ -3302,12 +3320,16 @@ class ParseDerivation {
     return input.substring(start, actualEnd);
   }
 
+  /// Converts the derivation tree to a formatted string with indentation.
+  /// Useful for debugging and visualizing parse trees.
   String toTreeString(String input, [int indent = 0]) {
     final prefix = '  ' * indent;
     final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
     return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
   }
 
+  /// Converts the derivation to a parenthesized string representation.
+  /// Useful for displaying operator precedence structure.
   String toPrecedenceString(String input) {
     if (children.isEmpty) {
       return input.substring(start, end);
@@ -3325,6 +3347,8 @@ class ParseDerivation {
     return "(${mapped.join("")})";
   }
 
+  /// Returns a simplified parse tree by collapsing single-child chains.
+  /// Useful for removing internal structural nodes from the derivation.
   Object? getSimplified(String input) {
     if (children.isEmpty) {
       return input.substring(start, end);
@@ -3337,26 +3361,38 @@ class ParseDerivation {
     return children.map((c) => c.getSimplified(input)).toList();
   }
 
-  /// Pretty printDebug the parse tree
+  /// Returns a compact string representation showing symbol and span.
   @override
   String toString() => '$symbol[$start:$end]';
 }
 
-/// Represents a parse tree with its evaluated semantic value
+/// Represents a parse tree with its evaluated semantic value.
+///
+/// Combines a [ParseDerivation] tree with a computed semantic value (T).
+/// Provides convenient access to both the tree structure and its evaluated result,
+/// useful when iterating over all parse interpretations with [enumerateAllParsesWithResults].
 class ParseDerivationWithValue<T> {
+  /// The underlying parse tree structure.
   final ParseDerivation tree;
+
+  /// The computed semantic value from evaluating the parse tree.
   final T value;
+
+  /// Optional reference to the grammar for symbol resolution.
   final GrammarInterface? grammar;
 
+  /// Creates a parse derivation with its evaluated semantic value.
+  /// Creates a parse derivation with its evaluated semantic value.
   ParseDerivationWithValue(this.tree, this.value, {this.grammar});
 
-  /// Get substring that this derivation matched
+  /// Returns the substring of input that this derivation matched.
   String getMatchedText(String input) => tree.getMatchedText(input);
 
-  /// Get the tree's symbol (as a String ID)
+  /// Returns the grammar symbol that this derivation represents.
   PatternSymbol get symbol => tree.symbol;
 
-  /// Get the tree's pattern object from the registry (uses grammar context if available)
+  /// Returns the resolved pattern object from the grammar registry.
+  /// Returns null if grammar is unavailable or pattern not found.
   Pattern? get pattern {
     if (grammar case var grammar?) {
       return grammar.symbolRegistry[tree.symbol];
@@ -3364,58 +3400,125 @@ class ParseDerivationWithValue<T> {
     return null;
   }
 
-  /// Get the tree's span
+  /// Returns the start position in the input where this derivation begins.
   int get start => tree.start;
+
+  /// Returns the end position in the input where this derivation ends.
   int get end => tree.end;
 
-  /// Get the tree's children
+  /// Returns the child derivations of this tree node.
   List<ParseDerivation> get children => tree.children;
 
+  /// Returns a string showing the symbol, span, and semantic value.
   @override
   String toString() => '$symbol[$start:$end]=$value';
 }
 
 /// Node in a linked list of tokens, providing shared history for lagging frames.
+///
+/// Essential for supporting lookahead predicates that may backtrack.
+/// Maintains a linked history of tokens processed, allowing frames at earlier
+/// positions to move forward without losing access to past input.
 class TokenNode {
+  /// The character code (token) stored at this position.
   final int unit;
+
+  /// Link to the next token in the history list.
   TokenNode? next;
+
+  /// Creates a token node for the given character code.
   TokenNode(this.unit);
 }
 
-/// Tracks the status of a lookahead sub-parse.
 /// Tracks the status of a lookahead sub-parse (AND/NOT predicate).
 ///
-/// When a predicate is encountered in _process, a PredicateTracker is created
-/// to coordinate the sub-parse across multiple frames:
-/// - symbol: the pattern to lookahead on
-/// - startPos: input position where lookahead checks
-/// - isAnd: true for &pattern (positive), false for !pattern (negative)
-/// - activeFrames: count of frames currently exploring this predicate
-/// - matched: has the sub-parse found a match?
-/// - waiters: (context, nextState) pairs waiting for the predicate result
+/// When a predicate is encountered during parsing, a PredicateTracker coordinates
+/// the sub-parse across multiple frames at potentially different positions.
+/// Supports both positive (&pattern) and negative (!pattern) lookahead assertions.
 ///
-/// The tracker enables the sub-parse to finish with or without a match,
-/// then resume all waiters correctly.
+/// Critical fields:
+/// - symbol: the pattern to lookahead on
+/// - startPos: input position where lookahead begins
+/// - isAnd: true for positive lookahead, false for negative
+/// - activeFrames: count of frames exploring this predicate (for completion detection)
+/// - matched: whether the sub-parse found a match
+/// - waiters: parent frames waiting for the predicate result
+///
+/// The tracker enables asynchronous completion of lookahead checks,
+/// then resumes all dependent frames with the correct result.
 class PredicateTracker {
+  /// The pattern symbol to lookahead on.
   final PatternSymbol symbol;
+
+  /// The input position where lookahead begins.
   final int startPos;
+
+  /// True for positive lookahead (&pattern), false for negative (!pattern).
   final bool isAnd;
+
+  /// Count of active frames currently exploring this predicate.
+  /// Used to detect when the sub-parse is complete (reaches 0).
   int activeFrames = 0;
+
+  /// Whether the sub-parse found a match.
   bool matched = false;
+
+  /// Parent frames waiting for the predicate result (context, resuming state).
   final List<(Context, State)> waiters = [];
 
+  /// Creates a predicate tracker for a sub-parse assertion.
   PredicateTracker(this.symbol, this.startPos, {required this.isAnd});
 }
 
+/// Main parser implementation using a state machine-based LR-like algorithm.
+///
+/// Converts an abstract grammar into a state machine (StateMachine) and drives
+/// parsing using lookahead, operator precedence filtering, and memoization.
+/// Supports multiple parse modes: basic recognition, mark-based results, ambiguous
+/// forest extraction, full forest construction, and streaming input.
+///
+/// Key capabilities:
+/// - Fast [recognize] for boolean checks
+/// - Marks-based [parse] for semantic annotations
+/// - [parseAmbiguous] for ambiguity detection
+/// - [parseWithForest] for full parse forests and derivation enumeration
+/// - [parseWithForestAsync] for streaming inputs
+/// - Lookahead predicates (&pattern, !pattern) for grammar constraints
+/// - Operator precedence filtering for shift/reduce disambiguation
+/// - Graph-Shared Stack (GSS) memoization for efficient rule processing
+/// - Binarised Shared Representation (BSR) for forest construction
+///
+/// Critical for parsing complex grammars efficiently with support for
+/// ambiguity, semantic actions, and advanced parsing features.
 class SMParser {
+  /// The state machine constructed from the grammar.
+  /// Encodes grammar rules as states and transitions.
   final StateMachine stateMachine;
+
+  /// Initial frames for starting fresh parses.
+  /// Lazily initialized on first use.
   late final List<Frame> _initialFrames;
+
+  /// Manager for GlushList mark allocation and branching.
+  /// Optimizes memory usage for mark accumulation during parsing.
   final GlushListManager<Mark> _markManager = GlushListManager<Mark>();
+
+  /// Maps input position to token history nodes.
+  /// Enables efficient access to past tokens for lookahead.
   final Map<int, TokenNode> _historyByPosition = {};
+
+  /// Tail of the token history linked list.
+  /// Points to the most recently processed token.
   TokenNode? _historyTail;
+
+  /// Active predicate sub-parses keyed by (pattern symbol, start position).
+  /// Tracks all lookahead assertions in progress.
   final Map<(PatternSymbol, int), PredicateTracker> _predicateTrackers = {};
+
+  /// Whether to capture tokens as StringMark semantic annotations.
   bool captureTokensAsMarks;
 
+  /// Returns the grammar used to construct this parser's state machine.
   GrammarInterface get grammar => stateMachine.grammar;
 
   /// Create a parser from a grammar.
@@ -3961,7 +4064,7 @@ class SMParser {
           }
           return totalCount;
         }
-      case "cal" || "rca" || "rul" || "act" || "pre":
+      case "rca" || "rul" || "act" || "pre":
         return _countDerivations(children.single, input, start, end, memo, inProgress);
       case "and":
       case "not":
@@ -4179,7 +4282,7 @@ class SMParser {
             }
           }
         }
-      case "cal" || "rca":
+      case "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
           yield* _enumerateDerivations(
@@ -4290,7 +4393,6 @@ class SMParser {
       case "alt":
       case "act":
       case "pre":
-      case "cal":
       case "rca":
       case "rul":
         if (tree.children.isNotEmpty) {
@@ -4423,7 +4525,6 @@ class SMParser {
       case "alt":
       case "act":
       case "pre":
-      case "cal":
       case "seq":
         final results = <Object?>[];
         for (final child in tree.children) {
@@ -4541,7 +4642,7 @@ class SMParser {
         );
   }
 
-  /// Check if any lookahead predicates have exhausted their search space.
+  /// Checks for exhausted lookahead predicates and resumes their waiters.
   ///
   /// A predicate is "exhausted" when:
   /// - Its sub-parse has no more active frames (activeFrames == 0)
@@ -4591,12 +4692,19 @@ class SMParser {
 // Internal parsing machinery
 // ---------------------------------------------------------------------------
 
-/// Strongly typed key to identify a call site.
+/// Strongly typed key to identify a call site in the parsing state machine.
+///
+/// Sealed base type for different caller contexts: root parse, predicate sub-parse,
+/// or rule invocation. Enables type-safe discrimination of caller types without
+/// runtime type checks. Essential for proper memoization and context tracking.
 sealed class CallerKey {
   const CallerKey();
 }
 
-/// Represents the root call context.
+/// Represents the root call context (top-level parse, not a rule call).
+///
+/// Singleton key used when parsing starts at the grammar's start symbol.
+/// Indicates frames that are not within a rule call or predicate sub-parse.
 final class RootCallerKey extends CallerKey {
   const RootCallerKey();
 
@@ -4607,55 +4715,83 @@ final class RootCallerKey extends CallerKey {
   bool operator ==(Object other) => other is RootCallerKey;
 }
 
+/// Caller key for a lookahead predicate sub-parse.
+///
+/// Identifies frames operating within a predicate (&pattern or !pattern).
+/// Links predicate results back to their original call sites.
 final class PredicateCallerKey extends CallerKey {
+  /// The pattern symbol being tested by the lookahead assertion.
   final PatternSymbol pattern;
+
+  /// The input position where the lookahead assertion starts.
   final int startPos;
 
+  /// Creates a caller key for a predicate sub-parse.
   const PredicateCallerKey(this.pattern, this.startPos);
 
+  /// Checks equality based on pattern and position.
   @override
   bool operator ==(Object other) =>
       other is PredicateCallerKey && pattern == other.pattern && startPos == other.startPos;
 
+  /// Hashes based on pattern and position.
   @override
   int get hashCode => Object.hash(pattern, startPos);
 }
 
-/// Caller tracking for rule returns (GSS node)
-/// Caller tracking for rule returns (Graph-Shared Stack node).
+/// Graph-Shared Stack (GSS) node for memoizing rule call results.
 ///
-/// The GSS (Graph-Shared Stack) is a compaction structure used in parsing
-/// algorithms (like GLR) to share derivations across call sites.
+/// The GSS is a critical memoization structure that avoids re-parsing the same
+/// rule from the same position multiple times. When a rule is invoked from the
+/// same position with the same precedence level, only one Caller is created.
 ///
-/// A Caller represents a single (rule, pattern, startPos, minPrecedence) tuple.
-/// When the same rule is called from the same position, only one Caller is created.
-/// Multiple callers waiting for the result register as "waiters", and when the
-/// rule returns, all waiters are resumed with the return context.
+/// Multiple frames waiting for the rule result register as "waiters". When the
+/// rule completes successfully, all waiters are resumed with the return context,
+/// ensuring derivations are shared rather than recomputed.
 ///
-/// This avoids re-parsing the same rule from the same position multiple times,
-/// instead replaying previously computed results.
+/// Key invariants:
+/// - (rule, startPos, minPrecedenceLevel) uniquely identifies a Caller
+/// - All waiters are resumed with the same returns
+/// - Cycles (left recursion) are handled via memoization checks
+/// - Precedence filtering prevents invalid returns
+///
+/// Critical for parsing efficiency: without GSS memoization, left-recursive
+/// grammars would cause exponential reprocessing.
 ///
 /// Fields:
-/// - rule: the Rule being called
-/// - pattern: the Pattern object
-/// - startPos: input position where the rule was invoked
-/// - minPrecedenceLevel: precedence constraint for this call
-/// - waiters: (caller, nextState, minPrec, context) tuples waiting for return
-/// - returns: (context tuples) representing successful rule completions
+/// - rule: the Rule being invoked
+/// - pattern: Pattern object (debugging)
+/// - startPos: input position of call
+/// - minPrecedenceLevel: precedence constraint
+/// - waiters: parent frames waiting for rule result
+/// - returns: successful rule completion contexts
 final class Caller extends CallerKey {
+  /// The rule being invoked.
   final Rule rule;
+
+  /// Pattern object associated with this rule call (for debugging).
   final Pattern pattern;
+
+  /// The input position where this rule was called.
   final int startPos;
+
+  /// Precedence constraint for filtering invalid return values.
+  /// Only returns with equal or higher precedence are accepted.
   final int? minPrecedenceLevel;
 
-  /// Waiters in GSS: (parent caller, return state, min precedence, parent context, call site node)
+  /// Waiting frames: (parent caller, return state, min precedence, parent context, call site node).
+  /// Each waiter will be resumed with the rule's completion context.
   final List<(CallerKey?, State, int?, Context, _ParseNode)> waiters = [];
 
-  /// Recorded results (returns) for this caller
+  /// Successful rule completions: contexts representing valid return states.
+  /// When the rule completes, all waiters are resumed with each return context.
   final List<Context> returns = [];
 
+  /// Creates a GSS node for a rule call.
   Caller(this.rule, this.pattern, this.startPos, this.minPrecedenceLevel);
 
+  /// Registers a waiter for the result of this rule call.
+  /// Returns true if the waiter was added (new), false if duplicate.
   bool addWaiter(CallerKey? parent, State next, int? minPrec, Context cctx, _ParseNode node) {
     for (final w in waiters) {
       if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx) return false;
@@ -4664,12 +4800,16 @@ final class Caller extends CallerKey {
     return true;
   }
 
+  /// Registers a successful rule completion as a return context.
+  /// Returns true if the return was added (new), false if duplicate.
   bool addReturn(Context ctx) {
     if (returns.contains(ctx)) return false;
     returns.add(ctx);
     return true;
   }
 
+  /// Invokes a callback for each waiter, passing its components.
+  /// Used to trigger all waiters when a return is recorded.
   void forEach(void Function(CallerKey?, State, int?, Context, _ParseNode) callback) {
     for (final (key, state, minPrec, ctx, node) in waiters) {
       callback(key, state, minPrec, ctx, node);
@@ -4678,47 +4818,57 @@ final class Caller extends CallerKey {
 }
 
 /// Context for parsing (tracks marks, callers, and BSR call-start position).
-/// Context for parsing a span of input.
+/// Parsing state context carrying marks, caller info, and parse constraints.
 ///
-/// Carries all state needed to resume a parse at a given position:
-/// - caller: who initiated this parse (root, rule call site, or predicate sub-parse).
-///   Used to match returns from sub-parses to their call sites.
+/// Contexts are immutable snapshots of parsing state, copied and evolved as
+/// parsing progresses. They carry all information needed to resume parsing
+/// after lookahead, rule calls, or other complex control flow.
+///
+/// Key responsibilities:
+/// - caller: identifies who initiated this parse (root, rule call, predicate sub-parse)
 /// - marks: accumulated semantic annotations (NamedMark and StringMark)
-/// - callStart: input position where the current rule call began (for BSR recording)
-/// - pivot: input position where the last matched symbol started (for BSR midPoints)
-/// - tokenHistory: linked list node for the current position (for lagging frames)
+/// - callStart: input position where current rule was invoked (for BSR recording)
+/// - pivot: input position of last matched symbol (for BSR midPoints)
+/// - tokenHistory: link to token history for backtracking support
 /// - minPrecedenceLevel: constraint for operator precedence filtering
-/// - precedenceLevel: precedence of the matched result (set by ReturnAction)
-/// - predicateStack: active lookahead predicates (unused in current implementation)
+/// - precedenceLevel: precedence of current result (set by ReturnAction)
+/// - predicateStack: stack of active lookahead predicates
 ///
-/// Contexts are immutable and copied with slight variations as parsing progresses.
+/// Critical for:
+/// - Memoization: contexts must match for cached results to apply
+/// - Semantic actions: marks accumulate through the context
+/// - Precedence filtering: minPrecedenceLevel constrains valid parses
+/// - Error recovery: contexts preserve parse state for diagnostics
 class Context {
-  /// The caller that created this context (for return actions).
+  /// The caller that initiated this parse (root, rule call, or predicate sub-parse).
+  /// Used to match returns from sub-parses to their call sites for proper memoization.
   final CallerKey caller;
 
-  /// The list of marks accumulated in this context.
+  /// Accumulated semantic annotations (NamedMark and StringMark) in order.
+  /// Marks represent semantic values produced during parsing.
   final GlushList<Mark> marks;
 
-  /// The input position at which the rule associated with this context
-  /// was invoked. Used to record BSR rule-completion entries.
+  /// The input position where the current rule call began.
+  /// Essential for BSR recording to identify rule completion spans.
   final int? callStart;
 
-  /// The input position where the last matched symbol started.
-  /// Used for midPoint in BSR nodes.
+  /// The input position of the last matched symbol.
+  /// Used as the midPoint in BSR entries for separating parsing phases.
   final int? pivot;
 
-  /// Pointer to the token history node for this context's current position.
+  /// Reference to the token history node at this parsing position.
+  /// Enables backtracking and lookahead by accessing past tokens.
   final TokenNode? tokenHistory;
 
-  /// Minimum precedence level required for a return to be accepted.
+  /// Minimum precedence level constraint for accepting returns.
+  /// Used for operator precedence filtering in precedence-aware grammars.
   final int? minPrecedenceLevel;
 
-  /// The precedence level of the result matched by this context.
+  /// Precedence level of the parse result in this context.
+  /// Set by ReturnAction when completing a precedence-constrained rule.
   final int? precedenceLevel;
 
-  /// Stack of active lookahead predicates.
-  final GlushList<PredicateFrame> predicateStack;
-
+  /// Creates a parsing context with the given caller and accumulated marks.
   const Context(
     this.caller,
     this.marks, {
@@ -4727,9 +4877,10 @@ class Context {
     this.tokenHistory,
     this.minPrecedenceLevel,
     this.precedenceLevel,
-    this.predicateStack = const GlushList.empty(),
   });
 
+  /// Creates a copy of this context with selected fields replaced.
+  /// Immutability is maintained by creating a new Context.
   Context copyWith({
     CallerKey? caller,
     GlushList<Mark>? marks,
@@ -4738,7 +4889,6 @@ class Context {
     TokenNode? tokenHistory,
     int? minPrecedenceLevel,
     int? precedenceLevel,
-    GlushList<PredicateFrame>? predicateStack,
   }) {
     return Context(
       caller ?? this.caller,
@@ -4748,53 +4898,74 @@ class Context {
       tokenHistory: tokenHistory ?? this.tokenHistory,
       minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
       precedenceLevel: precedenceLevel ?? this.precedenceLevel,
-      predicateStack: predicateStack ?? this.predicateStack,
     );
   }
 }
 
-/// A frame in the predicate stack, tracking a lookahead sub-parse.
-class PredicateFrame {
-  final Pattern pattern;
-  final int startPos;
-  final bool isAnd;
-
-  const PredicateFrame(this.pattern, this.startPos, {required this.isAnd});
-}
-
-/// Frame for managing parsing states
-/// Frame for managing a set of parsing states at a position.
+/// Set of parsing states to explore from a single context.
 ///
-/// Represents a set of alternative parsing paths from the same (caller, marks) pair.
-/// The nextStates are state machine states to explore when processing the frame.
+/// Frames are the primary work units in the parser. Each frame represents
+/// a set of state machine states ready to process from the same (caller, marks) pair.
 ///
-/// Frames are grouped by context and processed via _processFrame, which enqueues
-/// all states and drains the work list before moving to the next position.
+/// The parser processes frames at each position by enqueueing their states
+/// into a work list, then draining the list completely before moving to the
+/// next position. This ensures proper parse order and predicate handling.
+///
+/// Critical invariants:
+/// - All states in a frame share the same context
+/// - Frames are process in position order (work queue sorts by position)
+/// - Frame finalization groups results by (state, caller, precedence)
+///
+/// Essential for: managing parse alternatives, grouping results, and
+/// controlling the exploration order in LR-like parsing.
 class Frame {
+  /// The parsing context shared by all states in this frame.
+  /// Carries marks, caller information, and precedence constraints.
   final Context context;
+
+  /// State machine states to explore in this frame.
+  /// All states are processed with the same context before finalizing.
   final Set<State> nextStates;
 
+  /// Creates a frame with the given context and empty state set.
   Frame(this.context) : nextStates = {};
 
+  /// Creates a shallow copy of this frame with the same context.
   Frame copy() => Frame(context);
 
+  /// Returns the caller from the frame's context.
+  /// Shorthand for accessing context.caller.
   CallerKey? get caller => context.caller;
+
+  /// Returns the accumulated marks from the frame's context.
+  /// Shorthand for accessing context.marks.
   GlushList<Mark> get marks => context.marks;
 }
 
-/// Single step in parsing
-/// Single step of parsing at a given input position.
+/// Single parsing step at one input position.
 ///
-/// The Step object encapsulates the work of parsing frames and states at one
-/// input position. It manages:
+/// Encapsulates all parse work for a single input position. Steps manage:
 /// - Work list of (state, context) pairs to process
-/// - Active contexts (for deduplication in non-ambiguous mode)
-/// - Call sites (GSS nodes for rule memoization)
-/// - Predicate tracking for lookahead sub-parses
-/// - Frame grouping and finalization for the next position
+/// - Active contexts for deduplication (in non-ambiguous mode)
+/// - Caller (GSS) nodes for rule memoization
+/// - Predicate tracking and completion
+/// - Frame grouping and finalization for next position
+///
+/// Critical responsibilities:
+/// - Process all states from all frames at current position
+/// - Handle rule calls via GSS memoization (Caller objects)
+/// - Track lookahead predicates and their state
+/// - Build next frames for subsequent positions
+/// - Record BSR for forest extraction
 ///
 /// Key invariant: frames at earlier positions are processed before frames at
-/// the current position, ensuring correct parse order.
+/// the current position, ensuring correct parse order and predicate semantics.
+///
+/// Essential for:
+/// - Core parsing algorithm execution
+/// - Memoization and deduplication
+/// - Predicate sub-parse coordination
+/// - Result aggregation and forest construction
 typedef _ParseNode = (int stateId, int pos, Object? caller);
 typedef _Predecessor = (
   _ParseNode? source,
@@ -4804,29 +4975,60 @@ typedef _Predecessor = (
 );
 
 class Step {
+  /// Reference to the parent parser for accessing global state.
   final SMParser parser;
+
+  /// The current input token (character code) or null for end-of-input.
   final int? token;
+
+  /// The input position this step processes.
   final int position;
 
+  /// BSR (Binarised Shared Representation) set being built during parsing.
+  /// Null in basic parse modes, populated for forest construction.
   final BsrSet? bsr;
 
+  /// Whether this step supports ambiguous parsing (merges marks from all derivations).
   final bool isSupportingAmbiguity;
+
+  /// Whether tokens should be captured as semantic mark annotations.
   final bool captureTokensAsMarks;
+
+  /// Manager for allocating and merging GlushList<Mark> objects.
   final GlushListManager<Mark> markManager;
+
+  /// Predecessor graph for forest extraction (maps parse nodes to their sources).
   final Map<_ParseNode, Set<_Predecessor>> predecessors;
 
+  /// Frames to process in the next parsing step.
   final List<Frame> nextFrames = [];
+
+  /// Groups marks by (state, caller, precedence) for deduplication and merging.
   final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups = {};
+
+  /// Groups predecessors by (state, caller, precedence) for forest construction.
   final Map<(State, CallerKey, int?), Set<_Predecessor>> _nextPredecessorGroups = {};
+
+  /// Active contexts to prevent duplicate processing in non-ambiguous mode.
   final Map<(State, CallerKey, int?), GlushList<Mark>> _activeContexts = {};
+
+  /// Work queue of (state, context) pairs to process at this position.
   final Queue<(State, Context)> _currentWorkList = DoubleLinkedQueue();
 
+  /// Caller (GSS) nodes for rule memoization at this position and call position.
   final Map<(Rule, int, int?), Caller> _callers = {};
+
+  /// Tracks which callers have already returned to avoid duplicate processing.
   final Set<CallerKey> _returnedCallers = {};
+
+  /// Accepted contexts that successfully parsed the input up to this position.
   final List<(State, Context)> _acceptedContexts = [];
 
+  /// Callback to requeue frames for processing at earlier positions (for lookahead).
   final void Function(List<Frame>) requeue;
 
+  /// Creates a step for parsing at the given position.
+  /// Creates a step for parsing at the given position.
   Step(
     this.parser,
     this.token,
@@ -4839,6 +5041,8 @@ class Step {
     required this.predecessors,
   });
 
+  /// Completes a lookahead predicate assertion, resuming waiting frames.
+  /// Handles both positive (&pattern) and negative (!pattern) completion.
   void _finishPredicate(PredicateTracker tracker, bool matched) {
     if (tracker.matched) {
       return;
@@ -4871,19 +5075,27 @@ class Step {
     }
   }
 
+  /// Returns the token at the given frame's position.
+  /// Uses current token if frame is at current position, otherwise looks in history.
   int? _getTokenFor(Frame frame) {
     final framePos = frame.context.pivot ?? 0;
     if (framePos == position) return token;
     return parser._historyByPosition[framePos]?.unit;
   }
 
+  /// Returns true if this step contains at least one accepted context.
+  /// Indicates successful parse completion at the start symbol.
   bool get accept => _acceptedContexts.isNotEmpty;
 
+  /// Returns the semantic marks from the first accepted context.
+  /// Used for accessing parse results in non-ambiguous mode.
   List<Mark> get marks {
     if (_acceptedContexts.isEmpty) return [];
     return _acceptedContexts[0].$2.marks.toList().cast<Mark>();
   }
 
+  /// Enqueues a state with a context for processing in this step.
+  /// Handles deduplication, predicate tracking, and predecessor recording.
   void _enqueue(
     State state,
     Context context, {
@@ -4916,6 +5128,8 @@ class Step {
     _currentWorkList.add((state, context));
   }
 
+  /// Processes all state actions, enqueuing new states and handling lookahead.
+  /// Dispatches to specific action handlers (TokenAction, MarkAction, etc.).
   void _process(Frame frame, State state) {
     for (final action in state.actions) {
       switch (action) {
@@ -5121,6 +5335,9 @@ class Step {
     }
   }
 
+  /// Resumes a waiting frame when a rule call completes.
+  /// Merges marks from the rule result with the parent context's marks.
+  /// Records BSR entries if forest construction is enabled.
   void _triggerReturn(
     Caller caller,
     CallerKey? parent,
@@ -5155,6 +5372,8 @@ class Step {
     _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
   }
 
+  /// Groups results from _nextFrameGroups into Frame objects for the next position.
+  /// Handles mark merging, caller initialization, and predicate tracking.
   void _finalize() {
     for (final entry in _nextFrameGroups.entries) {
       final (state, caller, minP) = entry.key;
@@ -5186,6 +5405,8 @@ class Step {
     _nextPredecessorGroups.clear();
   }
 
+  /// Processes a frame by enqueueing its states and draining the work list.
+  /// Finalizes results into next frames after all states are processed.
   void _processFrame(Frame frame) {
     for (final state in frame.nextStates) {
       _enqueue(state, frame.context);
@@ -5214,8 +5435,6 @@ class Step {
     }
     _finalize();
   }
-
-  void addFrame(Context context, State state) => _enqueue(state, context);
 }
 
 

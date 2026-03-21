@@ -7,7 +7,7 @@ void main() {
       test('Call pattern supports minPrecedenceLevel parameter', () {
         // Basic test that the API exists and works
         final rule = Rule('test', () => Eps());
-        final call = Call(rule, minPrecedenceLevel: 5);
+        final call = rule(minPrecedenceLevel: 5);
         expect(call.minPrecedenceLevel, equals(5));
         expect(call.toString(), contains('^5'));
       });
@@ -56,7 +56,7 @@ void main() {
         final grammar = Grammar(() {
           late Rule expr, num;
           num = Rule('num', () => Token(ExactToken(49)));
-          expr = Rule('expr', () => Call(num, minPrecedenceLevel: 5) | Token(ExactToken(43)));
+          expr = Rule('expr', () => num(minPrecedenceLevel: 5) | Token(ExactToken(43)));
           return expr;
         });
 
@@ -68,8 +68,8 @@ void main() {
           late Rule primary, expr;
           primary = Rule('primary', () => Token(ExactToken(49)));
           expr = Rule('expr', () {
-            return Call(primary) |
-                (Call(expr, minPrecedenceLevel: 6) >> Token(ExactToken(43)) >> Call(expr));
+            return primary() |
+                (expr(minPrecedenceLevel: 6) >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -95,10 +95,10 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)).atLevel(11) | // number: level 11
-                (Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(
+                (expr() >> Token(ExactToken(43)) >> expr()).atLevel(
                   6,
                 ) | // addition: level 6
-                (Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(
+                (expr() >> Token(ExactToken(42)) >> expr()).atLevel(
                   7,
                 ); // multiplication: level 7
           });
@@ -119,13 +119,13 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)).atLevel(11) | // '1' - level 11
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr)).atLevel(
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr()).atLevel(
                   6,
                 ) | // addition - level 6
-                (Marker('mul') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr)).atLevel(
+                (Marker('mul') >> expr() >> Token(ExactToken(42)) >> expr()).atLevel(
                   7,
                 ) | // multiplication - level 7
-                (Token(ExactToken(40)) >> Call(expr) >> Token(ExactToken(41))).atLevel(
+                (Token(ExactToken(40)) >> expr() >> Token(ExactToken(41))).atLevel(
                   11,
                 ); // parentheses - level 11
           });
@@ -147,7 +147,7 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(49)) // '1'
                 |
-                (Call(expr) >> Token(ExactToken(43)) >> Token(ExactToken(49))); // expr+1
+                (expr() >> Token(ExactToken(43)) >> Token(ExactToken(49))); // expr+1
           });
           return expr;
         });
@@ -165,7 +165,7 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(50)) // '2'
                 |
-                (Token(ExactToken(50)) >> Token(ExactToken(94)) >> Call(expr)); // 2^expr
+                (Token(ExactToken(50)) >> Token(ExactToken(94)) >> expr()); // 2^expr
           });
           return expr;
         });
@@ -183,11 +183,11 @@ void main() {
           num = Rule('num', () => Token(ExactToken(49))); // '1'
 
           mul = Rule('mul', () {
-            return Call(num) | (Call(mul) >> Token(ExactToken(42)) >> Call(num)); // mul*num
+            return num() | (mul() >> Token(ExactToken(42)) >> num()); // mul*num
           });
 
           add = Rule('add', () {
-            return Call(mul) | (Call(add) >> Token(ExactToken(43)) >> Call(mul)); // add+mul
+            return mul() | (add() >> Token(ExactToken(43)) >> mul()); // add+mul
           });
 
           return add;
@@ -209,7 +209,7 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(49)) // '1'
                 |
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -231,8 +231,8 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(49)) // '1'
                 |
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr)) |
-                (Marker('mul') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr));
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr()) |
+                (Marker('mul') >> expr() >> Token(ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -250,7 +250,7 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(49)) // '1'
                 |
-                (Call(expr) >> Token(ExactToken(43)) >> Call(expr)); // ambiguous: left vs right
+                (expr() >> Token(ExactToken(43)) >> expr()); // ambiguous: left vs right
           });
           return expr;
         });
@@ -266,7 +266,7 @@ void main() {
           late Rule add, num;
           num = Rule('num', () => Token(ExactToken(49)));
           add = Rule('add', () {
-            return Call(num) | (Call(add) >> Token(ExactToken(43)) >> Call(num)); // left-assoc
+            return num() | (add() >> Token(ExactToken(43)) >> num()); // left-assoc
           });
           return add;
         });
@@ -283,7 +283,7 @@ void main() {
           expr = Rule('expr', () {
             return Token(ExactToken(49)) // '1'
                 |
-                (Marker('op') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('op') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -305,7 +305,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -326,11 +326,11 @@ void main() {
           late Rule num, term, expr;
           num = Rule('num', () => Token(ExactToken(49))); // '1'
           term = Rule('term', () {
-            return Call(num) | (Marker('mul') >> Call(term) >> Token(ExactToken(42)) >> Call(num));
+            return num() | (Marker('mul') >> term() >> Token(ExactToken(42)) >> num());
           });
           expr = Rule('expr', () {
-            return Call(term) |
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(term));
+            return term() |
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> term());
           });
           return expr;
         });
@@ -354,15 +354,15 @@ void main() {
           late Rule num, atom, term, expr;
           num = Rule('num', () => Token(ExactToken(49))); // '1'
           atom = Rule('atom', () {
-            return Call(num) | (Marker('pow') >> Call(atom) >> Token(ExactToken(94)) >> Call(num));
+            return num() | (Marker('pow') >> atom() >> Token(ExactToken(94)) >> num());
           });
           term = Rule('term', () {
-            return Call(atom) |
-                (Marker('mul') >> Call(term) >> Token(ExactToken(42)) >> Call(atom));
+            return atom() |
+                (Marker('mul') >> term() >> Token(ExactToken(42)) >> atom());
           });
           expr = Rule('expr', () {
-            return Call(term) |
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(term));
+            return term() |
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> term());
           });
           return expr;
         });
@@ -385,7 +385,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('op') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('op') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -409,8 +409,8 @@ void main() {
                 Token(ExactToken(50)) | // '2'
                 Token(ExactToken(51)) | // '3'
                 Token(ExactToken(52)) | // '4'
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr)) |
-                (Marker('mul') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr));
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr()) |
+                (Marker('mul') >> expr() >> Token(ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -433,7 +433,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -452,7 +452,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Marker('num') >> Token(ExactToken(49)) | // marked number
-                (Marker('add') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -474,7 +474,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('op') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('op') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -496,7 +496,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('op') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('op') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -518,9 +518,9 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('plus') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr)) |
-                (Marker('minus') >> Call(expr) >> Token(ExactToken(45)) >> Call(expr)) |
-                (Marker('times') >> Call(expr) >> Token(ExactToken(42)) >> Call(expr));
+                (Marker('plus') >> expr() >> Token(ExactToken(43)) >> expr()) |
+                (Marker('minus') >> expr() >> Token(ExactToken(45)) >> expr()) |
+                (Marker('times') >> expr() >> Token(ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -541,7 +541,7 @@ void main() {
           late Rule expr;
           expr = Rule('expr', () {
             return Token(ExactToken(49)) | // '1'
-                (Marker('op') >> Call(expr) >> Token(ExactToken(43)) >> Call(expr));
+                (Marker('op') >> expr() >> Token(ExactToken(43)) >> expr());
           });
           return expr;
         });

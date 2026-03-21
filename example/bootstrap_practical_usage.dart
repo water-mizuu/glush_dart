@@ -97,14 +97,16 @@ GrammarInterface _createConfigGrammar() {
   return Grammar(() {
     late final config, setting, key, value;
 
-    config = Rule('config', () => Call(setting).plus());
+    config = Rule('config', () => setting().plus());
 
-    setting = Rule('setting', () => Call(key) >> Token(ExactToken(61)) >> Call(value)); // 61 = '='
+    setting = Rule('setting', () => key() >> Token(ExactToken(61)) >> value()); // 61 = '='
 
     key = Rule('key', () => Token(RangeToken(97, 122)).plus()); // a-z
 
     value = Rule(
-        'value', () => (Token(RangeToken(97, 122)) | Token(RangeToken(48, 57))).plus()); // a-z0-9
+      'value',
+      () => (Token(RangeToken(97, 122)) | Token(RangeToken(48, 57))).plus(),
+    ); // a-z0-9
 
     return config;
   });
