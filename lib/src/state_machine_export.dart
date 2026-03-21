@@ -243,13 +243,20 @@ class RuleMetadataSpec {
   final String name;
   final List<int> firstStateIds;
   final bool isEmpty;
+  final String symbolId;
 
-  const RuleMetadataSpec({required this.name, required this.firstStateIds, required this.isEmpty});
+  const RuleMetadataSpec({
+    required this.name,
+    required this.firstStateIds,
+    required this.isEmpty,
+    required this.symbolId,
+  });
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'firstStateIds': firstStateIds,
     'isEmpty': isEmpty,
+    'symbolId': symbolId,
   };
 
   static RuleMetadataSpec fromJson(Map<String, dynamic> json) {
@@ -257,6 +264,7 @@ class RuleMetadataSpec {
       name: json['name'] as String,
       firstStateIds: (json['firstStateIds'] as List).cast<int>(),
       isEmpty: json['isEmpty'] as bool,
+      symbolId: json['symbolId'] as String,
     );
   }
 }
@@ -340,12 +348,14 @@ class StateMachineExporter {
 
     // Convert rule metadata
     final ruleMap = <String, RuleMetadataSpec>{};
-    for (final rule in sm.rules) {
-      final firstStateIds = sm.ruleFirst[rule]?.map((s) => s.id).toList() ?? [];
+    for (final ruleSymbol in sm.rules) {
+      final rule = sm.grammar.symbolRegistry[ruleSymbol] as Rule;
+      final firstStateIds = sm.ruleFirst[ruleSymbol]?.map((s) => s.id).toList() ?? [];
       ruleMap[rule.name as String] = RuleMetadataSpec(
         name: rule.name as String,
         firstStateIds: firstStateIds,
         isEmpty: rule.empty(),
+        symbolId: rule.symbolId!.symbol,
       );
     }
 
@@ -375,9 +385,9 @@ class StateMachineExporter {
         precedenceLevel,
       ),
       AcceptAction() => const AcceptActionSpec(),
-      PredicateAction(:var isAnd, :var nextState, :var symbol, :var pattern) => PredicateActionSpec(
+      PredicateAction(:var isAnd, :var nextState, :var symbol) => PredicateActionSpec(
         isAnd: isAnd,
-        symbol: symbol ?? pattern.symbolId!,
+        symbol: symbol,
         nextStateId: nextState.id,
       ),
       SemanticAction(:var nextState, :var pattern) => SemanticActionCallSpec(

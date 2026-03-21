@@ -198,14 +198,14 @@ class TokenNode {
 
 /// Tracks the status of a lookahead sub-parse.
 class PredicateTracker {
-  final Pattern pattern;
+  final PatternSymbol symbol;
   final int startPos;
   final bool isAnd;
   int activeFrames = 0;
   bool matched = false;
   final List<(Context, State)> waiters = [];
 
-  PredicateTracker(this.pattern, this.startPos, {required this.isAnd});
+  PredicateTracker(this.symbol, this.startPos, {required this.isAnd});
 }
 
 class SMParser {
@@ -1735,12 +1735,13 @@ class Step {
           _enqueue(action.nextState, markCtx);
         case PredicateAction():
           // Predicate checking as an integrated sub-parse
-          final subParseKey = (action.pattern.symbolId!, position);
+          final symbol = action.symbol;
+          final subParseKey = (symbol, position);
 
           final isFirst = !parser._predicateTrackers.containsKey(subParseKey);
           final tracker = parser._predicateTrackers.putIfAbsent(
             subParseKey,
-            () => PredicateTracker(action.pattern, position, isAnd: action.isAnd),
+            () => PredicateTracker(symbol, position, isAnd: action.isAnd),
           );
           tracker.waiters.add((frame.context, action.nextState));
 
@@ -1753,15 +1754,14 @@ class Step {
           printDebug(
             '[DEBUG] PredicateAction started: '
             'isAnd=${action.isAnd}, '
-            'pattern=${action.pattern}, '
+            'symbol=$symbol, '
             'position=$position, '
-            'symbolId=${action.pattern.symbolId}, '
             'isFirst=$isFirst, '
             'waitersCount=${tracker.waiters.length}',
           );
 
           if (isFirst) {
-            final predicateCaller = PredicateCallerKey(action.pattern.symbolId!, position);
+            final predicateCaller = PredicateCallerKey(symbol, position);
             final predicateCtx = Context(
               predicateCaller,
               const GlushList.empty(),
@@ -1770,21 +1770,18 @@ class Step {
               tokenHistory: frame.context.tokenHistory,
             );
 
-            printDebug(
-              '[DEBUG] PredicateAction - Starting first sub-parse for pattern=${action.pattern}',
-            );
+            printDebug('[DEBUG] PredicateAction - Starting sub-parse for symbol=$symbol');
 
-            if (action.pattern is RuleCall || action.pattern is Call) {
-              final rule = action.pattern is Call
-                  ? (action.pattern as Call).rule
-                  : (action.pattern as RuleCall).rule;
-              printDebug('[DEBUG] PredicateAction - Calling rule=${rule.name} from ruleFirst');
-              for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            // The symbol in PredicateAction is now always the Rule's symbol ID
+            final states = parser.stateMachine.ruleFirst[symbol];
+            if (states != null) {
+              for (final firstState in states) {
                 _enqueue(firstState, predicateCtx);
               }
             } else {
-              // This case should now be unreachable due to Grammar normalization
-              throw StateError('Predicate pattern must be a rule call: ${action.pattern}');
+              throw StateError(
+                'Predicate symbol must resolve to a rule with first states: $symbol',
+              );
             }
           }
         case CallAction():
@@ -1817,7 +1814,7 @@ class Step {
               minPrecedenceLevel: action.minPrecedenceLevel,
             );
             printDebug('[DEBUG]   CallAction: Starting first states of rule=${rule.name}');
-            for (final firstState in parser.stateMachine.ruleFirst[rule] ?? []) {
+            for (final firstState in parser.stateMachine.ruleFirst[rule.symbolId!] ?? []) {
               _enqueue(firstState, callCtx);
             }
           } else if (isNewWaiter) {

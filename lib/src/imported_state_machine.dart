@@ -51,9 +51,11 @@ class ImportedStateMachine {
 
     // Create rule placeholders (shell rules)
     final ruleMap = <String, Rule>{};
-    for (final ruleName in spec.rules.keys) {
+    for (final entry in spec.rules.entries) {
+      final ruleName = entry.key;
+      final ruleSpec = entry.value;
       final rule = Rule(ruleName, () => throw UnsupportedError('shell rule has no body'));
-      rule.assignSymbolId(PatternSymbol('rul:$ruleName:'));
+      rule.assignSymbolId(PatternSymbol(ruleSpec.symbolId));
       ruleMap[ruleName] = rule;
     }
 
@@ -67,12 +69,12 @@ class ImportedStateMachine {
     }
 
     // Build ruleFirst mapping
-    final ruleFirst = <Rule, List<State>>{};
+    final ruleFirst = <PatternSymbol, List<State>>{};
     for (final entry in spec.rules.entries) {
       final ruleName = entry.key;
       final ruleSpec = entry.value;
-      final rule = ruleMap[ruleName]!;
-      ruleFirst[rule] = ruleSpec.firstStateIds.map((id) => stateMap[id]!).toList();
+      final ruleSymbol = ruleMap[ruleName]!.symbolId!;
+      ruleFirst[ruleSymbol] = ruleSpec.firstStateIds.map((id) => stateMap[id]!).toList();
     }
 
     final startRuleName = spec.rules.keys.first; // Guessing start rule if not explicit
@@ -86,11 +88,25 @@ class ImportedStateMachine {
       startCall: startRule.call(),
     );
 
+    // Populate symbolRegistry for rule calls in the grammar
+    for (final rule in ruleMap.values) {
+      // Direct rule symbol
+      shellGrammar.symbolRegistry[rule.symbolId!] = rule;
+
+      // Add a RuleCall for each rule so they can be resolved if referenced by symbol.
+      // We calculate the RuleCall symbol string to match the mid-part of the rule symbol.
+      final rc = RuleCall('call_${rule.name}', rule);
+      final ruleMid = (rule.symbolId as String).split(":")[1];
+      final ruleCallSymbol = PatternSymbol('rca:$ruleMid:');
+      rc.assignSymbolId(ruleCallSymbol);
+      shellGrammar.symbolRegistry[ruleCallSymbol] = rc;
+    }
+
     // Create the rebuilt state machine
     final sm = StateMachine.empty(shellGrammar);
 
     // Manually set the internal state
-    sm.rules.addAll(ruleMap.values);
+    sm.rules.addAll(ruleMap.values.map((r) => r.symbolId!));
     for (final entry in ruleFirst.entries) {
       final rule = entry.key;
       final states = entry.value;
@@ -133,7 +149,6 @@ class ImportedStateMachine {
       AcceptActionSpec() => const AcceptAction(),
       PredicateActionSpec(:var isAnd, :var nextStateId, :var symbol) => PredicateAction(
         isAnd: isAnd,
-        pattern: Eps(),
         symbol: symbol,
         nextState: stateMap[nextStateId]!,
       ),

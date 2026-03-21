@@ -188,6 +188,37 @@ void main() {
         final reimportedResult = reimportedParser.parse(input);
         expect(reimportedResult is ParseSuccess, isTrue);
       });
+
+      test('Grammar with predicates works correctly after import', () {
+        final grammar = Grammar(() {
+          final a = Token(ExactToken(97));
+          final b = Token(ExactToken(98));
+          return Rule('S', () => b.not() >> a);
+        });
+
+        const input = 'a';
+
+        // Original
+        final originalParser = SMParser(grammar);
+        expect(originalParser.recognize(input), isTrue);
+        expect(originalParser.recognize('b'), isFalse);
+
+        // Imported
+        final exported = StateMachineExporter.export(grammar.stateMachine);
+        final imported = ImportedStateMachine(exported);
+        final reimportedParser = imported.createParser();
+
+        expect(
+          reimportedParser.recognize(input),
+          isTrue,
+          reason: 'Imported parser should recognize "a"',
+        );
+        expect(
+          reimportedParser.recognize('b'),
+          isFalse,
+          reason: 'Imported parser should not recognize "b"',
+        );
+      });
     });
 
     // =========================================================================
@@ -342,18 +373,18 @@ void main() {
           });
           return a;
         });
- 
+
         const input = '1+1';
- 
+
         // Create reimported parser
         final exported = StateMachineExporter.export(grammar.stateMachine);
         final imported = ImportedStateMachine(exported);
         final reimportedParser = imported.createParser();
- 
+
         // With shell grammar, enumeration now works!
         final parses = reimportedParser.enumerateAllParses(input).toList();
         expect(parses, isNotEmpty, reason: 'Shell grammar enables enumeration');
- 
+
         // Basic parsing still works perfectly
         final parseResult = reimportedParser.parse(input);
         expect(parseResult is ParseSuccess, isTrue);

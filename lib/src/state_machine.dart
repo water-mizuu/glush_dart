@@ -70,27 +70,19 @@ class PredicateAction implements StateAction {
   // Marker type: true for AND (&), false for NOT (!)
   final bool isAnd;
 
-  // The pattern to check for the predicate
-  final Pattern pattern;
-
   // The symbol for the pattern (used by shell grammars)
-  final PatternSymbol? symbol;
+  final PatternSymbol symbol;
 
   // Next state after successful predicate check
   final State nextState;
 
-  const PredicateAction({
-    required this.isAnd,
-    required this.pattern,
-    required this.nextState,
-    this.symbol,
-  });
+  const PredicateAction({required this.isAnd, required this.symbol, required this.nextState});
 
   @override
   String toString() =>
       isAnd //
-      ? 'Predicate(&${symbol ?? pattern})'
-      : 'Predicate(!${symbol ?? pattern})';
+      ? 'Predicate(&$symbol)'
+      : 'Predicate(!$symbol)';
 }
 
 /// State in the state machine
@@ -107,8 +99,8 @@ class State {
 /// The compiled state machine
 class StateMachine {
   final GrammarInterface grammar;
-  final List<Rule> rules = [];
-  final Map<Rule, List<State>> ruleFirst = {};
+  final List<PatternSymbol> rules = [];
+  final Map<PatternSymbol, List<State>> ruleFirst = {};
   List<State>? _cachedStates;
   late final List<State> _initialStates;
 
@@ -142,10 +134,10 @@ class StateMachine {
 
     // Process each rule
     for (final rule in grammar.rules) {
-      rules.add(rule);
+      rules.add(rule.symbolId!);
 
       final firstState = _getOrCreateState(rule);
-      ruleFirst[rule] = [firstState];
+      ruleFirst[rule.symbolId!] = [firstState];
 
       // Pre-calculate precedence mapping for this rule's body
       final precMap = <Pattern, int?>{};
@@ -193,8 +185,11 @@ class StateMachine {
         final nextState = _getOrCreateState(terminal);
         final action = PredicateAction(
           isAnd: true,
-          pattern: terminal.pattern,
-          symbol: terminal.pattern.symbolId,
+          symbol: switch (terminal.pattern) {
+            RuleCall(:var rule) => rule.symbolId!,
+            Call(:var rule) => rule.symbolId!,
+            _ => throw UnsupportedError('Invalid pattern type for predicate action'),
+          },
           nextState: nextState,
         );
         state.actions.add(action);
@@ -203,8 +198,7 @@ class StateMachine {
         final nextState = _getOrCreateState(terminal);
         final action = PredicateAction(
           isAnd: false,
-          pattern: terminal.pattern,
-          symbol: terminal.pattern.symbolId,
+          symbol: (terminal.pattern as RuleCall).rule.symbolId!,
           nextState: nextState,
         );
         state.actions.add(action);

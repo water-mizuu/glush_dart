@@ -1,8 +1,6 @@
 /// Grammar definition and building
 library glush.grammar;
 
-import 'package:glush/src/state_machine.dart';
-
 import 'patterns.dart';
 import 'state_machine.dart' as sm;
 import 'errors.dart';
@@ -368,23 +366,21 @@ class IntRange {
 
 class GrammarAdapter implements GrammarInterface {
   @override
-  final List<Rule> rules;
-
-  @override
-  final RuleCall startCall;
-
-  @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
-
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+  @override
+  final List<Rule> rules;
+  @override
+  final RuleCall startCall;
 
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
 
-  GrammarAdapter(StateMachine sm)
-    : rules = sm.rules,
-      startCall = sm.rules.isNotEmpty ? sm.rules[0].call() : Rule('_dummy', () => Eps()).call();
+  GrammarAdapter(sm.StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
+    symbolRegistry.addAll(sm.grammar.symbolRegistry);
+    childrenRegistry.addAll(sm.grammar.childrenRegistry);
+  }
 
   @override
   PatternSymbol get startSymbol => startCall.rule.symbolId!;
