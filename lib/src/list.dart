@@ -1,6 +1,8 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
+import 'package:glush/src/mark.dart';
+
 /// Abstract base class for managing parse alternatives as a tree structure.
 ///
 /// GlushList provides an efficient way to represent multiple parsing results
@@ -39,6 +41,8 @@ class GlushListManager<T> {
     final uniqueAlt = alternatives.toSet().toList();
     if (uniqueAlt.length == 1) return uniqueAlt[0];
 
+    uniqueAlt.sort((a, b) => a.hashCode.compareTo(b.hashCode));
+
     final key = _BranchedKey(uniqueAlt);
     return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(uniqueAlt)));
   }
@@ -71,6 +75,8 @@ class _BranchedKey {
   @override
   int get hashCode => Object.hashAll(elements);
 }
+
+final Expando<int> _glushListHashes = Expando();
 
 class EmptyList<T> extends GlushList<T> {
   const EmptyList._();
@@ -111,7 +117,7 @@ class BranchedList<T> extends GlushList<T> {
           alternatives.indexed.every((e) => e.$2 == other.alternatives[e.$1]);
 
   @override
-  int get hashCode => Object.hashAll(alternatives);
+  int get hashCode => _glushListHashes[this] ??= Object.hashAll(alternatives);
 }
 
 class Push<T> extends GlushList<T> {
@@ -134,7 +140,7 @@ class Push<T> extends GlushList<T> {
       identical(this, other) || other is Push<T> && parent == other.parent && data == other.data;
 
   @override
-  int get hashCode => Object.hash(parent, data);
+  int get hashCode => _glushListHashes[this] ??= Object.hash(parent, data);
 }
 
 class Concat<T> extends GlushList<T> {
@@ -157,7 +163,7 @@ class Concat<T> extends GlushList<T> {
       identical(this, other) || other is Concat<T> && left == other.left && right == other.right;
 
   @override
-  int get hashCode => Object.hash(left, right);
+  int get hashCode => _glushListHashes[this] ??= Object.hash(left, right);
 }
 
 extension GlushListVisualizer<T> on GlushList<T> {
@@ -169,9 +175,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
 
   List<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) {
     if (memo.containsKey(node)) return memo[node]!;
-    if (memo.length > 50000) {
-      throw Exception('GlushList: Forest enumeration protection triggered - too many nodes');
-    }
 
     List<List<T>> result;
     if (node is EmptyList<T>) {
@@ -185,20 +188,12 @@ extension GlushListVisualizer<T> on GlushList<T> {
       for (final l in leftPaths) {
         for (final r in rightPaths) {
           result.add([...l, ...r]);
-          if (result.length > maxPaths)
-            throw Exception(
-              'GlushList: Forest enumeration protection triggered - too many paths ($maxPaths)',
-            );
         }
       }
     } else if (node is BranchedList<T>) {
       result = [];
       for (final alt in node.alternatives) {
         result.addAll(_collect(alt, memo));
-        if (result.length > maxPaths)
-          throw Exception(
-            'GlushList: Forest enumeration protection triggered - too many paths ($maxPaths)',
-          );
       }
     } else {
       result = [];
@@ -252,5 +247,42 @@ extension GlushListVisualizer<T> on GlushList<T> {
         );
       }
     }
+  }
+}
+
+extension ListMarkExtractor on List<Mark> {
+  List<String> toStringList() {
+    final result = <String>[];
+    String? currentStringMark;
+
+    for (final mark in this) {
+      if (mark is NamedMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        currentStringMark = (currentStringMark ?? '') + mark.value;
+      }
+    }
+
+    if (currentStringMark != null) {
+      result.add(currentStringMark);
+    }
+
+    return result;
+  }
+
+  List<String> toMarkStrings() {
+    final result = <String>[];
+    for (final mark in this) {
+      if (mark is NamedMark) {
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        result.add(mark.value);
+      }
+    }
+    return result;
   }
 }

@@ -38,8 +38,7 @@ class GrammarFileCompiler {
   Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
       case LiteralPattern():
-        final code = expr.literal.codeUnitAt(0);
-        return Token(ExactToken(code));
+        return Pattern.string(expr.literal);
 
       case CharRangePattern():
         final ranges = expr.ranges;

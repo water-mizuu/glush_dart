@@ -434,6 +434,13 @@ class GrammarFileParser {
       }
     }
 
+    if (type == _TokenType.dollar) {
+      final nextIndex = tokenIndex + 1;
+      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.identifier) {
+        return true; // This is now a new rule.
+      }
+    }
+
     return type == _TokenType.identifier ||
         type == _TokenType.literal ||
         type == _TokenType.charRange ||

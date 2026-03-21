@@ -16,34 +16,33 @@ void main() {
       expect(success.forest.allPaths().length, equals(1));
     });
 
-    // test('Shared Forest prevents exponential explosion', () {
-    //   // Highly ambiguous grammar: S -> S S | 'a'
-    //   final parser =
-    //       r"""
-    //     S = S S | 'a'
-    //   """
-    //           .toSMParser();
+    test('Shared Forest prevents exponential explosion', () {
+      // Highly ambiguous grammar: S -> S S | 'a'
+      final parser =
+          r"""
+        S = S S | 'a'
+      """
+              .toSMParser();
 
-    //   final input = 'a' * 10;
-    //   final result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
+      final input = 'a' * 5;
+      final result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
 
-    //   expect(result, isA<ParseAmbiguousForestSuccess>());
-    //   final success = result as ParseAmbiguousForestSuccess;
+      expect(result, isA<ParseAmbiguousForestSuccess>());
+      final success = result as ParseAmbiguousForestSuccess;
 
-    //   // For N=10, the number of derivations is the 10th Catalan number = 4862
-    //   // But the forest should have few nodes.
-    //   final paths = success.forest.allPaths();
-    //   expect(paths.length, equals(4862));
-    // });
+      // For N=5, the number of derivations is the 4th Catalan number = 14
+      final paths = success.forest.allPaths();
+      expect(paths.length, equals(14));
+    });
 
     test('Precedence Filtering', () {
       // Classic math grammar with precedence
       final parser =
           r"""
         expr =
-            6|$add expr^6 '+' expr^7
-          | 7|$mul expr^7 '*' expr^8
-          | 11| 'n'
+            6| $add expr^6 '+' expr^7
+            7| $mul expr^7 '*' expr^8
+           11| 'n'
       """
               .toSMParser();
 
@@ -56,8 +55,6 @@ void main() {
       final paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
       expect(paths[0].join(''), equals('addn+muln*n'));
-
-      // Verify structure (we don't have a tree-visualizer for GlushList yet, but we can check marks)
     });
 
     test('Predicate Catch-up and Sub-parse', () {

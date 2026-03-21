@@ -44,7 +44,7 @@ import 'sppf.dart';
 import 'bsr.dart';
 export 'bsr.dart';
 
-const isDebug = false;
+const isDebug = true;
 void printDebug(String message) {
   if (isDebug) {
     print(message);
@@ -156,8 +156,10 @@ class ParseDerivation {
 
   String toTreeString(String input, [int indent = 0]) {
     final prefix = '  ' * indent;
-    final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
-    return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
+    final str =
+        '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
+    return str +
+        children.map((c) => c.toTreeString(input, indent + 1)).join('');
   }
 
   String toPrecedenceString(String input) {
@@ -286,7 +288,10 @@ class SMParser {
   ///
   /// Skips state machine construction (which has already been done elsewhere)
   /// and creates a parser ready to parse input using the provided machine.
-  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
+  SMParser.fromStateMachine(
+    this.stateMachine, {
+    this.captureTokensAsMarks = false,
+  }) {
     const initialContext = Context(RootCallerKey(), const GlushList.empty());
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
@@ -298,27 +303,24 @@ class SMParser {
   /// Fast path that only checks if the input matches, without marking or
   /// other semantic computation. Returns true iff the entire input is accepted.
   bool recognize(String input) {
-    printDebug('[DEBUG] === START recognize("$input") ===');
     var frames = _initialFrames;
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      printDebug(
-        '[DEBUG] recognize: position=$position, codepoint=$codepoint (${String.fromCharCode(codepoint)})',
+      final stepResult = _processToken(
+        codepoint,
+        position,
+        frames,
+        predecessors: {},
       );
-      final stepResult = _processToken(codepoint, position, frames);
       frames = stepResult.nextFrames;
-      printDebug('[DEBUG] recognize: after _processToken, nextFrames.length=${frames.length}');
       if (frames.isEmpty) {
-        printDebug('[DEBUG] recognize: FAILED - no frames after position $position');
         return false;
       }
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
-    printDebug('[DEBUG] recognize: final _processToken, accept=${lastStep.accept}');
-    printDebug('[DEBUG] === END recognize ===');
+    final lastStep = _processToken(null, position, frames, predecessors: {});
     return lastStep.accept;
   }
 
@@ -335,7 +337,12 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames);
+      final stepResult = _processToken(
+        codepoint,
+        position,
+        frames,
+        predecessors: {},
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError(position);
@@ -343,7 +350,7 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames);
+    final lastStep = _processToken(null, position, frames, predecessors: {});
 
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
@@ -361,11 +368,13 @@ class SMParser {
   /// Returns:
   /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
   /// - [ParseError] if parsing fails
-  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
+  ParseOutcome parseAmbiguous(
+    String input, {
+    bool captureTokensAsMarks = false,
+  }) {
+    final Map<_ParseNode, Set<_Predecessor>> predecessors = {};
     var frames = _initialFrames;
     int position = 0;
-
-    final capture = captureTokensAsMarks;
 
     for (final codepoint in input.codeUnits) {
       final stepResult = _processToken(
@@ -373,12 +382,11 @@ class SMParser {
         position,
         frames,
         isSupportingAmbiguity: true,
-        captureTokensAsMarks: capture,
+        captureTokensAsMarks: captureTokensAsMarks,
+        predecessors: predecessors,
       );
       frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
-        return ParseError(position);
-      }
+      if (frames.isEmpty) return ParseError(position);
       position++;
     }
 
@@ -387,17 +395,81 @@ class SMParser {
       position,
       frames,
       isSupportingAmbiguity: true,
-      captureTokensAsMarks: capture,
+      captureTokensAsMarks: captureTokensAsMarks,
+      predecessors: predecessors,
     );
 
     if (lastStep.accept) {
-      final mergedMarks = _markManager.branched(
-        lastStep._acceptedContexts.map((c) => c.marks).toList(),
-      );
-      return ParseAmbiguousForestSuccess(mergedMarks);
+      final memo = <_ParseNode, GlushList<Mark>>{};
+      final results = <GlushList<Mark>>[];
+
+      for (final (state, ctx) in lastStep._acceptedContexts) {
+        final rootNode = (state.id, position, ctx.caller);
+        results.add(_extractForestFromGraph(rootNode, memo, predecessors));
+      }
+
+      return ParseAmbiguousForestSuccess(_markManager.branched(results));
     } else {
       return ParseError(position);
     }
+  }
+
+  /// Extracts the parse forest from the predecessor graph.
+  GlushList<Mark> _extractForestFromGraph(
+    _ParseNode node,
+    Map<_ParseNode, GlushList<Mark>> memo,
+    Map<_ParseNode, Set<_Predecessor>> predecessors, [
+    Set<_ParseNode>? visiting,
+  ]) {
+    if (memo.containsKey(node)) return memo[node]!;
+
+    final currentVisiting = visiting ?? <_ParseNode>{};
+    if (currentVisiting.contains(node)) {
+      // Return empty list for cyclic path to avoid infinite recursion.
+      // In a real SPPF, this would be a cyclic node, but GlushList is linear.
+      return const GlushList<Mark>.empty();
+    }
+
+    currentVisiting.add(node);
+    final preds = predecessors[node];
+    if (preds == null) return memo[node] = const GlushList<Mark>.empty();
+
+    final alts = <GlushList<Mark>>[];
+    try {
+      for (final (source, action, marks, callSite) in preds) {
+        if (action is ReturnAction) {
+          final ruleForest = _extractForestFromGraph(
+            source!,
+            memo,
+            predecessors,
+            currentVisiting,
+          );
+          final parentForest = callSite != null
+              ? _extractForestFromGraph(
+                  callSite,
+                  memo,
+                  predecessors,
+                  currentVisiting,
+                )
+              : const GlushList<Mark>.empty();
+          alts.add(parentForest.addList(_markManager, ruleForest));
+        } else if (source != null) {
+          final base = _extractForestFromGraph(
+            source,
+            memo,
+            predecessors,
+            currentVisiting,
+          );
+          alts.add(base.addList(_markManager, marks));
+        } else {
+          alts.add(marks);
+        }
+      }
+    } finally {
+      currentVisiting.remove(node);
+    }
+
+    return memo[node] = _markManager.branched(alts);
   }
 
   /// Parse with forest extraction enabled.
@@ -424,7 +496,8 @@ class SMParser {
     final startSymbol = stateMachine.grammar.startSymbol;
     final nodeManager = ForestNodeManager();
     final root = bsrSet.buildSppf(grammar, startSymbol, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startSymbol);
+    final effectiveRoot =
+        root ?? nodeManager.symbolic(0, input.length, startSymbol);
     final forest = ParseForest(nodeManager, effectiveRoot);
     return ParseForestSuccess(forest);
   }
@@ -452,6 +525,7 @@ class SMParser {
     Stream<String> input, {
     int lookaheadWindowSize = 1048576,
   }) {
+    final Map<_ParseNode, Set<_Predecessor>> predecessors = {};
     final completer = Completer<ParseOutcome>();
     var frames = _initialFrames;
     int globalPosition = 0;
@@ -480,7 +554,13 @@ class SMParser {
             }
 
             // Process this token with BSR recording
-            final stepResult = _processToken(codeUnit, globalPosition, frames, bsr: bsr);
+            final stepResult = _processToken(
+              codeUnit,
+              globalPosition,
+              frames,
+              bsr: bsr,
+              predecessors: predecessors,
+            );
             frames = stepResult.nextFrames;
 
             // If parsing fails, complete with error
@@ -507,15 +587,27 @@ class SMParser {
             if (completer.isCompleted) return;
 
             // Process end-of-stream token
-            final lastStep = _processToken(null, globalPosition, frames, bsr: bsr);
+            final lastStep = _processToken(
+              null,
+              globalPosition,
+              frames,
+              bsr: bsr,
+              predecessors: predecessors,
+            );
 
             if (lastStep.accept) {
               // Build SPPF from the recorded BSR
               final startSymbol = stateMachine.grammar.startSymbol;
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeManager);
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
+              final root = bsr.buildSppf(
+                grammar,
+                startSymbol,
+                fullInput,
+                nodeManager,
+              );
+              final effectiveRoot =
+                  root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
               final forest = ParseForest(nodeManager, effectiveRoot);
               completer.complete(ParseForestSuccess(forest));
             } else {
@@ -555,7 +647,13 @@ class SMParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: bsr);
+      final stepResult = _processToken(
+        codepoint,
+        position,
+        frames,
+        bsr: bsr,
+        predecessors: {},
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -563,7 +661,13 @@ class SMParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: bsr);
+    final lastStep = _processToken(
+      null,
+      position,
+      frames,
+      bsr: bsr,
+      predecessors: {},
+    );
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -599,7 +703,14 @@ class SMParser {
     final startSymbol = stateMachine.grammar.startSymbol;
     final memo = <String, List<ParseDerivation>?>{};
 
-    yield* _enumerateDerivations(bsrSet, startSymbol, 0, input.length, input, memo);
+    yield* _enumerateDerivations(
+      bsrSet,
+      startSymbol,
+      0,
+      input.length,
+      input,
+      memo,
+    );
   }
 
   /// Enumerate all possible parse trees with evaluated semantic values.
@@ -610,7 +721,9 @@ class SMParser {
   /// semantic actions to produce a value. Returns an iterable of
   /// [ParseDerivationWithValue] objects containing both the derivation
   /// and its evaluated result.
-  Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
+  Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(
+    String input,
+  ) sync* {
     for (final derivation in enumerateAllParses(input)) {
       final value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
@@ -628,7 +741,12 @@ class SMParser {
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
 
-    return ParseDerivation(tree.node.symbol, tree.node.start, tree.node.end, childDerivations);
+    return ParseDerivation(
+      tree.node.symbol,
+      tree.node.start,
+      tree.node.end,
+      childDerivations,
+    );
   }
 
   /// Count the total number of parse trees for a rule without building them.
@@ -666,10 +784,24 @@ class SMParser {
 
     if (symbol.symbol.startsWith('rul:')) {
       if (children.isNotEmpty) {
-        totalCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
+        totalCount = _countAlternatives(
+          children.single,
+          input,
+          start,
+          end,
+          memo,
+          inProgress,
+        );
       }
     } else {
-      totalCount = _countAlternatives(symbol, input, start, end, memo, inProgress);
+      totalCount = _countAlternatives(
+        symbol,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+      );
     }
 
     inProgress[key] = false;
@@ -733,8 +865,22 @@ class SMParser {
       case "mar":
         return start == end ? 1 : 0;
       case "alt":
-        return _countAlternatives(children.first, input, start, end, memo, inProgress) +
-            _countAlternatives(children.last, input, start, end, memo, inProgress);
+        return _countAlternatives(
+              children.first,
+              input,
+              start,
+              end,
+              memo,
+              inProgress,
+            ) +
+            _countAlternatives(
+              children.last,
+              input,
+              start,
+              end,
+              memo,
+              inProgress,
+            );
       case "seq":
         {
           int totalCount = 0;
@@ -774,7 +920,14 @@ class SMParser {
               inProgress,
             );
             if (childCount > 0) {
-              final starCount = _countStar(children.single, input, mid, end, memo, inProgress);
+              final starCount = _countStar(
+                children.single,
+                input,
+                mid,
+                end,
+                memo,
+                inProgress,
+              );
               totalCount += childCount * starCount;
             }
           }
@@ -783,7 +936,14 @@ class SMParser {
       case "sta":
         return _countStar(children.single, input, start, end, memo, inProgress);
       case "cal" || "rca" || "rul" || "act" || "pre":
-        return _countDerivations(children.single, input, start, end, memo, inProgress);
+        return _countDerivations(
+          children.single,
+          input,
+          start,
+          end,
+          memo,
+          inProgress,
+        );
       case "and":
       case "not":
         if (start == end) {
@@ -832,7 +992,14 @@ class SMParser {
 
     // One or more matches
     for (int mid = start + 1; mid <= end; mid++) {
-      final childCount = _countAlternatives(symbol, input, start, mid, memo, inProgress);
+      final childCount = _countAlternatives(
+        symbol,
+        input,
+        start,
+        mid,
+        memo,
+        inProgress,
+      );
       if (childCount > 0) {
         final restCount = _countStar(symbol, input, mid, end, memo, inProgress);
         totalCount += childCount * restCount;
@@ -1070,7 +1237,16 @@ class SMParser {
           }
         }
       case "sta":
-        yield* _enumerateStar(bsr, children.single, input, start, end, symbol, memo, inProgress);
+        yield* _enumerateStar(
+          bsr,
+          children.single,
+          input,
+          start,
+          end,
+          symbol,
+          memo,
+          inProgress,
+        );
       case "cal" || "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
@@ -1290,7 +1466,10 @@ class SMParser {
             }
             return action.callback(span, childResults);
           }(),
-          _ => tree.children.isNotEmpty ? _evaluateParseDerivation(tree.children[0], input) : null,
+          _ =>
+            tree.children.isNotEmpty
+                ? _evaluateParseDerivation(tree.children[0], input)
+                : null,
         };
     }
   }
@@ -1328,7 +1507,10 @@ class SMParser {
         if (builtMark == null) {
           builtMark = current;
         } else {
-          builtMark = StringMark(builtMark.value + current.value, builtMark.position);
+          builtMark = StringMark(
+            builtMark.value + current.value,
+            builtMark.position,
+          );
         }
       } else if (current is NamedMark) {
         if (builtMark != null) {
@@ -1355,7 +1537,8 @@ class SMParser {
   List<Mark> _flattenParseTreeMarks(Object? marks) {
     if (marks is StringMark) return [marks];
     if (marks is NamedMark) return [marks];
-    if (marks is List<Object?>) return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
+    if (marks is List<Object?>)
+      return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
     return [];
   }
 
@@ -1440,6 +1623,7 @@ class SMParser {
     BsrSet? bsr,
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
+    required Map<_ParseNode, Set<_Predecessor>> predecessors,
   }) {
     // Update global token history linked list
     if (token != null) {
@@ -1478,7 +1662,9 @@ class SMParser {
       final posFrames = workQueue.remove(pos)!;
 
       final currentStep = stepsAtPosition.putIfAbsent(pos, () {
-        final posToken = (pos == position) ? token : _historyByPosition[pos]?.unit;
+        final posToken = (pos == position)
+            ? token
+            : _historyByPosition[pos]?.unit;
         return Step(
           this,
           posToken,
@@ -1488,6 +1674,7 @@ class SMParser {
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks,
           requeue: addFramesToQueue, // Pass the adder directly
+          predecessors: predecessors,
         );
       });
 
@@ -1496,7 +1683,6 @@ class SMParser {
       }
 
       // Check for exhausted predicates at this position
-      printDebug('[DEBUG] === Checking exhausted predicates at position $pos ===');
       _checkExhaustedPredicates(workQueue, pos);
 
       if (pos < position) {
@@ -1516,6 +1702,7 @@ class SMParser {
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks,
           requeue: addFramesToQueue, // Add required callback
+          predecessors: predecessors,
         );
   }
 
@@ -1533,44 +1720,31 @@ class SMParser {
   ///
   /// This method is called after processing all frames at a position, ensuring
   /// that negative lookahead assertions are properly satisfied before moving forward.
-  void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
-    printDebug(
-      '[DEBUG] _checkExhaustedPredicates: checking ${_predicateTrackers.length} trackers at position=$currentPosition',
-    );
+  void _checkExhaustedPredicates(
+    SplayTreeMap<int, List<Frame>> workQueue,
+    int currentPosition,
+  ) {
     final toRemove = <(PatternSymbol, int)>{};
     for (final entry in _predicateTrackers.entries) {
       final tracker = entry.value;
-      printDebug(
-        '[DEBUG]   Tracker: pattern=${entry.key.$1}, pos=${entry.key.$2}, '
-        'isAnd=${tracker.isAnd}, activeFrames=${tracker.activeFrames}, '
-        'matched=${tracker.matched}, waitersCount=${tracker.waiters.length}',
-      );
 
       if (tracker.activeFrames == 0 && !tracker.matched) {
         // Handle NOT predicate success (exhausted without match)
-        printDebug('[DEBUG]     -> Exhausted without match (will trigger NOT predicates)');
         for (final (parentCtx, nextState) in tracker.waiters) {
           if (!tracker.isAnd) {
-            printDebug('[DEBUG]       -> Requeueing NOT waiter');
             workQueue
                 .putIfAbsent(currentPosition, () => [])
                 .add(Frame(parentCtx)..nextStates.add(nextState));
-          } else {
-            printDebug('[DEBUG]       -> Skipping AND waiter (condition not met)');
           }
         }
         toRemove.add(entry.key);
       } else if (tracker.matched) {
-        printDebug('[DEBUG]     -> Already matched');
         toRemove.add(entry.key);
-      } else {
-        printDebug('[DEBUG]     -> Still has active frames, keep waiting');
       }
     }
     for (final key in toRemove) {
       _predicateTrackers.remove(key);
     }
-    printDebug('[DEBUG] _checkExhaustedPredicates: removed ${toRemove.length} trackers');
   }
 
   /// Check if a pattern matches at a given position in the input without consuming.
@@ -1609,7 +1783,9 @@ final class PredicateCallerKey extends CallerKey {
 
   @override
   bool operator ==(Object other) =>
-      other is PredicateCallerKey && pattern == other.pattern && startPos == other.startPos;
+      other is PredicateCallerKey &&
+      pattern == other.pattern &&
+      startPos == other.startPos;
 
   @override
   int get hashCode => Object.hash(pattern, startPos);
@@ -1642,19 +1818,26 @@ final class Caller extends CallerKey {
   final int startPos;
   final int? minPrecedenceLevel;
 
-  /// Waiters in GSS: (parent caller, return state, min precedence, parent context)
-  final List<(CallerKey?, State, int?, Context)> waiters = [];
+  /// Waiters in GSS: (parent caller, return state, min precedence, parent context, call site node)
+  final List<(CallerKey?, State, int?, Context, _ParseNode)> waiters = [];
 
   /// Recorded results (returns) for this caller
   final List<Context> returns = [];
 
   Caller(this.rule, this.pattern, this.startPos, this.minPrecedenceLevel);
 
-  bool addWaiter(CallerKey? parent, State next, int? minPrec, Context cctx) {
+  bool addWaiter(
+    CallerKey? parent,
+    State next,
+    int? minPrec,
+    Context cctx,
+    _ParseNode node,
+  ) {
     for (final w in waiters) {
-      if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx) return false;
+      if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx)
+        return false;
     }
-    waiters.add((parent, next, minPrec, cctx));
+    waiters.add((parent, next, minPrec, cctx, node));
     return true;
   }
 
@@ -1664,9 +1847,11 @@ final class Caller extends CallerKey {
     return true;
   }
 
-  void forEach(void Function(CallerKey?, State, int?, Context) callback) {
-    for (final (key, state, minPrec, ctx) in waiters) {
-      callback(key, state, minPrec, ctx);
+  void forEach(
+    void Function(CallerKey?, State, int?, Context, _ParseNode) callback,
+  ) {
+    for (final (key, state, minPrec, ctx, node) in waiters) {
+      callback(key, state, minPrec, ctx, node);
     }
   }
 }
@@ -1789,98 +1974,37 @@ class Frame {
 ///
 /// Key invariant: frames at earlier positions are processed before frames at
 /// the current position, ensuring correct parse order.
-class Step {
-  static const int maxWorkListSize = 100000;
-  static const int maxActiveContexts = 50000;
+typedef _ParseNode = (int stateId, int pos, Object? caller);
+typedef _Predecessor = (
+  _ParseNode? source,
+  StateAction? action,
+  GlushList<Mark> marks,
+  _ParseNode? callSite,
+);
 
+class Step {
   final SMParser parser;
   final int? token;
   final int position;
 
-  /// Optional BSR set to populate with rule-completion entries. When null,
-  /// BSR recording is skipped (used by the plain recognize/parse paths).
   final BsrSet? bsr;
 
   final bool isSupportingAmbiguity;
   final bool captureTokensAsMarks;
   final GlushListManager<Mark> markManager;
+  final Map<_ParseNode, Set<_Predecessor>> predecessors;
 
   final List<Frame> nextFrames = [];
-  final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups = {};
+  final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups =
+      {};
+  final Map<(State, CallerKey, int?), Set<_Predecessor>>
+  _nextPredecessorGroups = {};
   final Map<(State, CallerKey, int?), GlushList<Mark>> _activeContexts = {};
-  final List<(State, Context)> _currentWorkList = [];
+  final Queue<(State, Context)> _currentWorkList = DoubleLinkedQueue();
 
-  final Map<(Rule, Pattern), Caller> _callers = {};
+  final Map<(Rule, int, int?), Caller> _callers = {};
   final Set<CallerKey> _returnedCallers = {};
-  final List<Context> _acceptedContexts = [];
-
-  /// Signal that a predicate sub-parse has completed with a given result.
-  ///
-  /// Called when a predicate sub-parse reaches a ReturnAction, indicating
-  /// whether the lookahead pattern matched.
-  ///
-  /// For AND predicates (&pattern):
-  /// - If matched=true: requeue all waiters to continue when pattern matches
-  /// - If matched=false and exhausted: don't requeue (AND fails)
-  ///
-  /// For NOT predicates (!pattern):
-  /// - If matched=true: don't requeue (NOT fails when pattern matches)
-  /// - If matched=false and exhausted: requeue all waiters (NOT succeeds)
-  ///
-  /// This ensures that lookahead assertions (both positive and negative) are
-  /// correctly satisfied before the main parse proceeds past that position.
-  void _finishPredicate(PredicateTracker tracker, bool matched) {
-    printDebug(
-      '[DEBUG] _finishPredicate: '
-      'tracker.isAnd=${tracker.isAnd}, '
-      'matched=$matched, '
-      'tracker.matched=${tracker.matched}, '
-      'activeFrames=${tracker.activeFrames}, '
-      'waitersCount=${tracker.waiters.length}',
-    );
-
-    if (tracker.matched) {
-      printDebug('[DEBUG] _finishPredicate: Already matched, returning early');
-      return;
-    }
-    if (matched) {
-      printDebug(
-        '[DEBUG] _finishPredicate: Matched! isAnd=${tracker.isAnd}, requeueing ${tracker.waiters.length} waiters',
-      );
-      tracker.matched = true;
-      for (final (parentCtx, nextState) in tracker.waiters) {
-        // Transfer active frame status from waiter back to worklist or drop
-        if (parentCtx.caller case PredicateCallerKey pk) {
-          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-          parentTracker?.activeFrames--;
-        }
-
-        if (tracker.isAnd) {
-          printDebug('[DEBUG] _finishPredicate: Requeueing waiter for AND predicate');
-          requeue([Frame(parentCtx)..nextStates.add(nextState)]);
-        }
-      }
-      tracker.waiters.clear(); // Clear to avoid double resume if exhausted happens later
-    } else if (tracker.activeFrames == 0) {
-      // Exhausted without matching
-      printDebug(
-        '[DEBUG] _finishPredicate: Exhausted without match! isAnd=${tracker.isAnd}, requeueing ${tracker.waiters.length} waiters',
-      );
-      for (final (parentCtx, nextState) in tracker.waiters) {
-        // Transfer active frame status from waiter back to worklist or drop
-        if (parentCtx.caller case PredicateCallerKey pk) {
-          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-          parentTracker?.activeFrames--;
-        }
-
-        if (!tracker.isAnd) {
-          printDebug('[DEBUG] _finishPredicate: Requeueing waiter for NOT predicate');
-          requeue([Frame(parentCtx)..nextStates.add(nextState)]);
-        }
-      }
-      tracker.waiters.clear();
-    }
-  }
+  final List<(State, Context)> _acceptedContexts = [];
 
   final void Function(List<Frame>) requeue;
 
@@ -1893,22 +2017,46 @@ class Step {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
     required this.requeue,
+    required this.predecessors,
   });
 
-  /// Get the token that a specific frame should see.
-  /// If the frame is at the current parsing position, it sees the current token.
-  /// If it's lagging, it sees the next token from history.
-  /// Get the token for a specific frame.
-  ///
-  /// If the frame is at the current parsing position, returns the current token.
-  /// If the frame is lagging (pivot < position), retrieves the token from history.
-  ///
-  /// This is crucial for supporting lagging frames in lookahead and backtracking.
+  void _finishPredicate(PredicateTracker tracker, bool matched) {
+    if (tracker.matched) {
+      return;
+    }
+    if (matched) {
+      tracker.matched = true;
+      for (final (parentCtx, nextState) in tracker.waiters) {
+        if (parentCtx.caller case PredicateCallerKey pk) {
+          final parentTracker =
+              parser._predicateTrackers[(pk.pattern, pk.startPos)];
+          parentTracker?.activeFrames--;
+        }
+
+        if (tracker.isAnd) {
+          requeue([Frame(parentCtx)..nextStates.add(nextState)]);
+        }
+      }
+      tracker.waiters.clear();
+    } else if (tracker.activeFrames == 0) {
+      for (final (parentCtx, nextState) in tracker.waiters) {
+        if (parentCtx.caller case PredicateCallerKey pk) {
+          final parentTracker =
+              parser._predicateTrackers[(pk.pattern, pk.startPos)];
+          parentTracker?.activeFrames--;
+        }
+
+        if (!tracker.isAnd) {
+          requeue([Frame(parentCtx)..nextStates.add(nextState)]);
+        }
+      }
+      tracker.waiters.clear();
+    }
+  }
+
   int? _getTokenFor(Frame frame) {
     final framePos = frame.context.pivot ?? 0;
-    if (framePos == position) {
-      return token;
-    }
+    if (framePos == position) return token;
     return parser._historyByPosition[framePos]?.unit;
   }
 
@@ -1916,170 +2064,87 @@ class Step {
 
   List<Mark> get marks {
     if (_acceptedContexts.isEmpty) return [];
-    final markList = _acceptedContexts[0].marks;
-    return markList.toList().cast<Mark>();
+    return _acceptedContexts[0].$2.marks.toList().cast<Mark>();
   }
 
-  // _withFrame removed. Use Frame(context) directly.
-
-  /// Enqueue a (state, context) pair for processing in the current step.
-  ///
-  /// This is the primary mechanism for advancing the parser:
-  /// 1. Tracks active frames for predicate sub-parses (for exhaustion checking)
-  /// 2. In ambiguity mode, merges marks for duplicate state/caller/minPrec combinations
-  /// 3. In non-ambiguous mode, deduplicates on state/caller/minPrec (first come wins)
-  /// 4. Enforces memory limits to prevent unbounded growth
-  ///
-  /// The context carries:
-  /// - caller: the call site (root, rule, or predicate sub-parse)
-  /// - marks: accumulated semantic annotations
-  /// - minPrecedenceLevel: constraint for operator precedence
-  ///
-  /// Returns: Nothing; frames are added to [_currentWorkList] for processing.
-  void _enqueue(State state, Context context) {
-    if (_currentWorkList.length > maxWorkListSize) {
-      throw Exception(
-        'SMParser: Memory protection triggered - too many work items ($maxWorkListSize)',
-      );
-    }
-    // Track active frames for predicate sub-parses
+  void _enqueue(
+    State state,
+    Context context, {
+    _ParseNode? source,
+    StateAction? action,
+    GlushList<Mark> marks = const GlushList.empty(),
+    _ParseNode? callSite,
+  }) {
     if (context.caller case PredicateCallerKey pk) {
       final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
       if (tracker != null) {
         tracker.activeFrames++;
-        printDebug(
-          '[DEBUG] _enqueue: PredicateCallerKey frame enqueued! '
-          'pattern=${pk.pattern}, startPos=${pk.startPos}, '
-          'activeFrames now=${tracker.activeFrames}',
-        );
-      } else {
-        printDebug(
-          '[DEBUG] _enqueue: PredicateCallerKey frame but NO TRACKER! '
-          'pattern=${pk.pattern}, startPos=${pk.startPos}',
-        );
       }
     }
 
     final key = (state, context.caller, context.minPrecedenceLevel);
     if (isSupportingAmbiguity) {
-      final existingMarks = _activeContexts[key];
-      if (existingMarks != null) {
-        final merged = markManager.branched([existingMarks, context.marks]);
-        if (merged == existingMarks) return;
-        _activeContexts[key] = merged;
-        _currentWorkList.add((
-          state,
-          Context(
-            context.caller,
-            merged,
-            callStart: context.callStart,
-            pivot: context.pivot,
-            tokenHistory: context.tokenHistory,
-            minPrecedenceLevel: context.minPrecedenceLevel,
-          ),
+      if (source != null) {
+        final target = (state.id, position, context.caller);
+        predecessors.putIfAbsent(target, () => {}).add((
+          source,
+          action,
+          marks,
+          callSite,
         ));
-        return;
       }
+
+      final existingMarks = _activeContexts[key];
+      if (existingMarks != null) return;
       _activeContexts[key] = context.marks;
     } else {
-      // In non-ambiguous mode, if we already reached this state/caller, we skip
       if (_activeContexts.containsKey(key)) return;
-      if (_activeContexts.length > maxActiveContexts) {
-        throw Exception(
-          'SMParser: Memory protection triggered - too many states per position ($maxActiveContexts)',
-        );
-      }
       _activeContexts[key] = context.marks;
     }
     _currentWorkList.add((state, context));
   }
 
-  /// Process a single frame in a single state, executing all applicable actions.
-  ///
-  /// Each state has a list of actions that represent grammar productions or
-  /// semantic operations. This method iterates through all actions and:
-  /// - TokenAction: Match input tokens and advance
-  /// - MarkAction: Add semantic markers
-  /// - SemanticAction: Pure transitions
-  /// - CallAction: Enter a rule (call site for GSS memoization)
-  /// - ReturnAction: Return from a rule with results
-  /// - PredicateAction: Start a lookahead sub-parse (AND/NOT predicates)
-  /// - AcceptAction: Mark the input as accepted
-  ///
-  /// Rule calls use call-site memoization (GSS): if the same rule is called
-  /// from the same position, subsequent returns are replayed to all waiters.
-  ///
-  /// Predicate sub-parses are tracked separately; their results feed back via
-  /// _finishPredicate when they complete.
   void _process(Frame frame, State state) {
-    final isPredicateFrame = frame.context.caller is PredicateCallerKey;
-    if (isPredicateFrame || state.id == 0 || state.id == 2) {
-      final actionIds = state.actions
-          .map((a) {
-            if (a case PredicateAction(:var isAnd, :var nextState))
-              return 'Predicate(isAnd=$isAnd, next=${nextState.id})';
-            if (a case SemanticAction(:var nextState)) return 'Semantic(next=${nextState.id})';
-            if (a case TokenAction()) return 'Token(${a.pattern})';
-            if (a case CallAction()) return 'Call';
-            if (a case ReturnAction()) return 'Return';
-            if (a case AcceptAction()) return 'Accept';
-            if (a case MarkAction()) return 'Mark';
-            return a.runtimeType.toString();
-          })
-          .join(', ');
-      printDebug(
-        '[DEBUG] _process: state=${state.id}, actions=${state.actions.length}, isPredicateFrame=$isPredicateFrame, actionList=[$actionIds]',
-      );
-    }
     for (final action in state.actions) {
-      if (isPredicateFrame) {
-        printDebug('[DEBUG]   -> Processing action: ${action.runtimeType}');
-      }
       switch (action) {
         case SemanticAction():
-          final semanticCtx = Context(
-            frame.caller ?? const RootCallerKey(),
-            frame.marks,
-            callStart: frame.context.callStart,
-            pivot: frame.context.pivot,
-            tokenHistory: frame.context.tokenHistory,
+          _enqueue(
+            action.nextState,
+            Context(
+              frame.caller ?? const RootCallerKey(),
+              frame.marks,
+              callStart: frame.context.callStart,
+              pivot: frame.context.pivot,
+              tokenHistory: frame.context.tokenHistory,
+            ),
+            source: (state.id, position, frame.context.caller),
+            action: action,
           );
-
-          _enqueue(action.nextState, semanticCtx);
         case TokenAction():
           final token = _getTokenFor(frame);
-          final tokenChar = token != null ? String.fromCharCode(token) : 'null';
-          final patternStr = action.pattern.toString();
-          final isPredicateFrame = frame.context.caller is PredicateCallerKey;
-
-          if (isPredicateFrame || frame.caller is Caller) {
-            printDebug(
-              '[DEBUG]   TokenAction: pattern=$patternStr, token=$tokenChar (code=$token), position=$position, nextState=${action.nextState.id}, isPredicateFrame=$isPredicateFrame',
-            );
-          }
-
           if (token != null && action.pattern.match(token)) {
-            if (isPredicateFrame || frame.caller is Caller) {
-              printDebug(
-                '[DEBUG]     -> MATCH! Adding frame with nextState=${action.nextState.id} to nextFrameGroups',
+            var newMarks = frame.marks;
+            final pattern = action.pattern;
+            bool shouldCapture = captureTokensAsMarks;
+            if (pattern is Token && pattern.choice is! ExactToken) {
+              shouldCapture = true;
+            }
+
+            if (shouldCapture) {
+              newMarks = newMarks.add(
+                markManager,
+                StringMark(String.fromCharCode(token), position),
               );
             }
 
-            var newMarks = frame.marks;
-            if (captureTokensAsMarks) {
-              // Optional: capture all tokens as marks for debugging/forest extraction
-              final strMark = StringMark(String.fromCharCode(token), position);
-              newMarks = newMarks.add(markManager, strMark);
-            } else if (action.pattern case Token(:var choice) when choice is! ExactToken) {
-              // Standard behavior: capture ranges/any tokens
-              final strMark = StringMark(String.fromCharCode(token), position);
-              newMarks = newMarks.add(markManager, strMark);
-            }
-
-            final bsrSet = bsr;
-            if (bsrSet != null && frame.caller is Caller) {
+            if (bsr != null && frame.caller is Caller) {
               final rule = (frame.caller as Caller).rule;
-              bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position + 1);
+              bsr!.add(
+                rule.symbolId!,
+                frame.context.callStart!,
+                position,
+                position + 1,
+              );
             }
 
             final nextKey = (
@@ -2088,35 +2153,44 @@ class Step {
               frame.context.minPrecedenceLevel,
             );
             _nextFrameGroups.putIfAbsent(nextKey, () => []).add(newMarks);
-          } else {
-            if (isPredicateFrame || frame.caller is Caller) {
-              printDebug(
-                '[DEBUG]     -> NO MATCH (token=$token vs pattern expects=${action.pattern}). No frame queued!',
-              );
+            if (isSupportingAmbiguity) {
+              final source = (state.id, position, frame.context.caller);
+              final deltaMarks = shouldCapture
+                  ? const GlushList<Mark>.empty().add(
+                      markManager,
+                      StringMark(String.fromCharCode(token), position),
+                    )
+                  : const GlushList<Mark>.empty();
+              _nextPredecessorGroups.putIfAbsent(nextKey, () => {}).add((
+                source,
+                action,
+                deltaMarks,
+                null,
+              ));
             }
           }
         case MarkAction():
           final mark = NamedMark(action.name, position);
-          final markCtx = Context(
-            frame.caller ?? const RootCallerKey(),
-            frame.marks.add(markManager, mark),
-            callStart: frame.context.callStart,
-            pivot: frame.context.pivot,
-            tokenHistory: frame.context.tokenHistory,
+          final deltaMarks = const GlushList<Mark>.empty().add(
+            markManager,
+            mark,
           );
-
-          final bsrSet = bsr;
-          if (bsrSet != null && frame.caller is Caller) {
-            final rule = (frame.caller as Caller).rule;
-            bsrSet.add(rule.symbolId!, frame.context.callStart!, position, position);
-          }
-
-          _enqueue(action.nextState, markCtx);
+          _enqueue(
+            action.nextState,
+            Context(
+              frame.caller ?? const RootCallerKey(),
+              frame.marks.add(markManager, mark),
+              callStart: frame.context.callStart,
+              pivot: frame.context.pivot,
+              tokenHistory: frame.context.tokenHistory,
+            ),
+            source: (state.id, position, frame.context.caller),
+            action: action,
+            marks: deltaMarks,
+          );
         case PredicateAction():
-          // Predicate checking as an integrated sub-parse
           final symbol = action.symbol;
           final subParseKey = (symbol, position);
-
           final isFirst = !parser._predicateTrackers.containsKey(subParseKey);
           final tracker = parser._predicateTrackers.putIfAbsent(
             subParseKey,
@@ -2124,80 +2198,69 @@ class Step {
           );
           tracker.waiters.add((frame.context, action.nextState));
 
-          // Maintain activeFrames count for parent predicate if we are in a sub-parse
           if (frame.context.caller case PredicateCallerKey pk) {
-            final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-            parentTracker?.activeFrames++;
+            parser
+                ._predicateTrackers[(pk.pattern, pk.startPos)]
+                ?.activeFrames++;
           }
 
-          printDebug(
-            '[DEBUG] PredicateAction started: '
-            'isAnd=${action.isAnd}, '
-            'symbol=$symbol, '
-            'position=$position, '
-            'isFirst=$isFirst, '
-            'waitersCount=${tracker.waiters.length}',
-          );
-
           if (isFirst) {
-            final predicateCaller = PredicateCallerKey(symbol, position);
-            final predicateCtx = Context(
-              predicateCaller,
-              const GlushList.empty(),
-              callStart: position,
-              pivot: position,
-              tokenHistory: frame.context.tokenHistory,
-            );
-
-            printDebug('[DEBUG] PredicateAction - Starting sub-parse for symbol=$symbol');
-
-            // The symbol in PredicateAction is now always the Rule's symbol ID
             final states = parser.stateMachine.ruleFirst[symbol];
-            if (states != null) {
-              for (final firstState in states) {
-                _enqueue(firstState, predicateCtx);
-              }
-            } else {
+            if (states == null) {
               throw StateError(
-                'Predicate symbol must resolve to a rule with first states: $symbol',
+                'Predicate symbol must resolve to a rule: $symbol',
+              );
+            }
+            for (final firstState in states) {
+              _enqueue(
+                firstState,
+                Context(
+                  PredicateCallerKey(symbol, position),
+                  const GlushList.empty(),
+                  callStart: position,
+                  pivot: position,
+                  tokenHistory: frame.context.tokenHistory,
+                ),
               );
             }
           }
         case CallAction():
-          final rule = action.rule;
-          final pattern = action.pattern;
-          final key = (rule, pattern);
-
-          printDebug('[DEBUG] CallAction: rule=${rule.name}, returnState=${action.returnState}');
-
+          final key = (action.rule, position, action.minPrecedenceLevel);
           final isNewCaller = !_callers.containsKey(key);
           final caller = _callers.putIfAbsent(
             key,
-            () => Caller(rule, pattern, position, action.minPrecedenceLevel),
+            () => Caller(
+              action.rule,
+              action.pattern,
+              position,
+              action.minPrecedenceLevel,
+            ),
           );
-
           final isNewWaiter = caller.addWaiter(
             frame.caller,
             action.returnState,
             action.minPrecedenceLevel,
             frame.context,
+            (state.id, position, frame.context.caller),
           );
 
           if (isNewCaller) {
-            final callCtx = Context(
-              caller,
-              const GlushList.empty(),
-              callStart: position,
-              pivot: position,
-              tokenHistory: frame.context.tokenHistory,
-              minPrecedenceLevel: action.minPrecedenceLevel,
-            );
-            printDebug('[DEBUG]   CallAction: Starting first states of rule=${rule.name}');
-            for (final firstState in parser.stateMachine.ruleFirst[rule.symbolId!] ?? []) {
-              _enqueue(firstState, callCtx);
+            final states =
+                parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
+            for (final fs in states) {
+              _enqueue(
+                fs,
+                Context(
+                  caller,
+                  const GlushList.empty(),
+                  callStart: position,
+                  pivot: position,
+                  tokenHistory: frame.context.tokenHistory,
+                  minPrecedenceLevel: action.minPrecedenceLevel,
+                ),
+              );
             }
           } else if (isNewWaiter) {
-            // Replay existing returns for this new waiter
             for (final rctx in caller.returns) {
               _triggerReturn(
                 caller,
@@ -2206,260 +2269,195 @@ class Step {
                 action.minPrecedenceLevel,
                 frame.context,
                 rctx,
+                source: (state.id, position, caller),
+                action: action,
+                callSite: (state.id, position, frame.context.caller),
               );
             }
           }
         case ReturnAction():
-          final rule = action.rule;
-          final token = _getTokenFor(frame);
-
-          // Precedence Filtering
-          final minPrec = frame.context.minPrecedenceLevel;
-          final prec = action.precedenceLevel;
-
-          if (minPrec != null && prec != null && prec < minPrec) {
+          if (frame.context.minPrecedenceLevel != null &&
+              action.precedenceLevel != null &&
+              action.precedenceLevel! < frame.context.minPrecedenceLevel!)
             continue;
-          }
-
-          if (token != null && rule.guard != null && !rule.guard!.match(token)) {
+          if (_getTokenFor(frame) case var t?
+              when action.rule.guard != null && !action.rule.guard!.match(t))
             continue;
-          }
 
           final caller = frame.caller;
-          final callStart = frame.context.callStart ?? (caller is Caller ? caller.startPos : null);
-          final lastPivot = frame.context.pivot;
-          if ((bsr, callStart, lastPivot ?? callStart) case (
-            var bsr?,
-            var callStart?,
-            var pivot?,
-          )) {
-            bsr.add(rule.symbolId!, callStart, pivot, position);
-          }
-
-          if (caller is PredicateCallerKey) {
-            final subParseKey = (caller.pattern, caller.startPos);
-            final tracker = parser._predicateTrackers[subParseKey];
-
-            printDebug(
-              '[DEBUG] ReturnAction from PredicateCallerKey: '
-              'rule=${rule.name}, '
-              'pattern=${caller.pattern}, '
-              'startPos=${caller.startPos}, '
-              'position=$position, '
-              'has tracker=${tracker != null}',
+          final callStart =
+              frame.context.callStart ??
+              (caller is Caller ? caller.startPos : null);
+          if (bsr != null && callStart != null)
+            bsr!.add(
+              action.rule.symbolId!,
+              callStart,
+              frame.context.pivot ?? callStart,
+              position,
             );
 
-            if (tracker != null) {
-              printDebug('[DEBUG] ReturnAction: Calling _finishPredicate with matched=true');
-              _finishPredicate(tracker, true);
-            }
+          if (caller is PredicateCallerKey) {
+            _finishPredicate(
+              parser._predicateTrackers[(caller.pattern, caller.startPos)]!,
+              true,
+            );
             continue;
           }
 
-          final bsrSet = bsr;
-          if (bsrSet != null && caller is Caller) {
-            caller.forEach((ccaller, nextState, minPrec, ccontext) {
-              if (ccaller is Caller) {
-                bsrSet.add(ccaller.rule.symbolId!, ccontext.callStart!, caller.startPos, position);
-              }
+          if (bsr != null && caller is Caller) {
+            caller.forEach((p, s, mp, pc, node) {
+              if (p is Caller)
+                bsr!.add(
+                  p.rule.symbolId!,
+                  pc.callStart!,
+                  caller.startPos,
+                  position,
+                );
             });
           }
 
-          if (!isSupportingAmbiguity && !_returnedCallers.add(caller ?? const RootCallerKey())) {
+          if (!isSupportingAmbiguity &&
+              !_returnedCallers.add(caller ?? const RootCallerKey()))
             continue;
-          }
 
           if (caller is Caller) {
-            final returnCtx = frame.context.copyWith(precedenceLevel: prec);
-            if (caller.addReturn(returnCtx)) {
+            final returnContext = frame.context.copyWith(
+              precedenceLevel: action.precedenceLevel,
+            );
+            if (caller.addReturn(returnContext)) {
               for (final waiter in caller.waiters) {
-                _triggerReturn(caller, waiter.$1, waiter.$2, waiter.$3, waiter.$4, returnCtx);
+                _triggerReturn(
+                  caller,
+                  waiter.$1,
+                  waiter.$2,
+                  waiter.$3,
+                  waiter.$4,
+                  returnContext,
+                  source: (state.id, position, caller),
+                  action: action,
+                  callSite: waiter.$5,
+                );
               }
             }
           }
         case AcceptAction():
-          printDebug(
-            '[DEBUG]   AcceptAction: ACCEPTING! position=$position, caller=${frame.context.caller.runtimeType}',
-          );
-          _acceptedContexts.add(frame.context);
+          _acceptedContexts.add((state, frame.context));
       }
     }
   }
 
-  /// Trigger a return action: resume a caller after a rule returns.
-  ///
-  /// Part of the GSS (Graph-Shared Stack) mechanism for memoization:
-  /// 1. Takes the return context from a rule
-  /// 2. Merges its marks with the parent's marks
-  /// 3. Respects precedence constraints
-  /// 4. Enqueues the waiter's next state to continue parsing
-  /// 5. Records BSR (Binarised Shared Representation) for forest extraction
-  ///
-  /// This allows the same rule result to be efficiently returned to multiple
-  /// call sites without re-parsing.
   void _triggerReturn(
     Caller caller,
     CallerKey? parent,
     State nextState,
-    int? minPrec,
-    Context parentCtx,
-    Context returnCtx,
-  ) {
-    final effectiveParent = parent ?? const RootCallerKey();
-
-    if (minPrec != null &&
-        returnCtx.precedenceLevel != null &&
-        returnCtx.precedenceLevel! < minPrec) {
+    int? minPrecedence,
+    Context parentContext,
+    Context returnContext, {
+    _ParseNode? source,
+    StateAction? action,
+    _ParseNode? callSite,
+  }) {
+    if (minPrecedence != null &&
+        returnContext.precedenceLevel != null &&
+        returnContext.precedenceLevel! < minPrecedence) {
       return;
     }
+    final nextMarks = markManager
+        .branched([parentContext.marks])
+        .addList(markManager, returnContext.marks);
 
-    final nextMarks = markManager.branched([parentCtx.marks]).addList(markManager, returnCtx.marks);
     final nextContext = Context(
-      effectiveParent,
+      parent ?? const RootCallerKey(),
       nextMarks,
-      callStart: parentCtx.callStart,
+      callStart: parentContext.callStart,
       pivot: position,
-      tokenHistory: parentCtx.tokenHistory,
-      // FIX: Keep parent's constraint
-      minPrecedenceLevel: parentCtx.minPrecedenceLevel,
+      tokenHistory: parentContext.tokenHistory,
+      minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
-
-    // For BSR recording
-    final bsrSet = bsr;
-    if (bsrSet != null && parent is Caller) {
-      bsrSet.add(parent.rule.symbolId!, parentCtx.callStart!, caller.startPos, position);
+    if (bsr != null && parent is Caller) {
+      bsr!.add(
+        parent.rule.symbolId!,
+        parentContext.callStart!,
+        caller.startPos,
+        position,
+      );
     }
-
-    _enqueue(nextState, nextContext);
+    _enqueue(
+      nextState,
+      nextContext,
+      source: source,
+      action: action,
+      callSite: callSite,
+    );
   }
 
-  /// Convert internal frame groups into output frames for the next position.
-  ///
-  /// During _processFrame, frames are accumulated in _nextFrameGroups, a map from
-  /// (state, caller, minPrecedence) -> list of mark lists. This groups frames
-  /// that will follow the same parsing path.
-  ///
-  /// _finalize:
-  /// 1. Merges mark lists for each group (handling ambiguity)
-  /// 2. Determines the correct next callStart based on caller type
-  /// 3. Creates Frame objects with pivot advanced to position + 1
-  /// 4. Tracks nextFrames for the parser to process in the next iteration
-  /// 5. Updates predicate trackers for sub-parses (increments activeFrames)
-  ///
-  /// This bridges the gap between internal work (state machine transitions)
-  /// and external structure (the sequence of frames the parser returns to).
   void _finalize() {
-    printDebug('[DEBUG] _finalize called: nextFrameGroups has ${_nextFrameGroups.length} entries');
-    for (final MapEntry(
-          key: (State state, CallerKey caller, int? minPrecedenceLevel),
-          value: markLists,
-        )
-        in _nextFrameGroups.entries) {
-      final callerType = caller.runtimeType.toString();
-      final isPredicateCaller = caller is PredicateCallerKey;
-      printDebug(
-        '[DEBUG]   finalize entry: state=${state.id}, caller=$callerType, '
-        'isPredicateCaller=$isPredicateCaller, markListsCount=${markLists.length}',
-      );
-
-      final mergedMarks = markManager.branched(markLists);
-      final nextTokenHistory = parser._historyByPosition[position];
-
-      int? nextCallStart;
-      if (caller is Caller) {
-        nextCallStart = caller.startPos;
-      } else if (caller is RootCallerKey) {
-        nextCallStart = 0;
-      }
-
+    for (final entry in _nextFrameGroups.entries) {
+      final (state, caller, minP) = entry.key;
+      final merged = markManager.branched(entry.value);
+      int? nCS = (caller is Caller)
+          ? caller.startPos
+          : (caller is RootCallerKey ? 0 : null);
       final nextFrame = Frame(
         Context(
           caller,
-          mergedMarks,
-          callStart: nextCallStart,
+          merged,
+          callStart: nCS,
           pivot: position + 1,
-          tokenHistory: nextTokenHistory,
-          minPrecedenceLevel: minPrecedenceLevel,
+          tokenHistory: parser._historyByPosition[position],
+          minPrecedenceLevel: minP,
         ),
       );
       nextFrame.nextStates.add(state);
-
-      // Track active frames for predicate sub-parses
-      if (caller case PredicateCallerKey pk) {
-        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-        if (tracker != null) {
-          tracker.activeFrames++;
-          printDebug(
-            '[DEBUG]   finalize: PredicateCallerKey frame promoted to nextFrames! '
-            'pattern=${pk.pattern}, startPos=${pk.startPos}, '
-            'activeFrames now=${tracker.activeFrames}',
-          );
-        }
+      if (caller case PredicateCallerKey predicateKey) {
+        parser
+            ._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]
+            ?.activeFrames++;
       }
 
+      if (isSupportingAmbiguity) {
+        final target = (state.id, position + 1, caller);
+        if (_nextPredecessorGroups[entry.key] case var preds?)
+          predecessors.putIfAbsent(target, () => {}).addAll(preds);
+      }
       nextFrames.add(nextFrame);
     }
     _nextFrameGroups.clear();
-    printDebug('[DEBUG] _finalize done: nextFrames.length=${nextFrames.length}');
+    _nextPredecessorGroups.clear();
   }
 
-  /// Process a single frame: enqueue its states, then drain the work list.
-  ///
-  /// This implements the main parsing loop for one frame:
-  /// 1. Enqueue all next states from the frame
-  /// 2. Process the work list by:
-  ///    - Dequeuing (state, context) pairs in order
-  ///    - Decrementing activeFrames for predicate sub-parses
-  ///    - Retrieving merged marks (in ambiguity mode) or using context marks
-  ///    - Calling _process to execute state actions
-  /// 3. Call _finalize to convert internal frame groups to output frames
-  ///
-  /// The work list ensures that all states are explored depth-first before
-  /// moving to the next position, maintaining proper parse order.
   void _processFrame(Frame frame) {
-    final isPredicateCtx = frame.context.caller is PredicateCallerKey;
-    if (isPredicateCtx || frame.nextStates.length > 1) {
-      printDebug(
-        '[DEBUG] _processFrame: frame has ${frame.nextStates.length} nextStates: ${frame.nextStates.map((s) => "state=${s.id}").join(", ")}',
-      );
-    }
     for (final state in frame.nextStates) {
       _enqueue(state, frame.context);
     }
-
     while (_currentWorkList.isNotEmpty) {
-      final (state, context) = _currentWorkList.removeAt(0);
-      final isWorkListPredicateFrame = context.caller is PredicateCallerKey;
-      printDebug(
-        '[DEBUG]   WorkList item: state=${state.id}, caller=${context.caller.runtimeType}, '
-        'isPredicateCaller=$isWorkListPredicateFrame',
-      );
-
-      // Decrement activeFrames when processing
+      final (state, context) = _currentWorkList.removeFirst();
       if (context.caller case PredicateCallerKey pk) {
-        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-        if (tracker != null) {
-          tracker.activeFrames--;
-          printDebug('[DEBUG]     Decrementing activeFrames to ${tracker.activeFrames}');
-        }
+        parser._predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
       }
-
-      final key = (state, context.caller, context.minPrecedenceLevel);
-      final currentMarks = isSupportingAmbiguity ? _activeContexts[key]! : context.marks;
-      final effectiveContext = Context(
-        context.caller,
-        currentMarks,
-        callStart: context.callStart,
-        pivot: context.pivot,
-        tokenHistory: context.tokenHistory,
-        minPrecedenceLevel: context.minPrecedenceLevel,
+      final currentMarks = isSupportingAmbiguity
+          ? _activeContexts[(
+              state,
+              context.caller,
+              context.minPrecedenceLevel,
+            )]!
+          : context.marks;
+      _process(
+        Frame(
+          Context(
+            context.caller,
+            currentMarks,
+            callStart: context.callStart,
+            pivot: context.pivot,
+            tokenHistory: context.tokenHistory,
+            minPrecedenceLevel: context.minPrecedenceLevel,
+          ),
+        ),
+        state,
       );
-      _process(Frame(effectiveContext), state);
     }
     _finalize();
   }
 
-  void addFrame(Context context, State state) {
-    _enqueue(state, context);
-  }
+  void addFrame(Context context, State state) => _enqueue(state, context);
 }

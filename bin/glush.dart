@@ -30,25 +30,36 @@ void ambiguous() {
   final parser =
       r"""
         S = $TWO S S
-          | $ONE 's' 's'
-          | $ONE 's'
+          | $ONE s
+        s = 's'
       """
           .toSMParser();
-  final input = 'sssss';
-  final ambiguousResult = parser.parseWithForest(input);
+
   final evaluator = Evaluator(
     ($) => {
       r'TWO': () => "(${$<String>()}${$<String>()})", //
-      r'ONE': () => $<String>(),
+      r'ONE': () => 's',
     },
   );
-  if (ambiguousResult is ParseForestSuccess) {
-    final forest = ambiguousResult.forest;
 
-    print(forest.countDerivationsWithSCC());
-    for (var result in ambiguousResult.forest.extract()) {
-      print(evaluator.evaluate(parser.extractParseTreeMarks(result, input)));
+  for (int length = 1; length <= 4; ++length) {
+    final input = 's' * length;
+    final result = parser.parseAmbiguous(input);
+    if (result is! ParseAmbiguousForestSuccess) {
+      print("Failed to parse $input!");
+      continue;
     }
+
+    print(length);
+    print("=" * 30);
+    for (final markList in result.forest.allPaths()) {
+      final rawMarks = markList.toStringList();
+      final evaluated = evaluator.evaluate(rawMarks);
+
+      print(rawMarks);
+      print(evaluated);
+    }
+    print("");
   }
 }
 

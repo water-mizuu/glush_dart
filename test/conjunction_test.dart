@@ -7,7 +7,7 @@ void main() {
       final grammarText = '''
         digit = [0-9];
         even = [02468];
-        even_digit = digit & even;
+        even_digit = digit&even;
       ''';
 
       final dartCode = generateGrammarDartFile(grammarText);
@@ -17,7 +17,8 @@ void main() {
     test('verifies conjunction logic at runtime', () {
       final grammar = Grammar(() {
         final digit = Token.charRange('0', '9');
-        final even = Token(ExactToken(48)) |
+        final even =
+            Token(ExactToken(48)) |
             Token(ExactToken(50)) |
             Token(ExactToken(52)) |
             Token(ExactToken(54)) |
