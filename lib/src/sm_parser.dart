@@ -1,4 +1,34 @@
-/// State machine-based parser implementation
+/// State machine-based parser implementation.
+///
+/// This module implements the core parsing engine for the Glush parser generator.
+/// It converts an abstract grammar into a state machine and uses an LR-like algorithm
+/// with support for:
+/// - Recursive descent rule calls with Graph-Shared Stack (GSS) memoization
+/// - Lookahead predicates for positive (&pattern) and negative (!pattern) assertions
+/// - Operator precedence filtering for shift/reduce disambiguation
+/// - Binarised Shared Representation (BSR) for forest extraction
+/// - Semantic actions and manual annotations (marks)
+/// - Ambiguous parse forests with enumeration of all derivations
+/// - Streaming parse support for large inputs
+///
+/// Key Classes:
+/// - [SMParser]: Main parser interface with multiple parse methods
+/// - [Context]: Parsing state carrying marks, caller info, and constraints
+/// - [Frame]: A set of states to explore from a context
+/// - [Step]: Processing state at a single input position
+/// - [Caller]: Graph-Shared Stack node for rule call memoization
+/// - [PredicateTracker]: Coordinator for lookahead predicate sub-parses
+///
+/// Parse Methods (in increasing complexity):
+/// 1. [recognize]: Boolean check (fastest)
+/// 2. [parse]: Marks-based parse with results
+/// 3. [parseAmbiguous]: All ambiguous interpretations merged
+/// 4. [parseWithForest]: Full SPPF forest for enumeration/evaluation
+/// 5. [parseWithForestAsync]: Streaming version for large inputs
+/// 6. [parseToBsr]: Intermediate BSR representation (for testing/analysis)
+///
+/// The parser uses a work-queue algorithm where frames at different input positions
+/// can coexist, enabling proper handling of lookahead and backtracking.
 library glush.sm_parser;
 
 import 'dart:async';
@@ -26,9 +56,11 @@ void printDebug(String message) {
 // ---------------------------------------------------------------------------
 
 /// Sealed result type returned by [SMParser.parse] and [SMParser.parseWithForest].
+/// Allows type-safe handling of success vs. failure outcomes.
 sealed class ParseOutcome {}
 
 /// Returned when parsing fails.
+/// Contains the input position where parsing could not continue.
 final class ParseError extends ParseOutcome implements Exception {
   final int position;
 
@@ -39,12 +71,15 @@ final class ParseError extends ParseOutcome implements Exception {
 }
 
 /// Returned when parsing succeeds (marks-based parse).
+/// Contains a [ParserResult] with all accumulated marks.
 final class ParseSuccess extends ParseOutcome {
   final ParserResult result;
 
   ParseSuccess(this.result);
 }
 
+/// Returned when parsing succeeds with an ambiguous forest.
+/// Contains all possible parse tree derivations merged into a single list.
 final class ParseAmbiguousForestSuccess extends ParseOutcome {
   final GlushList<Mark> forest;
 
@@ -52,6 +87,9 @@ final class ParseAmbiguousForestSuccess extends ParseOutcome {
 }
 
 /// Returned when parsing succeeds with a full parse forest.
+/// The forest enables enumeration of all derivations and evaluation of
+/// semantic values. Forest extraction uses BSR (Binarised Shared Representation)
+/// to constrain the search space to only reachable spans.
 final class ParseForestSuccess extends ParseOutcome {
   final ParseForest forest;
 
@@ -197,6 +235,19 @@ class TokenNode {
 }
 
 /// Tracks the status of a lookahead sub-parse.
+/// Tracks the status of a lookahead sub-parse (AND/NOT predicate).
+///
+/// When a predicate is encountered in _process, a PredicateTracker is created
+/// to coordinate the sub-parse across multiple frames:
+/// - symbol: the pattern to lookahead on
+/// - startPos: input position where lookahead checks
+/// - isAnd: true for &pattern (positive), false for !pattern (negative)
+/// - activeFrames: count of frames currently exploring this predicate
+/// - matched: has the sub-parse found a match?
+/// - waiters: (context, nextState) pairs waiting for the predicate result
+///
+/// The tracker enables the sub-parse to finish with or without a match,
+/// then resume all waiters correctly.
 class PredicateTracker {
   final PatternSymbol symbol;
   final int startPos;
@@ -219,6 +270,10 @@ class SMParser {
 
   GrammarInterface get grammar => stateMachine.grammar;
 
+  /// Create a parser from a grammar.
+  ///
+  /// Builds the state machine on first use and initializes the parser state.
+  /// The parser can then be reused across multiple parse() calls on different inputs.
   SMParser(GrammarInterface grammar, {this.captureTokensAsMarks = false})
     : stateMachine = StateMachine(grammar) {
     const initialContext = Context(RootCallerKey(), const GlushList.empty());
@@ -227,7 +282,10 @@ class SMParser {
     _initialFrames = [initialFrame];
   }
 
-  /// Create parser from a pre-built state machine (used for imported machines)
+  /// Create parser from a pre-built state machine (used for imported machines).
+  ///
+  /// Skips state machine construction (which has already been done elsewhere)
+  /// and creates a parser ready to parse input using the provided machine.
   SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
     const initialContext = Context(RootCallerKey(), const GlushList.empty());
     final initialFrame = Frame(initialContext);
@@ -235,6 +293,10 @@ class SMParser {
     _initialFrames = [initialFrame];
   }
 
+  /// Recognize input without building a parse tree (boolean result).
+  ///
+  /// Fast path that only checks if the input matches, without marking or
+  /// other semantic computation. Returns true iff the entire input is accepted.
   bool recognize(String input) {
     printDebug('[DEBUG] === START recognize("$input") ===');
     var frames = _initialFrames;
@@ -260,6 +322,14 @@ class SMParser {
     return lastStep.accept;
   }
 
+  /// Parse input and return a [ParseSuccess] or [ParseError].
+  ///
+  /// This is the basic parsing method: runs the state machine on the input
+  /// and returns true only if the entire input is accepted.
+  ///
+  /// Returns:
+  /// - [ParseSuccess] if the entire input matches the grammar
+  /// - [ParseError] if parsing fails at some position
   ParseOutcome parse(String input) {
     var frames = _initialFrames;
     int position = 0;
@@ -282,6 +352,15 @@ class SMParser {
     }
   }
 
+  /// Parse input and return all ambiguous derivation paths.
+  ///
+  /// Like [parse], but records marks for all possible interpretations.
+  /// In ambiguity mode, when multiple [state, caller, minPrec] tuples reach
+  /// the same point, their mark lists are merged instead of deduplicated.
+  ///
+  /// Returns:
+  /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
+  /// - [ParseError] if parsing fails
   ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
     var frames = _initialFrames;
     int position = 0;
@@ -326,6 +405,14 @@ class SMParser {
   /// Internally uses BSR (Binarised Shared Representation) recorded during
   /// parsing to restrict the SPPF construction to spans proven reachable by
   /// the parser, rather than exhaustively searching the whole grammar.
+  ///
+  /// The returned [ParseForest] can be queried to enumerate all derivations
+  /// and compute semantic values for each. This is the most general form of
+  /// parsing, supporting full ambiguity handling.
+  ///
+  /// Returns:
+  /// - [ParseForestSuccess] if the entire input matches the grammar
+  /// - [ParseError] if parsing fails
   ParseOutcome parseWithForest(String input) {
     final bsrOutcome = parseToBsr(input);
     if (bsrOutcome is BsrParseError) {
@@ -350,6 +437,17 @@ class SMParser {
   ///
   /// WARNING: If the grammar has predicates that require lookahead beyond the
   /// buffer window, results may be incorrect. Adjust [lookaheadWindowSize] if needed.
+  ///
+  /// Implementation details:
+  /// - Maintains all input for a second pass (required for correct SPPF construction)
+  /// - Records BSR (Binarised Shared Representation) during parsing
+  /// - Defers finalization to avoid blocking stream listeners
+  /// - Total memory usage: 2 * input size + lookaheadWindowSize
+  ///
+  /// Returns a Future that completes with:
+  /// - [ParseForestSuccess] if the entire stream matches the grammar
+  /// - [ParseError] if parsing fails
+  /// - Error if stream processing fails
   Future<ParseOutcome> parseWithForestAsync(
     Stream<String> input, {
     int lookaheadWindowSize = 1048576,
@@ -439,6 +537,18 @@ class SMParser {
   ///
   /// Returns [BsrParseSuccess] with the [BsrSet] on success, or
   /// [BsrParseError] if the input does not conform to the grammar.
+  /// Parse and return the BSR set of all proven rule-completion spans.
+  ///
+  /// BSR (Binarised Shared Representation) records which rule applications
+  /// succeeded during parsing. Each entry is (symbol, callStart, midPoint, end),
+  /// representing a rule match from [callStart] to [end].
+  ///
+  /// Used as the foundation for forest extraction ([parseWithForest]) and
+  /// for counting/enumerating all derivations ([enumerateAllParses]).
+  ///
+  /// Returns:
+  /// - [BsrParseSuccess] with the recorded BSR set if input matches
+  /// - [BsrParseError] if parsing fails
   BsrParseOutcome parseToBsr(String input) {
     final bsr = BsrSet();
     var frames = _initialFrames;
@@ -463,12 +573,24 @@ class SMParser {
   }
 
   /// Count all possible parse trees without building them
+  /// Internally count all derivations for a given input.
+  ///
+  /// Counts all possible parse trees without building them. Based on [parseToBsr]
+  /// and grammar-level recursion with memoization. Useful for understanding
+  /// parser ambiguity without memory overhead.
   int countAllParses(String input) {
     final startSymbol = stateMachine.grammar.startSymbol;
     return _countDerivations(startSymbol, input, 0, input.length, {}, {});
   }
 
   /// Enumerate all possible parse trees lazily, yielding each as a [ParseDerivation].
+  /// Enumerate all possible parse trees as [ParseDerivation] objects.
+  ///
+  /// Returns a lazy iterable of all parse derivations for the input.
+  /// Each derivation is a tree of (symbol, start, end, children) tuples.
+  ///
+  /// Based on BSR (Binarised Shared Representation) from [parseToBsr],
+  /// so only explores spans proven reachable by the parser (not all grammar possibilities).
   Iterable<ParseDerivation> enumerateAllParses(String input) sync* {
     final bsrOutcome = parseToBsr(input);
     if (bsrOutcome is! BsrParseSuccess) return;
@@ -482,6 +604,12 @@ class SMParser {
 
   /// Enumerate all possible parse trees with evaluated semantic values.
   /// Actions are executed bottom-up with child results.
+  /// Enumerate all possible parse trees with evaluated semantic values.
+  ///
+  /// For each parse derivation from [enumerateAllParses], evaluates the
+  /// semantic actions to produce a value. Returns an iterable of
+  /// [ParseDerivationWithValue] objects containing both the derivation
+  /// and its evaluated result.
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
     for (final derivation in enumerateAllParses(input)) {
       final value = evaluateParseDerivation(derivation, input);
@@ -490,6 +618,10 @@ class SMParser {
   }
 
   /// Convert a [ParseTree] (forest representation) to a [ParseDerivation] (enumeration representation).
+  /// Convert a [ParseTree] (forest representation) to a [ParseDerivation] (enumeration representation).
+  ///
+  /// Transforms the shared forest structure back to the recursive tree format
+  /// used by enumeration and evaluation methods.
   static ParseDerivation parseTreeToDerivation(ParseTree tree, String input) {
     final childDerivations = tree
         .children //
@@ -499,6 +631,16 @@ class SMParser {
     return ParseDerivation(tree.node.symbol, tree.node.start, tree.node.end, childDerivations);
   }
 
+  /// Count the total number of parse trees for a rule without building them.
+  ///
+  /// This traverses the grammar recursively with memoization to count all possible
+  /// derivations for a symbol spanning [start:end] in the input.
+  ///
+  /// The inProgress map detects cycles (left-recursive patterns) and breaks them
+  /// by returning 0 when a cycle is detected. This prevents infinite loops.
+  ///
+  /// Used by [countAllParses] to give insight into parse ambiguity without
+  /// the memory cost of building all trees.
   int _countDerivations(
     PatternSymbol symbol,
     String input,
@@ -535,6 +677,21 @@ class SMParser {
     return totalCount;
   }
 
+  /// Count all derivations for a single pattern (matched against input[start:end]).
+  ///
+  /// Dispatches based on the pattern type:
+  /// - eps: epsilon (empty) matches iff start == end
+  /// - tok: token matches based on the token constraint (exact, range, etc.)
+  /// - mar: marker (semantic annotation) matches iff start == end
+  /// - alt: alternative - count both branches and sum
+  /// - seq: sequence - sum over all split points (Earley-style)
+  /// - plu: one-or-more - count one match, then star matches
+  /// - sta: star - delegate to _countStar
+  /// - cal/rca/rul/act: wrapper patterns - recurse on child
+  /// - and/not: predicates - check child at start, return 1 or 0
+  ///
+  /// This structure mirrors the grammar representation where each pattern type
+  /// has a defined strategy for counting derivations.
   int _countAlternatives(
     PatternSymbol symbol,
     String input,
@@ -649,6 +806,16 @@ class SMParser {
   }
 
   // Count zero or more matches of a pattern
+  /// Count all derivations for zero or more matches of a pattern.
+  ///
+  /// Returns 1 at start==end (zero matches). For remaining space, tries to
+  /// split at each position mid (start < mid <= end):
+  /// - Count childCount matches in [start:mid]
+  /// - Recursively count restCount matches in [mid:end]
+  /// - Multiply and sum
+  ///
+  /// This is the Kleene star counting logic: sum over all ways to partition
+  /// the span into zero or more repetitions.
   int _countStar(
     PatternSymbol symbol,
     String input,
@@ -675,6 +842,18 @@ class SMParser {
     return totalCount;
   }
 
+  /// Enumerate all parse derivations for a rule (or pattern with rules).
+  ///
+  /// Uses the BSR (Binarised Shared Representation) to constrain search:
+  /// only explores spans that the parser proved reachable.
+  ///
+  /// For rules, delegates to [_enumerateAlternatives] on the rule's body.
+  /// For other patterns, directly enumerates.
+  ///
+  /// Memoization prevents redundant work; in-progress tracking detects cycles
+  /// (which should not occur in grammars, but is defensive).
+  ///
+  /// Respects minPrecedenceLevel constraints for operator precedence filtering.
   Iterable<ParseDerivation> _enumerateDerivations(
     BsrSet bsr,
     PatternSymbol symbol,
@@ -730,6 +909,17 @@ class SMParser {
     inProgress[key] = false;
   }
 
+  /// Enumerate all derivations for a single pattern.
+  ///
+  /// Like [_countAlternatives], dispatches based on pattern type:
+  /// - Yields all (symbol, start, end, children) combinations
+  /// - For seq, tries all split points and yields cartesian product of children
+  /// - For plu/sta, yields hierarchical tree structures
+  /// - For predicates (and/not), yields single-node trees
+  /// - Respects minPrecedenceLevel for filtering
+  ///
+  /// The resulting [ParseDerivation] trees can be transformed to intermediate
+  /// representations or evaluated to semantic values.
   Iterable<ParseDerivation> _enumerateAlternatives(
     BsrSet bsr,
     PatternSymbol symbol,
@@ -941,6 +1131,15 @@ class SMParser {
     }
   }
 
+  /// Enumerate all derivations for zero or more matches (Kleene star).
+  ///
+  /// Yields a tree with:
+  /// - Empty derivation if start == end (zero matches)
+  /// - [child, star] pairs where child is one match and star is the rest
+  ///
+  /// Uses greedy, longest-match semantics (tries longest match first):
+  /// iterates mid from end down to start+1, halting at the first successful match.
+  /// This ensures PEG-like determinism: the parser commits to the longest match.
   Iterable<ParseDerivation> _enumerateStar(
     BsrSet bsr,
     PatternSymbol childSymbol,
@@ -991,15 +1190,37 @@ class SMParser {
   }
 
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
+  /// Evaluate a [ParseDerivation] with evaluated semantic values.
+  ///
+  /// Takes a parse tree and computes its semantic value by recursively
+  /// evaluating child values and applying semantic actions.
+  ///
+  /// Returns: The semantic value (String, Mark, List, or other type) from
+  /// evaluating the tree's actions, or null if no clear value is defined.
   Object? evaluateParseDerivation(ParseDerivation derivation, String input) {
     return _evaluateParseDerivation(derivation, input);
   }
 
   /// Directly evaluate a [ParseTree] extracted from the forest.
+  /// Directly evaluate a [ParseTree] extracted from the forest.
+  ///
+  /// Convenience method that converts a forest tree to a derivation, then evaluates it.
   Object? evaluateParseTree(ParseTree tree, String input) {
     return _evaluateParseDerivation(parseTreeToDerivation(tree, input), input);
   }
 
+  /// Evaluate a parse derivation by recursively evaluating its children.
+  ///
+  /// Handles the internal grammar format (prefix:id:suffix patterns) and
+  /// applies semantic actions to yield final values.
+  ///
+  /// Pattern types:
+  /// - eps: returns ""
+  /// - tok: returns the matched input substring
+  /// - mar: returns a NamedMark
+  /// - seq/plu/sta: returns a list of child values
+  /// - and/not: returns []
+  /// - Others: pass through to child or fallback to pattern registry
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
     final symbol = tree.symbol.symbol;
     final split = symbol.split(":");
@@ -1074,12 +1295,28 @@ class SMParser {
     }
   }
 
+  /// Extract all semantic marks from a parse tree in order.
+  ///
+  /// Walks the tree to collect all NamedMark and StringMark objects,
+  /// then aggregates consecutive StringMarks to form complete string content.
+  ///
+  /// Returns: A list of mark names and strings representing the semantic
+  /// annotations in the order they were parsed.
   List<String> extractParseTreeMarks(ParseTree tree, String input) {
-    return _aggregateMarks(
-      _flattenParseTreeMarks(_extractParseTreeMarks(parseTreeToDerivation(tree, input), input)),
-    );
+    ParseDerivation derivation = parseTreeToDerivation(tree, input);
+    Object? extracted = _extractParseTreeMarks(derivation, input);
+    List<Mark> marks = _flattenParseTreeMarks(extracted);
+
+    return _aggregateMarks(marks);
   }
 
+  /// Aggregate marks by concatenating consecutive StringMarks.
+  ///
+  /// Takes a flat list of Mark objects and produces a simplified list where:
+  /// - Consecutive StringMarks are concatenated into a single entry
+  /// - NamedMarks are kept separate (they act as delimiters)
+  ///
+  /// This produces the final mark sequence used for semantic annotations.
   List<String> _aggregateMarks(List<Mark> marks) {
     final List<String> result = [];
 
@@ -1110,6 +1347,11 @@ class SMParser {
     return result;
   }
 
+  /// Flatten a nested mark structure into a flat list.
+  ///
+  /// Recursively walks a tree of marks (from [_extractParseTreeMarks]) and
+  /// flattens it into a single list in parse order. Handles Mark objects
+  /// and lists of marks.
   List<Mark> _flattenParseTreeMarks(Object? marks) {
     if (marks is StringMark) return [marks];
     if (marks is NamedMark) return [marks];
@@ -1117,6 +1359,10 @@ class SMParser {
     return [];
   }
 
+  /// Extract semantic marks from a parse derivation (nested lists of marks).
+  ///
+  /// Like [_evaluateParseDerivation], but returns Mark objects instead of values.
+  /// Used by [extractParseTreeMarks] to collect all marks in parse order.
   Object? _extractParseTreeMarks(ParseDerivation tree, String input) {
     final symbol = tree.symbol.symbol;
     final split = symbol.split(":");
@@ -1133,16 +1379,16 @@ class SMParser {
         return StringMark(tree.getMatchedText(input), tree.start);
       case "mar":
         return NamedMark(suffix, tree.start);
-      case "alt":
-      case "act":
-      case "pre":
-      case "cal":
       case "rca":
       case "rul":
         if (tree.children.isNotEmpty) {
           return _extractParseTreeMarks(tree.children[0], input);
         }
         return null;
+      case "alt":
+      case "act":
+      case "pre":
+      case "cal":
       case "seq":
         final results = <Object?>[];
         for (final child in tree.children) {
@@ -1172,6 +1418,21 @@ class SMParser {
     }
   }
 
+  /// Process a single token at the given position, advancing all active frames.
+  ///
+  /// This is the core parsing loop that manages the LR-parse-like state machine.
+  /// It:
+  /// 1. Maintains token history for lagging frames (frames that haven't caught up yet)
+  /// 2. Creates/reuses Step objects for each input position
+  /// 3. Processes frames using a work queue ordered by position (earliest first)
+  /// 4. Validates that no frame tries to parse past the current token position
+  /// 5. Checks for exhausted predicates after processing each position
+  /// 6. Returns the step for the current position so results can be extracted
+  ///
+  /// The work queue allows frames at different positions to coexist, enabling
+  /// proper handling of lookahead predicates that may backtrack and lookahead.
+  ///
+  /// Returns: A [Step] object containing the parse state and results for [position].
   Step _processToken(
     int? token,
     int position,
@@ -1180,7 +1441,6 @@ class SMParser {
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
   }) {
-    // printDebug('Processing token $token at position $position with ${frames.length} frames');
     // Update global token history linked list
     if (token != null) {
       final node = TokenNode(token);
@@ -1259,6 +1519,20 @@ class SMParser {
         );
   }
 
+  /// Check if any lookahead predicates have exhausted their search space.
+  ///
+  /// A predicate is "exhausted" when:
+  /// - Its sub-parse has no more active frames (activeFrames == 0)
+  /// - It hasn't matched yet
+  ///
+  /// For exhausted NOT predicates (!pattern), we requeue waiting frames because
+  /// a NOT predicate succeeds when the sub-parse fails to find a match.
+  ///
+  /// For AND predicates (&pattern), we don't requeue because they only succeed
+  /// when the sub-parse matches (which would have already triggered _finishPredicate).
+  ///
+  /// This method is called after processing all frames at a position, ensuring
+  /// that negative lookahead assertions are properly satisfied before moving forward.
   void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
     printDebug(
       '[DEBUG] _checkExhaustedPredicates: checking ${_predicateTrackers.length} trackers at position=$currentPosition',
@@ -1303,7 +1577,8 @@ class SMParser {
   /// Used for AND/NOT lookahead predicates.
   ///
   /// This is a fast check that determines if a pattern would match at startPos
-  /// without actually advancing the parser state.
+  /// without actually advancing the parser state. Lookahead sub-parses are
+  /// triggered via PredicateAction in _process and complete via _finishPredicate.
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,6 +1616,26 @@ final class PredicateCallerKey extends CallerKey {
 }
 
 /// Caller tracking for rule returns (GSS node)
+/// Caller tracking for rule returns (Graph-Shared Stack node).
+///
+/// The GSS (Graph-Shared Stack) is a compaction structure used in parsing
+/// algorithms (like GLR) to share derivations across call sites.
+///
+/// A Caller represents a single (rule, pattern, startPos, minPrecedence) tuple.
+/// When the same rule is called from the same position, only one Caller is created.
+/// Multiple callers waiting for the result register as "waiters", and when the
+/// rule returns, all waiters are resumed with the return context.
+///
+/// This avoids re-parsing the same rule from the same position multiple times,
+/// instead replaying previously computed results.
+///
+/// Fields:
+/// - rule: the Rule being called
+/// - pattern: the Pattern object
+/// - startPos: input position where the rule was invoked
+/// - minPrecedenceLevel: precedence constraint for this call
+/// - waiters: (caller, nextState, minPrec, context) tuples waiting for return
+/// - returns: (context tuples) representing successful rule completions
 final class Caller extends CallerKey {
   final Rule rule;
   final Pattern pattern;
@@ -1377,6 +1672,20 @@ final class Caller extends CallerKey {
 }
 
 /// Context for parsing (tracks marks, callers, and BSR call-start position).
+/// Context for parsing a span of input.
+///
+/// Carries all state needed to resume a parse at a given position:
+/// - caller: who initiated this parse (root, rule call site, or predicate sub-parse).
+///   Used to match returns from sub-parses to their call sites.
+/// - marks: accumulated semantic annotations (NamedMark and StringMark)
+/// - callStart: input position where the current rule call began (for BSR recording)
+/// - pivot: input position where the last matched symbol started (for BSR midPoints)
+/// - tokenHistory: linked list node for the current position (for lagging frames)
+/// - minPrecedenceLevel: constraint for operator precedence filtering
+/// - precedenceLevel: precedence of the matched result (set by ReturnAction)
+/// - predicateStack: active lookahead predicates (unused in current implementation)
+///
+/// Contexts are immutable and copied with slight variations as parsing progresses.
 class Context {
   /// The caller that created this context (for return actions).
   final CallerKey caller;
@@ -1448,6 +1757,13 @@ class PredicateFrame {
 }
 
 /// Frame for managing parsing states
+/// Frame for managing a set of parsing states at a position.
+///
+/// Represents a set of alternative parsing paths from the same (caller, marks) pair.
+/// The nextStates are state machine states to explore when processing the frame.
+///
+/// Frames are grouped by context and processed via _processFrame, which enqueues
+/// all states and drains the work list before moving to the next position.
 class Frame {
   final Context context;
   final Set<State> nextStates;
@@ -1461,6 +1777,18 @@ class Frame {
 }
 
 /// Single step in parsing
+/// Single step of parsing at a given input position.
+///
+/// The Step object encapsulates the work of parsing frames and states at one
+/// input position. It manages:
+/// - Work list of (state, context) pairs to process
+/// - Active contexts (for deduplication in non-ambiguous mode)
+/// - Call sites (GSS nodes for rule memoization)
+/// - Predicate tracking for lookahead sub-parses
+/// - Frame grouping and finalization for the next position
+///
+/// Key invariant: frames at earlier positions are processed before frames at
+/// the current position, ensuring correct parse order.
 class Step {
   static const int maxWorkListSize = 100000;
   static const int maxActiveContexts = 50000;
@@ -1486,6 +1814,21 @@ class Step {
   final Set<CallerKey> _returnedCallers = {};
   final List<Context> _acceptedContexts = [];
 
+  /// Signal that a predicate sub-parse has completed with a given result.
+  ///
+  /// Called when a predicate sub-parse reaches a ReturnAction, indicating
+  /// whether the lookahead pattern matched.
+  ///
+  /// For AND predicates (&pattern):
+  /// - If matched=true: requeue all waiters to continue when pattern matches
+  /// - If matched=false and exhausted: don't requeue (AND fails)
+  ///
+  /// For NOT predicates (!pattern):
+  /// - If matched=true: don't requeue (NOT fails when pattern matches)
+  /// - If matched=false and exhausted: requeue all waiters (NOT succeeds)
+  ///
+  /// This ensures that lookahead assertions (both positive and negative) are
+  /// correctly satisfied before the main parse proceeds past that position.
   void _finishPredicate(PredicateTracker tracker, bool matched) {
     printDebug(
       '[DEBUG] _finishPredicate: '
@@ -1555,6 +1898,12 @@ class Step {
   /// Get the token that a specific frame should see.
   /// If the frame is at the current parsing position, it sees the current token.
   /// If it's lagging, it sees the next token from history.
+  /// Get the token for a specific frame.
+  ///
+  /// If the frame is at the current parsing position, returns the current token.
+  /// If the frame is lagging (pivot < position), retrieves the token from history.
+  ///
+  /// This is crucial for supporting lagging frames in lookahead and backtracking.
   int? _getTokenFor(Frame frame) {
     final framePos = frame.context.pivot ?? 0;
     if (framePos == position) {
@@ -1573,6 +1922,20 @@ class Step {
 
   // _withFrame removed. Use Frame(context) directly.
 
+  /// Enqueue a (state, context) pair for processing in the current step.
+  ///
+  /// This is the primary mechanism for advancing the parser:
+  /// 1. Tracks active frames for predicate sub-parses (for exhaustion checking)
+  /// 2. In ambiguity mode, merges marks for duplicate state/caller/minPrec combinations
+  /// 3. In non-ambiguous mode, deduplicates on state/caller/minPrec (first come wins)
+  /// 4. Enforces memory limits to prevent unbounded growth
+  ///
+  /// The context carries:
+  /// - caller: the call site (root, rule, or predicate sub-parse)
+  /// - marks: accumulated semantic annotations
+  /// - minPrecedenceLevel: constraint for operator precedence
+  ///
+  /// Returns: Nothing; frames are added to [_currentWorkList] for processing.
   void _enqueue(State state, Context context) {
     if (_currentWorkList.length > maxWorkListSize) {
       throw Exception(
@@ -1631,6 +1994,23 @@ class Step {
     _currentWorkList.add((state, context));
   }
 
+  /// Process a single frame in a single state, executing all applicable actions.
+  ///
+  /// Each state has a list of actions that represent grammar productions or
+  /// semantic operations. This method iterates through all actions and:
+  /// - TokenAction: Match input tokens and advance
+  /// - MarkAction: Add semantic markers
+  /// - SemanticAction: Pure transitions
+  /// - CallAction: Enter a rule (call site for GSS memoization)
+  /// - ReturnAction: Return from a rule with results
+  /// - PredicateAction: Start a lookahead sub-parse (AND/NOT predicates)
+  /// - AcceptAction: Mark the input as accepted
+  ///
+  /// Rule calls use call-site memoization (GSS): if the same rule is called
+  /// from the same position, subsequent returns are replayed to all waiters.
+  ///
+  /// Predicate sub-parses are tracked separately; their results feed back via
+  /// _finishPredicate when they complete.
   void _process(Frame frame, State state) {
     final isPredicateFrame = frame.context.caller is PredicateCallerKey;
     if (isPredicateFrame || state.id == 0 || state.id == 2) {
@@ -1906,6 +2286,17 @@ class Step {
     }
   }
 
+  /// Trigger a return action: resume a caller after a rule returns.
+  ///
+  /// Part of the GSS (Graph-Shared Stack) mechanism for memoization:
+  /// 1. Takes the return context from a rule
+  /// 2. Merges its marks with the parent's marks
+  /// 3. Respects precedence constraints
+  /// 4. Enqueues the waiter's next state to continue parsing
+  /// 5. Records BSR (Binarised Shared Representation) for forest extraction
+  ///
+  /// This allows the same rule result to be efficiently returned to multiple
+  /// call sites without re-parsing.
   void _triggerReturn(
     Caller caller,
     CallerKey? parent,
@@ -1942,6 +2333,21 @@ class Step {
     _enqueue(nextState, nextContext);
   }
 
+  /// Convert internal frame groups into output frames for the next position.
+  ///
+  /// During _processFrame, frames are accumulated in _nextFrameGroups, a map from
+  /// (state, caller, minPrecedence) -> list of mark lists. This groups frames
+  /// that will follow the same parsing path.
+  ///
+  /// _finalize:
+  /// 1. Merges mark lists for each group (handling ambiguity)
+  /// 2. Determines the correct next callStart based on caller type
+  /// 3. Creates Frame objects with pivot advanced to position + 1
+  /// 4. Tracks nextFrames for the parser to process in the next iteration
+  /// 5. Updates predicate trackers for sub-parses (increments activeFrames)
+  ///
+  /// This bridges the gap between internal work (state machine transitions)
+  /// and external structure (the sequence of frames the parser returns to).
   void _finalize() {
     printDebug('[DEBUG] _finalize called: nextFrameGroups has ${_nextFrameGroups.length} entries');
     for (final MapEntry(
@@ -1997,6 +2403,19 @@ class Step {
     printDebug('[DEBUG] _finalize done: nextFrames.length=${nextFrames.length}');
   }
 
+  /// Process a single frame: enqueue its states, then drain the work list.
+  ///
+  /// This implements the main parsing loop for one frame:
+  /// 1. Enqueue all next states from the frame
+  /// 2. Process the work list by:
+  ///    - Dequeuing (state, context) pairs in order
+  ///    - Decrementing activeFrames for predicate sub-parses
+  ///    - Retrieving merged marks (in ambiguity mode) or using context marks
+  ///    - Calling _process to execute state actions
+  /// 3. Call _finalize to convert internal frame groups to output frames
+  ///
+  /// The work list ensures that all states are explored depth-first before
+  /// moving to the next position, maintaining proper parse order.
   void _processFrame(Frame frame) {
     final isPredicateCtx = frame.context.caller is PredicateCallerKey;
     if (isPredicateCtx || frame.nextStates.length > 1) {
