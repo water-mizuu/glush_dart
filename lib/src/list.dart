@@ -27,6 +27,13 @@ sealed class GlushList<T> {
   void forEach(void Function(T) callback);
 
   bool get isEmpty;
+
+  T? get lastOrNull {
+    if (isEmpty) return null;
+    T? last;
+    forEach((e) => last = e);
+    return last;
+  }
 }
 
 /// Manages deduplication of [GlushList] nodes to form a shared forest.
@@ -64,19 +71,8 @@ class GlushListManager<T> {
 
 class _BranchedKey {
   final List<Object?> elements;
-  _BranchedKey(this.elements);
-
-  @override
-  bool operator ==(Object other) =>
-      other is _BranchedKey &&
-      elements.length == other.elements.length &&
-      elements.indexed.every((e) => e.$2 == other.elements[e.$1]);
-
-  @override
-  int get hashCode => Object.hashAll(elements);
+  const _BranchedKey(this.elements);
 }
-
-final Expando<int> _glushListHashes = Expando();
 
 class EmptyList<T> extends GlushList<T> {
   const EmptyList._();
@@ -86,12 +82,6 @@ class EmptyList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => true;
-
-  @override
-  bool operator ==(Object other) => other is EmptyList;
-
-  @override
-  int get hashCode => 0;
 }
 
 class BranchedList<T> extends GlushList<T> {
@@ -108,16 +98,6 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => alternatives.every((a) => a.isEmpty);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BranchedList<T> &&
-          alternatives.length == other.alternatives.length &&
-          alternatives.indexed.every((e) => e.$2 == other.alternatives[e.$1]);
-
-  @override
-  int get hashCode => _glushListHashes[this] ??= Object.hashAll(alternatives);
 }
 
 class Push<T> extends GlushList<T> {
@@ -134,13 +114,6 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is Push<T> && parent == other.parent && data == other.data;
-
-  @override
-  int get hashCode => _glushListHashes[this] ??= Object.hash(parent, data);
 }
 
 class Concat<T> extends GlushList<T> {
@@ -157,50 +130,64 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is Concat<T> && left == other.left && right == other.right;
-
-  @override
-  int get hashCode => _glushListHashes[this] ??= Object.hash(left, right);
 }
+
+int collectCalls = 0;
 
 extension GlushListVisualizer<T> on GlushList<T> {
   static const int maxPaths = 10000;
 
-  List<List<T>> allPaths() {
+  Iterable<List<T>> allPaths() {
     return _collect(this, {});
   }
 
-  List<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) {
-    if (memo.containsKey(node)) return memo[node]!;
-
-    List<List<T>> result;
-    if (node is EmptyList<T>) {
-      result = [[]];
-    } else if (node is Push<T>) {
-      result = _collect(node.parent, memo).map((path) => [...path, node.data]).toList();
-    } else if (node is Concat<T>) {
-      final leftPaths = _collect(node.left, memo);
-      final rightPaths = _collect(node.right, memo);
-      result = [];
-      for (final l in leftPaths) {
-        for (final r in rightPaths) {
-          result.add([...l, ...r]);
-        }
-      }
-    } else if (node is BranchedList<T>) {
-      result = [];
-      for (final alt in node.alternatives) {
-        result.addAll(_collect(alt, memo));
-      }
-    } else {
-      result = [];
+  Iterable<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) sync* {
+    collectCalls++;
+    if (memo.containsKey(node)) {
+      yield* memo[node]!;
+      return;
     }
 
-    memo[node] = result;
-    return result;
+    switch (node) {
+      case EmptyList<T>():
+        yield const [];
+        memo[node] = const [[]];
+        return;
+      case BranchedList<T>():
+        final result = <List<T>>[];
+        for (final alt in node.alternatives) {
+          final branches = _collect(alt, memo);
+          for (final branch in branches) {
+            yield branch;
+          }
+          result.addAll(branches);
+        }
+        memo[node] = result;
+        return;
+      case Push<T>():
+        final result = <List<T>>[];
+        for (final path in _collect(node.parent, memo)) {
+          final added = [...path, node.data];
+          yield added;
+          result.add(added);
+        }
+        memo[node] = result;
+        return;
+      case Concat<T>():
+        final result = <List<T>>[];
+        final leftPaths = _collect(node.left, memo);
+        final rightPaths = _collect(node.right, memo);
+        for (final l in leftPaths) {
+          for (final r in rightPaths) {
+            final branches = [...l, ...r];
+
+            yield branches;
+            result.add(branches);
+          }
+        }
+        memo[node] = result;
+        return;
+    }
   }
 
   String visualize() {

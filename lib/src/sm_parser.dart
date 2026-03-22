@@ -398,6 +398,10 @@ class SMParser {
   /// Optimizes memory usage for mark accumulation during parsing.
   final GlushListManager<Mark> _markManager = GlushListManager<Mark>();
 
+  /// Manager for predicate stack deduplication.
+  final GlushListManager<PredicateCallerKey> _predicateStackManager =
+      GlushListManager<PredicateCallerKey>();
+
   /// Maps input position to token history nodes.
   /// Enables efficient access to past tokens for lookahead.
   final Map<int, TokenNode> _historyByPosition = {};
@@ -422,7 +426,11 @@ class SMParser {
   /// The parser can then be reused across multiple parse() calls on different inputs.
   SMParser(GrammarInterface grammar, {this.captureTokensAsMarks = false})
     : stateMachine = StateMachine(grammar) {
-    const initialContext = Context(RootCallerKey(), const GlushList.empty());
+    const initialContext = Context(
+      RootCallerKey(),
+      GlushList.empty(),
+      predicateStack: GlushList.empty(),
+    );
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -433,7 +441,11 @@ class SMParser {
   /// Skips state machine construction (which has already been done elsewhere)
   /// and creates a parser ready to parse input using the provided machine.
   SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
-    const initialContext = Context(RootCallerKey(), const GlushList.empty());
+    const initialContext = Context(
+      RootCallerKey(),
+      GlushList.empty(),
+      predicateStack: GlushList.empty(),
+    );
     final initialFrame = Frame(initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
@@ -1513,8 +1525,10 @@ class SMParser {
         currentStep._processFrame(f);
       }
 
-      // Check for exhausted predicates at this position
-      _checkExhaustedPredicates(workQueue, pos);
+      // Check for exhausted predicates only when all work at or before this position is done
+      if (workQueue.isEmpty || workQueue.firstKey()! > position) {
+        _checkExhaustedPredicates(workQueue, position);
+      }
 
       if (pos < position) {
         addFramesToQueue(currentStep.nextFrames);
@@ -1537,20 +1551,12 @@ class SMParser {
         );
   }
 
-  /// Checks for exhausted lookahead predicates and resumes their waiters.
+  /// Check if a pattern matches at a given position in the input without consuming.
+  /// Used for AND/NOT lookahead predicates.
   ///
-  /// A predicate is "exhausted" when:
-  /// - Its sub-parse has no more active frames (activeFrames == 0)
-  /// - It hasn't matched yet
-  ///
-  /// For exhausted NOT predicates (!pattern), we requeue waiting frames because
-  /// a NOT predicate succeeds when the sub-parse fails to find a match.
-  ///
-  /// For AND predicates (&pattern), we don't requeue because they only succeed
-  /// when the sub-parse matches (which would have already triggered _finishPredicate).
-  ///
-  /// This method is called after processing all frames at a position, ensuring
-  /// that negative lookahead assertions are properly satisfied before moving forward.
+  /// This is a fast check that determines if a pattern would match at startPos
+  /// without actually advancing the parser state. Lookahead sub-parses are
+  /// triggered via PredicateAction in _process and complete via _finishPredicate.
   void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
     final toRemove = <(PatternSymbol, int)>{};
     for (final entry in _predicateTrackers.entries) {
@@ -1559,9 +1565,15 @@ class SMParser {
       if (tracker.activeFrames == 0 && !tracker.matched) {
         // Handle NOT predicate success (exhausted without match)
         for (final (parentCtx, nextState) in tracker.waiters) {
+          final pk = parentCtx.predicateStack.lastOrNull;
+          if (pk != null) {
+            final parentTracker = _predicateTrackers[(pk.pattern, pk.startPos)];
+            parentTracker?.activeFrames--;
+          }
+
           if (!tracker.isAnd) {
             workQueue
-                .putIfAbsent(currentPosition, () => [])
+                .putIfAbsent(parentCtx.pivot ?? 0, () => [])
                 .add(Frame(parentCtx)..nextStates.add(nextState));
           }
         }
@@ -1574,13 +1586,6 @@ class SMParser {
       _predicateTrackers.remove(key);
     }
   }
-
-  /// Check if a pattern matches at a given position in the input without consuming.
-  /// Used for AND/NOT lookahead predicates.
-  ///
-  /// This is a fast check that determines if a pattern would match at startPos
-  /// without actually advancing the parser state. Lookahead sub-parses are
-  /// triggered via PredicateAction in _process and complete via _finishPredicate.
 }
 
 // ---------------------------------------------------------------------------
@@ -1743,6 +1748,10 @@ class Context {
   /// Marks represent semantic values produced during parsing.
   final GlushList<Mark> marks;
 
+  /// Stack of active lookahead predicates.
+  /// Ensures correct activeFrames tracking through rule calls.
+  final GlushList<PredicateCallerKey> predicateStack;
+
   /// The input position where the current rule call began.
   /// Essential for BSR recording to identify rule completion spans.
   final int? callStart;
@@ -1767,6 +1776,7 @@ class Context {
   const Context(
     this.caller,
     this.marks, {
+    this.predicateStack = const GlushList.empty(),
     this.callStart,
     this.pivot,
     this.tokenHistory,
@@ -1779,6 +1789,7 @@ class Context {
   Context copyWith({
     CallerKey? caller,
     GlushList<Mark>? marks,
+    GlushList<PredicateCallerKey>? predicateStack,
     int? callStart,
     int? pivot,
     TokenNode? tokenHistory,
@@ -1788,6 +1799,7 @@ class Context {
     return Context(
       caller ?? this.caller,
       marks ?? this.marks,
+      predicateStack: predicateStack ?? this.predicateStack,
       callStart: callStart ?? this.callStart,
       pivot: pivot ?? this.pivot,
       tokenHistory: tokenHistory ?? this.tokenHistory,
@@ -1898,14 +1910,17 @@ class Step {
   /// Frames to process in the next parsing step.
   final List<Frame> nextFrames = [];
 
-  /// Groups marks by (state, caller, precedence) for deduplication and merging.
-  final Map<(State, CallerKey, int?), List<GlushList<Mark>>> _nextFrameGroups = {};
+  /// Groups marks by (state, caller, precedence, predicateStack) for deduplication and merging.
+  final Map<(State, CallerKey, int?, GlushList<PredicateCallerKey>), List<GlushList<Mark>>>
+  _nextFrameGroups = {};
 
-  /// Groups predecessors by (state, caller, precedence) for forest construction.
-  final Map<(State, CallerKey, int?), Set<_Predecessor>> _nextPredecessorGroups = {};
+  /// Groups predecessors by (state, caller, precedence, predicateStack) for forest construction.
+  final Map<(State, CallerKey, int?, GlushList<PredicateCallerKey>), Set<_Predecessor>>
+  _nextPredecessorGroups = {};
 
   /// Active contexts to prevent duplicate processing in non-ambiguous mode.
-  final Map<(State, CallerKey, int?), GlushList<Mark>> _activeContexts = {};
+  final Map<(State, CallerKey, int?, GlushList<PredicateCallerKey>), GlushList<Mark>>
+  _activeContexts = {};
 
   /// Work queue of (state, context) pairs to process at this position.
   final Queue<(State, Context)> _currentWorkList = DoubleLinkedQueue();
@@ -1939,13 +1954,11 @@ class Step {
   /// Completes a lookahead predicate assertion, resuming waiting frames.
   /// Handles both positive (&pattern) and negative (!pattern) completion.
   void _finishPredicate(PredicateTracker tracker, bool matched) {
-    if (tracker.matched) {
-      return;
-    }
     if (matched) {
       tracker.matched = true;
       for (final (parentCtx, nextState) in tracker.waiters) {
-        if (parentCtx.caller case PredicateCallerKey pk) {
+        final pk = parentCtx.predicateStack.lastOrNull;
+        if (pk != null) {
           final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
           parentTracker?.activeFrames--;
         }
@@ -1957,7 +1970,8 @@ class Step {
       tracker.waiters.clear();
     } else if (tracker.activeFrames == 0) {
       for (final (parentCtx, nextState) in tracker.waiters) {
-        if (parentCtx.caller case PredicateCallerKey pk) {
+        final pk = parentCtx.predicateStack.lastOrNull;
+        if (pk != null) {
           final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
           parentTracker?.activeFrames--;
         }
@@ -1999,14 +2013,13 @@ class Step {
     GlushList<Mark> marks = const GlushList.empty(),
     _ParseNode? callSite,
   }) {
-    if (context.caller case PredicateCallerKey pk) {
-      final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
-      if (tracker != null) {
-        tracker.activeFrames++;
-      }
+    final targetPos = context.pivot ?? 0;
+    if (targetPos != position) {
+      requeue([Frame(context)..nextStates.add(state)]);
+      return;
     }
 
-    final key = (state, context.caller, context.minPrecedenceLevel);
+    final key = (state, context.caller, context.minPrecedenceLevel, context.predicateStack);
     if (isSupportingAmbiguity) {
       if (source != null) {
         final target = (state.id, position, context.caller);
@@ -2020,6 +2033,15 @@ class Step {
       if (_activeContexts.containsKey(key)) return;
       _activeContexts[key] = context.marks;
     }
+
+    final pk = context.predicateStack.lastOrNull;
+    if (pk != null) {
+      final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+      if (tracker != null) {
+        tracker.activeFrames++;
+      }
+    }
+
     _currentWorkList.add((state, context));
   }
 
@@ -2034,6 +2056,7 @@ class Step {
             Context(
               frame.caller ?? const RootCallerKey(),
               frame.marks,
+              predicateStack: frame.context.predicateStack,
               callStart: frame.context.callStart,
               pivot: frame.context.pivot,
               tokenHistory: frame.context.tokenHistory,
@@ -2067,6 +2090,7 @@ class Step {
               action.nextState,
               frame.caller ?? const RootCallerKey(),
               frame.context.minPrecedenceLevel,
+              frame.context.predicateStack,
             );
             _nextFrameGroups.putIfAbsent(nextKey, () => []).add(newMarks);
             if (isSupportingAmbiguity) {
@@ -2093,6 +2117,7 @@ class Step {
             Context(
               frame.caller ?? const RootCallerKey(),
               frame.marks.add(markManager, mark),
+              predicateStack: frame.context.predicateStack,
               callStart: frame.context.callStart,
               pivot: frame.context.pivot,
               tokenHistory: frame.context.tokenHistory,
@@ -2109,23 +2134,39 @@ class Step {
             subParseKey,
             () => PredicateTracker(symbol, position, isAnd: action.isAnd),
           );
-          tracker.waiters.add((frame.context, action.nextState));
 
-          if (frame.context.caller case PredicateCallerKey pk) {
-            parser._predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames++;
+          if (tracker.matched) {
+            if (tracker.isAnd) {
+              requeue([Frame(frame.context)..nextStates.add(action.nextState)]);
+            }
+          } else {
+            tracker.waiters.add((frame.context, action.nextState));
           }
 
-          if (isFirst) {
+          final pk = frame.context.predicateStack.lastOrNull;
+          if (pk != null) {
+            final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+            parentTracker?.activeFrames++;
+          }
+
+          if (isFirst && !tracker.matched) {
             final states = parser.stateMachine.ruleFirst[symbol];
             if (states == null) {
               throw StateError('Predicate symbol must resolve to a rule: $symbol');
             }
+            final newPredicateKey = PredicateCallerKey(symbol, position);
+            final nextStack = parser._predicateStackManager.push(
+              frame.context.predicateStack,
+              newPredicateKey,
+            );
+
             for (final firstState in states) {
               _enqueue(
                 firstState,
                 Context(
-                  PredicateCallerKey(symbol, position),
+                  newPredicateKey,
                   const GlushList.empty(),
+                  predicateStack: nextStack,
                   callStart: position,
                   pivot: position,
                   tokenHistory: frame.context.tokenHistory,
@@ -2156,6 +2197,7 @@ class Step {
                 Context(
                   caller,
                   const GlushList.empty(),
+                  predicateStack: frame.context.predicateStack,
                   callStart: position,
                   pivot: position,
                   tokenHistory: frame.context.tokenHistory,
@@ -2193,7 +2235,10 @@ class Step {
             bsr!.add(action.rule.symbolId!, callStart, frame.context.pivot ?? callStart, position);
 
           if (caller is PredicateCallerKey) {
-            _finishPredicate(parser._predicateTrackers[(caller.pattern, caller.startPos)]!, true);
+            final tracker = parser._predicateTrackers[(caller.pattern, caller.startPos)];
+            if (tracker != null) {
+              _finishPredicate(tracker, true);
+            }
             continue;
           }
 
@@ -2256,28 +2301,35 @@ class Step {
     final nextContext = Context(
       parent ?? const RootCallerKey(),
       nextMarks,
+      predicateStack: parentContext.predicateStack,
       callStart: parentContext.callStart,
-      pivot: position,
+      pivot: returnContext.pivot,
       tokenHistory: parentContext.tokenHistory,
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
     if (bsr != null && parent is Caller) {
-      bsr!.add(parent.rule.symbolId!, parentContext.callStart!, caller.startPos, position);
+      bsr!.add(
+        parent.rule.symbolId!,
+        parentContext.callStart!,
+        caller.startPos,
+        returnContext.pivot ?? position,
+      );
     }
     _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
   }
 
   /// Groups results from _nextFrameGroups into Frame objects for the next position.
   /// Handles mark merging, caller initialization, and predicate tracking.
-  void _finalize() {
+  void _finalize(Frame parentFrame) {
     for (final entry in _nextFrameGroups.entries) {
-      final (state, caller, minP) = entry.key;
+      final (state, caller, minP, pStack) = entry.key;
       final merged = markManager.branched(entry.value);
       int? nCS = (caller is Caller) ? caller.startPos : (caller is RootCallerKey ? 0 : null);
       final nextFrame = Frame(
         Context(
           caller,
           merged,
+          predicateStack: pStack,
           callStart: nCS,
           pivot: position + 1,
           tokenHistory: parser._historyByPosition[position],
@@ -2285,8 +2337,9 @@ class Step {
         ),
       );
       nextFrame.nextStates.add(state);
-      if (caller case PredicateCallerKey predicateKey) {
-        parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]?.activeFrames++;
+      if (pStack.lastOrNull case PredicateCallerKey pk) {
+        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+        tracker?.activeFrames++;
       }
 
       if (isSupportingAmbiguity) {
@@ -2308,17 +2361,24 @@ class Step {
     }
     while (_currentWorkList.isNotEmpty) {
       final (state, context) = _currentWorkList.removeFirst();
-      if (context.caller case PredicateCallerKey pk) {
-        parser._predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
+      if (context.predicateStack.lastOrNull case PredicateCallerKey pk) {
+        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+        tracker?.activeFrames--;
       }
       final currentMarks = isSupportingAmbiguity
-          ? _activeContexts[(state, context.caller, context.minPrecedenceLevel)]!
+          ? _activeContexts[(
+              state,
+              context.caller,
+              context.minPrecedenceLevel,
+              context.predicateStack,
+            )]!
           : context.marks;
       _process(
         Frame(
           Context(
             context.caller,
             currentMarks,
+            predicateStack: context.predicateStack,
             callStart: context.callStart,
             pivot: context.pivot,
             tokenHistory: context.tokenHistory,
@@ -2328,6 +2388,6 @@ class Step {
         state,
       );
     }
-    _finalize();
+    _finalize(frame);
   }
 }

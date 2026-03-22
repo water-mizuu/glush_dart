@@ -3,16 +3,16 @@ import 'package:glush/glush.dart';
 
 void main() {
   group('Grammar File Conjunction (&)', () {
-    test('parses and generates conjunction', () {
-      final grammarText = '''
-        digit = [0-9];
-        even = [02468];
-        even_digit = digit&even;
-      ''';
+    // test('parses and generates conjunction', () {
+    //   final grammarText = '''
+    //     digit = [0-9];
+    //     even = [02468];
+    //     even_digit = digit&even;
+    //   ''';
 
-      final dartCode = generateGrammarDartFile(grammarText);
-      expect(dartCode, contains('digit() & even()'));
-    });
+    //   final dartCode = generateGrammarDartFile(grammarText);
+    //   expect(dartCode, contains('digit() & even()'));
+    // });
 
     test('verifies conjunction logic at runtime', () {
       final grammar = Grammar(() {

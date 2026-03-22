@@ -86,5 +86,20 @@ void main() {
       final result = parser2.parseAmbiguous(input, captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
     });
+
+    test('Nested predicates', () {
+      // S = &( &('a') 'a' ) 'a'
+      final grammar = Grammar(() {
+        final rule = Rule(
+          'S',
+          () => And(And(Token.char('a')) >> Token.char('a')) >> Token.char('a'),
+        );
+        return rule;
+      });
+      final parser = SMParser(grammar);
+
+      expect(parser.recognize('a'), isTrue);
+      expect(parser.recognize('b'), isFalse);
+    });
   });
 }

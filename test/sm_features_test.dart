@@ -63,7 +63,7 @@ void main() {
     test('3. Regex Operators with Ambiguity', () {
       final parser = r"S = $LIST ('a' | 'a')*".toSMParser();
 
-      final result = parser.parseAmbiguous('aaa', captureTokensAsMarks: true);
+      final result = parser.parseAmbiguous('aaa');
       expect(result, isA<ParseAmbiguousForestSuccess>());
 
       final forest = (result as ParseAmbiguousForestSuccess).forest;
@@ -76,10 +76,13 @@ void main() {
 
       final result = parser.parseAmbiguous('aa', captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
-
-      final forest = (result as ParseAmbiguousForestSuccess).forest;
-      // Paths: (A, A), (A, B), (B, A), (B, B) = 4 paths
-      expect(forest.allPaths().length, equals(4));
+      if (result case ParseAmbiguousForestSuccess(:var forest)) {
+        // Paths: (A, A), (A, B), (B, A), (B, B) = 4 paths
+        int before = collectCalls;
+        expect(forest.allPaths().length, equals(4));
+        int after = collectCalls;
+        print((before, after, after - before));
+      }
     });
 
     test('5. Epsilon (Empty Match) in Shared Forest', () {
@@ -92,7 +95,7 @@ void main() {
       expect(result, isA<ParseAmbiguousForestSuccess>());
 
       final forest = (result as ParseAmbiguousForestSuccess).forest;
-      final marksConcat = forest.allPaths().single.toMarkStrings().join(" ");
+      final marksConcat = forest.allPaths().single.toStringList().join(" ");
       expect(marksConcat, contains('OPT'));
       expect(marksConcat, contains('END'));
     });

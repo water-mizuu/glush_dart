@@ -1,6 +1,8 @@
 /// Grammar definition and building
 library glush.grammar;
 
+import 'dart:collection';
+
 import 'patterns.dart';
 import 'state_machine.dart' as sm;
 import 'errors.dart';
@@ -46,12 +48,11 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     // Discover all rules referenced from the start call
     final discoveredRules = <Rule>{startCall.rule};
-    final toProcess = <Rule>{startCall.rule};
+    final toProcess = Queue.of([startCall.rule]);
 
     // Recursively discover rules by examining their bodies
     while (toProcess.isNotEmpty) {
-      final rule = toProcess.first;
-      toProcess.remove(rule);
+      final rule = toProcess.removeFirst();
 
       // Now safe to call body() since rule is registered
       final body = rule.body();
@@ -61,7 +62,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       for (final ref in referencedRules) {
         if (!discoveredRules.contains(ref)) {
           discoveredRules.add(ref);
-          toProcess.add(ref);
+          toProcess.addLast(ref);
         }
       }
     }
@@ -75,6 +76,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     _computeEmpty();
     _computeTransitions();
+
+    print("Normalized grammar");
   }
 
   /// Discovers all patterns in the grammar and assigns them symbol IDs
