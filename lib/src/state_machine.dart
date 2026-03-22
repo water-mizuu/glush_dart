@@ -144,8 +144,8 @@ class StateMachine {
       _buildPrecedenceMap(rule.body(), null, precMap);
 
       // Connect to first patterns
-      for (final fst in rule.body().firstSet()) {
-        _connect(firstState, fst);
+      for (final firstStateInRange in rule.body().firstSet()) {
+        _connect(firstState, firstStateInRange);
       }
 
       // Connect each pair
@@ -154,9 +154,9 @@ class StateMachine {
       });
 
       // Mark states before returns
-      for (final lst in rule.body().lastSet()) {
-        final state = _getOrCreateState(lst);
-        state.actions.add(ReturnAction(rule, lst, precMap[lst]));
+      for (final lastState in rule.body().lastSet()) {
+        final state = _getOrCreateState(lastState);
+        state.actions.add(ReturnAction(rule, lastState, precMap[lastState]));
       }
       if (rule.body().empty()) {
         firstState.actions.add(ReturnAction(rule, Eps()));
@@ -204,8 +204,8 @@ class StateMachine {
       case RuleCall(:var rule):
         final returnState = _getOrCreateState(terminal);
         // Get minPrecedenceLevel from Call/RuleCall
-        final minPrec = terminal.minPrecedenceLevel;
-        final action = CallAction(rule, terminal, returnState, minPrec);
+        final minPrecedenceLevel = terminal.minPrecedenceLevel;
+        final action = CallAction(rule, terminal, returnState, minPrecedenceLevel);
         state.actions.add(action);
       case Action<dynamic>():
         // Create a SemanticAction state machine action with the callback

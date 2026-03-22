@@ -7,8 +7,19 @@ import 'package:glush/src/patterns.dart';
 import 'package:glush/src/state_machine.dart';
 
 /// Minimal version of [SMParser] that only supports recognize, parse, and parseAmbiguous.
-/// No BSR, no SPPF, only Mark related results.
-/// Includes support for nested predicates.
+///
+/// Unlike the full [SMParser], this implementation does not build a Binary Subtree
+/// Representation (BSR) or a Shared Packed Parse Forest (SPPF) by default. It is
+/// optimized for cases where only the results (marks) are needed.
+///
+/// Architecture:
+/// - **Breadth-First Processing**: Processes input token-by-token.
+/// - **Work Queue**: Uses a [SplayTreeMap] as a work queue for each position,
+///   handling non-consuming actions (like rule returns or markers) before moving
+///   to the next input position.
+/// - **Predicate Tracking**: Manages lookahead predicates (& and !) using a
+///   ref-counting mechanism ([PredicateTrackerMini]) to detect when a predicate
+///   search has successfully exhausted all possibilities.
 class SMParserMini {
   final StateMachine stateMachine;
   late final List<FrameMini> _initialFrames;
@@ -18,7 +29,6 @@ class SMParserMini {
   final Map<int, TokenNodeMini> _historyByPosition = {};
   TokenNodeMini? _historyTail;
   final Map<(PatternSymbol, int), PredicateTrackerMini> _predicateTrackers = {};
-
 
   bool captureTokensAsMarks;
 
@@ -43,7 +53,6 @@ class SMParserMini {
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     _initialFrames = [initialFrame];
   }
-
 
   bool recognize(String input) {
     var frames = _initialFrames;
@@ -72,6 +81,7 @@ class SMParserMini {
     return lastStep.accept;
   }
 
+  /// Standard parsing that returns the first valid result found.
   ParseOutcomeMini parse(String input) {
     var frames = _initialFrames;
     int position = 0;
@@ -104,6 +114,10 @@ class SMParserMini {
     }
   }
 
+  /// Parses ambiguous input and returns a forest of all possible results (marks).
+  ///
+  /// This method enables ambiguity support by tracking predecessors in a graph
+  /// structure, allowing for the reconstruction of all valid parse trees' marks.
   ParseOutcomeMini parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
     final Map<_ParseNode, Set<_Predecessor>> predecessors = {};
     var frames = _initialFrames;
@@ -136,8 +150,8 @@ class SMParserMini {
       final memo = <_ParseNode, GlushList<Mark>>{};
       final results = <GlushList<Mark>>[];
 
-      for (final (state, ctx) in lastStep._acceptedContexts) {
-        final rootNode = (state.id, position, ctx.caller);
+      for (final (state, context) in lastStep._acceptedContexts) {
+        final rootNode = (state.id, position, context.caller);
         results.add(_extractForestFromGraph(rootNode, memo, predecessors));
       }
 
@@ -161,35 +175,43 @@ class SMParserMini {
     }
 
     currentVisiting.add(node);
-    final preds = predecessors[node];
-    if (preds == null) return memo[node] = const GlushList<Mark>.empty();
+    final predecessorsForNode = predecessors[node];
+    if (predecessorsForNode == null) return memo[node] = const GlushList<Mark>.empty();
 
-    final alts = <GlushList<Mark>>[];
+    final alternatives = <GlushList<Mark>>[];
     try {
-      for (final (source, action, marks, callSite) in preds) {
+      for (final (source, action, marks, callSite) in predecessorsForNode) {
         if (action is ReturnAction) {
           final ruleForest = _extractForestFromGraph(source!, memo, predecessors, currentVisiting);
           final parentForest = callSite != null
               ? _extractForestFromGraph(callSite, memo, predecessors, currentVisiting)
               : const GlushList<Mark>.empty();
-          alts.add(parentForest.addList(_markManager, ruleForest));
+          alternatives.add(parentForest.addList(_markManager, ruleForest));
         } else if (source != null) {
           final base = _extractForestFromGraph(source, memo, predecessors, currentVisiting);
-          alts.add(base.addList(_markManager, marks));
+          alternatives.add(base.addList(_markManager, marks));
         } else {
-          alts.add(marks);
+          alternatives.add(marks);
         }
       }
     } finally {
       currentVisiting.remove(node);
     }
 
-    return memo[node] = _markManager.branched(alts);
+    return memo[node] = _markManager.branched(alternatives);
   }
 
+  /// Main entry point for processing a single token at a given position.
+  ///
+  /// This method coordinates the breadth-first exploration of the state machine.
+  /// It manages a [workQueue] that prioritizes frames by their "pivot" (position).
+  ///
+  /// The [SplayTreeMap] ensures that all non-consuming transitions (like epsilon,
+  /// markers, or rule returns) at the *current* or *past* positions are fully
+  /// processed before the parser advances to the next token.
   StepMini _processToken(
     int? token,
-    int position,
+    int currentPosition,
     List<FrameMini> frames, {
     bool isSupportingAmbiguity = false,
     bool? captureTokensAsMarks,
@@ -203,23 +225,23 @@ class SMParserMini {
         _historyTail!.next = node;
         _historyTail = node;
       }
-      _historyByPosition[position] = node;
+      _historyByPosition[currentPosition] = node;
     }
 
     if (_historyTail != null) {
-      _historyByPosition[position] = _historyTail!;
+      _historyByPosition[currentPosition] = _historyTail!;
     }
 
     final stepsAtPosition = <int, StepMini>{};
     final workQueue = SplayTreeMap<int, List<FrameMini>>((a, b) => a.compareTo(b));
 
     void addFramesToQueue(List<FrameMini> newFrames) {
-      for (final f in newFrames) {
-        final pos = f.context.pivot ?? 0;
-        workQueue.putIfAbsent(pos, () => []).add(f);
+      for (final frame in newFrames) {
+        final position = frame.context.pivot ?? 0;
+        workQueue.putIfAbsent(position, () => []).add(frame);
 
-        if (f.context.predicateStack.lastOrNull case var pk?) {
-          _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames++;
+        if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+          _predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]?.activeFrames++;
         }
       }
     }
@@ -227,17 +249,17 @@ class SMParserMini {
     addFramesToQueue(frames);
 
     while (workQueue.isNotEmpty) {
-      final pos = workQueue.firstKey()!;
-      if (pos > position) break;
+      final position = workQueue.firstKey()!;
+      if (position > currentPosition) break;
 
-      final posFrames = workQueue.remove(pos)!;
+      final positionFrames = workQueue.remove(position)!;
 
-      final currentStep = stepsAtPosition.putIfAbsent(pos, () {
-        final posToken = (pos == position) ? token : _historyByPosition[pos]?.unit;
+      final currentStep = stepsAtPosition.putIfAbsent(position, () {
+        final positionToken = (position == currentPosition) ? token : _historyByPosition[position]?.unit;
         return StepMini(
           this,
-          posToken,
-          pos,
+          positionToken,
+          position,
           markManager: _markManager,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
@@ -246,21 +268,21 @@ class SMParserMini {
         );
       });
 
-      for (final f in posFrames) {
-        if (f.context.predicateStack.lastOrNull case var pk?) {
-          _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
+      for (final frame in positionFrames) {
+        if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+          _predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]?.activeFrames--;
         }
-        currentStep._processFrame(f);
+        currentStep._processFrame(frame);
       }
 
-      if (workQueue.isEmpty || workQueue.firstKey()! > position) {
-        _checkExhaustedPredicates(workQueue, position);
+      if (workQueue.isEmpty || workQueue.firstKey()! > currentPosition) {
+        _checkExhaustedPredicates(workQueue, currentPosition);
       }
 
-      if (pos < position) {
-        for (final f in currentStep.nextFrames) {
-          if (f.context.predicateStack.lastOrNull case var pk?) {
-            _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
+      if (position < currentPosition) {
+        for (final frame in currentStep.nextFrames) {
+          if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+            _predicateTrackers[(predicateKey.pattern, predicateKey.startPos)]?.activeFrames--;
           }
         }
         addFramesToQueue(currentStep.nextFrames);
@@ -268,11 +290,11 @@ class SMParserMini {
       }
     }
 
-    return stepsAtPosition[position] ??
+    return stepsAtPosition[currentPosition] ??
         StepMini(
           this,
           token,
-          position,
+          currentPosition,
           markManager: _markManager,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
@@ -281,7 +303,19 @@ class SMParserMini {
         );
   }
 
-  void _checkExhaustedPredicates(SplayTreeMap<int, List<FrameMini>> workQueue, int currentPosition) {
+  /// Analyzes predicates that may have completed due to exhaustion of all paths.
+  ///
+  /// A predicate (& or !) doesn't "return" a value; it succeeds or fails based on
+  /// whether the parser can find *any* path matching the predicate pattern.
+  ///
+  /// If [activeFrames] drops to 0 for a tracker, we know we've explored all
+  /// possible paths for that lookahead.
+  /// - For & (AND): Failure to find a match means the predicate fails.
+  /// - For ! (NOT): Failure to find a match means the predicate *succeeds*.
+  void _checkExhaustedPredicates(
+    SplayTreeMap<int, List<FrameMini>> workQueue,
+    int currentPosition,
+  ) {
     bool changed = true;
     while (changed) {
       changed = false;
@@ -290,10 +324,10 @@ class SMParserMini {
         final tracker = entry.value;
 
         if (tracker.activeFrames == 0 && !tracker.matched) {
-          for (final (parentCtx, nextState) in tracker.waiters) {
-            final pk = parentCtx.predicateStack.lastOrNull;
-            if (pk != null) {
-              final parentTracker = _predicateTrackers[(pk.pattern, pk.startPos)];
+          for (final (parentContext, nextState) in tracker.waiters) {
+            final predicateKey = parentContext.predicateStack.lastOrNull;
+            if (predicateKey != null) {
+              final parentTracker = _predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
               if (parentTracker != null) {
                 parentTracker.activeFrames--;
                 changed = true;
@@ -301,13 +335,14 @@ class SMParserMini {
             }
 
             if (!tracker.isAnd) {
-              final targetPos = parentCtx.pivot ?? 0;
+              final targetPosition = parentContext.pivot ?? 0;
               workQueue
-                  .putIfAbsent(targetPos, () => [])
-                  .add(FrameMini(parentCtx)..nextStates.add(nextState));
+                  .putIfAbsent(targetPosition, () => [])
+                  .add(FrameMini(parentContext)..nextStates.add(nextState));
 
-              if (parentCtx.predicateStack.lastOrNull case var ppk?) {
-                _predicateTrackers[(ppk.pattern, ppk.startPos)]?.activeFrames++;
+              if (parentContext.predicateStack.lastOrNull case var parentPredicateKey?) {
+                _predicateTrackers[(parentPredicateKey.pattern, parentPredicateKey.startPos)]
+                    ?.activeFrames++;
               }
             }
           }
@@ -322,7 +357,6 @@ class SMParserMini {
       }
     }
   }
-
 }
 
 /// Sealed result type returned by [SMParserMini.parse].
@@ -351,9 +385,9 @@ class ParserResultMini {
 
   List<String> get marks => _rawMarks.toShortMarks();
 
-  List<List<Object?>> toList() => _rawMarks.map((m) {
-    if (m is NamedMark) return m.toList();
-    if (m is StringMark) return m.toList();
+  List<List<Object?>> toList() => _rawMarks.map((mark) {
+    if (mark is NamedMark) return mark.toList();
+    if (mark is StringMark) return mark.toList();
     return [];
   }).toList();
 }
@@ -397,6 +431,15 @@ final class PredicateCallerKeyMini extends CallerKeyMini {
   int get hashCode => Object.hash(pattern, startPos);
 }
 
+/// A "lite" version of a GSS (Graph-Shared Stack) node.
+///
+/// [CallerMini] represents a rule call at a specific [startPos]. It tracks:
+/// - **Waiters**: Other states waiting for this rule to finish so they can continue.
+/// - **Returns**: Results (contexts) produced by this rule, which are then
+///   pushed back to all waiters.
+///
+/// This structure effectively deduplicates rule calls: if two paths call the same
+/// rule at the same position, they will share the same [CallerMini].
 final class CallerMini extends CallerKeyMini {
   final Rule rule;
   final Pattern pattern;
@@ -407,27 +450,47 @@ final class CallerMini extends CallerKeyMini {
 
   CallerMini(this.rule, this.pattern, this.startPos, this.minPrecedenceLevel);
 
-  bool addWaiter(CallerKeyMini? parent, State next, int? minPrec, ContextMini cctx, _ParseNode node) {
-    for (final w in waiters) {
-      if (w.$1 == parent && w.$2 == next && w.$3 == minPrec && w.$4 == cctx) return false;
+  bool addWaiter(
+    CallerKeyMini? parent,
+    State next,
+    int? minPrecedence,
+    ContextMini callerContext,
+    _ParseNode node,
+  ) {
+    for (final waiter in waiters) {
+      if (waiter.$1 == parent &&
+          waiter.$2 == next &&
+          waiter.$3 == minPrecedence &&
+          waiter.$4 == callerContext) {
+        return false;
+      }
     }
-    waiters.add((parent, next, minPrec, cctx, node));
+    waiters.add((parent, next, minPrecedence, callerContext, node));
     return true;
   }
 
-  bool addReturn(ContextMini ctx) {
-    if (returns.contains(ctx)) return false;
-    returns.add(ctx);
+  bool addReturn(ContextMini context) {
+    if (returns.contains(context)) return false;
+    returns.add(context);
     return true;
   }
 
-  void forEach(void Function(CallerKeyMini?, State, int?, ContextMini, _ParseNode) callback) {
-    for (final (key, state, minPrec, ctx, node) in waiters) {
-      callback(key, state, minPrec, ctx, node);
+  void forEach(
+    void Function(CallerKeyMini?, State, int?, ContextMini, _ParseNode) callback,
+  ) {
+    for (final (key, state, minPrecedence, context, node) in waiters) {
+      callback(key, state, minPrecedence, context, node);
     }
   }
 }
 
+/// Represents the full state of a parsing path at a specific point.
+///
+/// [ContextMini] is immutable and is passed through the state machine.
+/// It carries:
+/// - **Marks**: Semantic results collected so far.
+/// - **Predicate Stack**: Active lookahead predicates to handle nesting correctly.
+/// - **Precedence**: Information for handling operator precedence grammars.
 class ContextMini {
   final CallerKeyMini caller;
   final GlushList<Mark> marks;
@@ -481,7 +544,7 @@ class FrameMini {
   GlushList<Mark> get marks => context.marks;
 }
 
-typedef _ParseNode = (int stateId, int pos, Object? caller);
+typedef _ParseNode = (int stateId, int position, Object? caller);
 typedef _Predecessor = (
   _ParseNode? source,
   StateAction? action,
@@ -489,6 +552,15 @@ typedef _Predecessor = (
   _ParseNode? callSite,
 );
 
+/// A single step of the parser at a specific [position].
+///
+/// A [StepMini] instance processes all [FrameMini]s that have arrived at this
+/// position. It iterates through their next states and performs [StateAction]s.
+///
+/// Actions can:
+/// - Transition to the *next* token position (stored in [nextFrames]).
+/// - Trigger a rule call or return (which might add more work at the *current* position).
+/// - Manage predicates.
 class StepMini {
   final SMParserMini parser;
   final int? token;
@@ -524,28 +596,28 @@ class StepMini {
   void _finishPredicate(PredicateTrackerMini tracker, bool matched) {
     if (matched) {
       tracker.matched = true;
-      for (final (parentCtx, nextState) in tracker.waiters) {
-        final pk = parentCtx.predicateStack.lastOrNull;
-        if (pk != null) {
-          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+      for (final (parentContext, nextState) in tracker.waiters) {
+        final predicateKey = parentContext.predicateStack.lastOrNull;
+        if (predicateKey != null) {
+          final parentTracker = parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
           parentTracker?.activeFrames--;
         }
 
         if (tracker.isAnd) {
-          requeue([FrameMini(parentCtx)..nextStates.add(nextState)]);
+          requeue([FrameMini(parentContext)..nextStates.add(nextState)]);
         }
       }
       tracker.waiters.clear();
     } else if (tracker.activeFrames == 0) {
-      for (final (parentCtx, nextState) in tracker.waiters) {
-        final pk = parentCtx.predicateStack.lastOrNull;
-        if (pk != null) {
-          final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+      for (final (parentContext, nextState) in tracker.waiters) {
+        final predicateKey = parentContext.predicateStack.lastOrNull;
+        if (predicateKey != null) {
+          final parentTracker = parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
           parentTracker?.activeFrames--;
         }
 
         if (!tracker.isAnd) {
-          requeue([FrameMini(parentCtx)..nextStates.add(nextState)]);
+          requeue([FrameMini(parentContext)..nextStates.add(nextState)]);
         }
       }
       tracker.waiters.clear();
@@ -565,6 +637,11 @@ class StepMini {
     return _acceptedContexts[0].$2.marks.toList().cast<Mark>();
   }
 
+  /// Enqueues a state to be processed at a specific position.
+  ///
+  /// If the [targetPosition] is the current position, the state is added to the
+  /// [_currentWorkList] to be processed immediately. Otherwise, it is requeued
+  /// to the parser's main work queue.
   void _enqueue(
     State state,
     ContextMini context, {
@@ -573,8 +650,8 @@ class StepMini {
     GlushList<Mark> marks = const GlushList.empty(),
     _ParseNode? callSite,
   }) {
-    final targetPos = context.pivot ?? 0;
-    if (targetPos != position) {
+    final targetPosition = context.pivot ?? 0;
+    if (targetPosition != position) {
       requeue([FrameMini(context)..nextStates.add(state)]);
       return;
     }
@@ -594,9 +671,9 @@ class StepMini {
       _activeContexts[key] = context.marks;
     }
 
-    final pk = context.predicateStack.lastOrNull;
-    if (pk != null) {
-      final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+    final predicateKey = context.predicateStack.lastOrNull;
+    if (predicateKey != null) {
+      final tracker = parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
       if (tracker != null) {
         tracker.activeFrames++;
       }
@@ -680,6 +757,10 @@ class StepMini {
             marks: deltaMarks,
           );
         case PredicateAction():
+          // Handling a Lookahead Predicate (& or !)
+          // 1. Initialize a PredicateTracker to track the progress of the lookahead.
+          // 2. Start a sub-parser at the current position.
+          // 3. Mark the current path as 'waiting' for the tracker to complete.
           final symbol = action.symbol;
           final subParseKey = (symbol, position);
           final isFirst = !parser._predicateTrackers.containsKey(subParseKey);
@@ -696,9 +777,10 @@ class StepMini {
             tracker.waiters.add((frame.context, action.nextState));
           }
 
-          final pk = frame.context.predicateStack.lastOrNull;
-          if (pk != null) {
-            final parentTracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+          final predicateKey = frame.context.predicateStack.lastOrNull;
+          if (predicateKey != null) {
+            final parentTracker =
+                parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
             parentTracker?.activeFrames++;
           }
 
@@ -728,6 +810,11 @@ class StepMini {
             }
           }
         case CallAction():
+          // Handling a Rule Call (Standard GSS push)
+          // 1. Find or create a Caller for (rule, position).
+          // 2. Add the current frame as a 'waiter' to that Caller.
+          // 3. If it's a new Caller, start processing the rule's initial states.
+          // 4. If the Caller already has results (returns), trigger them for the new waiter.
           final key = (action.rule, position, action.minPrecedenceLevel);
           final isNewCaller = !_callers.containsKey(key);
           final caller = _callers.putIfAbsent(
@@ -744,9 +831,9 @@ class StepMini {
 
           if (isNewCaller) {
             final states = parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
-            for (final fs in states) {
+            for (final firstState in states) {
               _enqueue(
-                fs,
+                firstState,
                 ContextMini(
                   caller,
                   const GlushList.empty(),
@@ -759,14 +846,14 @@ class StepMini {
               );
             }
           } else if (isNewWaiter) {
-            for (final rctx in caller.returns) {
+            for (final returnContext in caller.returns) {
               _triggerReturn(
                 caller,
                 frame.caller,
                 action.returnState,
                 action.minPrecedenceLevel,
                 frame.context,
-                rctx,
+                returnContext,
                 source: (state.id, position, caller),
                 action: action,
                 callSite: (state.id, position, frame.context.caller),
@@ -774,6 +861,10 @@ class StepMini {
             }
           }
         case ReturnAction():
+          // Handling a Rule Return (Standard GSS pop)
+          // 1. Check precedence level (Earley-style precedence).
+          // 2. Add the current context as a 'return' to the Caller.
+          // 3. Trigger continuation for all 'waiters' currently waiting on this Caller.
           if (frame.context.minPrecedenceLevel != null &&
               action.precedenceLevel != null &&
               action.precedenceLevel! < frame.context.minPrecedenceLevel!)
@@ -853,30 +944,34 @@ class StepMini {
 
   void _finalize(FrameMini parentFrame) {
     for (final entry in _nextFrameGroups.entries) {
-      final (state, caller, minP, pStack) = entry.key;
+      final (state, caller, minPrecedence, predicateStack) = entry.key;
       final merged = markManager.branched(entry.value);
-      int? nCS = (caller is CallerMini) ? caller.startPos : (caller is RootCallerKeyMini ? 0 : null);
+      int? callerStartPosition =
+          (caller is CallerMini) //
+          ? caller.startPos
+          : (caller is RootCallerKeyMini ? 0 : null);
       final nextFrame = FrameMini(
         ContextMini(
           caller,
           merged,
-          predicateStack: pStack,
-          callStart: nCS,
+          predicateStack: predicateStack,
+          callStart: callerStartPosition,
           pivot: position + 1,
           tokenHistory: parser._historyByPosition[position],
-          minPrecedenceLevel: minP,
+          minPrecedenceLevel: minPrecedence,
         ),
       );
       nextFrame.nextStates.add(state);
-      if (pStack.lastOrNull case PredicateCallerKeyMini pk) {
-        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+      if (predicateStack.lastOrNull case PredicateCallerKeyMini predicateKey) {
+        final tracker = parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
         tracker?.activeFrames++;
       }
 
       if (isSupportingAmbiguity) {
         final target = (state.id, position + 1, caller);
-        if (_nextPredecessorGroups[entry.key] case var preds?)
-          predecessors.putIfAbsent(target, () => {}).addAll(preds);
+        if (_nextPredecessorGroups[entry.key] case var predecessors?) {
+          this.predecessors.putIfAbsent(target, () => {}).addAll(predecessors);
+        }
       }
       nextFrames.add(nextFrame);
     }
@@ -890,8 +985,8 @@ class StepMini {
     }
     while (_currentWorkList.isNotEmpty) {
       final (state, context) = _currentWorkList.removeFirst();
-      if (context.predicateStack.lastOrNull case PredicateCallerKeyMini pk) {
-        final tracker = parser._predicateTrackers[(pk.pattern, pk.startPos)];
+      if (context.predicateStack.lastOrNull case PredicateCallerKeyMini predicateKey) {
+        final tracker = parser._predicateTrackers[(predicateKey.pattern, predicateKey.startPos)];
         tracker?.activeFrames--;
       }
       final currentMarks = isSupportingAmbiguity
@@ -920,4 +1015,3 @@ class StepMini {
     _finalize(frame);
   }
 }
-

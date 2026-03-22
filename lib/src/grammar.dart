@@ -140,12 +140,12 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     final queue = <Pattern>[pattern];
 
     while (queue.isNotEmpty) {
-      final p = queue.removeAt(0);
-      if (seen.contains(p)) continue;
-      seen.add(p);
+      final patternNode = queue.removeAt(0);
+      if (seen.contains(patternNode)) continue;
+      seen.add(patternNode);
 
-      if (p is And || p is Not) {
-        final dynamic pred = p;
+      if (patternNode is And || patternNode is Not) {
+        final dynamic pred = patternNode;
         final child = pred.pattern;
         if (child is! RuleCall) {
           final syntheticName = 'pred\$${_syntheticRuleCounter++}';
@@ -158,7 +158,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       }
 
       // Traditional discovery of children to continue walk
-      switch (p) {
+      switch (patternNode) {
         case Seq seq:
           queue.add(seq.left);
           queue.add(seq.right);
@@ -314,9 +314,9 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         transitions![a]!.add(b);
       });
 
-      for (final lst in rule.body().lastSet()) {
-        transitions![lst] ??= [];
-        transitions![lst]!.add(rule);
+      for (final lastState in rule.body().lastSet()) {
+        transitions![lastState] ??= [];
+        transitions![lastState]!.add(rule);
       }
 
       // Static rules (consisting only of markers/predicates) are allowed even if
