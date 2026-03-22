@@ -76,8 +76,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     _computeEmpty();
     _computeTransitions();
-
-    print("Normalized grammar");
   }
 
   /// Discovers all patterns in the grammar and assigns them symbol IDs

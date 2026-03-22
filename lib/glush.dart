@@ -7,6 +7,8 @@ export 'src/patterns.dart';
 export 'src/state_machine.dart';
 export 'src/grammar.dart';
 export 'src/sm_parser.dart';
+export 'src/sm_parser_mini.dart';
+
 export 'src/bsr.dart';
 export 'src/sppf.dart';
 export 'src/grammar_file_format.dart';

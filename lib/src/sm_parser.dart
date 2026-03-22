@@ -1495,6 +1495,10 @@ class SMParser {
       for (final f in newFrames) {
         final pos = f.context.pivot ?? 0;
         workQueue.putIfAbsent(pos, () => []).add(f);
+
+        if (f.context.predicateStack.lastOrNull case var pk?) {
+          _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames++;
+        }
       }
     }
 
@@ -1522,6 +1526,9 @@ class SMParser {
       });
 
       for (final f in posFrames) {
+        if (f.context.predicateStack.lastOrNull case var pk?) {
+          _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
+        }
         currentStep._processFrame(f);
       }
 
@@ -1531,6 +1538,11 @@ class SMParser {
       }
 
       if (pos < position) {
+        for (final f in currentStep.nextFrames) {
+          if (f.context.predicateStack.lastOrNull case var pk?) {
+            _predicateTrackers[(pk.pattern, pk.startPos)]?.activeFrames--;
+          }
+        }
         addFramesToQueue(currentStep.nextFrames);
         currentStep.nextFrames.clear();
       }
@@ -1558,32 +1570,44 @@ class SMParser {
   /// without actually advancing the parser state. Lookahead sub-parses are
   /// triggered via PredicateAction in _process and complete via _finishPredicate.
   void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
-    final toRemove = <(PatternSymbol, int)>{};
-    for (final entry in _predicateTrackers.entries) {
-      final tracker = entry.value;
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      final toRemove = <(PatternSymbol, int)>{};
+      for (final entry in _predicateTrackers.entries) {
+        final tracker = entry.value;
 
-      if (tracker.activeFrames == 0 && !tracker.matched) {
-        // Handle NOT predicate success (exhausted without match)
-        for (final (parentCtx, nextState) in tracker.waiters) {
-          final pk = parentCtx.predicateStack.lastOrNull;
-          if (pk != null) {
-            final parentTracker = _predicateTrackers[(pk.pattern, pk.startPos)];
-            parentTracker?.activeFrames--;
-          }
+        if (tracker.activeFrames == 0 && !tracker.matched) {
+          for (final (parentCtx, nextState) in tracker.waiters) {
+            final pk = parentCtx.predicateStack.lastOrNull;
+            if (pk != null) {
+              final parentTracker = _predicateTrackers[(pk.pattern, pk.startPos)];
+              if (parentTracker != null) {
+                parentTracker.activeFrames--;
+                changed = true;
+              }
+            }
 
-          if (!tracker.isAnd) {
-            workQueue
-                .putIfAbsent(parentCtx.pivot ?? 0, () => [])
-                .add(Frame(parentCtx)..nextStates.add(nextState));
+            if (!tracker.isAnd) {
+              final targetPos = parentCtx.pivot ?? 0;
+              workQueue
+                  .putIfAbsent(targetPos, () => [])
+                  .add(Frame(parentCtx)..nextStates.add(nextState));
+
+              if (parentCtx.predicateStack.lastOrNull case var ppk?) {
+                _predicateTrackers[(ppk.pattern, ppk.startPos)]?.activeFrames++;
+              }
+            }
           }
+          toRemove.add(entry.key);
+          changed = true;
+        } else if (tracker.matched) {
+          toRemove.add(entry.key);
         }
-        toRemove.add(entry.key);
-      } else if (tracker.matched) {
-        toRemove.add(entry.key);
       }
-    }
-    for (final key in toRemove) {
-      _predicateTrackers.remove(key);
+      for (final key in toRemove) {
+        _predicateTrackers.remove(key);
+      }
     }
   }
 }

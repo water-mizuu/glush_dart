@@ -101,5 +101,23 @@ void main() {
       expect(parser.recognize('a'), isTrue);
       expect(parser.recognize('b'), isFalse);
     });
+    test('Double negation !!a', () {
+      final grammar = Grammar(() {
+        final a = Token(ExactToken(97));
+        return Rule('test', () => a.not().not() >> a);
+      });
+      final parser = SMParserMini(grammar);
+      expect(parser.recognize('a'), isTrue, reason: '!!a should match a');
+      expect(parser.recognize('b'), isFalse);
+    });
+
+    test('Triple negation !!!a', () {
+      final grammar = Grammar(() {
+        final a = Token(ExactToken(97));
+        return Rule('test', () => a.not().not().not() >> a);
+      });
+      final parser = SMParserMini(grammar);
+      expect(parser.recognize('a'), isFalse, reason: '!!!a should NOT match a');
+    });
   });
 }
