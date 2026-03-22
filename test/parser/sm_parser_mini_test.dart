@@ -23,8 +23,8 @@ void main() {
       final parser = SMParserMini(grammar, captureTokensAsMarks: true);
 
       final outcome = parser.parse('aa');
-      expect(outcome, isA<ParseSuccessMini>());
-      final success = outcome as ParseSuccessMini;
+      expect(outcome, isA<ParseSuccess>());
+      final success = outcome as ParseSuccess;
       expect(success.result.marks, equals(['m1', 'aa']));
     });
 
@@ -35,8 +35,8 @@ void main() {
       });
       final parser = SMParserMini(grammar);
       final outcome = parser.parseAmbiguous('aa', captureTokensAsMarks: true);
-      expect(outcome, isA<ParseAmbiguousForestSuccessMini>());
-      final success = outcome as ParseAmbiguousForestSuccessMini;
+      expect(outcome, isA<ParseAmbiguousForestSuccess>());
+      final success = outcome as ParseAmbiguousForestSuccess;
       // Depending on GlushList implementation, count completions
       expect(success.forest.toList(), isNotEmpty);
     });

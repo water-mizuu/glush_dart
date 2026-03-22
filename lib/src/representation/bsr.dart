@@ -8,9 +8,9 @@
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 library glush.bsr;
 
-import 'package:glush/src/grammar.dart';
-import 'package:glush/src/mark.dart';
-import 'patterns.dart';
+import 'package:glush/src/core/grammar.dart';
+import 'package:glush/src/core/mark.dart';
+import 'package:glush/src/core/patterns.dart';
 import 'sppf.dart';
 
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.

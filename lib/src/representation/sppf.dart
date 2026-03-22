@@ -1,8 +1,8 @@
 /// Shared Packed Parse Forest (SPPF) implementation
 library glush.sppf;
 
-import 'mark.dart';
-import 'package:glush/src/patterns.dart' show PatternSymbol;
+import 'package:glush/src/core/mark.dart';
+import 'package:glush/src/core/patterns.dart' show PatternSymbol;
 
 /// Base class for all forest nodes
 sealed class ForestNode {
@@ -547,7 +547,8 @@ class ParseForest {
   ) sync* {
     switch (family) {
       case _EpsilonFamily():
-        break;
+        yield ParseTree(parent, const []);
+
       case _UnaryFamily(:final child):
         for (final tree in _extractTrees(child, ancestors)) {
           yield ParseTree(parent, [tree]);

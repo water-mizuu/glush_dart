@@ -78,10 +78,7 @@ void main() {
       expect(result, isA<ParseAmbiguousForestSuccess>());
       if (result case ParseAmbiguousForestSuccess(:var forest)) {
         // Paths: (A, A), (A, B), (B, A), (B, B) = 4 paths
-        int before = collectCalls;
         expect(forest.allPaths().length, equals(4));
-        int after = collectCalls;
-        print((before, after, after - before));
       }
     });
 

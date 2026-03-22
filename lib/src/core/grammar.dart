@@ -4,7 +4,7 @@ library glush.grammar;
 import 'dart:collection';
 
 import 'patterns.dart';
-import 'state_machine.dart' as sm;
+import '../parser/state_machine.dart' as sm;
 import 'errors.dart';
 
 typedef GrammarBuilder = Rule Function();

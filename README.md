@@ -882,7 +882,7 @@ parser.recognize('x');    // false (NOT fails)
 **Keyword matching** (don't match if followed by word char):
 
 ```dart
-Token.string('if').not() >> Token.string('iff')  // Won't match "if" in "iff"
+Pattern.string('if').not() >> Pattern.string('iff')  // Won't match "if" in "iff"
 ```
 
 **Avoiding ambiguity** in tokenization:

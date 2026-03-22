@@ -1,17 +1,20 @@
 library glush;
 
-export 'src/errors.dart';
-export 'src/mark.dart';
-export 'src/list.dart';
-export 'src/patterns.dart';
-export 'src/state_machine.dart';
-export 'src/grammar.dart';
-export 'src/sm_parser.dart';
-export 'src/sm_parser_mini.dart';
+export 'src/core/errors.dart';
+export 'src/core/mark.dart';
+export 'src/core/list.dart';
+export 'src/core/patterns.dart';
+export 'src/parser/state_machine.dart';
+export 'src/core/grammar.dart';
+export 'src/parser/sm_parser.dart';
+export 'src/parser/sm_parser_mini.dart';
 
-export 'src/bsr.dart';
-export 'src/sppf.dart';
-export 'src/grammar_file_format.dart';
-export 'src/grammar_file_parser.dart';
-export 'src/grammar_file_compiler.dart';
-export 'src/evaluator.dart';
+export 'src/representation/bsr.dart';
+export 'src/representation/sppf.dart';
+export 'src/compiler/format.dart';
+export 'src/compiler/parser.dart';
+export 'src/compiler/compiler.dart';
+export 'src/representation/evaluator.dart';
+export 'src/parser/common.dart';
+export 'src/parser/interface.dart';
+

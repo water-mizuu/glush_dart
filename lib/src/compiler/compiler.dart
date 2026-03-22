@@ -1,12 +1,12 @@
 /// Compiles a parsed grammar file into an executable Grammar
 library glush.grammar_file_compiler;
 
-import 'package:glush/src/grammar_file_parser.dart';
-import 'package:glush/src/sm_parser.dart';
+import 'package:glush/src/compiler/parser.dart';
+import 'package:glush/src/parser/sm_parser.dart';
 
-import 'grammar_file_format.dart';
-import 'patterns.dart';
-import 'grammar.dart';
+import 'format.dart';
+import '../core/patterns.dart';
+import '../core/grammar.dart';
 
 /// Compiles a GrammarFile into an executable Grammar
 class GrammarFileCompiler {

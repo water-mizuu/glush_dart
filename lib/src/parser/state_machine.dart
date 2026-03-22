@@ -1,9 +1,9 @@
 /// State machine compilation from grammars
 library glush.state_machine;
 
-import 'package:glush/src/grammar.dart';
+import 'package:glush/src/core/grammar.dart';
 
-import 'patterns.dart';
+import '../core/patterns.dart';
 
 // Action types for state machine
 sealed class StateAction {

@@ -1,7 +1,7 @@
 /// Parser for grammar files
 library glush.grammar_file_parser;
 
-import 'grammar_file_format.dart';
+import 'format.dart';
 
 class GrammarFileParseError implements Exception {
   final String message;
@@ -131,11 +131,7 @@ class _Tokenizer {
         continue;
       }
 
-      throw GrammarFileParseError(
-        'Unexpected character: $ch',
-        line: line,
-        column: column,
-      );
+      throw GrammarFileParseError('Unexpected character: $ch', line: line, column: column);
     }
 
     tokens.add(_Token(_TokenType.eof, '', line, column));
@@ -161,11 +157,7 @@ class _Tokenizer {
     }
 
     if (position >= source.length) {
-      throw GrammarFileParseError(
-        'Unterminated string literal',
-        line: startLine,
-        column: startCol,
-      );
+      throw GrammarFileParseError('Unterminated string literal', line: startLine, column: startCol);
     }
 
     _advance(); // closing quote
@@ -227,12 +219,7 @@ class _Tokenizer {
       _advance();
     }
 
-    return _Token(
-      _TokenType.identifier,
-      buffer.toString(),
-      startLine,
-      startCol,
-    );
+    return _Token(_TokenType.identifier, buffer.toString(), startLine, startCol);
   }
 
   void _skipWhitespace() {
@@ -388,8 +375,7 @@ class GrammarFileParser {
       final token = _peek().value;
       if (int.tryParse(token) != null) {
         final nextIndex = tokenIndex + 1;
-        return nextIndex < tokens.length &&
-            tokens[nextIndex].type == _TokenType.pipe;
+        return nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe;
       }
     }
     return false;
@@ -405,8 +391,7 @@ class GrammarFileParser {
         final level = int.parse(token);
         // Look ahead to see if next token is pipe
         final nextIndex = tokenIndex + 1;
-        if (nextIndex < tokens.length &&
-            tokens[nextIndex].type == _TokenType.pipe) {
+        if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe) {
           _advance(); // consume the number
           _advance(); // consume the pipe
           return level;
@@ -463,8 +448,7 @@ class GrammarFileParser {
       final token = _peek().value;
       if (int.tryParse(token) != null) {
         final nextIndex = tokenIndex + 1;
-        if (nextIndex < tokens.length &&
-            tokens[nextIndex].type == _TokenType.pipe) {
+        if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.pipe) {
           return false; // This is a precedence prefix, not a sequence continuation
         }
       }
@@ -472,16 +456,14 @@ class GrammarFileParser {
 
     if (type == _TokenType.identifier) {
       final nextIndex = tokenIndex + 1;
-      if (nextIndex < tokens.length &&
-          tokens[nextIndex].type == _TokenType.equals) {
+      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.equals) {
         return false; // This is now a new rule.
       }
     }
 
     if (type == _TokenType.dollar) {
       final nextIndex = tokenIndex + 1;
-      if (nextIndex < tokens.length &&
-          tokens[nextIndex].type == _TokenType.identifier) {
+      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.identifier) {
         return true; // This is now a new rule.
       }
     }
@@ -565,10 +547,7 @@ class GrammarFileParser {
         }
       }
 
-      return RuleRefPattern(
-        ruleName,
-        precedenceConstraint: precedenceConstraint,
-      );
+      return RuleRefPattern(ruleName, precedenceConstraint: precedenceConstraint);
     }
 
     if (type == _TokenType.lesser) {
@@ -603,11 +582,7 @@ class GrammarFileParser {
       _advance();
       final pattern = _parsePattern();
       if (_peek().type != _TokenType.rparen) {
-        throw GrammarFileParseError(
-          'Expected ")"',
-          line: _peek().line,
-          column: _peek().column,
-        );
+        throw GrammarFileParseError('Expected ")"', line: _peek().line, column: _peek().column);
       }
       _advance();
       return GroupPattern(pattern);

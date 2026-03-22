@@ -1,5 +1,9 @@
 import 'package:glush/glush.dart';
 
+extension on Pattern {
+  Pattern operator /(Pattern other) => Alt(this, Seq(not(), other));
+}
+
 void mathSimple() {
   final parser =
       r"""
@@ -31,14 +35,14 @@ void ambiguous() {
       r"""
         S = $TWO S S
           | $ONE s
-        s = [s];
+        s = 's';
       """
           .toSMParser();
 
   final evaluator = Evaluator(
     ($) => {
       r'TWO': () => "(${$<String>()}${$<String>()})", //
-      r'ONE': () => $<String>(),
+      r'ONE': () => 's',
     },
   );
 
@@ -55,23 +59,29 @@ void ambiguous() {
     for (final markList in result.forest.allPaths()) {
       final rawMarks = markList.toStringList();
       final evaluated = evaluator.evaluate(rawMarks);
-
-      print(rawMarks);
       print(evaluated);
     }
     print("");
   }
 }
 
-void main() async {
-  mathSimple();
-  ambiguous();
-  final thing = "rule='s'+'s'".toSMParser();
+void orderedChoice() {
+  var grammar = Grammar(() {
+    late Rule s;
+    s = Rule('', () => (Token.char('a') >> Token.char('b')) / Token.char('a'));
 
-  print(
-    (thing.parseWithForest('sssss') as ParseForestSuccess).forest
-        .extract()
-        .first
-        .toPrecedenceString('sssss'),
-  );
+    return s;
+  });
+  var parser = SMParserMini(grammar);
+  var result = parser.parseAmbiguous('ab');
+  print(result);
+  if (result case ParseAmbiguousForestSuccess result) {
+    print(result.forest.allPaths().toList());
+  }
+}
+
+void main() async {
+  // mathSimple();
+  // ambiguous();
+  orderedChoice();
 }

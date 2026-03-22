@@ -1,7 +1,7 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
-import 'package:glush/src/mark.dart';
+import 'mark.dart';
 
 /// Abstract base class for managing parse alternatives as a tree structure.
 ///
@@ -132,8 +132,6 @@ class Concat<T> extends GlushList<T> {
   bool get isEmpty => left.isEmpty && right.isEmpty;
 }
 
-int collectCalls = 0;
-
 extension GlushListVisualizer<T> on GlushList<T> {
   static const int maxPaths = 10000;
 
@@ -142,7 +140,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
   }
 
   Iterable<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) sync* {
-    collectCalls++;
     if (memo.containsKey(node)) {
       yield* memo[node]!;
       return;

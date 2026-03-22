@@ -33,7 +33,7 @@ sealed class Pattern {
       return Eps();
     }
 
-    if (pattern.length == 1) {
+    if (pattern.codeUnits.length == 1) {
       return Token(ExactToken(pattern.codeUnits.single));
     }
 
@@ -287,7 +287,8 @@ class Token extends Pattern {
   Token(this.choice);
   Token.char(String char) //
     : assert(char.length == 1),
-      choice = ExactToken(char.codeUnits.first);
+      assert(char.length == char.codeUnits.length),
+      choice = ExactToken(char.codeUnits.single);
   Token.charRange(String from, String to)
     : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
 
