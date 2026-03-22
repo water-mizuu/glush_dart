@@ -29,3 +29,5 @@ abstract interface class ForestParser {
   Future<ParseOutcome> parseWithForestAsync(Stream<String> input, {int lookaheadWindowSize});
   BsrParseOutcome parseToBsr(String input);
 }
+
+abstract interface class RecognizerAndMarksParser implements Recognizer, MarksParser {}

@@ -201,7 +201,7 @@ class ParseDerivationWithValue<T> {
 ///
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity, semantic actions, and advanced parsing features.
-class SMParser implements GlushParser, Recognizer, MarksParser, ForestParser {
+class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
   static const Context _initialContext = Context(
     RootCallerKey(),
     GlushList.empty(),

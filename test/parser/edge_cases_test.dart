@@ -3,7 +3,11 @@ import 'package:glush/glush.dart';
 
 void main() {
   /// Runs a test for both SMParser and SMParserMini
-  void testBoth(String name, Grammar grammar, void Function(dynamic parser) body) {
+  void testBoth(
+    String name, //
+    Grammar grammar,
+    void Function(RecognizerAndMarksParser parser) body,
+  ) {
     test('$name (Mini)', () => body(SMParserMini(grammar)));
     test('$name (Full)', () => body(SMParser(grammar)));
   }

@@ -12,7 +12,7 @@ import 'interface.dart';
 /// Unlike the full [SMParser], this implementation does not build a Binary Subtree
 /// Representation (BSR) or a Shared Packed Parse Forest (SPPF) by default. It is
 /// optimized for cases where only the results (marks) are needed.
-class SMParserMini implements GlushParser, Recognizer, MarksParser {
+class SMParserMini implements GlushParser, RecognizerAndMarksParser {
   static const Context _initialContext = Context(
     RootCallerKey(),
     GlushList.empty(),
