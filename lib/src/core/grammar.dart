@@ -107,7 +107,12 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-        Label(:var child) || Action(:var child) || Prec(:var child) => [child.symbolId!],
+        Label(:var child) ||
+        Action(:var child) ||
+        Prec(:var child) ||
+        Opt(:var child) ||
+        Plus(:var child) ||
+        Star(:var child) => [child.symbolId!],
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
@@ -172,6 +177,12 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(action.child);
         case Prec plp:
           queue.add(plp.child);
+        case Opt opt:
+          queue.add(opt.child);
+        case Plus plus:
+          queue.add(plus.child);
+        case Star star:
+          queue.add(star.child);
         case Label label:
           queue.add(label.child);
         default:
@@ -202,6 +213,12 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
+      case Opt opt:
+        _collectPatternsFromPattern(opt.child, patterns);
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():
@@ -411,7 +428,12 @@ class GrammarAdapter implements GrammarInterface {
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-        Label(:var child) || Action(:var child) || Prec(:var child) => [child.symbolId!],
+        Label(:var child) ||
+        Action(:var child) ||
+        Prec(:var child) ||
+        Opt(:var child) ||
+        Plus(:var child) ||
+        Star(:var child) => [child.symbolId!],
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
@@ -448,6 +470,12 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
+      case Opt opt:
+        _collectPatternsFromPattern(opt.child, patterns);
+      case Plus plus:
+        _collectPatternsFromPattern(plus.child, patterns);
+      case Star star:
+        _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
       case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():

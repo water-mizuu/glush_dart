@@ -212,9 +212,6 @@ class SMParser extends GlushParserBase
   /// The state machine constructed from the grammar.
   final StateMachine stateMachine;
 
-  /// Initial frames for starting fresh parses.
-  late final List<Frame> _initialFrames;
-
   @override
   bool captureTokensAsMarks;
 
@@ -226,20 +223,14 @@ class SMParser extends GlushParserBase
   /// Builds the state machine on first use and initializes the parser state.
   /// The parser can then be reused across multiple parse() calls on different inputs.
   SMParser(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar) {
-    final initialFrame = Frame(_initialContext);
-    initialFrame.nextStates.addAll(stateMachine.initialStates);
-    _initialFrames = [initialFrame];
-  }
+    : stateMachine = StateMachine(grammar);
 
-  /// Create parser from a pre-built state machine (used for imported machines).
-  ///
-  /// Skips state machine construction (which has already been done elsewhere)
-  /// and creates a parser ready to parse input using the provided machine.
-  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
+  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+
+  List<Frame> get _initialFrames {
     final initialFrame = Frame(_initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
-    _initialFrames = [initialFrame];
+    return [initialFrame];
   }
 
   /// Recognize input without building a parse tree (boolean result).
@@ -247,6 +238,7 @@ class SMParser extends GlushParserBase
   /// Fast path that only checks if the input matches, without marking or
   /// other semantic computation. Returns true iff the entire input is accepted.
   bool recognize(String input) {
+    clearState();
     var frames = _initialFrames;
     int position = 0;
 
@@ -284,6 +276,7 @@ class SMParser extends GlushParserBase
   /// - [ParseSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails at some position
   ParseOutcome parse(String input) {
+    clearState();
     var frames = _initialFrames;
     int position = 0;
 
@@ -327,6 +320,7 @@ class SMParser extends GlushParserBase
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
+    clearState();
     final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
 
     var frames = _initialFrames;
@@ -425,6 +419,8 @@ class SMParser extends GlushParserBase
     Stream<String> input, {
     int lookaheadWindowSize = 1048576,
   }) {
+    clearState();
+
     final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
     final completer = Completer<ParseOutcome>();
     var frames = _initialFrames;
@@ -547,6 +543,7 @@ class SMParser extends GlushParserBase
   /// - [BsrParseSuccess] with the recorded BSR set if input matches
   /// - [BsrParseError] if parsing fails
   BsrParseOutcome parseToBsr(String input) {
+    clearState();
     final bsr = BsrSet();
     var frames = _initialFrames;
     int position = 0;
@@ -737,6 +734,14 @@ class SMParser extends GlushParserBase
       case "alt":
         return _countAlternatives(children.first, input, start, end, memo, inProgress) +
             _countAlternatives(children.last, input, start, end, memo, inProgress);
+      case "opt":
+        {
+          final childCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
+          if (childCount > 0) {
+            return childCount;
+          }
+          return start == end ? 1 : 0;
+        }
       case "seq":
         {
           int totalCount = 0;
@@ -763,6 +768,28 @@ class SMParser extends GlushParserBase
           }
           return totalCount;
         }
+      case "sta":
+        return _countRepetition(
+          symbol: symbol,
+          child: children.single,
+          input: input,
+          start: start,
+          end: end,
+          memo: memo,
+          inProgress: inProgress,
+          isPlus: false,
+        );
+      case "plu":
+        return _countRepetition(
+          symbol: symbol,
+          child: children.single,
+          input: input,
+          start: start,
+          end: end,
+          memo: memo,
+          inProgress: inProgress,
+          isPlus: true,
+        );
       case "rca" || "rul" || "act" || "pre":
         return _countDerivations(children.single, input, start, end, memo, inProgress);
       case "and":
@@ -784,6 +811,37 @@ class SMParser extends GlushParserBase
       default:
         return 0;
     }
+  }
+
+  int _countRepetition({
+    required PatternSymbol symbol,
+    required PatternSymbol child,
+    required String input,
+    required int start,
+    required int end,
+    required Map<String, int> memo,
+    required Map<String, bool> inProgress,
+    required bool isPlus,
+  }) {
+    int totalCount = 0;
+
+    if (!isPlus && start == end) {
+      totalCount += 1;
+    }
+
+    if (isPlus) {
+      totalCount += _countAlternatives(child, input, start, end, memo, inProgress);
+    }
+
+    // Force progress in the recursive branch to avoid epsilon loops.
+    for (int mid = start + 1; mid <= end; mid++) {
+      final leftCount = _countAlternatives(child, input, start, mid, memo, inProgress);
+      if (leftCount == 0) continue;
+      final rightCount = _countAlternatives(symbol, input, mid, end, memo, inProgress);
+      totalCount += leftCount * rightCount;
+    }
+
+    return totalCount;
   }
 
   /// Enumerate all parse derivations for a rule (or pattern with rules).
@@ -947,6 +1005,26 @@ class SMParser extends GlushParserBase
             minPrecedenceLevel: minPrecedenceLevel,
           );
         }
+      case "opt":
+        {
+          final childList = _enumerateAlternatives(
+            bsr,
+            children.single,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ).toList();
+          if (childList.isNotEmpty) {
+            for (final child in childList) {
+              yield ParseDerivation(symbol, start, end, [child]);
+            }
+          } else if (start == end) {
+            yield ParseDerivation(symbol, start, end, []);
+          }
+        }
       case "seq":
         {
           for (int mid = start; mid <= end; mid++) {
@@ -981,6 +1059,32 @@ class SMParser extends GlushParserBase
             }
           }
         }
+      case "sta":
+        yield* _enumerateRepetition(
+          bsr: bsr,
+          symbol: symbol,
+          child: children.single,
+          input: input,
+          start: start,
+          end: end,
+          memo: memo,
+          inProgress: inProgress,
+          isPlus: false,
+          minPrecedenceLevel: minPrecedenceLevel,
+        );
+      case "plu":
+        yield* _enumerateRepetition(
+          bsr: bsr,
+          symbol: symbol,
+          child: children.single,
+          input: input,
+          start: start,
+          end: end,
+          memo: memo,
+          inProgress: inProgress,
+          isPlus: true,
+          minPrecedenceLevel: minPrecedenceLevel,
+        );
       case "rca":
         {
           final prec = suffix.isEmpty ? null : int.parse(suffix);
@@ -1041,6 +1145,71 @@ class SMParser extends GlushParserBase
     }
   }
 
+  Iterable<ParseDerivation> _enumerateRepetition({
+    required BsrSet bsr,
+    required PatternSymbol symbol,
+    required PatternSymbol child,
+    required String input,
+    required int start,
+    required int end,
+    required Map<String, List<ParseDerivation>?> memo,
+    required Map<String, bool> inProgress,
+    required bool isPlus,
+    required int? minPrecedenceLevel,
+  }) sync* {
+    if (!isPlus && start == end) {
+      yield ParseDerivation(symbol, start, end, []);
+    }
+
+    if (isPlus) {
+      for (final base in _enumerateAlternatives(
+        bsr,
+        child,
+        input,
+        start,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      )) {
+        yield ParseDerivation(symbol, start, end, [base]);
+      }
+    }
+
+    // Force progress in the recursive branch to avoid epsilon loops.
+    for (int mid = start + 1; mid <= end; mid++) {
+      final leftList = _enumerateAlternatives(
+        bsr,
+        child,
+        input,
+        start,
+        mid,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      ).toList();
+      if (leftList.isEmpty) continue;
+
+      final rightList = _enumerateAlternatives(
+        bsr,
+        symbol,
+        input,
+        mid,
+        end,
+        memo,
+        inProgress,
+        minPrecedenceLevel: minPrecedenceLevel,
+      ).toList();
+      if (rightList.isEmpty) continue;
+
+      for (final left in leftList) {
+        for (final right in rightList) {
+          yield ParseDerivation(symbol, start, end, [left, right]);
+        }
+      }
+    }
+  }
+
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
   /// Evaluate a [ParseDerivation] with evaluated semantic values.
   ///
@@ -1090,6 +1259,7 @@ class SMParser extends GlushParserBase
       case "mar":
         return NamedMark(suffix, tree.start);
       case "alt":
+      case "opt":
       case "pre":
       case "rca":
       case "rul":
@@ -1098,6 +1268,8 @@ class SMParser extends GlushParserBase
         }
         return null;
       case "seq":
+      case "plu":
+      case "sta":
         final results = <Object?>[];
         for (final child in tree.children) {
           results.add(_evaluateParseDerivation(child, input));
@@ -1224,9 +1396,12 @@ class SMParser extends GlushParserBase
         }
         return null;
       case "alt":
+      case "opt":
       case "act":
       case "pre":
       case "seq":
+      case "plu":
+      case "sta":
         final results = <Object?>[];
         for (final child in tree.children) {
           results.add(_extractParseTreeMarks(child, input));

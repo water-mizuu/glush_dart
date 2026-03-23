@@ -509,10 +509,10 @@ class GrammarFileParser {
       final type = _peek().type;
       if (type == _TokenType.star) {
         _advance();
-        pattern = RepetitionPattern(pattern, RepetitionKind.zeroOrMore);
+        pattern = StarPattern(pattern);
       } else if (type == _TokenType.plus) {
         _advance();
-        pattern = RepetitionPattern(pattern, RepetitionKind.oneOrMore);
+        pattern = PlusPattern(pattern);
       } else if (type == _TokenType.question) {
         _advance();
         pattern = RepetitionPattern(pattern, RepetitionKind.optional);

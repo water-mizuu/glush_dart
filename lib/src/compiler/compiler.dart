@@ -123,6 +123,12 @@ class GrammarFileCompiler {
             return pattern.opt();
         }
 
+      case StarPattern():
+        return Star(_compilePattern(expr.pattern, precedenceLevels));
+
+      case PlusPattern():
+        return Plus(_compilePattern(expr.pattern, precedenceLevels));
+
       case GroupPattern():
         return _compilePattern(expr.inner, precedenceLevels);
 

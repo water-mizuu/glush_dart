@@ -1,7 +1,9 @@
 /// Mark class for tracking parse positions
 library glush.mark;
 
-sealed class Mark {}
+sealed class Mark {
+  List<Object> toList();
+}
 
 class NamedMark extends Mark {
   final String name;
@@ -56,6 +58,9 @@ class LabelStartMark extends Mark {
   LabelStartMark(this.name, this.position);
 
   @override
+  List<Object> toList() => [name, position];
+
+  @override
   String toString() => 'LabelStart($name, $position)';
 }
 
@@ -64,6 +69,9 @@ class LabelEndMark extends Mark {
   final int position;
 
   LabelEndMark(this.name, this.position);
+
+  @override
+  List<Object> toList() => [name, position];
 
   @override
   String toString() => 'LabelEnd($name, $position)';

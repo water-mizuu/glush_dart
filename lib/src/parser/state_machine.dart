@@ -10,7 +10,7 @@ sealed class StateAction {
   const StateAction();
 }
 
-class MarkAction implements StateAction {
+final class MarkAction implements StateAction {
   final String name;
   final Pattern pattern;
   final State nextState;
@@ -18,14 +18,14 @@ class MarkAction implements StateAction {
   const MarkAction(this.name, this.pattern, this.nextState);
 }
 
-class TokenAction implements StateAction {
+final class TokenAction implements StateAction {
   final Pattern pattern;
   final State nextState;
 
   const TokenAction(this.pattern, this.nextState);
 }
 
-class LabelStartAction implements StateAction {
+final class LabelStartAction implements StateAction {
   final String name;
   final Pattern pattern;
   final State nextState;
@@ -33,7 +33,7 @@ class LabelStartAction implements StateAction {
   const LabelStartAction(this.name, this.pattern, this.nextState);
 }
 
-class LabelEndAction implements StateAction {
+final class LabelEndAction implements StateAction {
   final String name;
   final Pattern pattern;
   final State nextState;
@@ -41,7 +41,7 @@ class LabelEndAction implements StateAction {
   const LabelEndAction(this.name, this.pattern, this.nextState);
 }
 
-class CallAction implements StateAction {
+final class CallAction implements StateAction {
   final Rule rule;
   final Pattern pattern;
   final State returnState;
@@ -55,7 +55,7 @@ class CallAction implements StateAction {
       : 'CallAction(${rule.name})';
 }
 
-class ReturnAction implements StateAction {
+final class ReturnAction implements StateAction {
   final Rule rule;
   final Pattern lastPattern;
   final int? precedenceLevel;
@@ -68,11 +68,11 @@ class ReturnAction implements StateAction {
       : 'ReturnAction(${rule.name})';
 }
 
-class AcceptAction implements StateAction {
+final class AcceptAction implements StateAction {
   const AcceptAction();
 }
 
-class SemanticAction implements StateAction {
+final class SemanticAction implements StateAction {
   final Object? Function(String span, List<Object?> childResults) callback;
   final State nextState;
   final Pattern? pattern;
@@ -82,7 +82,7 @@ class SemanticAction implements StateAction {
 
 /// Predicate action for lookahead assertions (AND/NOT predicates)
 /// Does not consume input - purely a condition check
-class PredicateAction implements StateAction {
+final class PredicateAction implements StateAction {
   // Marker type: true for AND (&), false for NOT (!)
   final bool isAnd;
 
@@ -239,7 +239,7 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Alt() || Seq() || Rule() || Prec() || Label():
+      case Alt() || Seq() || Rule() || Prec() || Label() || Opt() || Plus() || Star():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
     }
@@ -267,6 +267,12 @@ class StateMachine {
       map[pattern] = current;
       map[pattern.firstSet().first] = current;
       map[pattern.lastSet().first] = current;
+    } else if (pattern is Opt) {
+      _buildPrecedenceMap(pattern.child, current, map);
+    } else if (pattern is Plus) {
+      _buildPrecedenceMap(pattern.child, current, map);
+    } else if (pattern is Star) {
+      _buildPrecedenceMap(pattern.child, current, map);
     }
   }
 

@@ -18,9 +18,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1' as a single chunk
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1']));
 
       expect(result, isA<ParseForestSuccess>());
       if (result is ParseForestSuccess) {
@@ -38,9 +36,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '12' as two separate chunks
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1', '2']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1', '2']));
 
       expect(result, isA<ParseForestSuccess>());
     });
@@ -50,9 +46,7 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (expr() >>
-                  Token(ExactToken(43)) >>
-                  Token(ExactToken(49))); // 1 | expr+1
+              (expr() >> Token(ExactToken(43)) >> Token(ExactToken(49))); // 1 | expr+1
         });
         return expr;
       });
@@ -87,9 +81,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '2' which doesn't match
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['2']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['2']));
 
       expect(result, isA<ParseError>());
     });
@@ -101,13 +93,11 @@ void main() {
         num = Rule('num', () => Token(ExactToken(49))); // '1'
 
         term = Rule('term', () {
-          return num() |
-              (term() >> Token(ExactToken(42)) >> num()); // term*num
+          return num() | (term() >> Token(ExactToken(42)) >> num()); // term*num
         });
 
         expr = Rule('expr', () {
-          return term() |
-              (expr() >> Token(ExactToken(43)) >> term()); // expr+term
+          return term() | (expr() >> Token(ExactToken(43)) >> term()); // expr+term
         });
 
         return expr;
@@ -131,8 +121,7 @@ void main() {
       final grammar = Grammar(() {
         late Rule expr;
         expr = Rule('expr', () {
-          return Token(ExactToken(49)) |
-              (expr() >> Token(ExactToken(43)) >> expr());
+          return Token(ExactToken(49)) | (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
@@ -140,9 +129,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream '1+1+1' with varied chunk sizes
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1+', '1+', '1']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1+', '1+', '1']));
 
       expect(result, isA<ParseForestSuccess>());
     });
@@ -151,8 +138,7 @@ void main() {
       final grammar = Grammar(() {
         late Rule expr;
         expr = Rule('expr', () {
-          return Token(ExactToken(49)) |
-              (expr() >> Token(ExactToken(43)) >> expr());
+          return Token(ExactToken(49)) | (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
@@ -160,9 +146,7 @@ void main() {
       final parser = SMParser(grammar);
 
       // Stream entire input as one chunk
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1+1+1']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1+1+1']));
 
       expect(result, isA<ParseForestSuccess>());
     });
@@ -172,19 +156,14 @@ void main() {
         late Rule expr;
         expr = Rule('expr', () {
           return Token(ExactToken(49)) |
-              (Marker('add') >>
-                  expr() >>
-                  Token(ExactToken(43)) >>
-                  expr());
+              (Marker('add') >> expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1', '+', '1']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1', '+', '1']));
 
       expect(result, isA<ParseForestSuccess>());
       if (result is ParseForestSuccess) {
@@ -195,21 +174,17 @@ void main() {
 
     test('async stream reuses buffer state correctly', () async {
       final grammar = Grammar(() {
-        return Rule('expr', () => Token(ExactToken(49))); // '1'
+        return Rule('expr', () => Token.char('1')); // '1'
       });
 
       final parser = SMParser(grammar);
 
       // First parse
-      final result1 = await parser.parseWithForestAsync(
-        createChunkedStream(['1']),
-      );
+      final result1 = await parser.parseWithForestAsync(createChunkedStream(['1']));
       expect(result1, isA<ParseForestSuccess>());
 
       // Second parse with same parser should work (buffer is cleared)
-      final result2 = await parser.parseWithForestAsync(
-        createChunkedStream(['1']),
-      );
+      final result2 = await parser.parseWithForestAsync(createChunkedStream(['1']));
       expect(result2, isA<ParseForestSuccess>());
     });
 
@@ -222,9 +197,7 @@ void main() {
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream([' ', ' ']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream([' ', ' ']));
 
       expect(result, isA<ParseForestSuccess>());
     });
@@ -233,8 +206,7 @@ void main() {
       final grammar = Grammar(() {
         late Rule expr;
         expr = Rule('expr', () {
-          return Token(ExactToken(49)) |
-              (expr() >> Token(ExactToken(43)) >> expr());
+          return Token(ExactToken(49)) | (expr() >> Token(ExactToken(43)) >> expr());
         });
         return expr;
       });
@@ -246,16 +218,13 @@ void main() {
       final syncResult = parser.parseWithForest(input);
 
       // Asynchronous parse from stream
-      final asyncResult = await parser.parseWithForestAsync(
-        createChunkedStream([input]),
-      );
+      final asyncResult = await parser.parseWithForestAsync(createChunkedStream([input]));
 
       // Both should succeed
       expect(syncResult, isA<ParseForestSuccess>());
       expect(asyncResult, isA<ParseForestSuccess>());
 
-      if (syncResult is ParseForestSuccess &&
-          asyncResult is ParseForestSuccess) {
+      if (syncResult is ParseForestSuccess && asyncResult is ParseForestSuccess) {
         // Both should produce trees
         final syncTrees = syncResult.forest.extract().toList();
         final asyncTrees = asyncResult.forest.extract().toList();
@@ -267,17 +236,14 @@ void main() {
       final grammar = Grammar(() {
         late Rule expr;
         expr = Rule('expr', () {
-          return And(Token(ExactToken(49))) >> Token(ExactToken(49)) |
-              Token(ExactToken(50));
+          return And(Token(ExactToken(49))) >> Token(ExactToken(49)) | Token(ExactToken(50));
         });
         return expr;
       });
 
       final parser = SMParser(grammar);
 
-      final result = await parser.parseWithForestAsync(
-        createChunkedStream(['1']),
-      );
+      final result = await parser.parseWithForestAsync(createChunkedStream(['1']));
 
       expect(result, isA<ParseForestSuccess>());
     });

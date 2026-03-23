@@ -129,43 +129,10 @@ sealed class Pattern {
     return Action<T>(this, callback);
   }
 
-  static int _customIds = 0;
-
   /// Repetition operators
-  Pattern plus() => this.plusRewrite();
-  Pattern star() => this.starRewrite();
-  Pattern opt() => this.optRewrite();
-
-  Pattern plusRewrite() {
-    late Rule inner;
-    inner = Rule(
-      "__${_customIds++}__",
-      () =>
-          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-          this,
-    );
-
-    return inner();
-  }
-
-  Pattern starRewrite() {
-    late Rule inner;
-    inner = Rule(
-      "__${_customIds++}__",
-      () =>
-          (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
-          Eps(),
-    );
-
-    return inner();
-  }
-
-  Pattern optRewrite() {
-    late Rule inner;
-    inner = Rule("__${_customIds++}__", () => this | Eps());
-
-    return inner();
-  }
+  Pattern plus() => Plus(this);
+  Pattern star() => Star(this);
+  Pattern opt() => Opt(this);
 
   /// This discriminates the type of the pattern from the symbol
   ///   without making an entire rule object.
@@ -183,6 +150,9 @@ sealed class Pattern {
       RuleCall() => "rca",
       Action() => "act",
       Prec() => "pre",
+      Opt() => "opt",
+      Plus() => "plu",
+      Star() => "sta",
       Label() => "lab",
       LabelStart() => "las",
       LabelEnd() => "lae",
@@ -209,6 +179,9 @@ sealed class Pattern {
       RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
       Action() => "",
       Prec(precedenceLevel: var prec) => "$prec",
+      Opt() => "",
+      Plus() => "",
+      Star() => "",
       Label(:var name) => "$name",
       LabelStart(:var name) => "$name",
       LabelEnd(:var name) => "$name",
@@ -519,6 +492,138 @@ class Seq extends Pattern {
 
   @override
   String toString() => 'seq($left, $right)';
+}
+
+/// Optional pattern (zero-or-one) with ordered-choice semantics.
+/// This is modeled as a first-class node instead of rewriting to Alt(child, Eps).
+class Opt extends Pattern {
+  final Pattern child;
+
+  Opt(Pattern child) : child = child.consume();
+
+  @override
+  Opt copy() => Opt(child);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    child.calculateEmpty(emptyRules);
+    setEmpty(true);
+    return true;
+  }
+
+  @override
+  bool isStatic() => child.isStatic();
+
+  @override
+  Set<Pattern> firstSet() => child.firstSet();
+
+  @override
+  Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  void eachPair(void Function(Pattern, Pattern) callback) {
+    child.eachPair(callback);
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    child.collectRules(rules);
+  }
+
+  @override
+  String toString() => 'opt($child)';
+}
+
+/// Zero-or-more repetition
+class Star extends Pattern {
+  final Pattern child;
+
+  Star(Pattern child) : child = child.consume();
+
+  @override
+  Star copy() => Star(child);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    child.calculateEmpty(emptyRules);
+    setEmpty(true);
+    return true;
+  }
+
+  @override
+  bool isStatic() => child.isStatic();
+
+  @override
+  Set<Pattern> firstSet() => child.firstSet();
+
+  @override
+  Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  void eachPair(void Function(Pattern, Pattern) callback) {
+    child.eachPair(callback);
+
+    // Prefer staying in the repetition before exiting in non-ambiguity mode.
+    for (final a in child.lastSet()) {
+      for (final b in child.firstSet()) {
+        callback(a, b);
+      }
+    }
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    child.collectRules(rules);
+  }
+
+  @override
+  String toString() => 'star($child)';
+}
+
+/// One-or-more repetition
+class Plus extends Pattern {
+  final Pattern child;
+
+  Plus(Pattern child) : child = child.consume();
+
+  @override
+  Plus copy() => Plus(child);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    final childEmpty = child.calculateEmpty(emptyRules);
+    setEmpty(childEmpty);
+    return childEmpty;
+  }
+
+  @override
+  bool isStatic() => child.isStatic();
+
+  @override
+  Set<Pattern> firstSet() => child.firstSet();
+
+  @override
+  Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  void eachPair(void Function(Pattern, Pattern) callback) {
+    child.eachPair(callback);
+
+    // Prefer staying in the repetition before exiting in non-ambiguity mode.
+    for (final a in child.lastSet()) {
+      for (final b in child.firstSet()) {
+        callback(a, b);
+      }
+    }
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    child.collectRules(rules);
+  }
+
+  @override
+  String toString() => 'plus($child)';
 }
 
 /// Conjunction (both patterns must match)

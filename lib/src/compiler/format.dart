@@ -156,6 +156,26 @@ class RepetitionPattern implements PatternExpr {
   String toString() => '$pattern${kind.suffix}';
 }
 
+/// Zero-or-more repetition (e.g., expr*)
+class StarPattern implements PatternExpr {
+  final PatternExpr pattern;
+
+  const StarPattern(this.pattern);
+
+  @override
+  String toString() => '$pattern*';
+}
+
+/// One-or-more repetition (e.g., expr+)
+class PlusPattern implements PatternExpr {
+  final PatternExpr pattern;
+
+  const PlusPattern(this.pattern);
+
+  @override
+  String toString() => '$pattern+';
+}
+
 enum RepetitionKind {
   zeroOrMore('*'),
   oneOrMore('+'),

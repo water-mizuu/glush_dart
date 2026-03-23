@@ -165,6 +165,54 @@ class _ContSeqRight extends _Task {
   _ContSeqRight(this.loopTask, this.leftNodes);
 }
 
+class _ContRepLoop extends _Task {
+  final PatternSymbol currentRule;
+  final PatternSymbol pattern;
+  final int start, end, ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? repNode;
+
+  _ContRepLoop(
+    this.currentRule,
+    this.pattern,
+    this.start,
+    this.end,
+    this.ruleStart,
+    this.minPrecedenceLevel,
+    this.it,
+  );
+}
+
+class _ContRepBase extends _Task {
+  final _ContRepLoop loopTask;
+  _ContRepBase(this.loopTask);
+}
+
+class _ContRepEpsilon extends _Task {
+  final _ContRepLoop loopTask;
+  _ContRepEpsilon(this.loopTask);
+}
+
+class _ContRepLeft extends _Task {
+  final _ContRepLoop loopTask;
+  final int mid;
+  _ContRepLeft(this.loopTask, this.mid);
+}
+
+class _ContRepRight extends _Task {
+  final _ContRepLoop loopTask;
+  final List<ForestNode> leftNodes;
+  _ContRepRight(this.loopTask, this.leftNodes);
+}
+
+class _ContOptChoose extends _Task {
+  final int start, end;
+  final PatternSymbol pattern;
+
+  const _ContOptChoose(this.start, this.end, this.pattern);
+}
+
 class _ContConjLeft extends _Task {
   final PatternSymbol currentRule;
   final PatternSymbol pattern;
@@ -366,6 +414,83 @@ class SppfBuilder {
             for (final r in rightNodes) task.loopTask.seqNode!.addFamily(Family.binary(l, r));
           }
         }
+      } else if (task is _ContRepEpsilon) {
+        task.loopTask.repNode ??= nodeManager.intermediate(
+          task.loopTask.start,
+          task.loopTask.end,
+          task.loopTask.pattern,
+        );
+        task.loopTask.repNode!.addFamily(
+          Family.unary(nodeManager.epsilon(task.loopTask.start, task.loopTask.pattern)),
+        );
+      } else if (task is _ContRepBase) {
+        final baseNodes = valueStack.removeLast() as List<ForestNode>;
+        if (baseNodes.isNotEmpty) {
+          task.loopTask.repNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern,
+          );
+          for (final base in baseNodes) {
+            task.loopTask.repNode!.addFamily(Family.unary(base));
+          }
+        }
+      } else if (task is _ContRepLoop) {
+        if (!task.it.moveNext()) {
+          valueStack.add(task.repNode != null ? [task.repNode!] : <ForestNode>[]);
+        } else {
+          final mid = task.it.current;
+          taskStack.add(task);
+          taskStack.add(_ContRepLeft(task, mid));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).single,
+              task.start,
+              mid,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContRepLeft) {
+        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        if (leftNodes.isNotEmpty) {
+          taskStack.add(_ContRepRight(task.loopTask, leftNodes));
+          taskStack.add(
+            _EvalPattern(
+              task.loopTask.currentRule,
+              task.loopTask.pattern,
+              task.mid,
+              task.loopTask.end,
+              task.loopTask.ruleStart,
+              task.loopTask.minPrecedenceLevel,
+            ),
+          );
+        }
+      } else if (task is _ContRepRight) {
+        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        if (rightNodes.isNotEmpty) {
+          task.loopTask.repNode ??= nodeManager.intermediate(
+            task.loopTask.start,
+            task.loopTask.end,
+            task.loopTask.pattern,
+          );
+          for (final l in task.leftNodes) {
+            for (final r in rightNodes) {
+              task.loopTask.repNode!.addFamily(Family.binary(l, r));
+            }
+          }
+        }
+      } else if (task is _ContOptChoose) {
+        final childNodes = valueStack.removeLast() as List<ForestNode>;
+        if (childNodes.isNotEmpty) {
+          valueStack.add(childNodes);
+        } else if (task.start == task.end) {
+          valueStack.add([nodeManager.epsilon(task.start, task.pattern)]);
+        } else {
+          valueStack.add(<ForestNode>[]);
+        }
       }
     }
 
@@ -446,6 +571,20 @@ class SppfBuilder {
             ),
           );
         }
+      case "opt":
+        {
+          taskStack.add(_ContOptChoose(start, end, task.pattern));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).single,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
       case "seq":
         {
           final pivots = bsr.pivotsFor(task.currentRule, start, end);
@@ -458,6 +597,48 @@ class SppfBuilder {
               task.ruleStart,
               task.minPrecedenceLevel,
               pivots.iterator,
+            ),
+          );
+        }
+      case "sta":
+        {
+          final mids = [for (int mid = start + 1; mid <= end; mid++) mid].iterator;
+          final loop = _ContRepLoop(
+            task.currentRule,
+            task.pattern,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+            mids,
+          );
+          taskStack.add(loop);
+          if (start == end) {
+            taskStack.add(_ContRepEpsilon(loop));
+          }
+        }
+      case "plu":
+        {
+          final mids = [for (int mid = start + 1; mid <= end; mid++) mid].iterator;
+          final loop = _ContRepLoop(
+            task.currentRule,
+            task.pattern,
+            start,
+            end,
+            task.ruleStart,
+            task.minPrecedenceLevel,
+            mids,
+          );
+          taskStack.add(loop);
+          taskStack.add(_ContRepBase(loop));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).single,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
             ),
           );
         }

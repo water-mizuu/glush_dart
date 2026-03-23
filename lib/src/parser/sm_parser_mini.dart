@@ -18,7 +18,6 @@ class SMParserMini extends GlushParserBase with ParserCore implements Recognizer
   );
 
   final StateMachine stateMachine;
-  late final List<Frame> _initialFrames;
 
   @override
   bool captureTokensAsMarks;
@@ -26,22 +25,19 @@ class SMParserMini extends GlushParserBase with ParserCore implements Recognizer
   GrammarInterface get grammar => stateMachine.grammar;
 
   SMParserMini(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar) {
-    _initInitialFrames();
-  }
+    : stateMachine = StateMachine(grammar);
 
-  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false}) {
-    _initInitialFrames();
-  }
+  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
 
-  void _initInitialFrames() {
+  List<Frame> get _initialFrames {
     final initialFrame = Frame(_initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
-    _initialFrames = [initialFrame];
+    return [initialFrame];
   }
 
   @override
   bool recognize(String input) {
+    clearState();
     var frames = _initialFrames;
     var position = 0;
 
@@ -71,6 +67,7 @@ class SMParserMini extends GlushParserBase with ParserCore implements Recognizer
   /// Standard parsing that returns the first valid result found.
   @override
   ParseOutcome parse(String input) {
+    clearState();
     var frames = _initialFrames;
     var position = 0;
 
@@ -105,6 +102,7 @@ class SMParserMini extends GlushParserBase with ParserCore implements Recognizer
   /// Parses ambiguous input and returns a forest of all possible results (marks).
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
+    clearState();
     final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
 
     var frames = _initialFrames;

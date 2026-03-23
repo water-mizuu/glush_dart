@@ -10,9 +10,13 @@ abstract interface class GlushParser {
   StateMachine get stateMachine;
   Map<int, TokenNode> get historyByPosition;
   Map<PredicateKey, PredicateTracker> get predicateTrackers;
+  Map<CallerCacheKey, Caller> get callers;
   bool get captureTokensAsMarks;
   GlushListManager<Mark> get markManager;
   GrammarInterface get grammar;
+
+  /// Clear any state from previous parses
+  void clearState();
 }
 
 abstract class GlushParserBase implements GlushParser {
@@ -23,7 +27,18 @@ abstract class GlushParserBase implements GlushParser {
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
 
   @override
+  final Map<CallerCacheKey, Caller> callers = {};
+
+  @override
   final GlushListManager<Mark> markManager = GlushListManager<Mark>();
+
+  @override
+  void clearState() {
+    historyByPosition.clear();
+    predicateTrackers.clear();
+    callers.clear();
+    markManager.clear();
+  }
 }
 
 abstract interface class Recognizer {

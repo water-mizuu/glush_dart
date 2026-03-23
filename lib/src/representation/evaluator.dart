@@ -199,9 +199,16 @@ class StructuredEvaluator {
             stack.last.addChild(frame.name, result);
           }
         case NamedMark(:var name):
-          final lastChild = stack.last.children.removeLast();
-          final newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
-          stack.last.children.add((name, newNode));
+          if (stack.last.children.isNotEmpty) {
+            final lastChild = stack.last.children.removeLast();
+            final newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+            stack.last.children.add((name, newNode));
+          } else {
+            // Legacy fallback: if no labeled children, wrap the text matched so far
+            final newNode = ParseResult([], stack.last.spanBuffer.toString());
+            stack.last.children.add((name, newNode));
+          }
+
         case StringMark(:var value):
           stack.last.addToken(value);
       }

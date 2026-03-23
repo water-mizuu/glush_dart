@@ -272,30 +272,28 @@ void main() async {
   var smol =
       r"""
       file = _ commentPlus _
-      commentPlus = commentPlus newline? comment
+      commentPlus = $comment left:commentPlus newline right:comment
                   | comment
 
       _ = $ws (plain_ws | comment | newline)*
-      comment = cdr:comment newline? car:('#' (!\n .)* !(!\n .)) | ''
-      plain_ws = [ \t]+ ![ \t]
-      newline = [\n\r]+ ![\n\r]
+      comment = $comment cdr:comment (newline | !newline '') car:('#' (!\n .)*) | ''
+      plain_ws = [ \t]+
+      newline = [\n\r]+
     """
           .toSMParser();
 
   const input = """
 # abc
-# def
-# ghi
-# jkl
+# deadf
 """;
 
-  switch (smol.parseAmbiguous(input)) {
-    case ParseError():
-      // TODO: Handle this case.
-      throw UnimplementedError();
+  switch (smol.parseAmbiguous(input, captureTokensAsMarks: true)) {
+    case ParseError error:
+      error.displayError(input);
     case ParseAmbiguousForestSuccess(:var forest):
+      print(forest.allPaths().length);
       for (final path in forest.allPaths()) {
-        print(path);
+        print(StructuredEvaluator().evaluate(path));
       }
     case _:
       break;

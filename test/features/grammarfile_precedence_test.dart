@@ -185,6 +185,10 @@ void _walkPattern(PatternExpr pattern, Function(PatternExpr) visit) {
       }
     case RepetitionPattern p:
       _walkPattern(p.pattern, visit);
+    case StarPattern p:
+      _walkPattern(p.pattern, visit);
+    case PlusPattern p:
+      _walkPattern(p.pattern, visit);
     case GroupPattern p:
       _walkPattern(p.inner, visit);
     default:

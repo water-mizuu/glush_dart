@@ -9,7 +9,6 @@ import 'package:glush/src/representation/sppf.dart';
 
 import 'interface.dart';
 
-
 // ---------------------------------------------------------------------------
 // Type aliases for complex record types used as keys and internal state
 // ---------------------------------------------------------------------------
@@ -108,6 +107,12 @@ class ParserResult {
           currentStringMark = null;
         }
         result.add(mark.name);
+      } else if (mark is LabelStartMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
       } else if (mark is StringMark) {
         currentStringMark = (currentStringMark ?? '') + mark.value;
       }
@@ -120,11 +125,7 @@ class ParserResult {
     return result;
   }
 
-  List<List<Object?>> toList() => _rawMarks.map((m) {
-    if (m is NamedMark) return m.toList();
-    if (m is StringMark) return m.toList();
-    return [];
-  }).toList();
+  List<List<Object?>> toList() => _rawMarks.map((m) => m.toList()).toList();
 }
 
 /// Node in a linked list of tokens, providing shared history for lagging frames.
@@ -141,7 +142,7 @@ class PredicateTracker {
   final bool isAnd;
   int activeFrames = 0;
   bool matched = false;
-  final List<(Context, State)> waiters = [];
+  final List<(ParseNodeKey? source, Context, State)> waiters = [];
   PredicateTracker(this.symbol, this.startPosition, {required this.isAnd});
 }
 
@@ -187,6 +188,19 @@ final class Caller extends CallerKey {
   final List<Context> returns = [];
 
   Caller(this.rule, this.pattern, this.startPosition, this.minPrecedenceLevel);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Caller &&
+          runtimeType == other.runtimeType &&
+          rule == other.rule &&
+          pattern == other.pattern &&
+          startPosition == other.startPosition &&
+          minPrecedenceLevel == other.minPrecedenceLevel;
+
+  @override
+  int get hashCode => Object.hash(rule, pattern, startPosition, minPrecedenceLevel);
 
   bool addWaiter(
     CallerKey? parent,
@@ -310,7 +324,7 @@ class Step {
   final Map<ContextKey, Set<PredecessorInfo>> _nextPredecessorGroups = {};
   final Map<ContextKey, GlushList<Mark>> _activeContexts = {};
   final Queue<AcceptedContext> _currentWorkList = DoubleLinkedQueue();
-  final Map<CallerCacheKey, Caller> _callers = {};
+  final Map<CallerCacheKey, Caller> _callers;
   final Set<CallerKey> _returnedCallers = {};
   final List<AcceptedContext> acceptedContexts = [];
   final List<Frame> requeued = [];
@@ -331,34 +345,66 @@ class Step {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
     required this.predecessors,
-  });
+  }) : _callers = parser.callers;
 
   void _finishPredicate(PredicateTracker tracker, bool matched) {
     if (matched) {
       tracker.matched = true;
-      for (final (parentContext, nextState) in tracker.waiters) {
+      for (final (source, parentContext, nextState) in tracker.waiters) {
         final predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
-          parser
-              .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
-              ?.activeFrames--;
+          final parentTracker =
+              parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          if (parentTracker != null) {
+            parentTracker.activeFrames--;
+          }
         }
 
         if (tracker.isAnd) {
+          if (isSupportingAmbiguity) {
+            final target = (nextState.id, position, parentContext.caller);
+            final predAction = PredicateAction(
+              isAnd: tracker.isAnd,
+              symbol: tracker.symbol,
+              nextState: nextState,
+            );
+            predecessors.putIfAbsent(target, () => {}).add((
+              source,
+              predAction,
+              const GlushList.empty(),
+              null,
+            ));
+          }
           requeue(Frame(parentContext)..nextStates.add(nextState));
         }
       }
       tracker.waiters.clear();
     } else if (tracker.activeFrames == 0) {
-      for (final (parentContext, nextState) in tracker.waiters) {
+      for (final (source, parentContext, nextState) in tracker.waiters) {
         final predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
-          parser
-              .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
-              ?.activeFrames--;
+          final parentTracker =
+              parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          if (parentTracker != null) {
+            parentTracker.activeFrames--;
+          }
         }
 
         if (!tracker.isAnd) {
+          if (isSupportingAmbiguity) {
+            final target = (nextState.id, position, parentContext.caller);
+            final predAction = PredicateAction(
+              isAnd: tracker.isAnd,
+              symbol: tracker.symbol,
+              nextState: nextState,
+            );
+            predecessors.putIfAbsent(target, () => {}).add((
+              source,
+              predAction,
+              const GlushList.empty(),
+              null,
+            ));
+          }
           requeue(Frame(parentContext)..nextStates.add(nextState));
         }
       }
@@ -525,17 +571,53 @@ class Step {
 
           if (tracker.matched) {
             if (tracker.isAnd) {
+              if (isSupportingAmbiguity) {
+                final target = (action.nextState.id, position, frame.context.caller);
+                final predAction = PredicateAction(
+                  isAnd: action.isAnd,
+                  symbol: action.symbol,
+                  nextState: action.nextState,
+                );
+                predecessors.putIfAbsent(target, () => {}).add((
+                  (state.id, position, frame.context.caller),
+                  predAction,
+                  const GlushList.empty(),
+                  null,
+                ));
+              }
+              requeue(Frame(frame.context)..nextStates.add(action.nextState));
+            }
+          } else if (!isFirst && tracker.activeFrames == 0) {
+            if (!tracker.isAnd) {
+              if (isSupportingAmbiguity) {
+                final target = (action.nextState.id, position, frame.context.caller);
+                final predAction = PredicateAction(
+                  isAnd: action.isAnd,
+                  symbol: action.symbol,
+                  nextState: action.nextState,
+                );
+                predecessors.putIfAbsent(target, () => {}).add((
+                  (state.id, position, frame.context.caller),
+                  predAction,
+                  const GlushList.empty(),
+                  null,
+                ));
+              }
               requeue(Frame(frame.context)..nextStates.add(action.nextState));
             }
           } else {
-            tracker.waiters.add((frame.context, action.nextState));
-          }
+            tracker.waiters.add((
+              (state.id, position, frame.context.caller),
+              frame.context,
+              action.nextState,
+            ));
 
-          final predicateKey = frame.context.predicateStack.lastOrNull;
-          if (predicateKey != null) {
-            final parentTracker =
-                parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-            parentTracker?.activeFrames++;
+            final predicateKey = frame.context.predicateStack.lastOrNull;
+            if (predicateKey != null) {
+              final parentTracker =
+                  parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+              parentTracker?.activeFrames++;
+            }
           }
 
           if (isFirst && !tracker.matched) {
@@ -563,6 +645,7 @@ class Step {
               );
             }
           }
+
         case CallAction():
           final CallerCacheKey key = (action.rule, position, action.minPrecedenceLevel);
           final isNewCaller = !_callers.containsKey(key);
@@ -763,7 +846,9 @@ class Step {
       if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
         final tracker =
             parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-        tracker?.activeFrames--;
+        if (tracker != null) {
+          tracker.activeFrames--;
+        }
       }
       final currentMarks = isSupportingAmbiguity
           ? _activeContexts[(
@@ -795,16 +880,16 @@ mixin ParserCore on GlushParserBase {
   void checkExhaustedPredicatesInternal(
     SplayTreeMap<int, List<Frame>> workQueue,
     int currentPosition,
+    Map<ParseNodeKey, Set<PredecessorInfo>> predecessors,
   ) {
     bool changed = true;
     while (changed) {
       changed = false;
-      final toRemove = <PredicateKey>{};
+      final toRemove = <(PatternSymbol, int)>{};
       for (final entry in predicateTrackers.entries) {
         final tracker = entry.value;
-
         if (tracker.activeFrames == 0 && !tracker.matched) {
-          for (final (parentContext, nextState) in tracker.waiters) {
+          for (final (source, parentContext, nextState) in tracker.waiters) {
             final predicateKey = parentContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
               final parentTracker =
@@ -817,16 +902,27 @@ mixin ParserCore on GlushParserBase {
 
             if (!tracker.isAnd) {
               final targetPosition = parentContext.pivot ?? 0;
-              workQueue
-                  .putIfAbsent(targetPosition, () => [])
-                  .add(Frame(parentContext)..nextStates.add(nextState));
+              final predAction = PredicateAction(
+                isAnd: tracker.isAnd,
+                symbol: tracker.symbol,
+                nextState: nextState,
+              );
+              final target = (nextState.id, targetPosition, parentContext.caller);
+              predecessors.putIfAbsent(target, () => {}).add((
+                source,
+                predAction,
+                const GlushList.empty(),
+                null,
+              ));
 
-              if (parentContext.predicateStack.lastOrNull case var parentPredicateKey?) {
-                predicateTrackers[(parentPredicateKey.pattern, parentPredicateKey.startPosition)]
-                    ?.activeFrames++;
+              final nextFrame = Frame(parentContext)..nextStates.add(nextState);
+              if (parentContext.predicateStack.lastOrNull case var pk?) {
+                predicateTrackers[(pk.pattern, pk.startPosition)]?.activeFrames++;
               }
+              workQueue.putIfAbsent(targetPosition, () => []).add(nextFrame);
             }
           }
+          tracker.waiters.clear();
           toRemove.add(entry.key);
           changed = true;
         } else if (tracker.matched) {
@@ -874,11 +970,12 @@ mixin ParserCore on GlushParserBase {
 
       final positionFrames = workQueue.remove(position)!;
 
-      final currentStep = stepsAtPosition.putIfAbsent(position, () {
+      if (stepsAtPosition[position] == null) {
         final positionToken = (position == currentPosition)
             ? token
             : historyByPosition[position]?.unit;
-        return Step(
+
+        stepsAtPosition[position] = Step(
           this,
           positionToken,
           position,
@@ -888,18 +985,23 @@ mixin ParserCore on GlushParserBase {
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
           predecessors: predecessors,
         );
-      });
+      }
+      final currentStep = stepsAtPosition[position]!;
 
       for (final frame in positionFrames) {
         if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
-          predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]?.activeFrames--;
+          final tracker = predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          if (tracker != null) {
+            tracker.activeFrames--;
+          }
         }
         currentStep.processFrame(frame);
       }
+
       currentStep.finalize();
 
       if (workQueue.isEmpty || workQueue.firstKey()! > currentPosition) {
-        checkExhaustedPredicatesInternal(workQueue, currentPosition);
+        checkExhaustedPredicatesInternal(workQueue, currentPosition, predecessors);
       }
 
       if (position < currentPosition) {
@@ -939,7 +1041,9 @@ mixin ParserCore on GlushParserBase {
 
     currentVisiting.add(node);
     final predecessorsForNode = predecessors[node];
-    if (predecessorsForNode == null) return memo[node] = const GlushList<Mark>.empty();
+    if (predecessorsForNode == null) {
+      return memo[node] = const GlushList<Mark>.empty();
+    }
 
     final alternatives = <GlushList<Mark>>[];
     for (final (source, action, marks, callSite) in predecessorsForNode) {
@@ -964,8 +1068,7 @@ mixin ParserCore on GlushParserBase {
     }
     currentVisiting.remove(node);
 
-    return memo[node] = markManager.branched(alternatives);
+    final result = markManager.branched(alternatives);
+    return memo[node] = result;
   }
-
-
 }

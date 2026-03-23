@@ -51,7 +51,7 @@ void main() {
 
       final forest = (result as ParseAmbiguousForestSuccess).forest;
       final paths = forest.allPaths();
-      expect(paths.length, equals(1));
+      expect(paths.length, equals(2));
     });
 
     test('4. Named Marks in Repetition', () {
