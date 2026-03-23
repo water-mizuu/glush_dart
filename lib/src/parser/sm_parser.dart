@@ -32,7 +32,6 @@
 library glush.sm_parser;
 
 import 'dart:async';
-import 'dart:collection';
 
 import 'package:glush/src/core/grammar.dart';
 
@@ -201,7 +200,9 @@ class ParseDerivationWithValue<T> {
 ///
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity, semantic actions, and advanced parsing features.
-class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
+class SMParser extends GlushParserBase
+    with ParserCore
+    implements RecognizerAndMarksParser, ForestParser {
   static const Context _initialContext = Context(
     RootCallerKey(),
     GlushList.empty(),
@@ -209,27 +210,12 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
   );
 
   /// The state machine constructed from the grammar.
-  /// Encodes grammar rules as states and transitions.
   final StateMachine stateMachine;
 
   /// Initial frames for starting fresh parses.
-  /// Lazily initialized on first use.
   late final List<Frame> _initialFrames;
 
   @override
-  final GlushListManager<Mark> markManager = GlushListManager<Mark>();
-
-  @override
-  final Map<int, TokenNode> historyByPosition = {};
-
-  /// Tail of the token history linked list.
-  /// Points to the most recently processed token.
-  TokenNode? _historyTail;
-
-  @override
-  final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
-
-  /// Whether to capture tokens as StringMark semantic annotations.
   bool captureTokensAsMarks;
 
   /// Returns the grammar used to construct this parser's state machine.
@@ -265,7 +251,13 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, predecessors: {});
+      final stepResult = processTokenInternal(
+        codepoint,
+        position,
+        frames,
+        captureTokensAsMarks: captureTokensAsMarks,
+        predecessors: {},
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return false;
@@ -273,7 +265,13 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, predecessors: {});
+    final lastStep = processTokenInternal(
+      null,
+      position,
+      frames,
+      captureTokensAsMarks: captureTokensAsMarks,
+      predecessors: {},
+    );
     return lastStep.accept;
   }
 
@@ -290,7 +288,13 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, predecessors: {});
+      final stepResult = processTokenInternal(
+        codepoint,
+        position,
+        frames,
+        captureTokensAsMarks: captureTokensAsMarks,
+        predecessors: {},
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return ParseError(position);
@@ -298,8 +302,13 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, predecessors: {});
-
+    final lastStep = processTokenInternal(
+      null,
+      position,
+      frames,
+      captureTokensAsMarks: captureTokensAsMarks,
+      predecessors: {},
+    );
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
     } else {
@@ -324,7 +333,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
     var position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(
+      final stepResult = processTokenInternal(
         codepoint,
         position,
         frames,
@@ -340,7 +349,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
       position++;
     }
 
-    final lastStep = _processToken(
+    final lastStep = processTokenInternal(
       null,
       position,
       frames,
@@ -356,7 +365,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
 
       for (final (state, context) in lastStep.acceptedContexts) {
         final rootNode = (state.id, position, context.caller);
-        results.add(_extractForestFromGraph(rootNode, memo, predecessors));
+        results.add(extractForestFromGraphInternal(rootNode, memo, predecessors));
       }
 
       return ParseAmbiguousForestSuccess(markManager.branched(results));
@@ -366,7 +375,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
   }
 
   /// Extracts the parse forest from the predecessor graph.
-  GlushList<Mark> _extractForestFromGraph(
+  GlushList<Mark> extractForestFromGraphInternal(
     ParseNodeKey node,
     Map<ParseNodeKey, GlushList<Mark>> memo,
     Map<ParseNodeKey, Set<PredecessorInfo>> predecessors, [
@@ -388,14 +397,19 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
     final alternatives = <GlushList<Mark>>[];
     for (final (source, action, marks, callSite) in predecessorsForNode) {
       if (action is ReturnAction) {
-        final ruleForest = _extractForestFromGraph(source!, memo, predecessors, currentVisiting);
+        final ruleForest = extractForestFromGraphInternal(
+          source!,
+          memo,
+          predecessors,
+          currentVisiting,
+        );
         final parentForest = callSite != null
-            ? _extractForestFromGraph(callSite, memo, predecessors, currentVisiting)
+            ? extractForestFromGraphInternal(callSite, memo, predecessors, currentVisiting)
             : const GlushList<Mark>.empty();
 
         alternatives.add(parentForest.addList(markManager, ruleForest));
       } else if (source != null) {
-        final base = _extractForestFromGraph(source, memo, predecessors, currentVisiting);
+        final base = extractForestFromGraphInternal(source, memo, predecessors, currentVisiting);
         alternatives.add(base.addList(markManager, marks));
       } else {
         alternatives.add(marks);
@@ -486,7 +500,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
             }
 
             // Process this token with BSR recording
-            final stepResult = _processToken(
+            final stepResult = processTokenInternal(
               codeUnit,
               globalPosition,
               frames,
@@ -519,11 +533,12 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
             if (completer.isCompleted) return;
 
             // Process end-of-stream token
-            final lastStep = _processToken(
+            final lastStep = processTokenInternal(
               null,
               globalPosition,
               frames,
               bsr: bsr,
+              captureTokensAsMarks: captureTokensAsMarks,
               predecessors: predecessors,
             );
 
@@ -583,7 +598,13 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = _processToken(codepoint, position, frames, bsr: bsr, predecessors: {});
+      final stepResult = processTokenInternal(
+        codepoint,
+        position,
+        frames,
+        bsr: bsr,
+        predecessors: {},
+      );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -591,7 +612,7 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
       position++;
     }
 
-    final lastStep = _processToken(null, position, frames, bsr: bsr, predecessors: {});
+    final lastStep = processTokenInternal(null, position, frames, bsr: bsr, predecessors: {});
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);
@@ -1262,151 +1283,6 @@ class SMParser implements GlushParser, RecognizerAndMarksParser, ForestParser {
         return [];
       case _:
         throw Error();
-    }
-  }
-
-  Step _processToken(
-    int? token,
-    int currentPosition,
-    List<Frame> frames, {
-    BsrSet? bsr,
-    bool isSupportingAmbiguity = false,
-    bool captureTokensAsMarks = false,
-    required Map<ParseNodeKey, Set<PredecessorInfo>> predecessors,
-  }) {
-    // Update global token history linked list
-    if (token != null) {
-      final node = TokenNode(token);
-      if (_historyTail == null) {
-        _historyTail = node;
-      } else {
-        _historyTail!.next = node;
-        _historyTail = node;
-      }
-      historyByPosition[currentPosition] = node;
-    }
-
-    // historyByPosition updated via currentPosition check in lagging logic if needed
-    // or handled by the Step constructor.
-    if (_historyTail != null) {
-      historyByPosition[currentPosition] = _historyTail!;
-    }
-
-    final stepsAtPosition = <int, Step>{};
-    final workQueue = SplayTreeMap<int, List<Frame>>((a, b) => a.compareTo(b));
-
-    _enqueueFramesForPosition(workQueue, frames);
-
-    while (workQueue.isNotEmpty) {
-      final position = workQueue.firstKey()!;
-      if (position > currentPosition) break; // Don't process ahead of current token
-
-      final positionFrames = workQueue.remove(position)!;
-
-      final currentStep = stepsAtPosition.putIfAbsent(position, () {
-        final positionToken = (position == currentPosition)
-            ? token
-            : historyByPosition[position]?.unit;
-        return Step(
-          this,
-          positionToken,
-          position,
-          bsr: bsr,
-          markManager: markManager,
-          isSupportingAmbiguity: isSupportingAmbiguity,
-          captureTokensAsMarks: captureTokensAsMarks,
-          predecessors: predecessors,
-        );
-      });
-
-      for (final frame in positionFrames) {
-        if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
-          predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]?.activeFrames--;
-        }
-        currentStep.processFrame(frame);
-      }
-
-      // Check for exhausted predicates only when all work at or before this position is done
-      if (workQueue.isEmpty || workQueue.firstKey()! > currentPosition) {
-        _checkExhaustedPredicates(workQueue, currentPosition);
-      }
-
-      if (position < currentPosition) {
-        _enqueueFramesForPosition(workQueue, currentStep.nextFrames);
-        currentStep.nextFrames.clear();
-      }
-
-      _enqueueFramesForPosition(workQueue, currentStep.requeued);
-      currentStep.requeued.clear();
-    }
-
-    // Return the step for the current position so the parser can extract results
-    return stepsAtPosition[currentPosition] ??
-        Step(
-          this,
-          token,
-          currentPosition,
-          bsr: bsr,
-          markManager: markManager,
-          isSupportingAmbiguity: isSupportingAmbiguity,
-          captureTokensAsMarks: captureTokensAsMarks,
-          predecessors: predecessors,
-        );
-  }
-
-  void _enqueueFramesForPosition(SplayTreeMap<int, List<Frame>> workQueue, List<Frame> frames) {
-    for (final frame in frames) {
-      final position = frame.context.pivot ?? 0;
-      final list = workQueue[position];
-      if (list == null) {
-        workQueue[position] = [frame];
-      } else {
-        list.add(frame);
-      }
-    }
-  }
-
-  void _checkExhaustedPredicates(SplayTreeMap<int, List<Frame>> workQueue, int currentPosition) {
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      final toRemove = <PredicateKey>{};
-      for (final entry in predicateTrackers.entries) {
-        final tracker = entry.value;
-
-        if (tracker.activeFrames == 0 && !tracker.matched) {
-          for (final (parentContext, nextState) in tracker.waiters) {
-            final predicateKey = parentContext.predicateStack.lastOrNull;
-            if (predicateKey != null) {
-              final parentTracker =
-                  predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-              if (parentTracker != null) {
-                parentTracker.activeFrames--;
-                changed = true;
-              }
-            }
-
-            if (!tracker.isAnd) {
-              final targetPosition = parentContext.pivot ?? 0;
-              workQueue
-                  .putIfAbsent(targetPosition, () => [])
-                  .add(Frame(parentContext)..nextStates.add(nextState));
-
-              if (parentContext.predicateStack.lastOrNull case var parentPredicateKey?) {
-                predicateTrackers[(parentPredicateKey.pattern, parentPredicateKey.startPosition)]
-                    ?.activeFrames++;
-              }
-            }
-          }
-          toRemove.add(entry.key);
-          changed = true;
-        } else if (tracker.matched) {
-          toRemove.add(entry.key);
-        }
-      }
-      for (final key in toRemove) {
-        predicateTrackers.remove(key);
-      }
     }
   }
 }

@@ -49,6 +49,26 @@ class StringMark extends Mark {
   String toString() => 'StringMark($value, $position)';
 }
 
+class LabelStartMark extends Mark {
+  final String name;
+  final int position;
+
+  LabelStartMark(this.name, this.position);
+
+  @override
+  String toString() => 'LabelStart($name, $position)';
+}
+
+class LabelEndMark extends Mark {
+  final String name;
+  final int position;
+
+  LabelEndMark(this.name, this.position);
+
+  @override
+  String toString() => 'LabelEnd($name, $position)';
+}
+
 extension MarkListExtension on List<Mark> {
   List<String> toShortMarks() {
     final result = <String>[];

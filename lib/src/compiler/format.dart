@@ -186,6 +186,21 @@ class GroupPattern implements PatternExpr {
   String toString() => '($inner)';
 }
 
+class AnyPattern implements PatternExpr {
+  const AnyPattern();
+}
+
+/// Labeled pattern (e.g., name:ident)
+class LabeledPattern implements PatternExpr {
+  final String label;
+  final PatternExpr inner;
+
+  const LabeledPattern(this.label, this.inner);
+
+  @override
+  String toString() => '$label:$inner';
+}
+
 /// Semantic action placeholder
 class ActionExpr {
   final String code; // Dart code snippet
@@ -202,11 +217,7 @@ class GrammarFile {
   final List<RuleDefinition> rules;
   final Map<String, List<ActionExpr>> actions; // rule name -> actions
 
-  const GrammarFile({
-    required this.name,
-    required this.rules,
-    this.actions = const {},
-  });
+  const GrammarFile({required this.name, required this.rules, this.actions = const {}});
 
   /// Find a rule by name
   RuleDefinition? findRule(String name) {

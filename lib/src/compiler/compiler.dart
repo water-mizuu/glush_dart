@@ -16,7 +16,7 @@ class GrammarFileCompiler {
   GrammarFileCompiler(this.grammarFile);
 
   /// Compile the grammar file into an executable Grammar
-  Grammar compile() {
+  Grammar compile({String? startRuleName}) {
     // First pass: create rule stubs with builder functions
     for (final ruleDef in grammarFile.rules) {
       final rule = Rule(ruleDef.name, () {
@@ -30,13 +30,16 @@ class GrammarFileCompiler {
       throw Exception('No rules defined in grammar');
     }
 
-    final startRule = _rules[grammarFile.rules.first.name]!;
+    final startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
     return Grammar(() => startRule);
   }
 
   /// Compile a pattern expression into a Pattern
   Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
+      case AnyPattern():
+        return Token(AnyToken());
+
       case LiteralPattern(:var literal):
         return Pattern.string(literal);
 
@@ -109,11 +112,14 @@ class GrammarFileCompiler {
           case RepetitionKind.oneOrMore:
             return pattern.plus();
           case RepetitionKind.optional:
-            return pattern | Eps();
+            return pattern.opt();
         }
 
       case GroupPattern():
         return _compilePattern(expr.inner, precedenceLevels);
+
+      case LabeledPattern(:var label, :var inner):
+        return Label(label, _compilePattern(inner, precedenceLevels));
 
       case ActionExpr():
         throw Exception('ActionExpr cannot be compiled as a pattern');
@@ -166,5 +172,8 @@ class GrammarFileCompiler {
 }
 
 extension GrammarFileExtension on String {
-  SMParser toSMParser() => SMParser(GrammarFileCompiler(GrammarFileParser(this).parse()).compile());
+  SMParser toSMParser({String? startRuleName, bool captureTokensAsMarks = false}) => SMParser(
+    GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
+    captureTokensAsMarks: captureTokensAsMarks,
+  );
 }

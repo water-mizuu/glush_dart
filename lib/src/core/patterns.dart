@@ -134,11 +134,12 @@ sealed class Pattern {
   /// Repetition operators
   Pattern plus() => this.plusRewrite();
   Pattern star() => this.starRewrite();
+  Pattern opt() => this.optRewrite();
 
   Pattern plusRewrite() {
     late Rule inner;
     inner = Rule(
-      "__${_customIds++}",
+      "__${_customIds++}__",
       () =>
           (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
           this,
@@ -150,11 +151,18 @@ sealed class Pattern {
   Pattern starRewrite() {
     late Rule inner;
     inner = Rule(
-      "__${_customIds++}",
+      "__${_customIds++}__",
       () =>
           (inner() >> this).withAction((_, c) => [if (c[0] case List v) ...v else c[0], c[1]]) |
           Eps(),
     );
+
+    return inner();
+  }
+
+  Pattern optRewrite() {
+    late Rule inner;
+    inner = Rule("__${_customIds++}__", () => this | Eps());
 
     return inner();
   }
@@ -175,6 +183,9 @@ sealed class Pattern {
       RuleCall() => "rca",
       Action() => "act",
       Prec() => "pre",
+      Label() => "lab",
+      LabelStart() => "las",
+      LabelEnd() => "lae",
     };
   }
 
@@ -198,6 +209,9 @@ sealed class Pattern {
       RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
       Action() => "",
       Prec(precedenceLevel: var prec) => "$prec",
+      Label(:var name) => "$name",
+      LabelStart(:var name) => "$name",
+      LabelEnd(:var name) => "$name",
     };
   }
 
@@ -813,6 +827,112 @@ class Prec extends Pattern {
 
   @override
   String toString() => '[$precedenceLevel] $child';
+}
+
+/// Pattern that labels its child
+class Label extends Pattern {
+  final String name;
+  final Pattern child;
+  late final LabelStart _start;
+  late final LabelEnd _end;
+
+  Label(this.name, Pattern child) : child = child.consume() {
+    _start = LabelStart(name);
+    _end = LabelEnd(name);
+  }
+
+  @override
+  Label copy() => Label(name, child.copy());
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    final childEmpty = child.calculateEmpty(emptyRules);
+    setEmpty(childEmpty);
+    return childEmpty;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {_start};
+
+  @override
+  Set<Pattern> lastSet() => {_end};
+
+  @override
+  void eachPair(void Function(Pattern, Pattern) callback) {
+    for (final f in child.firstSet()) {
+      callback(_start, f);
+    }
+    child.eachPair(callback);
+    for (final l in child.lastSet()) {
+      callback(l, _end);
+    }
+    if (child.empty()) {
+      callback(_start, _end);
+    }
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    child.collectRules(rules);
+  }
+
+  @override
+  String toString() => '$name:($child)';
+}
+
+class LabelStart extends Pattern {
+  final String name;
+  LabelStart(this.name);
+
+  @override
+  LabelStart copy() => LabelStart(name);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  String toString() => 'label_start($name)';
+}
+
+class LabelEnd extends Pattern {
+  final String name;
+  LabelEnd(this.name);
+
+  @override
+  LabelEnd copy() => LabelEnd(name);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  String toString() => 'label_end($name)';
 }
 
 // ---------------------------------------------------------------------------

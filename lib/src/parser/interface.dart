@@ -15,6 +15,17 @@ abstract interface class GlushParser {
   GrammarInterface get grammar;
 }
 
+abstract class GlushParserBase implements GlushParser {
+  @override
+  final Map<int, TokenNode> historyByPosition = {};
+
+  @override
+  final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
+
+  @override
+  final GlushListManager<Mark> markManager = GlushListManager<Mark>();
+}
+
 abstract interface class Recognizer {
   bool recognize(String input);
 }

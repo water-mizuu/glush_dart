@@ -103,17 +103,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     for (final pattern in allPatterns) {
       // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        Token() || Marker() || Eps() => [],
-
+        Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-
-        Action(:var child) || Prec(:var child) => [child.symbolId!],
-
+        Label(:var child) || Action(:var child) || Prec(:var child) => [child.symbolId!],
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
-
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
     }
@@ -176,6 +172,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(action.child);
         case Prec plp:
           queue.add(plp.child);
+        case Label label:
+          queue.add(label.child);
         default:
           break;
       }
@@ -204,7 +202,9 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall():
+      case Label label:
+        _collectPatternsFromPattern(label.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():
         break;
     }
   }
@@ -282,6 +282,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     rules.add(rule);
     return rule;
   }
+
+  Label label(String name, Pattern child) => Label(name, child);
 
   void _computeEmpty() {
     final emptyRules = <Rule>{};
@@ -405,17 +407,13 @@ class GrammarAdapter implements GrammarInterface {
     for (final pattern in allPatterns) {
       // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        Token() || Marker() || Eps() => [],
-
+        Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-
-        Action(:var child) || Prec(:var child) => [child.symbolId!],
-
+        Label(:var child) || Action(:var child) || Prec(:var child) => [child.symbolId!],
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
-
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
       };
     }
@@ -450,7 +448,9 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall():
+      case Label label:
+        _collectPatternsFromPattern(label.child, patterns);
+      case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():
         break;
     }
   }

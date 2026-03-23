@@ -53,7 +53,9 @@ enum _TokenType {
   eof, // \0
   lesser, // <
   greater, // >
+  dot, // .
   backslashLiteral, // \n, \s, etc.
+  colon, // :
 }
 
 class _Tokenizer {
@@ -117,6 +119,8 @@ class _Tokenizer {
         '!': _TokenType.bang,
         '<': _TokenType.lesser,
         '>': _TokenType.greater,
+        '.': _TokenType.dot,
+        ':': _TokenType.colon,
       };
 
       if (tokenMap.containsKey(ch)) {
@@ -472,7 +476,8 @@ class GrammarFileParser {
         type == _TokenType.literal ||
         type == _TokenType.charRange ||
         type == _TokenType.backslashLiteral ||
-        type == _TokenType.lparen;
+        type == _TokenType.lparen ||
+        type == _TokenType.dot;
   }
 
   /// Parse: expr*, expr+, expr?
@@ -501,6 +506,11 @@ class GrammarFileParser {
   /// Parse: literal, identifier, [a-z], (pattern)
   PatternExpr _parsePrimary() {
     final type = _peek().type;
+
+    if (type == _TokenType.dot) {
+      _advance();
+      return AnyPattern();
+    }
 
     if (type == _TokenType.literal) {
       final literal = _advance().value;
@@ -532,7 +542,16 @@ class GrammarFileParser {
     }
 
     if (type == _TokenType.identifier) {
-      final ruleName = _advance().value;
+      final id = _advance().value;
+
+      // Check for label: name:pattern
+      if (_peek().type == _TokenType.colon) {
+        _advance(); // consume :
+        final inner = _parsePrimary();
+        return LabeledPattern(id, inner);
+      }
+
+      final ruleName = id;
       int? precedenceConstraint;
 
       // Optional precedence constraint like expr^2
@@ -605,15 +624,30 @@ class GrammarFileParser {
     final ranges = <CharRange>[];
 
     int i = 0;
+
+    int readCode() {
+      if (i < inner.length && inner[i] == '\\' && i + 1 < inner.length) {
+        i++; // consume backslash
+        final escaped = inner[i++];
+        return switch (escaped) {
+          'n' => 10,
+          'r' => 13,
+          't' => 9,
+          '0' => 0,
+          _ => escaped.codeUnitAt(0), // \\ \] etc.
+        };
+      }
+      return inner.codeUnitAt(i++);
+    }
+
     while (i < inner.length) {
-      final startCode = inner.codeUnitAt(i);
-      if (i + 2 < inner.length && inner[i + 1] == '-') {
-        final endCode = inner.codeUnitAt(i + 2);
+      final startCode = readCode();
+      if (i < inner.length && inner[i] == '-') {
+        i++; // consume '-'
+        final endCode = readCode();
         ranges.add(CharRange(startCode, endCode));
-        i += 3;
       } else {
         ranges.add(CharRange(startCode, startCode));
-        i++;
       }
     }
 

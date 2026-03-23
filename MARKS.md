@@ -1,70 +1,81 @@
 # Marks in Glush
 
-Marks are semantic annotations used during parsing to capture information from the input. Glush provides several ways to generate and manage marks.
+Marks are semantic annotations used during parsing to capture information from the input. Glush provides several ways to generate and manage marks, ranging from flat lists to structured trees.
 
-## Types of Marks
+## Labeled Patterns (Recomendated)
 
-Glush uses two main types of marks:
-- **NamedMark**: Created by `$nameTerm` or explicit `Marker` patterns. They carry a name and the position where they occurred.
-- **StringMark**: Created automatically for certain token matches. They carry the matched string and its position.
+Labeled patterns are the most intuitive way to capture structured data. You can attach a label to any pattern using the `label:pattern` syntax in grammar files, or the `.label()` method in Dart.
 
-## Automatic Mark Capture
-
-When using `parseAmbiguous` or `parseWithForest`, Glush automatically captures tokens as `StringMark` objects under specific conditions to avoid cluttering the mark list with redundant information.
-
-### When Marks ARE Saved (by default)
-
-1. **Named Markers**: Any pattern prefixed with `$` (e.g., `$ONE`, `$sum`) ALWAYS creates a `NamedMark`.
-2. **Variable Tokens**: Tokens that can match multiple possibilities automatically capture their value as a `StringMark`. These include:
-   - **Range Tokens**: `[a-z]`, `[0-9]`
-   - **Any Token**: `.`
-   - **Comparison Tokens**: `<100`, `>0`
-3. **Explicit Capture**: If you call `parseAmbiguous(input, captureTokensAsMarks: true)`, EVERY token match will result in a `StringMark`.
-
-### When Marks ARE NOT Saved (by default)
-
-1. **Exact Tokens**: Single character literals like `'a'`, `'='`, or `'s'` do NOT create a `StringMark` by default. Since the character matched is already known from the grammar, it is omitted to save memory and simplify the mark list.
-2. **Literal Strings**: In grammar files, literal strings like `"hello"` are compiled into a sequence of `ExactToken`s. These do not produce `StringMark`s by default.
-
-## Examples
-
-### Example 1: `ExactToken` vs `RangeToken`
-
-In this example, the grammar has one rule matching an exact character and another matching a range.
-
-```dart
-// Grammar:
-// main = exact | range
-// exact = $exact 'a'
-// range = $range [0-9]
-
-// Parsing 'a':
-// rawMarks: [NamedMark('exact', 0)]
-// Short marks: ["exact"]
-
-// Parsing '1':
-// rawMarks: [NamedMark('range', 0), StringMark('1', 0)]
-// Short marks: ["range", "1"]
+```text
+// Grammar file
+person = name:[a-z]+ ":" age:[0-9]+;
 ```
 
-### Example 2: Forcing Capture
-
-You can force capture of all tokens including exact literals.
-
 ```dart
-// Parsing 'a' with captureTokensAsMarks: true
-// rawMarks: [NamedMark('exact', 0), StringMark('a', 0)]
-// Short marks: ["exact", "a"]
+// Dart DSL
+final person = g.label('name', ident) >> g.token(58) >> g.label('age', digits);
 ```
 
-## Evaluating Marks
+### Structured Evaluation
 
-The `Evaluator` class consumes marks from the list. When it encounters a string that isn't a named marker, it yields it as a value.
+When using labels, you should use `StructuredEvaluator` to process the marks. It produces a hierarchical `ParseResult` tree that allows easy access to captures by name.
 
 ```dart
-final evaluator = Evaluator(($) => {
-  'num': () => $<String>().trim(), // Expects a StringMark to follow 'num'
-});
+final outcome = parser.parse("michael:30");
+if (outcome is ParseSuccess) {
+  final evaluator = StructuredEvaluator();
+  final tree = evaluator.evaluate(outcome.result.rawMarks);
+  
+  print(tree['name'].span); // "michael"
+  print(tree['age'].span);  // "30"
+}
 ```
 
-If a string mark is "missing" (because it was an `ExactToken`), the evaluator will instead consume the NEXT mark in the list, which often leads to errors or unexpected results if the handler expects a string value from the input.
+#### Why use Labels?
+- **Hierarchical**: Labels can be nested, creating a tree structure that matches your grammar.
+- **Readable**: Access data by meaningful names instead of index-based list scanning.
+- **Clean**: Only the data you explicitly label is captured in the structured map (though all tokens are available in the flat `allResults` list).
+
+## Flat Marks (Legacy/Advanced)
+
+Glush also supports a flatter mark system using named markers and automatic token capture.
+
+### Types of Flat Marks
+- **NamedMark**: Created by `$nameTerm` or explicit `Marker` patterns. They carry a name and the position.
+- **StringMark**: Created automatically for variable tokens like ranges `[a-z]` or any token `.`.
+
+### Automatic Mark Capture
+
+When using `SMParser`, you can enable `captureTokensAsMarks: true` to force every token match into the mark stream as a `StringMark`. By default, only "variable" tokens (non-literals) are captured to save memory.
+
+## Types of Marks in the Stream
+
+1. **LabelStartMark(name)**: Emitted at the start of a labeled pattern.
+2. **LabelEndMark(name)**: Emitted at the end of a labeled pattern.
+3. **StringMark(value)**: Emitted for matched tokens (when capture is enabled).
+4. **NamedMark(name)**: Emitted for legacy `$` markers.
+
+## Choosing an Evaluator
+
+| Evaluator | Best For | Output |
+|-----------|----------|--------|
+| `StructuredEvaluator` | General purpose, nested data | `ParseResult` (Tree) |
+| `Evaluator` | Simple flat grammars | `List<dynamic>` |
+| Custom loop | Performance critical, low-level | Manual stream processing |
+
+---
+
+### Example: Nested Labels
+
+```text
+start = person:(first:ident " " last:ident);
+ident = [A-Z][a-z]*;
+```
+
+```dart
+final tree = evaluator.evaluate(marks);
+final person = tree['person'];
+print(person['first'].span); // "John"
+print(person['last'].span);  // "Doe"
+print(person.span);          // "John Doe"
+```

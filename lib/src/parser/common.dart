@@ -94,6 +94,8 @@ class ParserResult {
   final List<Mark> _rawMarks;
   ParserResult(this._rawMarks);
 
+  List<Mark> get rawMarks => _rawMarks;
+
   List<String> get marks {
     final result = <String>[];
     String? currentStringMark;
@@ -485,6 +487,32 @@ class Step {
             action: action,
             marks: deltaMarks,
           );
+        case LabelStartAction():
+          final mark = LabelStartMark(action.name, position);
+          final deltaMarks = const GlushList<Mark>.empty().add(markManager, mark);
+          _enqueue(
+            action.nextState,
+            frame.context.copyWith(
+              caller: frame.caller ?? const RootCallerKey(),
+              marks: frame.marks.add(markManager, mark),
+            ),
+            source: (state.id, position, frame.context.caller),
+            action: action,
+            marks: deltaMarks,
+          );
+        case LabelEndAction():
+          final mark = LabelEndMark(action.name, position);
+          final deltaMarks = const GlushList<Mark>.empty().add(markManager, mark);
+          _enqueue(
+            action.nextState,
+            frame.context.copyWith(
+              caller: frame.caller ?? const RootCallerKey(),
+              marks: frame.marks.add(markManager, mark),
+            ),
+            source: (state.id, position, frame.context.caller),
+            action: action,
+            marks: deltaMarks,
+          );
         case PredicateAction():
           final symbol = action.symbol;
           final subParseKey = (symbol, position);
@@ -688,17 +716,17 @@ class Step {
     _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
   }
 
-  void _finalize(Frame parentFrame) {
-    for (final entry in _nextFrameGroups.entries) {
-      final (state, caller, minPrecedenceLevel, predicateStack) = entry.key;
-      final merged = markManager.branched(entry.value);
+  void finalize() {
+    _nextFrameGroups.forEach((key, marksGroup) {
+      final (state, caller, minPrecedenceLevel, predicateStack) = key;
+      final branchedMarks = markManager.branched(marksGroup);
       final callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
       final nextFrame = Frame(
         Context(
           caller,
-          merged,
+          branchedMarks,
           predicateStack: predicateStack,
           callStart: callerStartPosition,
           pivot: position + 1,
@@ -715,12 +743,12 @@ class Step {
 
       if (isSupportingAmbiguity) {
         final target = (state.id, position + 1, caller);
-        if (_nextPredecessorGroups[entry.key] case var preds?) {
+        if (_nextPredecessorGroups[key] case var preds?) {
           predecessors.putIfAbsent(target, () => {}).addAll(preds);
         }
       }
       nextFrames.add(nextFrame);
-    }
+    });
     _nextFrameGroups.clear();
     _nextPredecessorGroups.clear();
   }
@@ -746,6 +774,195 @@ class Step {
           : context.marks;
       _process(Frame(context.copyWith(marks: currentMarks)), state);
     }
-    _finalize(frame);
+    // _finalize will be called by processTokenInternal after all frames are done
+  }
+}
+
+mixin ParserCore on GlushParserBase {
+  TokenNode? historyTail;
+
+  void enqueueFramesForPositionInternal(
+    SplayTreeMap<int, List<Frame>> workQueue,
+    List<Frame> frames,
+  ) {
+    for (final frame in frames) {
+      final position = frame.context.pivot ?? 0;
+      workQueue.putIfAbsent(position, () => []).add(frame);
+    }
+  }
+
+  void checkExhaustedPredicatesInternal(
+    SplayTreeMap<int, List<Frame>> workQueue,
+    int currentPosition,
+  ) {
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      final toRemove = <PredicateKey>{};
+      for (final entry in predicateTrackers.entries) {
+        final tracker = entry.value;
+
+        if (tracker.activeFrames == 0 && !tracker.matched) {
+          for (final (parentContext, nextState) in tracker.waiters) {
+            final predicateKey = parentContext.predicateStack.lastOrNull;
+            if (predicateKey != null) {
+              final parentTracker =
+                  predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+              if (parentTracker != null) {
+                parentTracker.activeFrames--;
+                changed = true;
+              }
+            }
+
+            if (!tracker.isAnd) {
+              final targetPosition = parentContext.pivot ?? 0;
+              workQueue
+                  .putIfAbsent(targetPosition, () => [])
+                  .add(Frame(parentContext)..nextStates.add(nextState));
+
+              if (parentContext.predicateStack.lastOrNull case var parentPredicateKey?) {
+                predicateTrackers[(parentPredicateKey.pattern, parentPredicateKey.startPosition)]
+                    ?.activeFrames++;
+              }
+            }
+          }
+          toRemove.add(entry.key);
+          changed = true;
+        } else if (tracker.matched) {
+          toRemove.add(entry.key);
+        }
+      }
+      for (final key in toRemove) {
+        predicateTrackers.remove(key);
+      }
+    }
+  }
+
+  Step processTokenInternal(
+    int? token,
+    int currentPosition,
+    List<Frame> frames, {
+    BsrSet? bsr,
+    bool isSupportingAmbiguity = false,
+    bool? captureTokensAsMarks,
+    required Map<ParseNodeKey, Set<PredecessorInfo>> predecessors,
+  }) {
+    if (token != null) {
+      final node = TokenNode(token);
+      if (historyTail == null) {
+        historyTail = node;
+      } else {
+        historyTail!.next = node;
+        historyTail = node;
+      }
+      historyByPosition[currentPosition] = node;
+    }
+
+    if (historyTail != null) {
+      historyByPosition[currentPosition] = historyTail!;
+    }
+
+    final stepsAtPosition = <int, Step>{};
+    final workQueue = SplayTreeMap<int, List<Frame>>((a, b) => a.compareTo(b));
+
+    enqueueFramesForPositionInternal(workQueue, frames);
+
+    while (workQueue.isNotEmpty) {
+      final position = workQueue.firstKey()!;
+      if (position > currentPosition) break;
+
+      final positionFrames = workQueue.remove(position)!;
+
+      final currentStep = stepsAtPosition.putIfAbsent(position, () {
+        final positionToken = (position == currentPosition)
+            ? token
+            : historyByPosition[position]?.unit;
+        return Step(
+          this,
+          positionToken,
+          position,
+          bsr: bsr,
+          markManager: markManager,
+          isSupportingAmbiguity: isSupportingAmbiguity,
+          captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+          predecessors: predecessors,
+        );
+      });
+
+      for (final frame in positionFrames) {
+        if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+          predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]?.activeFrames--;
+        }
+        currentStep.processFrame(frame);
+      }
+      currentStep.finalize();
+
+      if (workQueue.isEmpty || workQueue.firstKey()! > currentPosition) {
+        checkExhaustedPredicatesInternal(workQueue, currentPosition);
+      }
+
+      if (position < currentPosition) {
+        enqueueFramesForPositionInternal(workQueue, currentStep.nextFrames);
+        currentStep.nextFrames.clear();
+      }
+
+      enqueueFramesForPositionInternal(workQueue, currentStep.requeued);
+      currentStep.requeued.clear();
+    }
+
+    return stepsAtPosition[currentPosition] ??
+        (Step(
+          this,
+          token,
+          currentPosition,
+          bsr: bsr,
+          markManager: markManager,
+          isSupportingAmbiguity: isSupportingAmbiguity,
+          captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+          predecessors: predecessors,
+        )..finalize());
+  }
+
+  GlushList<Mark> extractForestFromGraphInternal(
+    ParseNodeKey node,
+    Map<ParseNodeKey, GlushList<Mark>> memo,
+    Map<ParseNodeKey, Set<PredecessorInfo>> predecessors, [
+    Set<ParseNodeKey>? visiting,
+  ]) {
+    if (memo.containsKey(node)) return memo[node]!;
+
+    final currentVisiting = visiting ?? <ParseNodeKey>{};
+    if (currentVisiting.contains(node)) {
+      return const GlushList<Mark>.empty();
+    }
+
+    currentVisiting.add(node);
+    final predecessorsForNode = predecessors[node];
+    if (predecessorsForNode == null) return memo[node] = const GlushList<Mark>.empty();
+
+    final alternatives = <GlushList<Mark>>[];
+    for (final (source, action, marks, callSite) in predecessorsForNode) {
+      if (action is ReturnAction) {
+        final ruleForest = extractForestFromGraphInternal(
+          source!,
+          memo,
+          predecessors,
+          currentVisiting,
+        );
+        final parentForest = callSite != null
+            ? extractForestFromGraphInternal(callSite, memo, predecessors, currentVisiting)
+            : const GlushList<Mark>.empty();
+
+        alternatives.add(parentForest.addList(markManager, ruleForest));
+      } else if (source != null) {
+        final base = extractForestFromGraphInternal(source, memo, predecessors, currentVisiting);
+        alternatives.add(base.addList(markManager, marks));
+      } else {
+        alternatives.add(marks);
+      }
+    }
+    currentVisiting.remove(node);
+
+    return memo[node] = markManager.branched(alternatives);
   }
 }

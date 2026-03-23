@@ -25,6 +25,22 @@ class TokenAction implements StateAction {
   const TokenAction(this.pattern, this.nextState);
 }
 
+class LabelStartAction implements StateAction {
+  final String name;
+  final Pattern pattern;
+  final State nextState;
+
+  const LabelStartAction(this.name, this.pattern, this.nextState);
+}
+
+class LabelEndAction implements StateAction {
+  final String name;
+  final Pattern pattern;
+  final State nextState;
+
+  const LabelEndAction(this.name, this.pattern, this.nextState);
+}
+
 class CallAction implements StateAction {
   final Rule rule;
   final Pattern pattern;
@@ -205,8 +221,16 @@ class StateMachine {
         final returnState = _getOrCreateState(terminal);
         // Get minPrecedenceLevel from Call/RuleCall
         final minPrecedenceLevel = terminal.minPrecedenceLevel;
-        final action = CallAction(rule, terminal, returnState, minPrecedenceLevel);
-        state.actions.add(action);
+        final callAction = CallAction(rule, terminal, returnState, minPrecedenceLevel);
+        state.actions.add(callAction);
+      case LabelStart():
+        final nextState = _getOrCreateState(terminal);
+        final labelStartAction = LabelStartAction(terminal.name, terminal, nextState);
+        state.actions.add(labelStartAction);
+      case LabelEnd():
+        final nextState = _getOrCreateState(terminal);
+        final labelEndAction = LabelEndAction(terminal.name, terminal, nextState);
+        state.actions.add(labelEndAction);
       case Action<dynamic>():
         // Create a SemanticAction state machine action with the callback
         final nextState = _getOrCreateState(terminal);
@@ -215,7 +239,7 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Alt() || Seq() || Rule() || Prec():
+      case Alt() || Seq() || Rule() || Prec() || Label():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
     }
