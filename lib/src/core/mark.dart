@@ -48,7 +48,7 @@ class StringMark extends Mark {
   int get hashCode => value.hashCode ^ position.hashCode;
 
   @override
-  String toString() => 'StringMark($value, $position)';
+  String toString() => "StringMark('${_escapeDisplay(value)}', $position)";
 }
 
 class LabelStartMark extends Mark {
@@ -75,6 +75,35 @@ class LabelEndMark extends Mark {
 
   @override
   String toString() => 'LabelEnd($name, $position)';
+}
+
+String _escapeDisplay(String value) {
+  final out = StringBuffer();
+  for (final rune in value.runes) {
+    switch (rune) {
+      case 0x5C: // \
+        out.write(r'\\');
+      case 0x27: // '
+        out.write(r"\'");
+      case 0x20: // space
+        out.write(r'\s');
+      case 0x09: // tab
+        out.write(r'\t');
+      case 0x0A: // newline
+        out.write(r'\n');
+      case 0x0D: // carriage return
+        out.write(r'\r');
+      default:
+        if (rune < 0x20 || rune == 0x7F) {
+          out.write(r'\u{');
+          out.write(rune.toRadixString(16));
+          out.write('}');
+        } else {
+          out.write(String.fromCharCode(rune));
+        }
+    }
+  }
+  return out.toString();
 }
 
 extension MarkListExtension on List<Mark> {

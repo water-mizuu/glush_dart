@@ -8,6 +8,8 @@
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 library glush.bsr;
 
+import 'dart:collection';
+
 import 'package:glush/src/core/grammar.dart';
 import 'package:glush/src/core/mark.dart';
 import 'package:glush/src/core/patterns.dart';
@@ -40,7 +42,9 @@ class BsrSet {
       _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   Set<int> pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
-    return _pivots.putIfAbsent((ruleSymbol, start, end), Set.new).toSet();
+    final pivots = _pivots[(ruleSymbol, start, end)];
+    if (pivots == null) return const {};
+    return UnmodifiableSetView(pivots);
   }
 
   /// Build an SPPF rooted at [startRule] over the full input.
@@ -236,20 +240,54 @@ class _ContConjRight extends _Task {
   const _ContConjRight(this.startTask, this.leftNodes);
 }
 
+class _AscendingIntIterator implements Iterator<int> {
+  int _cursor;
+  final int _endInclusive;
+  int _current = 0;
+
+  _AscendingIntIterator(int startInclusive, this._endInclusive) : _cursor = startInclusive - 1;
+
+  @override
+  int get current => _current;
+
+  @override
+  bool moveNext() {
+    final next = _cursor + 1;
+    if (next > _endInclusive) return false;
+    _cursor = next;
+    _current = next;
+    return true;
+  }
+}
+
 class SppfBuilder {
   final BsrSet bsr;
   final ForestNodeManager nodeManager;
   final String input;
+  final Map<PatternSymbol, (String prefix, String suffix)> _patternParts = {};
 
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
-  const SppfBuilder(this.bsr, this.nodeManager, this.input, this.childrenRegistry);
+  SppfBuilder(this.bsr, this.nodeManager, this.input, this.childrenRegistry);
 
   List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
     if (childrenRegistry[symbol] case List<PatternSymbol> children) {
       return children;
     }
     throw StateError("Couldn't find the children of $symbol.");
+  }
+
+  (String prefix, String suffix) _patternPrefixAndSuffix(PatternSymbol pattern) {
+    return _patternParts.putIfAbsent(pattern, () {
+      final value = pattern as String;
+      final firstColon = value.indexOf(':');
+      if (firstColon == -1) return (value, '');
+      final secondColon = value.indexOf(':', firstColon + 1);
+      if (secondColon == -1) {
+        return (value.substring(0, firstColon), value.substring(firstColon + 1));
+      }
+      return (value.substring(0, firstColon), value.substring(secondColon + 1));
+    });
   }
 
   // Unified public API - returns synchronously
@@ -498,11 +536,10 @@ class SppfBuilder {
   }
 
   void _executePatternTask(_EvalPattern task, List<_Task> taskStack, List<Object?> valueStack) {
-    final pattern = task.pattern as String;
     final start = task.start;
     final end = task.end;
 
-    final [prefix, _, suffix] = pattern.split(":");
+    final (prefix, suffix) = _patternPrefixAndSuffix(task.pattern);
     switch (prefix) {
       case "eps":
         valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
@@ -530,6 +567,15 @@ class SppfBuilder {
           }
         }
       case "mar":
+        {
+          valueStack.add(
+            (start == end) //
+                ? [nodeManager.marker(start, task.pattern, suffix)]
+                : const <ForestNode>[],
+          );
+        }
+      case "las":
+      case "lae":
         {
           valueStack.add(
             (start == end) //
@@ -571,6 +617,20 @@ class SppfBuilder {
             ),
           );
         }
+      case "lab":
+        {
+          taskStack.add(_ContActionFinish(start, end, task.pattern));
+          taskStack.add(
+            _EvalPattern(
+              task.currentRule,
+              getChildrenOf(task.pattern).single,
+              start,
+              end,
+              task.ruleStart,
+              task.minPrecedenceLevel,
+            ),
+          );
+        }
       case "opt":
         {
           taskStack.add(_ContOptChoose(start, end, task.pattern));
@@ -602,7 +662,7 @@ class SppfBuilder {
         }
       case "sta":
         {
-          final mids = [for (int mid = start + 1; mid <= end; mid++) mid].iterator;
+          final mids = _AscendingIntIterator(start + 1, end);
           final loop = _ContRepLoop(
             task.currentRule,
             task.pattern,
@@ -619,7 +679,7 @@ class SppfBuilder {
         }
       case "plu":
         {
-          final mids = [for (int mid = start + 1; mid <= end; mid++) mid].iterator;
+          final mids = _AscendingIntIterator(start + 1, end);
           final loop = _ContRepLoop(
             task.currentRule,
             task.pattern,

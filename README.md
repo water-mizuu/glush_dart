@@ -1,118 +1,106 @@
-# Glush — Versatile Parser Toolkit for Dart
+# Glush: A Generalized Parsing Toolkit for Dart
 
-A powerful, high-performance parsing library for Dart that combines the flexibility of **Context-Free Grammars (CFG)** with the efficiency of **State Machines**. Glush is designed for everything from simple expression evaluators to complex, ambiguous language processors.
+Glush is a parser toolkit for Dart focused on three goals:
 
----
+1. Expressive grammar authoring (string DSL + Dart DSL)
+2. Practical ambiguity handling (forest-based parsing)
+3. Ergonomic semantic evaluation (label-driven evaluator API)
 
-## Key Features
+It is designed for language tooling, DSLs, config parsers, and experimental parsing research.
 
-- **🚀 State-Machine Powered**: Based on a generalized Glushkov construction that compiles grammars into efficient automata.
-- **🌳 Shared Packed Parse Forest (SPPF)**: Handles highly ambiguous grammars with cubic worst-case time and space complexity.
-- **🛡️ Type-Safe Evaluation**: Modern `Evaluator<T>` API with structured `ParseResult` trees and a streaming `NodeIterator`.
-- **🏗️ Graph-Structured Stack (GSS)**: Efficiently navigates ambiguity during parsing without exponential memory growth.
-- **⚡ Zero Dependencies**: Pure Dart implementation with no external requirements.
-- **📶 Streaming Support**: Built-in support for processing large inputs via `parseWithForestAsync()`.
+## What The Toolkit Has
 
----
+### Grammar Authoring
+- String DSL (`toSMParser()`)
+- Dart DSL (`Grammar`, `Rule`, `Pattern`)
+- Labels (`name:pattern`)
+- Markers (`$name`)
+- Predicates (`&pattern`, `!pattern`)
+- Precedence constraints (`expr^N`, `N| alternative`)
 
-## Quick Start
+### Pattern Operators
+- Sequence (`A B`)
+- Choice (`A | B`)
+- Conjunction (`A & B`)
+- Repetition (`*`, `+`, `?`) with dedicated nodes in core parsing
+- Character ranges (`[a-z]`), wildcards (`.`), backslash literals (`\n`, `\s`, etc.)
 
-### Basic Expression Evaluator
+### Parsing Modes
+- `recognize(input)` for yes/no acceptance
+- `parse(input)` for marks-based output
+- `parseAmbiguous(input)` for ambiguous-path mark forests
+- `parseWithForest(input)` for SPPF extraction
+- `parseWithForestAsync(stream)` for streaming large inputs
 
-Glush makes it easy to define and evaluate grammars using a clean, readable DSL.
+### Evaluation
+- `StructuredEvaluator` for converting marks into a labeled `ParseResult` tree
+- `Evaluator<T>` for typed semantic interpretation
+- Forest-side parse-tree evaluation helpers (including evaluator bridge methods)
+
+## What Is Special About Glush
+
+- It treats ambiguity as a first-class problem rather than a failure mode.
+- It supports both parser usage styles:
+  - “Just parse and evaluate”
+  - “Build and inspect a forest / enumerate derivations”
+- It combines a state-machine runtime with graph-style structures (GSS/forest) for practical generalized parsing.
+- It allows label-centric semantic actions that are easier to maintain than positional child indexing.
+
+## Known Issues / Rough Edges
+
+The project is active and still evolving. Current caveats:
+
+- Repetition and optional operators have historically been a source of subtle ambiguity behavior.
+- Forest extraction and semantic reconstruction are still being hardened; behavior may differ between:
+  - mark-driven parse evaluation
+  - direct forest parse-tree evaluation
+- Some grammars that mix nullable branches, repetition, and lookahead predicates may need careful refactoring to avoid unintended ambiguity.
+- Performance for large highly-ambiguous grammars can still be improved in both memory and throughput.
+
+## What Is Being Done
+
+Current stabilization work focuses on:
+
+- Making `*`, `+`, and `?` deterministic where intended
+- Improving forest/BSR hygiene for labeled and marked rules
+- Aligning parse-tree evaluation APIs with mark-based evaluation semantics
+- Expanding regression tests for:
+  - whitespace-heavy grammars
+  - optional/repetition boundary cases
+  - forest evaluator correctness
+
+## Quick Example
 
 ```dart
 import 'package:glush/glush.dart';
 
 void main() {
-  // 1. Define the grammar
-  final parser = r"""
-    expr = 6| $add expr^6 '+' expr^7
-           7| $mul expr^7 '*' expr^8
-          10| '(' expr ')'
-          11| $n [0-9]+
-  """.trim().toSMParser();
+  final parser = r'''
+    file = full:rule;
+    rule = name:[a-z]+ ':' body:[a-z]+;
+  '''.toSMParser();
 
-  // 2. Define the evaluator
-  final evaluator = Evaluator<int>({
-    'add': (eval, node, it) => eval.evaluateChildren(it) + eval.evaluateChildren(it),
-    'mul': (eval, node, it) => eval.evaluateChildren(it) * eval.evaluateChildren(it),
-    'n': (eval, node, it) => int.parse(node.span),
-  });
+  final outcome = parser.parse('alpha:beta');
+  if (outcome is ParseSuccess) {
+    final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks);
 
-  // 3. Parse and Evaluate
-  final result = parser.parse('1 + 2 * 3');
-  if (result is ParseSuccess) {
-    // Transform flat marks into a structured tree
-    final tree = StructuredEvaluator().evaluate(result.result.rawMarks);
-    // Evaluate the tree
+    final evaluator = Evaluator<Object?>({
+      'full': (ctx) => ctx<Object?>('rule'),
+      'rule': (ctx) => (ctx<String>('name'), ctx<String>('body')),
+      'name': (ctx) => ctx.span,
+      'body': (ctx) => ctx.span,
+    });
+
     final value = evaluator.evaluate(tree);
-    print('Result: $value'); // Output: 7
+    print(value); // (alpha, beta)
   }
 }
 ```
 
----
+## Project Status
 
-## Core Concepts
-
-### 1. Grammars and Patterns
-Grammars can be defined using the **String DSL** (as seen above) or the **Dart DSL**.
-
-```dart
-// Dart DSL Example
-final grammar = Grammar(() {
-  late Rule expr, term;
-  expr = Rule('expr', () => term() >> (Token.char('+') >> term()).star());
-  term = Rule('term', () => Token.charRange('0', '9').plus());
-  return expr();
-});
-```
-
-### 2. The Marks System
-Glush decouples parsing from evaluation. The parser emits a stream of **Marks** (labels and token values), which can then be processed into:
-- A flat list of semantic results.
-- A **Structured Tree** (`ParseResult`) for easy navigation.
-
-### 3. Ambiguity and SPPF
-For ambiguous grammars (like "dangling else"), Glush uses an **SPPF** to store all possible parse trees efficiently. You can enumerate all derivations or extract specific paths.
-
-```dart
-final result = parser.parseAmbiguous('input');
-if (result is ParseAmbiguousForestSuccess) {
-  for (final path in result.forest.allPaths()) {
-    final tree = StructuredEvaluator().evaluate(path);
-    print(evaluator.evaluate(tree));
-  }
-}
-```
-
----
-
-## Parsing Methods Comparison
-
-| Method | Best For | Complexity | Output |
-|--------|----------|------------|--------|
-| `recognize()` | Fast validation | O(n) | `bool` |
-| `parse()` | Standard unambiguous grammars | O(n) | `ParseSuccess` (Marks) |
-| `parseAmbiguous()` | Ambiguous grammars with GSS | O(n) | `ParseAmbiguousForestSuccess` |
-| `parseWithForest()` | Full SPPF construction | O(n³) | `ParseForestSuccess` |
-| `parseWithForestAsync()` | Streaming large inputs | O(n³) | `Future<ParseForestSuccess>` |
-
----
-
-## Advanced Features
-
-### Structured Evaluation
-The `Evaluator<T>` API provide a "porting-safe" way to write interpreters.
-- **`NodeIterator`**: A stateful iterator used by handlers to consume children.
-- **Auto-flattening**: Automatically handles redundant rule-call wrappers, keeping your handlers focused on semantic data.
-- **Type Safety**: No more `dynamic` or `List<dynamic>` casts.
-
-### Operator Precedence
-Glush supports natural precedence levels in the String DSL using the `precedence|` syntax. This automatically translates to the correct grammar transformation behind the scenes.
-
----
+This project is usable and actively improved, but not yet a finished/stable parsing platform for all grammar shapes. If you depend on it in production, pin versions and run grammar-specific regression tests.
 
 ## License
-MIT License. See `LICENSE` for details.
+
+MIT. See [LICENSE](LICENSE).

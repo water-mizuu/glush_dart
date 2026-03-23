@@ -66,9 +66,7 @@ class SymbolicNode extends ForestNode {
   SymbolicNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
-    if (!families.contains(family)) {
-      families.add(family);
-    }
+    families.add(family);
   }
 
   @override
@@ -89,9 +87,7 @@ class IntermediateNode extends ForestNode {
   IntermediateNode(super.start, super.end, super.symbol) : families = {};
 
   void addFamily(Family family) {
-    if (!families.contains(family)) {
-      families.add(family);
-    }
+    families.add(family);
   }
 
   @override
@@ -179,19 +175,24 @@ class EpsilonNode extends ForestNode {
 
 /// Forest node manager (deduplicates and caches nodes)
 class ForestNodeManager {
-  final Map<String, ForestNode> _nodeCache = {};
+  final Map<(int, int, int, PatternSymbol), ForestNode> _nodeCache = {};
   final Set<SymbolicNode> _symbolicNodes = {};
   final Set<TerminalNode> _terminalNodes = {};
   final Set<IntermediateNode> _intermediateNodes = {};
   final Set<MarkerNode> _markerNodes = {};
 
-  String _makeCacheKey(String type, int start, int end, PatternSymbol symbol) {
-    return '$type:$start:$end:$symbol';
+  (int, int, int, PatternSymbol) _makeCacheKey(
+    int typeTag,
+    int start,
+    int end,
+    PatternSymbol symbol,
+  ) {
+    return (typeTag, start, end, symbol);
   }
 
   /// Get or create a terminal node
   TerminalNode terminal(int start, int end, PatternSymbol symbol, int token) {
-    final key = _makeCacheKey('term', start, end, symbol);
+    final key = _makeCacheKey(1, start, end, symbol);
     if (_nodeCache[key] case TerminalNode node) {
       return node;
     }
@@ -203,7 +204,7 @@ class ForestNodeManager {
 
   /// Get or create a symbolic node
   SymbolicNode symbolic(int start, int end, PatternSymbol symbol) {
-    final key = _makeCacheKey('sym', start, end, symbol);
+    final key = _makeCacheKey(2, start, end, symbol);
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
@@ -215,7 +216,7 @@ class ForestNodeManager {
 
   /// Get or create an intermediate node
   IntermediateNode intermediate(int start, int end, PatternSymbol symbol) {
-    final key = _makeCacheKey('inter', start, end, symbol);
+    final key = _makeCacheKey(3, start, end, symbol);
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
@@ -227,7 +228,7 @@ class ForestNodeManager {
 
   /// Get or create an epsilon node
   EpsilonNode epsilon(int position, PatternSymbol symbol) {
-    final key = _makeCacheKey('eps', position, position, symbol);
+    final key = _makeCacheKey(4, position, position, symbol);
     if (_nodeCache[key] case EpsilonNode node) {
       return node;
     }
@@ -238,7 +239,7 @@ class ForestNodeManager {
 
   /// Get or create a marker node
   MarkerNode marker(int position, PatternSymbol symbol, String name) {
-    final key = _makeCacheKey('mark', position, position, symbol);
+    final key = _makeCacheKey(5, position, position, symbol);
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }

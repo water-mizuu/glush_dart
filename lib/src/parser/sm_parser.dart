@@ -41,6 +41,7 @@ import '../core/mark.dart';
 import '../core/list.dart';
 import '../representation/sppf.dart';
 import '../representation/bsr.dart';
+import '../representation/evaluator.dart';
 import 'common.dart';
 import 'interface.dart';
 
@@ -731,9 +732,14 @@ class SMParser extends GlushParserBase
         }
       case "mar":
         return start == end ? 1 : 0;
+      case "las":
+      case "lae":
+        return start == end ? 1 : 0;
       case "alt":
         return _countAlternatives(children.first, input, start, end, memo, inProgress) +
             _countAlternatives(children.last, input, start, end, memo, inProgress);
+      case "lab":
+        return _countAlternatives(children.single, input, start, end, memo, inProgress);
       case "opt":
         {
           final childCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
@@ -967,6 +973,9 @@ class SMParser extends GlushParserBase
         }
       case "mar":
         if (start == end) yield ParseDerivation(symbol, start, end, []);
+      case "las":
+      case "lae":
+        if (start == end) yield ParseDerivation(symbol, start, end, []);
       case "pre":
         {
           final prec = int.parse(suffix);
@@ -1004,6 +1013,21 @@ class SMParser extends GlushParserBase
             inProgress,
             minPrecedenceLevel: minPrecedenceLevel,
           );
+        }
+      case "lab":
+        {
+          for (final child in _enumerateAlternatives(
+            bsr,
+            children.single,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            minPrecedenceLevel: minPrecedenceLevel,
+          )) {
+            yield ParseDerivation(symbol, start, end, [child]);
+          }
         }
       case "opt":
         {
@@ -1258,7 +1282,12 @@ class SMParser extends GlushParserBase
         return tree.getMatchedText(input);
       case "mar":
         return NamedMark(suffix, tree.start);
+      case "las":
+        return LabelStartMark(suffix, tree.start);
+      case "lae":
+        return LabelEndMark(suffix, tree.start);
       case "alt":
+      case "lab":
       case "opt":
       case "pre":
       case "rca":
@@ -1389,8 +1418,13 @@ class SMParser extends GlushParserBase
         return StringMark(tree.getMatchedText(input), tree.start);
       case "mar":
         return NamedMark(suffix, tree.start);
+      case "las":
+        return LabelStartMark(suffix, tree.start);
+      case "lae":
+        return LabelEndMark(suffix, tree.start);
       case "rca":
       case "rul":
+      case "lab":
         if (tree.children.isNotEmpty) {
           return _extractParseTreeMarks(tree.children[0], input);
         }
@@ -1414,4 +1448,181 @@ class SMParser extends GlushParserBase
         throw Error();
     }
   }
+
+  /// Extract full raw marks (NamedMark/StringMark/LabelStartMark/LabelEndMark)
+  /// from a parse tree in-order.
+  List<Mark> extractParseTreeRawMarks(ParseTree tree, String input) {
+    final derivation = parseTreeToDerivation(tree, input);
+    final extracted = _extractParseTreeRawMarks(derivation, input);
+
+    // Hygiene fallback:
+    // Current SPPF extraction can miss zero-width marker/label structure in some
+    // grammars. When that happens for a full-input root tree, recover marks from
+    // the standard parse pipeline so evaluator APIs remain usable.
+    final hasStructuralMarks = extracted.any(
+      (m) => m is NamedMark || m is LabelStartMark || m is LabelEndMark,
+    );
+
+    if (!hasStructuralMarks && tree.node.start == 0 && tree.node.end == input.length) {
+      final outcome = parse(input);
+      if (outcome is ParseSuccess) {
+        return outcome.result.rawMarks;
+      }
+    }
+
+    return extracted;
+  }
+
+  /// Build a structured labeled tree directly from a parse tree.
+  ParseResult structuredFromParseTree(ParseTree tree, String input) {
+    return _structuredFromParseTreeNoMarks(tree, input);
+  }
+
+  /// Evaluate a parse tree using the same mark/tree evaluator API used by parse().
+  T evaluateParseTreeWith<T>(ParseTree tree, String input, Evaluator<T> evaluator) {
+    return evaluator.evaluate(structuredFromParseTree(tree, input));
+  }
+
+  ParseResult _structuredFromParseTreeNoMarks(ParseTree tree, String input) {
+    final stack = <_ForestStructuredFrame>[_ForestStructuredFrame('')];
+
+    void visit(ParseTree current) {
+      final parts = _splitSymbol(current.node.symbol.symbol);
+      final prefix = parts?.$1;
+      final suffix = parts?.$2 ?? '';
+
+      if (prefix == 'las') {
+        stack.add(_ForestStructuredFrame(suffix));
+        return;
+      }
+
+      if (prefix == 'lae') {
+        if (stack.length > 1) {
+          final frame = stack.removeLast();
+          stack.last.addChild(frame.name, frame.toResult());
+        }
+        return;
+      }
+
+      if (prefix == 'tok') {
+        stack.last.addToken(_safeSpan(input, current.node.start, current.node.end));
+        return;
+      }
+
+      if (prefix == 'lab') {
+        stack.add(_ForestStructuredFrame(suffix));
+        for (final child in current.children) {
+          visit(child);
+        }
+        final frame = stack.removeLast();
+        stack.last.addChild(frame.name, frame.toResult());
+        return;
+      }
+
+      if (prefix == 'mar') {
+        if (stack.last.children.isNotEmpty) {
+          final lastChild = stack.last.children.removeLast();
+          final wrapped = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+          stack.last.children.add((suffix, wrapped));
+        } else {
+          stack.last.children.add((suffix, ParseResult([], stack.last.spanBuffer.toString())));
+        }
+        return;
+      }
+
+      for (final child in current.children) {
+        visit(child);
+      }
+    }
+
+    visit(tree);
+
+    while (stack.length > 1) {
+      final frame = stack.removeLast();
+      stack.last.addChild(frame.name, frame.toResult());
+    }
+
+    return stack.first.toResult();
+  }
+
+  (String prefix, String suffix)? _splitSymbol(String symbol) {
+    final split = symbol.split(':');
+    if (split.length < 3) return null;
+    return (split[0], split[2]);
+  }
+
+  String _safeSpan(String input, int start, int end) {
+    final s = start.clamp(0, input.length);
+    final e = end.clamp(0, input.length);
+    if (s >= e) return '';
+    return input.substring(s, e);
+  }
+
+  List<Mark> _extractParseTreeRawMarks(ParseDerivation tree, String input) {
+    final symbol = tree.symbol.symbol;
+    final split = symbol.split(":");
+    if (split.length < 3) return const <Mark>[];
+    final [prefix, _, suffix] = split;
+
+    switch (prefix) {
+      case "eps":
+      case "and":
+      case "not":
+        return const <Mark>[];
+      case "tok":
+        return [StringMark(tree.getMatchedText(input), tree.start)];
+      case "mar":
+        return [NamedMark(suffix, tree.start)];
+      case "las":
+        return [LabelStartMark(suffix, tree.start)];
+      case "lae":
+        return [LabelEndMark(suffix, tree.start)];
+      case "alt":
+      case "opt":
+      case "act":
+      case "pre":
+      case "seq":
+      case "plu":
+      case "sta":
+      case "rca":
+      case "rul":
+      case "lab":
+        final out = <Mark>[];
+        for (final child in tree.children) {
+          out.addAll(_extractParseTreeRawMarks(child, input));
+        }
+        return out;
+      default:
+        final pattern = grammar.symbolRegistry[tree.symbol];
+        if (pattern == null) return const <Mark>[];
+        return switch (pattern) {
+          Marker(:var name) => [NamedMark(name, tree.start)],
+          LabelStart(:var name) => [LabelStartMark(name, tree.start)],
+          LabelEnd(:var name) => [LabelEndMark(name, tree.start)],
+          Token() => [StringMark(tree.getMatchedText(input), tree.start)],
+          _ => tree.children
+              .expand((c) => _extractParseTreeRawMarks(c, input))
+              .toList(),
+        };
+    }
+  }
+}
+
+class _ForestStructuredFrame {
+  final String name;
+  final List<(String label, ParseNode node)> children = [];
+  final StringBuffer spanBuffer = StringBuffer();
+
+  _ForestStructuredFrame(this.name);
+
+  void addChild(String label, ParseNode node) {
+    children.add((label, node));
+    spanBuffer.write(node.span);
+  }
+
+  void addToken(String value) {
+    spanBuffer.write(value);
+  }
+
+  ParseResult toResult() => ParseResult(children, spanBuffer.toString());
 }

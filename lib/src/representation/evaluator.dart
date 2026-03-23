@@ -96,7 +96,7 @@ class Evaluator<T> {
           : NodeIterator(const []);
 
       // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
-      while (childIt.hasNext && childIt.takeAll().length == 1 && childIt.peek().$1 == label) {
+      while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
         node = childIt.next().$2;
         childIt = node is ParseResult
             ? NodeIterator(node.children) //
@@ -118,6 +118,7 @@ class NodeIterator {
   NodeIterator(this._nodes);
 
   bool get hasNext => _index < _nodes.length;
+  int get remainingCount => _nodes.length - _index;
 
   (String label, ParseNode node) next() {
     if (!hasNext) throw StateError('No more nodes');
@@ -158,6 +159,7 @@ class TokenResult extends ParseNode {
 class ParseResult extends ParseNode {
   /// List of (label, result) tuples.
   final List<(String label, ParseNode node)> children;
+  Map<String, List<ParseNode>>? _childrenByLabel;
 
   /// The full text content of this result.
   @override
@@ -170,13 +172,14 @@ class ParseResult extends ParseNode {
 
   /// Get all results with a given label name.
   List<ParseNode> get(String name) {
-    final results = <ParseNode>[];
-    for (final (key, node) in children) {
-      if (key == name) {
-        results.add(node);
+    final byLabel = _childrenByLabel ??= () {
+      final grouped = <String, List<ParseNode>>{};
+      for (final (key, node) in children) {
+        grouped.putIfAbsent(key, () => []).add(node);
       }
-    }
-    return results;
+      return grouped.map((key, value) => MapEntry(key, List<ParseNode>.unmodifiable(value)));
+    }();
+    return byLabel[name] ?? const [];
   }
 
   /// Dictionary-style access to get all results with a given label.

@@ -271,15 +271,18 @@ void main() async {
   // meta();
   var smol =
       r"""
-      file = _ commentPlus _
-      commentPlus = $comment left:commentPlus newline right:comment
-                  | comment
+        file = leading_ws comments trailing_ws
 
-      _ = $ws (plain_ws | comment | newline)*
-      comment = $comment cdr:comment (newline | !newline '') car:('#' (!\n .)*) | ''
-      plain_ws = [ \t]+
-      newline = [\n\r]+
-    """
+        comments = acc:comments (newline curr:commentLine)
+                 | commentLine
+        commentLine = $comment '#' (!newline .)*
+
+        leading_ws = $ws plain_ws*
+        trailing_ws = $ws (plain_ws | newline)*
+
+        plain_ws = [ \t]+
+        newline = [\n\r]+
+      """
           .toSMParser();
 
   const input = """
@@ -292,9 +295,7 @@ void main() async {
       error.displayError(input);
     case ParseAmbiguousForestSuccess(:var forest):
       print(forest.allPaths().length);
-      for (final path in forest.allPaths()) {
-        print(StructuredEvaluator().evaluate(path));
-      }
+      print(forest.allPaths().join("\n"));
     case _:
       break;
   }
