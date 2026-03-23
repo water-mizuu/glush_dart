@@ -1,5 +1,18 @@
 import 'package:glush/glush.dart';
 
+/// Helper to check if a label exists in children
+bool hasLabel(List<(String, ParseResult)> children, String label) {
+  return children.any((element) => element.$1 == label);
+}
+
+/// Helper to get all results with a given label
+List<ParseResult> getLabel(List<(String, ParseResult)> children, String label) {
+  return [
+    for (final (name, result) in children)
+      if (name == label) result,
+  ];
+}
+
 void main() {
   final parser =
       r'''
@@ -22,16 +35,17 @@ void main() {
     final uniqueTrees = trees.map((t) => t.toString()).toSet();
     print('uniqueTrees.length: ${uniqueTrees.length}');
 
-    final hasOuterElse = trees.any(
-      (t) => t.children['ifStmt']?.first.children.containsKey('elseStmt') ?? false,
-    );
+    final hasOuterElse = trees.any((t) {
+      final ifStmts = getLabel(t.children, 'ifStmt');
+      return ifStmts.isNotEmpty && hasLabel(ifStmts.first.children, 'elseStmt');
+    });
     final hasInnerElse = trees.any((t) {
-      final outerIf = t.children['ifStmt']?.first;
+      final outerIf = getLabel(t.children, 'ifStmt').firstOrNull;
       if (outerIf == null) return false;
-      final thenS = outerIf.children['thenStmt']?.first;
+      final thenS = getLabel(outerIf.children, 'thenStmt').firstOrNull;
       if (thenS == null) return false;
-      return thenS.children.containsKey('ifStmt') &&
-          thenS.children['ifStmt']!.first.children.containsKey('elseStmt');
+      return hasLabel(thenS.children, 'ifStmt') &&
+          hasLabel(getLabel(thenS.children, 'ifStmt').first.children, 'elseStmt');
     });
 
     print('hasOuterElse: $hasOuterElse');

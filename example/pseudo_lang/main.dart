@@ -3,22 +3,52 @@ import 'interpreter.dart';
 
 void main() {
   final grammarString = r'''
-    program = (_ (function:def | statement:stmt) _)*;
+    # ============================================
+    # Program structure
+    # ============================================
+    program = (_ (function:def | statement:stmt) _)*
+
+    # ============================================
+    # Function definitions and blocks
+    # ============================================
     def = 'fn' _ name:identifier _ "(" _ params:params _ ")" _ body:block;
     params = (name:identifier (_ "," _ name:identifier)*)?;
     block = "{" _ (stmts:stmt _)* "}";
-    stmt = decl:declaration | assign:assignment | call:functionCall | ifStmt:ifStatement | whileStmt:whileLoop;
-    ifStatement = "if" _ "(" _ cond:expression _ ")" _ then:block (_ "else" _ else:block)?;
-    whileLoop = "while" _ "(" _ cond:expression _ ")" _ body:block;
+
+    # ============================================
+    # Statements
+    # ============================================
+    stmt = decl:declaration
+         | assign:assignment
+         | call:functionCall
+         | ifStmt:ifStatement
+         | whileStmt:whileLoop;
+
     declaration = "let" _ name:identifier _ "=" _ value:expression _ ";";
     assignment = name:identifier _ "=" _ value:expression _ ";";
     functionCall = name:identifier _ "(" _ arguments:args _ ")" _ ";";
-    args = (head:expression (_ "," _ tail:expression)*)?;
+
+    # ============================================
+    # Control flow
+    # ============================================
+    ifStatement = "if" _ "(" _ cond:expression _ ")"
+                  _ then:block (_ "else" _ else:block)?;
+    whileLoop = "while" _ "(" _ cond:expression _ ")" _ body:block;
+
+    # ============================================
+    # Expressions and operators
+    # ============================================
     expression = left:primary (_ op:operator _ right:primary)*;
     primary = val:number | ref:identifier | "(" _ expression _ ")";
-    identifier = [a-zA-Z_][a-zA-Z0-9_]*;
-    number = [0-9]+;
-    operator = "==" | "!=" | "<=" | ">=" | "<" | ">" | "+" | "-" | "*" | "/";
+    args = (head:expression (_ "," _ tail:expression)*)?;
+
+    # ============================================
+    # Terminals and whitespace
+    # ============================================
+    identifier = [a-zA-Z_][a-zA-Z0-9_]*
+    number = [0-9]+
+    operator = "==" | "!=" | "<" | ">" | "<=" | ">="
+             | "+" | "-" | "*" | "/"
     _ = [ \n\r\t]*;
   ''';
 
@@ -62,14 +92,12 @@ fn main() {
 
 void _printTree(ParseResult node, int depth) {
   final indent = "  " * depth;
-  for (final entry in node.children.entries) {
-    for (final child in entry.value) {
-      final spanSnippet = child.span.replaceAll('\n', '\\n');
-      final displaySpan = spanSnippet.length > 40
-          ? "${spanSnippet.substring(0, 37)}..."
-          : spanSnippet;
-      print("${indent}LABEL: ${entry.key} => '$displaySpan'");
-      _printTree(child, depth + 1);
-    }
+  for (final (label, child) in node.children) {
+    final spanSnippet = child.span.replaceAll('\n', '\\n');
+    final displaySpan = spanSnippet.length > 40
+        ? "${spanSnippet.substring(0, 37)}..."
+        : spanSnippet;
+    print("${indent}LABEL: $label => '$displaySpan'");
+    _printTree(child, depth + 1);
   }
 }

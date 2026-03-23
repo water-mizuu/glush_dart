@@ -1,6 +1,19 @@
 import 'package:test/test.dart';
 import 'package:glush/glush.dart';
 
+/// Helper to check if a label exists in children
+bool hasLabel(List<(String, ParseResult)> children, String label) {
+  return children.any((element) => element.$1 == label);
+}
+
+/// Helper to get all results with a given label
+List<ParseResult> getLabel(List<(String, ParseResult)> children, String label) {
+  return [
+    for (final (name, result) in children)
+      if (name == label) result,
+  ];
+}
+
 void main() {
   group('Ambiguous Marks (Label) Tests', () {
     test('1. Simple Alternative Labels', () {
@@ -16,10 +29,10 @@ void main() {
       final evaluator = StructuredEvaluator();
       final trees = paths.map((p) => evaluator.evaluate(p)).toList();
 
-      expect(trees.any((t) => t.children.containsKey('a')), isTrue);
-      expect(trees.any((t) => t.children.containsKey('b')), isTrue);
-      expect(trees.any((t) => t['a']?.first.span == 'z'), isTrue);
-      expect(trees.any((t) => t['b']?.first.span == 'z'), isTrue);
+      expect(trees.any((t) => hasLabel(t.children, 'a')), isTrue);
+      expect(trees.any((t) => hasLabel(t.children, 'b')), isTrue);
+      expect(trees.any((t) => getLabel(t.children, 'a').firstOrNull?.span == 'z'), isTrue);
+      expect(trees.any((t) => getLabel(t.children, 'b').firstOrNull?.span == 'z'), isTrue);
     });
 
     test('2. Overlapping Labels', () {
@@ -38,8 +51,8 @@ void main() {
       // We don't guarantee the order of paths in BranchedList, so we check both
       final trees = paths.map((p) => evaluator.evaluate(p)).toList();
 
-      final hasA = trees.any((t) => t.children.containsKey('a'));
-      final hasB = trees.any((t) => t.children.containsKey('b'));
+      final hasA = trees.any((t) => hasLabel(t.children, 'a'));
+      final hasB = trees.any((t) => hasLabel(t.children, 'b'));
 
       expect(hasA, isTrue);
       expect(hasB, isTrue);
@@ -70,17 +83,19 @@ void main() {
       expect(uniqueTrees.length, equals(2));
 
       // One tree should have 'elseStmt' in the outer 'ifStmt'
-      final hasOuterElse = trees.any(
-        (t) => t.children['ifStmt']!.first.children.containsKey('elseStmt'),
-      );
+      final hasOuterElse = trees.any((t) {
+        final ifStmts = getLabel(t.children, 'ifStmt');
+        return ifStmts.isNotEmpty && hasLabel(ifStmts.first.children, 'elseStmt');
+      });
 
       // The other should have it in the nested 'thenStmt' -> 'ifStmt'
       final hasInnerElse = trees.any((t) {
-        final outerIf = t.children['ifStmt']?.first;
+        final outerIf = getLabel(t.children, 'ifStmt').firstOrNull;
         if (outerIf == null) return false;
-        final thenS = outerIf.children['thenStmt']?.first;
+        final thenS = getLabel(outerIf.children, 'thenStmt').firstOrNull;
         if (thenS == null) return false;
-        return thenS.children['ifStmt']!.first.children.containsKey('elseStmt');
+        final innerIfStmts = getLabel(thenS.children, 'ifStmt');
+        return innerIfStmts.isNotEmpty && hasLabel(innerIfStmts.first.children, 'elseStmt');
       });
 
       expect(hasOuterElse, isTrue);
@@ -105,10 +120,10 @@ void main() {
       final treeAA = evaluator.evaluate(
         paths.firstWhere((p) {
           final tree = evaluator.evaluate(p);
-          return tree.children.containsKey('a') && tree['a']!.length == 2;
+          return hasLabel(tree.children, 'a') && getLabel(tree.children, 'a').length == 2;
         }),
       );
-      expect(treeAA['a']!.length, equals(2));
+      expect(getLabel(treeAA.children, 'a').length, equals(2));
     });
   });
 }

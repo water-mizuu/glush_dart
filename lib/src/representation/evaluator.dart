@@ -1,14 +1,93 @@
 import '../core/mark.dart';
 
-/// A generic evaluator for mark-based parse results.
+/// Type definition for nested entry structure.
+/// Entry = List<(name: string, value: Entry | String)>
+typedef Entry = List<dynamic>;
+
+/// A generic evaluator for mark-based parse results and nested entry structures.
+///
+/// Can evaluate both:
+/// 1. Traditional mark lists: List<Mark>
+/// 2. Nested entry structures: List<(name: string, value: Entry | String)>
+///
+/// Example for nested entries:
+/// ```dart
+/// final data = [("two", [("two", [("one", 's'), ("one", 's')]), ("one", 's')])];
+/// final evaluator = Evaluator((consume) {
+///   return {
+///     "two": () => "(${consume<String>()}${consume<String>()})",
+///     "one": () => consume<String>(),
+///   };
+/// });
+/// final result = evaluator.evaluateEntry(data);
+/// ```
 class Evaluator<T> {
   final Map<String, Object? Function()> Function(R Function<R>() consume) factory;
 
   Evaluator(this.factory);
 
-  /// Evaluates the list of marks and returns the result along with any remaining marks.
-  T evaluate(List<String> marks) {
-    int index = 0;
+  /// Evaluates a nested entry structure and returns the result.
+  ///
+  /// Processes structures of the form:
+  /// List<(name: string, value: Entry | String)>
+  T evaluateEntry(List<Object?> entry) {
+    late final Map<String, Object? Function()> handlers;
+    var queue = List<Object?>.from(entry);
+    var index = 0;
+
+    R consume<R>() {
+      if (index >= queue.length) {
+        throw StateError('Unexpected end of entries');
+      }
+
+      final current = queue[index++];
+
+      // If it's a tuple (name, value)
+      if (current is! (String, Object?)) {
+        return current as R;
+      }
+
+      final (name, value) = current;
+      if (handlers.containsKey(name)) {
+        // Save current state
+        final previousQueue = queue;
+        final previousIndex = index;
+
+        // Set up new queue for this handler's consumption
+        if (value is List) {
+          queue = List<dynamic>.from(value);
+        } else {
+          // If value is a string, create a single-element queue
+          queue = [value];
+        }
+        index = 0;
+
+        final result = handlers[name]!();
+
+        // Restore queue state
+        queue = previousQueue;
+        index = previousIndex;
+
+        return result as R;
+      }
+
+      // If no handler is found, treat value as a raw value
+      if (value is String) {
+        return value as R;
+      }
+
+      return null as R;
+    }
+
+    handlers = factory(consume);
+    queue = List<dynamic>.from(entry);
+    index = 0;
+    return consume<T>();
+  }
+
+  /// Evaluates a list of marks and returns the result.
+  T evaluate(List<Object> marks) {
+    var index = 0;
     late final Map<String, Object? Function()> handlers;
 
     R consume<R>() {
@@ -18,6 +97,7 @@ class Evaluator<T> {
         final result = handlers[current]!();
         return result as R;
       }
+
       return current as R;
     }
 
@@ -45,24 +125,35 @@ class TokenResult extends ParseNode {
 
 /// A node in the structured parse result tree
 class ParseResult extends ParseNode {
-  /// Map of labels to lists of matching results.
-  final Map<String, List<ParseResult>> children;
+  /// List of (label, result) tuples.
+  final List<(String, ParseResult)> children;
 
   /// The full text content of this result.
   @override
   final String span;
 
-  /// All results (tokens and children) in order.
-  final List<ParseNode> all;
-
-  ParseResult(this.children, this.span, this.all);
-
-  List<ParseResult>? operator [](String key) => children[key];
-
-  List<ParseResult>? get(String key) => children[key];
+  ParseResult(this.children, this.span);
 
   @override
-  String toString() => 'ParseResult($children)';
+  String toString() => children.isEmpty ? 'ParseResult(span: $span)' : 'ParseResult($children)';
+
+  Object toSimple() => children.isEmpty
+      ? span //
+      : [for (final (k, v) in children) (k, v.toSimple())];
+
+  /// Get all results with a given label name.
+  List<ParseResult>? get(String name) {
+    final results = <ParseResult>[];
+    for (final (key, result) in children) {
+      if (key == name) {
+        results.add(result);
+      }
+    }
+    return results.isEmpty ? null : results;
+  }
+
+  /// Dictionary-style access to get all results with a given label.
+  List<ParseResult>? operator [](String name) => get(name);
 }
 
 /// Evaluator that produces a structured tree of results based on labels.
@@ -94,26 +185,21 @@ class StructuredEvaluator {
 
 class _EvaluationFrame {
   final String name;
-  final Map<String, List<ParseResult>> children = {};
-  final List<ParseNode> allResults = [];
+  final List<(String, ParseResult)> children = [];
   final StringBuffer spanBuffer = StringBuffer();
 
   _EvaluationFrame(this.name);
 
   void addChild(String label, ParseResult result) {
-    if (label.isNotEmpty) {
-      children.putIfAbsent(label, () => []).add(result);
-    }
+    children.add((label, result));
     spanBuffer.write(result.span);
-    allResults.add(result);
   }
 
   void addToken(String value) {
     spanBuffer.write(value);
-    allResults.add(TokenResult(value));
   }
 
   ParseResult toResult() {
-    return ParseResult(children, spanBuffer.toString(), allResults);
+    return ParseResult(children, spanBuffer.toString());
   }
 }

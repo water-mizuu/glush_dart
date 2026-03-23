@@ -191,10 +191,67 @@ abc = c #has=b
   }
 }
 
+void testNestedEvaluator() {
+  // Test the evaluateEntry method with nested structures
+  final evaluator = Evaluator<String>((consume) {
+    return {
+      "two": () {
+        return "(${consume<String>()}${consume<String>()})";
+      },
+      "one": () {
+        return consume<String>();
+      },
+    };
+  });
+
+  // Nested entry structure: List<(name: string, value: Entry | String)>
+  final entry = [
+    (
+      "two",
+      [
+        ("two", [("one", "s"), ("one", "s")]),
+        ("one", "s"),
+      ],
+    ),
+  ];
+
+  print("Testing nested evaluator:");
+  print("Input: $entry");
+  final result = evaluator.evaluateEntry(entry);
+  print("Output: $result");
+  print("");
+}
+
 void main() async {
+  testNestedEvaluator();
+
   // mathSimple();
   // ambiguous();
   // orderedChoice();
-  meta();
-  print('a="a"*a'.toSMParser().parse('aaaa'));
+  // meta();
+  var parser =
+      """
+        S = two:(S S)
+          | one:[s];
+      """
+          .toSMParser();
+
+  const input = "sss";
+
+  final evaluator2 = Evaluator<String>((consume) {
+    return {
+      "two": () {
+        return "(${consume<String>()}${consume<String>()})";
+      },
+      "one": () {
+        return consume<String>();
+      },
+    };
+  });
+
+  if (parser.parseAmbiguous(input) case ParseAmbiguousForestSuccess(:var forest)) {
+    for (final path in forest.allPaths()) {
+      print(evaluator2.evaluateEntry(StructuredEvaluator().evaluate(path).toSimple() as List));
+    }
+  }
 }
