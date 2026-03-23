@@ -9,6 +9,7 @@ import 'package:glush/src/representation/sppf.dart';
 
 import 'interface.dart';
 
+
 // ---------------------------------------------------------------------------
 // Type aliases for complex record types used as keys and internal state
 // ---------------------------------------------------------------------------
@@ -965,4 +966,6 @@ mixin ParserCore on GlushParserBase {
 
     return memo[node] = markManager.branched(alternatives);
   }
+
+
 }

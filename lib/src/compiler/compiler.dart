@@ -34,6 +34,14 @@ class GrammarFileCompiler {
     return Grammar(() => startRule);
   }
 
+  Pattern _token(CharRange range) {
+    if (range.startCode == range.endCode) {
+      return Token(ExactToken(range.startCode));
+    }
+
+    return Token(RangeToken(range.startCode, range.endCode));
+  }
+
   /// Compile a pattern expression into a Pattern
   Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
@@ -49,9 +57,9 @@ class GrammarFileCompiler {
           return Token(RangeToken(range.startCode, range.endCode));
         }
         // Multiple ranges: use alternation
-        Pattern result = Token(RangeToken(ranges[0].startCode, ranges[0].endCode));
+        Pattern result = _token(ranges[0]);
         for (int i = 1; i < ranges.length; i++) {
-          result = result | Token(RangeToken(ranges[i].startCode, ranges[i].endCode));
+          result = result | _token(ranges[i]);
         }
         return result;
       case LessThanPattern(:var codePoint):

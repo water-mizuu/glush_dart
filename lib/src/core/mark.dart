@@ -81,6 +81,12 @@ extension MarkListExtension on List<Mark> {
           currentStringMark = null;
         }
         result.add(mark.name);
+      } else if (mark is LabelStartMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
       } else if (mark is StringMark) {
         currentStringMark = (currentStringMark ?? '') + mark.value;
       }

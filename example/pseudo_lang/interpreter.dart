@@ -1,15 +1,15 @@
 import 'package:glush/glush.dart';
 
 /// Helper to get all results with a given label
-List<ParseResult> getLabel(List<(String, ParseResult)> children, String label) {
+List<ParseNode> getLabel(List<(String label, ParseNode node)> children, String label) {
   return [
-    for (final (name, result) in children)
-      if (name == label) result,
+    for (final (name, node) in children)
+      if (name == label) node,
   ];
 }
 
 /// Helper to check if a label exists
-bool hasLabel(List<(String, ParseResult)> children, String label) {
+bool hasLabel(List<(String label, ParseNode node)> children, String label) {
   return children.any((element) => element.$1 == label);
 }
 
@@ -47,12 +47,13 @@ class BoolValue extends Value {
 }
 
 class FunctionValue extends Value {
-  final ParseResult node;
+  final ParseNode node;
   const FunctionValue(this.node);
 
   @override
   String toString() {
-    final names = getLabel(node.children, 'name');
+    if (node is! ParseResult) return "<fn ?>";
+    final names = getLabel((node as ParseResult).children, 'name');
     return "<fn ${names.isNotEmpty ? names.first.span : '?'}>";
   }
 }
@@ -123,7 +124,8 @@ class Interpreter {
     }
   }
 
-  void _defineFunction(ParseResult functionNode) {
+  void _defineFunction(ParseNode functionNode) {
+    if (functionNode is! ParseResult) return;
     final names = getLabel(functionNode.children, 'name');
     if (names.isNotEmpty) {
       final name = names.first.span;
@@ -131,13 +133,14 @@ class Interpreter {
     }
   }
 
-  Value _callFunction(ParseResult functionNode, List<Value> arguments) {
+  Value _callFunction(ParseNode functionNode, List<Value> arguments) {
+    if (functionNode is! ParseResult) return const NullValue();
     final previousEnv = _environment;
     _environment = Environment(globals);
 
     final paramsNodeList = getLabel(functionNode.children, 'params');
-    if (paramsNodeList.isNotEmpty) {
-      final paramsNode = paramsNodeList.first;
+    if (paramsNodeList.isNotEmpty && paramsNodeList.first is ParseResult) {
+      final paramsNode = paramsNodeList.first as ParseResult;
       final names = getLabel(paramsNode.children, 'name').map((n) => n.span).toList();
       for (var i = 0; i < names.length && i < arguments.length; i++) {
         _environment.define(names[i], arguments[i]);
@@ -155,7 +158,8 @@ class Interpreter {
     return const NullValue();
   }
 
-  Value? _executeBlock(ParseResult blockNode) {
+  Value? _executeBlock(ParseNode blockNode) {
+    if (blockNode is! ParseResult) return null;
     final stmts = getLabel(blockNode.children, 'stmts');
     for (final stmt in stmts) {
       final val = _executeStatement(stmt);
@@ -164,11 +168,14 @@ class Interpreter {
     return null;
   }
 
-  Value? _executeStatement(ParseResult stmtNode) {
-    if (hasLabel(stmtNode.children, 'decl')) {
-      final declList = getLabel(stmtNode.children, 'decl');
-      if (declList.isNotEmpty) {
-        final decl = declList.first;
+  Value? _executeStatement(ParseNode stmtNode) {
+    if (stmtNode is! ParseResult) return null;
+    final children = stmtNode.children;
+
+    if (hasLabel(children, 'decl')) {
+      final declList = getLabel(children, 'decl');
+      if (declList.isNotEmpty && declList.first is ParseResult) {
+        final decl = declList.first as ParseResult;
         final names = getLabel(decl.children, 'name');
         final values = getLabel(decl.children, 'value');
         if (names.isNotEmpty && values.isNotEmpty) {
@@ -177,10 +184,10 @@ class Interpreter {
           _environment.define(name, value);
         }
       }
-    } else if (hasLabel(stmtNode.children, 'assign')) {
-      final assignList = getLabel(stmtNode.children, 'assign');
-      if (assignList.isNotEmpty) {
-        final assign = assignList.first;
+    } else if (hasLabel(children, 'assign')) {
+      final assignList = getLabel(children, 'assign');
+      if (assignList.isNotEmpty && assignList.first is ParseResult) {
+        final assign = assignList.first as ParseResult;
         final names = getLabel(assign.children, 'name');
         final values = getLabel(assign.children, 'value');
         if (names.isNotEmpty && values.isNotEmpty) {
@@ -189,15 +196,15 @@ class Interpreter {
           _environment.assign(name, value);
         }
       }
-    } else if (hasLabel(stmtNode.children, 'call')) {
-      final callList = getLabel(stmtNode.children, 'call');
+    } else if (hasLabel(children, 'call')) {
+      final callList = getLabel(children, 'call');
       if (callList.isNotEmpty) {
         _executeFunctionCall(callList.first);
       }
-    } else if (hasLabel(stmtNode.children, 'ifStmt')) {
-      final ifStmtList = getLabel(stmtNode.children, 'ifStmt');
-      if (ifStmtList.isNotEmpty) {
-        final ifStmt = ifStmtList.first;
+    } else if (hasLabel(children, 'ifStmt')) {
+      final ifStmtList = getLabel(children, 'ifStmt');
+      if (ifStmtList.isNotEmpty && ifStmtList.first is ParseResult) {
+        final ifStmt = ifStmtList.first as ParseResult;
         final conditions = getLabel(ifStmt.children, 'cond');
         final thenBlocks = getLabel(ifStmt.children, 'then');
         if (conditions.isNotEmpty && thenBlocks.isNotEmpty) {
@@ -212,10 +219,10 @@ class Interpreter {
           }
         }
       }
-    } else if (hasLabel(stmtNode.children, 'whileStmt')) {
-      final whileStmtList = getLabel(stmtNode.children, 'whileStmt');
-      if (whileStmtList.isNotEmpty) {
-        final whileStmt = whileStmtList.first;
+    } else if (hasLabel(children, 'whileStmt')) {
+      final whileStmtList = getLabel(children, 'whileStmt');
+      if (whileStmtList.isNotEmpty && whileStmtList.first is ParseResult) {
+        final whileStmt = whileStmtList.first as ParseResult;
         final conditions = getLabel(whileStmt.children, 'cond');
         final bodies = getLabel(whileStmt.children, 'body');
         if (conditions.isNotEmpty && bodies.isNotEmpty) {
@@ -229,7 +236,8 @@ class Interpreter {
     return null;
   }
 
-  void _executeFunctionCall(ParseResult callNode) {
+  void _executeFunctionCall(ParseNode callNode) {
+    if (callNode is! ParseResult) return;
     final names = getLabel(callNode.children, 'name');
     if (names.isEmpty) return;
 
@@ -237,8 +245,8 @@ class Interpreter {
     final argsNodes = getLabel(callNode.children, 'arguments');
     final args = <Value>[];
 
-    if (argsNodes.isNotEmpty) {
-      final argsNode = argsNodes.first;
+    if (argsNodes.isNotEmpty && argsNodes.first is ParseResult) {
+      final argsNode = argsNodes.first as ParseResult;
       final heads = getLabel(argsNode.children, 'head');
       if (heads.isNotEmpty) {
         args.add(_evaluateExpression(heads.first));
@@ -261,7 +269,8 @@ class Interpreter {
     }
   }
 
-  Value _evaluateExpression(ParseResult exprNode) {
+  Value _evaluateExpression(ParseNode exprNode) {
+    if (exprNode is! ParseResult) throw Exception("Expected ParseResult for expression");
     final lefts = getLabel(exprNode.children, 'left');
     if (lefts.isEmpty) throw Exception("No left operand in expression");
 
@@ -279,7 +288,8 @@ class Interpreter {
     return result;
   }
 
-  Value _evaluatePrimary(ParseResult primaryNode) {
+  Value _evaluatePrimary(ParseNode primaryNode) {
+    if (primaryNode is! ParseResult) throw Exception("Expected ParseResult for primary");
     final vals = getLabel(primaryNode.children, 'val');
     if (vals.isNotEmpty) {
       return IntValue(int.parse(vals.first.span));

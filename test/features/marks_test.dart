@@ -21,13 +21,11 @@ void main() {
       final result = (outcome as ParseSuccess).result;
 
       final marks = result.rawMarks;
-      print('RAW MARKS: $marks');
       final evaluator = StructuredEvaluator();
       final tree = evaluator.evaluate(marks);
-      print('TREE: $tree');
 
-      expect(tree.get('name')!.first.span, equals('user'));
-      expect(tree.get('value')!.first.span, equals('michael'));
+      expect(tree.get('name').first.span, equals('user'));
+      expect(tree.get('value').first.span, equals('michael'));
       expect(tree.span, equals('user:michael'));
     });
 
@@ -47,8 +45,8 @@ void main() {
       final evaluator = StructuredEvaluator();
       final tree = evaluator.evaluate(result.rawMarks);
 
-      expect(tree['user']!.first.span, equals('alice'));
-      expect(tree['pass']!.first.span, equals('secret'));
+      expect(tree['user'].first.span, equals('alice'));
+      expect(tree['pass'].first.span, equals('secret'));
     });
 
     test('Nested labels', () {
@@ -67,9 +65,9 @@ void main() {
       final evaluator = StructuredEvaluator();
       final tree = evaluator.evaluate(result.rawMarks);
 
-      final person = tree['person']!.first;
-      expect(person['first']!.first.span, equals('John'));
-      expect(person['last']!.first.span, equals('Doe'));
+      final person = tree['person'].first as ParseResult;
+      expect(person['first'].first.span, equals('John'));
+      expect(person['last'].first.span, equals('Doe'));
       expect(person.span, equals('John Doe'));
     });
   });

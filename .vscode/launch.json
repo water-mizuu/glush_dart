@@ -8,7 +8,7 @@
       "name": "glush_dart",
       "request": "launch",
       "type": "dart",
-      "program": "test/glush_test.dart"
+      "program": "bin/glush.dart"
     },
     {
       "name": "debugrn",

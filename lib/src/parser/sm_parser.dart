@@ -374,52 +374,6 @@ class SMParser extends GlushParserBase
     }
   }
 
-  /// Extracts the parse forest from the predecessor graph.
-  GlushList<Mark> extractForestFromGraphInternal(
-    ParseNodeKey node,
-    Map<ParseNodeKey, GlushList<Mark>> memo,
-    Map<ParseNodeKey, Set<PredecessorInfo>> predecessors, [
-    Set<ParseNodeKey>? visiting,
-  ]) {
-    if (memo.containsKey(node)) return memo[node]!;
-
-    final currentVisiting = visiting ?? <ParseNodeKey>{};
-    if (currentVisiting.contains(node)) {
-      // Return empty list for cyclic path to avoid infinite recursion.
-      // In a real SPPF, this would be a cyclic node, but GlushList is linear.
-      return const GlushList<Mark>.empty();
-    }
-
-    currentVisiting.add(node);
-    final predecessorsForNode = predecessors[node];
-    if (predecessorsForNode == null) return memo[node] = const GlushList<Mark>.empty();
-
-    final alternatives = <GlushList<Mark>>[];
-    for (final (source, action, marks, callSite) in predecessorsForNode) {
-      if (action is ReturnAction) {
-        final ruleForest = extractForestFromGraphInternal(
-          source!,
-          memo,
-          predecessors,
-          currentVisiting,
-        );
-        final parentForest = callSite != null
-            ? extractForestFromGraphInternal(callSite, memo, predecessors, currentVisiting)
-            : const GlushList<Mark>.empty();
-
-        alternatives.add(parentForest.addList(markManager, ruleForest));
-      } else if (source != null) {
-        final base = extractForestFromGraphInternal(source, memo, predecessors, currentVisiting);
-        alternatives.add(base.addList(markManager, marks));
-      } else {
-        alternatives.add(marks);
-      }
-    }
-    currentVisiting.remove(node);
-
-    return memo[node] = markManager.branched(alternatives);
-  }
-
   /// Parse with forest extraction enabled.
   ///
   /// Internally uses BSR (Binarised Shared Representation) recorded during

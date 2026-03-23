@@ -92,12 +92,14 @@ fn main() {
 
 void _printTree(ParseResult node, int depth) {
   final indent = "  " * depth;
-  for (final (label, child) in node.children) {
-    final spanSnippet = child.span.replaceAll('\n', '\\n');
+  for (final (label, node) in node.children) {
+    final spanSnippet = node.span.replaceAll('\n', '\\n');
     final displaySpan = spanSnippet.length > 40
         ? "${spanSnippet.substring(0, 37)}..."
         : spanSnippet;
     print("${indent}LABEL: $label => '$displaySpan'");
-    _printTree(child, depth + 1);
+    if (node is ParseResult) {
+      _printTree(node, depth + 1);
+    }
   }
 }

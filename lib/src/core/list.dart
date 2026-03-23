@@ -246,6 +246,12 @@ extension ListMarkExtractor on List<Mark> {
           currentStringMark = null;
         }
         result.add(mark.name);
+      } else if (mark is LabelStartMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
       } else if (mark is StringMark) {
         currentStringMark = (currentStringMark ?? '') + mark.value;
       }
@@ -262,6 +268,8 @@ extension ListMarkExtractor on List<Mark> {
     final result = <String>[];
     for (final mark in this) {
       if (mark is NamedMark) {
+        result.add(mark.name);
+      } else if (mark is LabelStartMark) {
         result.add(mark.name);
       } else if (mark is StringMark) {
         result.add(mark.value);

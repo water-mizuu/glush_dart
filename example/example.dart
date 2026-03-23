@@ -137,20 +137,18 @@ void _methodParse(GrammarInterface grammar, String input) {
   final parser = SMParser(grammar);
   final result = parser.parse(input);
 
-  final evaluator = Evaluator(($) {
-    return {
-      'add': () => $<num>() + $<num>(),
-      'sub': () => $<num>() - $<num>(),
-      'mul': () => $<num>() * $<num>(),
-      'div': () => $<num>() / $<num>(),
-      'number': () => num.parse($<String>()),
-    };
+  final evaluator = Evaluator<num>({
+    'add': (ctx) => ctx.next() + ctx.next(),
+    'sub': (ctx) => ctx.next() - ctx.next(),
+    'mul': (ctx) => ctx.next() * ctx.next(),
+    'div': (ctx) => ctx.next() / ctx.next(),
+    'number': (ctx) => num.parse(ctx.span),
   });
 
   if (result is ParseSuccess) {
     print('Parse succeeded.');
-    print('Marks: ${result.result.marks}');
-    final value = evaluator.evaluate(result.result.marks);
+    final tree = StructuredEvaluator().evaluate(result.result.rawMarks);
+    final value = evaluator.evaluate(tree);
     print('Evaluated result: $value');
   } else if (result is ParseError) {
     print('Parse failed at position ${result.position}');

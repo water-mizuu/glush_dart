@@ -1,6 +1,42 @@
+import 'dart:io';
 import 'dart:math' show max;
-
 import 'package:glush/glush.dart';
+
+extension ShowErrors on ParseError {
+  void displayError(String input) {
+    List<String> inputRows = input.replaceAll("\r", "").split("\n");
+
+    /// Surely the string we're trying to parse is not empty.
+    if (inputRows.isEmpty) {
+      throw StateError("Huh?");
+    }
+
+    int row = input.substring(0, position).split("\n").length;
+    int column =
+        input //
+            .substring(0, position)
+            .split("\n")
+            .last
+            .codeUnits
+            .length +
+        1;
+    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
+
+    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
+
+    print("Parse error at: ($row:$column)");
+    print(
+      displayedRows
+          .map(
+            (v) =>
+                " ${(v.$1 + 1).toString().padLeft(longest, ' ')} | "
+                "${v.$2}",
+          )
+          .join("\n"),
+    );
+    print("${" " * " ${''.padLeft(longest, ' ')} | ".length}${' ' * (column - 1)}^");
+  }
+}
 
 extension on Pattern {
   Pattern operator /(Pattern other) => Alt(this, Seq(not(), other));
@@ -19,15 +55,14 @@ void mathSimple() {
 
   final input = '1 + 2 + 3';
   final ambiguousResult = parser.parseAmbiguous(input);
-  final evaluator = Evaluator(
-    ($) => {
-      'add': () => "(${$<String>()} + ${$<String>()})", //
-      'num': () => $<String>().trim(),
-    },
-  );
+  final evaluator = Evaluator<String>({
+    'add': (ctx) => "(${ctx.next()} + ${ctx.next()})",
+    'num': (ctx) => ctx.span.trim(),
+  });
   if (ambiguousResult is ParseAmbiguousForestSuccess) {
     for (var result in ambiguousResult.forest.allPaths()) {
-      print(evaluator.evaluate(result.toShortMarks()));
+      final tree = StructuredEvaluator().evaluate(result);
+      print(evaluator.evaluate(tree));
     }
   }
 }
@@ -41,12 +76,10 @@ void ambiguous() {
       """
           .toSMParser();
 
-  final evaluator = Evaluator(
-    ($) => {
-      r'TWO': () => "(${$<String>()}${$<String>()})", //
-      r'ONE': () => 's',
-    },
-  );
+  final evaluator = Evaluator<String>({
+    r'TWO': (ctx) => "(${ctx.next()}${ctx.next()})",
+    r'ONE': (ctx) => 's',
+  });
 
   for (int length = 1; length <= 5; ++length) {
     final input = 's' * length;
@@ -59,8 +92,8 @@ void ambiguous() {
     print(length);
     print("=" * 30);
     for (final markList in result.forest.allPaths()) {
-      final rawMarks = markList.toStringList();
-      final evaluated = evaluator.evaluate(rawMarks);
+      final tree = StructuredEvaluator().evaluate(markList);
+      final evaluated = evaluator.evaluate(tree);
       print(evaluated);
     }
     print("");
@@ -86,73 +119,112 @@ void orderedChoice() {
 void meta() {
   final parser =
       r"""
-# ==========================
-#   Top level structure
-# ==========================
-full = $full _ $file file _
+        # ==========================
+        #   Full Meta Grammar
+        # ==========================
+        full = $full _ file:file _
 
-file = $rules $left file _ $right rule
-     | rule
+        file = $rules left:file _ right:rule
+            | $first rule:rule
 
-rule = $rule $name ident _ $eq '=' _ $body pattern
+        rule = $rule name:ident _ '=' _ body:choice ( _ ';' )?
 
-pattern = ident
-ident = [A-Za-z$_] [A-Za-z$_0-9]*
+        choice = $choice left:choice _ '|' _ right:seq
+              | seq
 
-_ = $ws (plain_ws | comment | newline)*
-comment = '#' (!newline .)*
-plain_ws = [ \t]+
-newline = [\n\r]+
+        seq = $seq left:seq _ (&isContinuation) right:prefix
+            | prefix
+
+        prefix = $and '&' atom:rep
+              | $not '!' atom:rep
+              | rep
+
+        rep = $rep atom:primary kind:repKind
+            | primary
+
+        repKind = $star '*' | $plus '+' | $question '?'
+
+        primary = $group '(' _ inner:choice _ ')'
+                | $label name:ident ':' atom:primary
+                | $mark '$' name:ident
+                | $ref name:ident
+                | $lit literal
+                | $range charRange
+                | $any '.'
+
+        isContinuation = &(ident !(_ [=]))
+                      | &literal
+                      | &charRange
+                      | &'['
+                      | &'('
+                      | &'.'
+                      | &'$'
+                      | &'!'
+                      | &'&'
+
+        # Terminals
+        ident = [A-Za-z$_] [A-Za-z$_0-9]*
+        literal = ['] (!['] .)* ['] | ["] (!["] .)* ["]
+        charRange = '[' (!']' .)* ']'
+
+        _ = $ws (plain_ws | comment | newline)*
+        comment = '#' (!newline .)*
+        plain_ws = [ \t]+
+        newline = [\n\r]+
       """
           .toSMParser(startRuleName: 'full');
 
-  final evaluator = Evaluator(($) {
-    return {
-      "full": () {
-        $<String>(); // Whitespace
-        final body = $<Object>();
-        $<String>(); // Whitespace
-
-        return body;
-      },
-
-      "rules": () {
-        final existing = $<List<Object>>();
-        $<String>(); // Whitespace
-        final newRule = $<Object>();
-
-        return [...existing, newRule];
-      },
-      "rule": () {
-        final name = $<String>();
-        $<String>(); // Whitespace
-        $<String>(); // '='
-        $<String>(); // Whitespace
-        final body = $<Object>();
-
-        return (name, body);
-      },
-    };
-  });
-  for (final rule in parser.stateMachine.grammar.rules) {
+  for (Rule rule in parser.grammar.rules) {
     print((rule.name, rule.body()));
   }
+  final evaluator = Evaluator<Object?>({
+    "full": (ctx) => ctx<Object?>('file'),
+    "rules": (ctx) {
+      final left = ctx<List>('left');
+      final right = ctx<Object?>('right');
+      return [...left, right];
+    },
+    "first": (ctx) => [ctx<Object?>('rule')],
+    "rule": (ctx) => (ctx<String>('name'), ctx<Object?>('body')),
+    "choice": (ctx) => ['|', ctx<Object?>('left'), ctx<Object?>('right')],
+    "seq": (ctx) {
+      final children = ctx.it.takeAll();
+      print("SEQ count: ${children.length}");
+      return ['seq', ctx<Object?>('left'), ctx<Object?>('right')];
+    },
+    "conj": (ctx) => ['&', ctx<Object?>('left'), ctx<Object?>('right')],
+    "and": (ctx) => ['&', ctx<Object?>('atom')],
+    "not": (ctx) => ['!', ctx<Object?>('atom')],
+    "rep": (ctx) => [ctx<String>('kind'), ctx<Object?>('atom')],
+    "star": (ctx) => '*',
+    "plus": (ctx) => '+',
+    "question": (ctx) => '?',
+    "group": (ctx) => ctx<Object?>('inner'),
+    "label": (ctx) => (ctx<String>('name'), ctx<Object?>('atom')),
+    "mark": (ctx) => '\$${ctx<String>('name')}',
+    "ref": (ctx) => ctx<String>('name'),
+    "lit": (ctx) => ctx.span,
+    "range": (ctx) => ctx.span,
+    "any": (ctx) => '.',
+    "name": (ctx) => ctx.span,
+    "ws": (ctx) => ctx.span,
+  });
 
-  final input =
-      """
-abc = c #has=b
-"""
-          .trimLeft();
+  final input = r"""
+abc = c | &d !e* # complex
+xyz = 'foo' [a-z] $mark
+""";
 
-  switch (parser.parseAmbiguous(input, captureTokensAsMarks: true)) {
+  switch (parser.parseAmbiguous(input.trim(), captureTokensAsMarks: true)) {
     case ParseAmbiguousForestSuccess result:
-      for (final tree in result.forest.allPaths()) {
-        final marks = tree.toShortMarks();
-        print(marks);
-
-        final result = evaluator.evaluate(marks);
-        print(result);
+      var output = "Evaluated Meta Grammar Paths:\n";
+      for (final treePath in result.forest.allPaths()) {
+        final tree = StructuredEvaluator().evaluate(treePath);
+        final evaluated = evaluator.evaluate(tree);
+        output += "$evaluated\n";
       }
+      File('meta_out.txt').writeAsStringSync(output);
+      print("Output written to meta_out.txt");
       break;
     case ParseError(:var position):
       List<String> inputRows = input.replaceAll("\r", "").split("\n");
@@ -186,72 +258,46 @@ abc = c #has=b
             .join("\n"),
       );
       print("${" " * " ${''.padLeft(longest, ' ')} | ".length}${' ' * (column - 1)}^");
+      break;
     case _:
       throw Error();
   }
 }
 
-void testNestedEvaluator() {
-  // Test the evaluateEntry method with nested structures
-  final evaluator = Evaluator<String>((consume) {
-    return {
-      "two": () {
-        return "(${consume<String>()}${consume<String>()})";
-      },
-      "one": () {
-        return consume<String>();
-      },
-    };
-  });
-
-  // Nested entry structure: List<(name: string, value: Entry | String)>
-  final entry = [
-    (
-      "two",
-      [
-        ("two", [("one", "s"), ("one", "s")]),
-        ("one", "s"),
-      ],
-    ),
-  ];
-
-  print("Testing nested evaluator:");
-  print("Input: $entry");
-  final result = evaluator.evaluateEntry(entry);
-  print("Output: $result");
-  print("");
-}
-
 void main() async {
-  testNestedEvaluator();
-
   // mathSimple();
   // ambiguous();
   // orderedChoice();
   // meta();
-  var parser =
-      """
-        S = two:(S S)
-          | one:[s];
-      """
+  var smol =
+      r"""
+      file = _ commentPlus _
+      commentPlus = commentPlus newline? comment
+                  | comment
+
+      _ = $ws (plain_ws | comment | newline)*
+      comment = cdr:comment newline? car:('#' (!\n .)* !(!\n .)) | ''
+      plain_ws = [ \t]+ ![ \t]
+      newline = [\n\r]+ ![\n\r]
+    """
           .toSMParser();
 
-  const input = "sss";
+  const input = """
+# abc
+# def
+# ghi
+# jkl
+""";
 
-  final evaluator2 = Evaluator<String>((consume) {
-    return {
-      "two": () {
-        return "(${consume<String>()}${consume<String>()})";
-      },
-      "one": () {
-        return consume<String>();
-      },
-    };
-  });
-
-  if (parser.parseAmbiguous(input) case ParseAmbiguousForestSuccess(:var forest)) {
-    for (final path in forest.allPaths()) {
-      print(evaluator2.evaluateEntry(StructuredEvaluator().evaluate(path).toSimple() as List));
-    }
+  switch (smol.parseAmbiguous(input)) {
+    case ParseError():
+      // TODO: Handle this case.
+      throw UnimplementedError();
+    case ParseAmbiguousForestSuccess(:var forest):
+      for (final path in forest.allPaths()) {
+        print(path);
+      }
+    case _:
+      break;
   }
 }

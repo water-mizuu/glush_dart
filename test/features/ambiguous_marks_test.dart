@@ -2,15 +2,15 @@ import 'package:test/test.dart';
 import 'package:glush/glush.dart';
 
 /// Helper to check if a label exists in children
-bool hasLabel(List<(String, ParseResult)> children, String label) {
+bool hasLabel(List<(String label, ParseNode node)> children, String label) {
   return children.any((element) => element.$1 == label);
 }
 
 /// Helper to get all results with a given label
-List<ParseResult> getLabel(List<(String, ParseResult)> children, String label) {
+List<ParseNode> getLabel(List<(String label, ParseNode node)> children, String label) {
   return [
-    for (final (name, result) in children)
-      if (name == label) result,
+    for (final (name, node) in children)
+      if (name == label) node,
   ];
 }
 
@@ -61,12 +61,12 @@ void main() {
     test('3. Dangling Else with Labels', () {
       final parser =
           r'''
-        S = ifStmt:("if" ws cond:("a") ws thenStmt:S (ws "else" ws elseStmt:S)?) | a:"a";
-        ws = [ \t\n\r]*;
+        S = $ifStmt "if" _ thenStmt:S (_ "else" _ elseStmt:S)? | a:"a";
+        _ = [ \t\n\r]*;
       '''
               .toSMParser();
 
-      final input = 'if a if a a else a';
+      final input = 'if if a else a';
       final result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
 
       expect(result, isA<ParseAmbiguousForestSuccess>());
@@ -85,17 +85,21 @@ void main() {
       // One tree should have 'elseStmt' in the outer 'ifStmt'
       final hasOuterElse = trees.any((t) {
         final ifStmts = getLabel(t.children, 'ifStmt');
-        return ifStmts.isNotEmpty && hasLabel(ifStmts.first.children, 'elseStmt');
+        return ifStmts.isNotEmpty &&
+            ifStmts.first is ParseResult &&
+            hasLabel((ifStmts.first as ParseResult).children, 'elseStmt');
       });
 
       // The other should have it in the nested 'thenStmt' -> 'ifStmt'
       final hasInnerElse = trees.any((t) {
-        final outerIf = getLabel(t.children, 'ifStmt').firstOrNull;
+        final outerIf = getLabel(t.children, 'ifStmt').firstOrNull as ParseResult?;
         if (outerIf == null) return false;
-        final thenS = getLabel(outerIf.children, 'thenStmt').firstOrNull;
+        final thenS = getLabel(outerIf.children, 'thenStmt').firstOrNull as ParseResult?;
         if (thenS == null) return false;
         final innerIfStmts = getLabel(thenS.children, 'ifStmt');
-        return innerIfStmts.isNotEmpty && hasLabel(innerIfStmts.first.children, 'elseStmt');
+        return innerIfStmts.isNotEmpty &&
+            innerIfStmts.first is ParseResult &&
+            hasLabel((innerIfStmts.first as ParseResult).children, 'elseStmt');
       });
 
       expect(hasOuterElse, isTrue);
@@ -117,12 +121,9 @@ void main() {
       final paths = forest2.allPaths().toList();
       final evaluator = StructuredEvaluator();
 
-      final treeAA = evaluator.evaluate(
-        paths.firstWhere((p) {
-          final tree = evaluator.evaluate(p);
-          return hasLabel(tree.children, 'a') && getLabel(tree.children, 'a').length == 2;
-        }),
-      );
+      final treeAA = paths.map((p) => evaluator.evaluate(p)).firstWhere((tree) {
+        return hasLabel(tree.children, 'a') && getLabel(tree.children, 'a').length == 2;
+      });
       expect(getLabel(treeAA.children, 'a').length, equals(2));
     });
   });

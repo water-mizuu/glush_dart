@@ -262,6 +262,11 @@ class StateMachine {
       _buildPrecedenceMap(pattern.right, current, map);
     } else if (pattern is Action) {
       _buildPrecedenceMap(pattern.child, current, map);
+    } else if (pattern is Label) {
+      _buildPrecedenceMap(pattern.child, current, map);
+      map[pattern] = current;
+      map[pattern.firstSet().first] = current;
+      map[pattern.lastSet().first] = current;
     }
   }
 

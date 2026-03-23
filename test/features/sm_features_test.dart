@@ -27,36 +27,19 @@ void main() {
               .trim()
               .toSMParser();
 
-      final evaluator = Evaluator<String>(
-        (consume) => {
-          'ADD': () {
-            final l = consume<String>();
-            consume<String>(); // skip '+'
-            final r = consume<String>();
-            return "($l + $r)";
-          },
-          'MUL': () {
-            final l = consume<String>();
-            consume<String>(); // skip '*'
-            final r = consume<String>();
-            return "($l * $r)";
-          },
-          'POW': () {
-            final l = consume<String>();
-            consume<String>(); // skip '^'
-            final r = consume<String>();
-            return "($l ^ $r)";
-          },
-          'NUM': () => consume<String>(),
-        },
-      );
+      final evaluator = Evaluator<String>({
+        'ADD': (ctx) => "(${ctx.next()} + ${ctx.next()})",
+        'MUL': (ctx) => "(${ctx.next()} * ${ctx.next()})",
+        'POW': (ctx) => "(${ctx.next()} ^ ${ctx.next()})",
+        'NUM': (ctx) => ctx.span,
+      });
 
       // (n + (n * (n ^ n)))
       final result = parser.parseAmbiguous('n+n*n^n', captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
 
       final forest = (result as ParseAmbiguousForestSuccess).forest;
-      final val = evaluator.evaluate(forest.allPaths().first.toMarkStrings());
+      final val = evaluator.evaluate(StructuredEvaluator().evaluate(forest.allPaths().first));
       expect(val, equals('(n + (n * (n ^ n)))'));
     });
 

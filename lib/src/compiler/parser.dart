@@ -407,28 +407,47 @@ class GrammarFileParser {
 
   /// Parse: expr expr expr
   PatternExpr _parseSequence() {
-    final parts = [_parseConjunction()];
+    final startingMark = _tryParseMainMark();
 
-    while (_isSequenceContinuation()) {
-      parts.add(_parseConjunction());
-    }
-
-    if (parts.length == 1) return parts[0];
-    return SequencePattern(parts);
-  }
-
-  /// Parse: expr & expr & expr
-  PatternExpr _parseConjunction() {
     final parts = [_parsePrefix()];
 
-    while (_peek().type == _TokenType.ampersand) {
-      _advance(); // consume &
+    while (_isSequenceContinuation()) {
       parts.add(_parsePrefix());
     }
 
-    if (parts.length == 1) return parts[0];
-    return ConjunctionPattern(parts);
+    PatternExpr result = parts.length == 1 ? parts[0] : SequencePattern(parts);
+    if (startingMark != null) {
+      result = LabeledPattern(startingMark.name, result);
+    }
+
+    return result;
   }
+
+  MarkerPattern? _tryParseMainMark() {
+    if (_peek().type == _TokenType.dollar) {
+      _advance();
+      if (_peek() case _Token(type: _TokenType.identifier, :var value)) {
+        _advance();
+
+        return MarkerPattern(value);
+      }
+    }
+
+    return null;
+  }
+
+  // /// Parse: expr & expr & expr
+  // PatternExpr _parseConjunction() {
+  //   final parts = [_parsePrefix()];
+
+  //   while (_peek().type == _TokenType.ampersand) {
+  //     _advance(); // consume &
+  //     parts.add(_parsePrefix());
+  //   }
+
+  //   if (parts.length == 1) return parts[0];
+  //   return ConjunctionPattern(parts);
+  // }
 
   /// Parse prefix predicates: &expr, !expr
   PatternExpr _parsePrefix() {
@@ -477,6 +496,8 @@ class GrammarFileParser {
         type == _TokenType.charRange ||
         type == _TokenType.backslashLiteral ||
         type == _TokenType.lparen ||
+        type == _TokenType.ampersand ||
+        type == _TokenType.bang ||
         type == _TokenType.dot;
   }
 
