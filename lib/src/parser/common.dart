@@ -824,7 +824,6 @@ class Step {
             frame.context,
             (state.id, position, frame.context.caller),
           );
-
           // New caller needs initial rule-entry seeding.
           if (isNewCaller) {
             // First time this caller key appears: seed rule entry states.
@@ -860,6 +859,23 @@ class Step {
                 callSite: (state.id, position, frame.context.caller),
               );
             }
+          }
+        case TailCallAction():
+          // Tail-call optimized recursion re-enters the rule without allocating
+          // a fresh caller node. The enclosing return is unchanged, so the
+          // current caller context can be reused as a simple loop back-edge.
+          final states = parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
+          for (final firstState in states) {
+            _enqueue(
+              firstState,
+              frame.context.copyWith(
+                pivot: position,
+                tokenHistory: frame.context.tokenHistory,
+                minPrecedenceLevel: action.minPrecedenceLevel,
+              ),
+              source: source,
+              action: action,
+            );
           }
         case ReturnAction():
           // Enforce call-site precedence gating for this return.
@@ -987,9 +1003,18 @@ class Step {
       // Waiter's precedence threshold is not met by this return.
       return;
     }
-    final nextMarks = markManager
-        .branched([parentContext.marks])
-        .addList(markManager, returnContext.marks);
+    // Fast paths for the common case where one/both mark streams are empty.
+    // This avoids building branched wrappers for right-recursive call returns.
+    final GlushList<Mark> nextMarks;
+    if (parentContext.marks.isEmpty) {
+      nextMarks = returnContext.marks;
+    } else if (returnContext.marks.isEmpty) {
+      nextMarks = parentContext.marks;
+    } else {
+      nextMarks = markManager
+          .branched([parentContext.marks])
+          .addList(markManager, returnContext.marks);
+    }
 
     final nextContext = Context(
       parent ?? const RootCallerKey(),

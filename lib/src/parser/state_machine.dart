@@ -55,6 +55,19 @@ final class CallAction implements StateAction {
       : 'CallAction(${rule.name})';
 }
 
+final class TailCallAction implements StateAction {
+  final Rule rule;
+  final Pattern pattern;
+  final int? minPrecedenceLevel;
+
+  const TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel]);
+
+  @override
+  String toString() => minPrecedenceLevel != null
+      ? 'TailCallAction(${rule.name}^$minPrecedenceLevel)'
+      : 'TailCallAction(${rule.name})';
+}
+
 final class ReturnAction implements StateAction {
   final Rule rule;
   final Pattern lastPattern;
@@ -113,6 +126,7 @@ class StateMachine {
   late final List<State> _initialStates;
 
   final Map<Object, State> _stateMapping = {};
+  final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
 
   /// Internal constructor for pre-built state machines (imported)
   /// Used by ImportedStateMachine to reconstruct exported state machines
@@ -150,6 +164,7 @@ class StateMachine {
 
       final firstState = _getOrCreateState(rule);
       ruleFirst[rule.symbolId!] = [firstState];
+      _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
 
       // Pre-calculate precedence mapping for this rule's body
       final precMap = <Pattern, int?>{};
@@ -157,12 +172,12 @@ class StateMachine {
 
       // Connect to first patterns
       for (final firstStateInRange in rule.body().firstSet()) {
-        _connect(firstState, firstStateInRange);
+        _connect(firstState, firstStateInRange, currentRule: rule);
       }
 
       // Connect each pair
       rule.body().eachPair((a, b) {
-        _connect(_getOrCreateState(a), b);
+        _connect(_getOrCreateState(a), b, currentRule: rule);
       });
 
       // Mark states before returns
@@ -182,7 +197,7 @@ class StateMachine {
 
   State get startState => _stateMapping[':init']!;
 
-  void _connect(State state, Pattern terminal) {
+  void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token() || Conj():
         final nextState = _getOrCreateState(terminal);
@@ -214,11 +229,20 @@ class StateMachine {
         );
         state.actions.add(action);
       case RuleCall(:var rule):
-        final returnState = _getOrCreateState(terminal);
-        // Get minPrecedenceLevel from Call/RuleCall
         final minPrecedenceLevel = terminal.minPrecedenceLevel;
-        final callAction = CallAction(rule, terminal, returnState, minPrecedenceLevel);
-        state.actions.add(callAction);
+        // Compile a direct tail self-call as a loop instead of a real GSS call.
+        // This is only safe when the compiler has already proven that the call
+        // sits at the far right edge of the recursive branch and the prefix
+        // before it always consumes input.
+        if (currentRule != null &&
+            minPrecedenceLevel == null &&
+            (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
+          state.actions.add(TailCallAction(rule, terminal, minPrecedenceLevel));
+        } else {
+          final returnState = _getOrCreateState(terminal);
+          final callAction = CallAction(rule, terminal, returnState, minPrecedenceLevel);
+          state.actions.add(callAction);
+        }
       case LabelStart():
         final nextState = _getOrCreateState(terminal);
         final labelStartAction = LabelStartAction(terminal.name, terminal, nextState);
@@ -278,4 +302,128 @@ class StateMachine {
   }
 
   List<State> get initialStates => _initialStates;
+
+  Set<RuleCall> _findDirectTailSelfCalls(Rule rule) {
+    final branches = _flattenAlternation(_stripTransparent(rule.body()));
+    // Only optimize the simple shape:
+    //   base | prefix self
+    // Anything more complex stays on the general call/return path.
+    if (branches.length != 2) return const <RuleCall>{};
+
+    Pattern? baseBranch;
+    Pattern? recursiveBranch;
+    for (final branch in branches) {
+      // Exactly one branch must recurse back to the same rule.
+      // Multiple recursive branches need the full generalized machinery.
+      if (_containsRuleReference(branch, rule)) {
+        if (recursiveBranch != null) return const <RuleCall>{};
+        recursiveBranch = _stripTransparent(branch);
+      } else {
+        if (baseBranch != null) return const <RuleCall>{};
+        baseBranch = _stripTransparent(branch);
+      }
+    }
+
+    if (baseBranch == null || recursiveBranch == null) return const <RuleCall>{};
+    // The non-recursive exit must consume input. If it can match empty, then
+    // replacing recursion with a loop would erase real epsilon cycles.
+    if (!_isDefinitelyNonEmpty(baseBranch)) return const <RuleCall>{};
+
+    final recursiveParts = _stripDeadSuffixes(_flattenSequence(recursiveBranch));
+    if (recursiveParts.isEmpty) return const <RuleCall>{};
+
+    final last = _stripTransparent(recursiveParts.last);
+    // Only direct right-tail self calls qualify.
+    // Left recursion and precedence-constrained calls are intentionally excluded.
+    if (last is! RuleCall || !identical(last.rule, rule) || last.minPrecedenceLevel != null) {
+      return const <RuleCall>{};
+    }
+
+    final prefixParts = recursiveParts
+        .sublist(0, recursiveParts.length - 1)
+        .map(_stripTransparent)
+        .toList();
+    // The prefix before the tail call must always make progress and must not
+    // recurse. That guarantees each loop iteration advances the input.
+    if (prefixParts.isEmpty || prefixParts.any((part) => _containsRuleReference(part, rule))) {
+      return const <RuleCall>{};
+    }
+
+    final prefix = _joinSequence(prefixParts);
+    if (!_isDefinitelyNonEmpty(prefix)) return const <RuleCall>{};
+
+    return {last};
+  }
+
+  List<Pattern> _flattenAlternation(Pattern pattern) {
+    return switch (pattern) {
+      Alt(:final left, :final right) => [..._flattenAlternation(left), ..._flattenAlternation(right)],
+      _ => [pattern],
+    };
+  }
+
+  List<Pattern> _flattenSequence(Pattern pattern) {
+    return switch (pattern) {
+      Seq(:final left, :final right) => [..._flattenSequence(left), ..._flattenSequence(right)],
+      _ => [pattern],
+    };
+  }
+
+  List<Pattern> _stripDeadSuffixes(List<Pattern> patterns) {
+    var end = patterns.length;
+    while (end > 0 && _isDeadSuffix(patterns[end - 1])) {
+      end--;
+    }
+    return patterns.sublist(0, end);
+  }
+
+  Pattern _stripTransparent(Pattern pattern) {
+    Pattern current = pattern;
+    while (true) {
+      switch (current) {
+        case Action(:final child):
+          current = child;
+        case Prec(:final child):
+          current = child;
+        default:
+          return current;
+      }
+    }
+  }
+
+  bool _isDeadSuffix(Pattern pattern) {
+    final stripped = _stripTransparent(pattern);
+    // A trailing epsilon contributes neither input progress nor a real
+    // continuation boundary, so it should not block tail-position detection.
+    return stripped is Eps;
+  }
+
+  bool _containsRuleReference(Pattern pattern, Rule target) {
+    final referencedRules = <Rule>{};
+    pattern.collectRules(referencedRules);
+    return referencedRules.contains(target);
+  }
+
+  Pattern _joinSequence(List<Pattern> patterns) {
+    assert(patterns.isNotEmpty, 'Invariant violation: sequence join requires at least one pattern.');
+    return patterns.reduce((left, right) => left >> right);
+  }
+
+  bool _isDefinitelyNonEmpty(Pattern pattern) {
+    return switch (pattern) {
+      Eps() || Opt() || Star() => false,
+      Token() || Marker() || LabelStart() || LabelEnd() || Rule() || RuleCall() => true,
+      Alt(:final left, :final right) =>
+        _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
+      Seq(:final left, :final right) =>
+        _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
+      Conj(:final left, :final right) =>
+        _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
+      And() || Not() => false,
+      Action(:final child) ||
+      Prec(:final child) ||
+      Plus(:final child) ||
+      Label(:final child) => _isDefinitelyNonEmpty(child),
+    };
+  }
 }

@@ -25,7 +25,7 @@ void main() {
       }
     });
 
-    test('parses right recursive grammars correctly', () {
+    test('parses left recursive grammars correctly', () {
       final grammar = Grammar(() {
         late final Rule S;
         S = Rule(
