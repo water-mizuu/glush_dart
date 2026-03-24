@@ -35,9 +35,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   @override
   PatternSymbol get startSymbol => startCall.rule.symbolId!;
 
-  /// Counter for assigning symbol IDs within this grammar
-  int _symbolCounter = 0;
-
   Grammar(GrammarBuilder builder) {
     final result = builder();
     finalize(result.call());
@@ -88,10 +85,11 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       _collectPatternsFromRule(rule, allPatterns);
     }
 
+    int symbolCounter = 0;
     // Assign symbol IDs to each pattern in discovery order
     for (final pattern in allPatterns) {
       if (pattern.symbolId == null) {
-        final symbolId = 'S${_symbolCounter++}';
+        final symbolId = 'S${symbolCounter++}';
         pattern.assignSymbolId(PatternSymbol(symbolId));
       }
       final actualSymbolId = pattern.symbolId!;

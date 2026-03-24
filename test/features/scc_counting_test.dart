@@ -14,7 +14,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         expect(counts['count'], BigInt.one);
         expect(counts['hasCycles'], false);
@@ -33,7 +33,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         expect(counts['count'], BigInt.two);
         expect(counts['hasCycles'], false);
@@ -55,7 +55,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         // Should have multiple derivations for "a+a"
         expect(counts['count'], greaterThanOrEqualTo(BigInt.one));
@@ -76,7 +76,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         // PEG greedy semantics: only one derivation (match all three 'a's)
         expect(counts['count'], equals(BigInt.one));
@@ -106,7 +106,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         expect(counts['count'], greaterThanOrEqualTo(BigInt.one));
         expect(counts['forestSize'], greaterThan(0));
@@ -123,7 +123,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         // SCC count should be at least 1
         expect(counts['sccs'], greaterThanOrEqualTo(1));
@@ -142,7 +142,7 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
+        final counts = forest.countDerivations();
 
         expect(counts['count'], BigInt.one);
       }
@@ -164,8 +164,8 @@ void main() {
 
       if (result is ParseForestSuccess) {
         final forest = result.forest;
-        final counts = forest.countDerivationsWithSCC();
-        
+        final counts = forest.countDerivations();
+
         // Should count the derivations correctly
         expect(counts['count'], greaterThan(BigInt.zero));
         expect(counts['count'], isA<BigInt>());

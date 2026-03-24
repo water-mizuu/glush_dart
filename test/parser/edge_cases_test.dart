@@ -215,7 +215,7 @@ void main() {
           final result = parser.parseWithForest('');
           expect(result, isA<ParseForestSuccess>());
           if (result is ParseForestSuccess) {
-            final counts = result.forest.countDerivationsWithSCC();
+            final counts = result.forest.countDerivations();
             expect(counts['hasCycles'], isTrue);
           }
         } else {

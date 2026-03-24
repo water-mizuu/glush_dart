@@ -193,6 +193,12 @@ class ForestNodeManager {
   /// Get or create a terminal node
   TerminalNode terminal(int start, int end, PatternSymbol symbol, int token) {
     final key = _makeCacheKey(1, start, end, symbol);
+    final cached = _nodeCache[key];
+    assert(
+      cached == null || cached is TerminalNode,
+      'Invariant violation in ForestNodeManager.terminal: cache key reused by '
+      'non-terminal node type (${cached.runtimeType}).',
+    );
     if (_nodeCache[key] case TerminalNode node) {
       return node;
     }
@@ -205,6 +211,12 @@ class ForestNodeManager {
   /// Get or create a symbolic node
   SymbolicNode symbolic(int start, int end, PatternSymbol symbol) {
     final key = _makeCacheKey(2, start, end, symbol);
+    final cached = _nodeCache[key];
+    assert(
+      cached == null || cached is SymbolicNode,
+      'Invariant violation in ForestNodeManager.symbolic: cache key reused by '
+      'different node type (${cached.runtimeType}).',
+    );
     if (_nodeCache[key] case SymbolicNode node) {
       return node;
     }
@@ -217,6 +229,12 @@ class ForestNodeManager {
   /// Get or create an intermediate node
   IntermediateNode intermediate(int start, int end, PatternSymbol symbol) {
     final key = _makeCacheKey(3, start, end, symbol);
+    final cached = _nodeCache[key];
+    assert(
+      cached == null || cached is IntermediateNode,
+      'Invariant violation in ForestNodeManager.intermediate: cache key reused '
+      'by different node type (${cached.runtimeType}).',
+    );
     if (_nodeCache[key] case IntermediateNode node) {
       return node;
     }
@@ -229,6 +247,12 @@ class ForestNodeManager {
   /// Get or create an epsilon node
   EpsilonNode epsilon(int position, PatternSymbol symbol) {
     final key = _makeCacheKey(4, position, position, symbol);
+    final cached = _nodeCache[key];
+    assert(
+      cached == null || cached is EpsilonNode,
+      'Invariant violation in ForestNodeManager.epsilon: cache key reused by '
+      'different node type (${cached.runtimeType}).',
+    );
     if (_nodeCache[key] case EpsilonNode node) {
       return node;
     }
@@ -240,6 +264,12 @@ class ForestNodeManager {
   /// Get or create a marker node
   MarkerNode marker(int position, PatternSymbol symbol, String name) {
     final key = _makeCacheKey(5, position, position, symbol);
+    final cached = _nodeCache[key];
+    assert(
+      cached == null || cached is MarkerNode,
+      'Invariant violation in ForestNodeManager.marker: cache key reused by '
+      'different node type (${cached.runtimeType}).',
+    );
     if (_nodeCache[key] case MarkerNode node) {
       return node;
     }
@@ -320,7 +350,7 @@ class ParseForest {
   /// - 'count': total number of derivations
   /// - 'hasCycles': whether the forest has cycles (left-recursion)
   /// - 'sccs': number of strongly connected components
-  Map<String, Object?> countDerivationsWithSCC() {
+  Map<String, Object?> countDerivations() {
     final sccs = _findSCCs();
     final sccMap = <ForestNode, int>{};
 
@@ -449,6 +479,10 @@ class ParseForest {
     Set<ForestNode> inProgress,
     Map<ForestNode, int> sccMap,
   ) {
+    assert(
+      sccMap.containsKey(node),
+      'Invariant violation in _countDerivationsDP: SCC map must include every visited node.',
+    );
     if (memo.containsKey(node)) {
       return memo[node]!;
     }

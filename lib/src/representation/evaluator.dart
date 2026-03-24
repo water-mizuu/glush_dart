@@ -132,7 +132,12 @@ class NodeIterator {
   }
 
   /// Skips the next node.
-  void skip() => _index++;
+  void skip() {
+    if (!hasNext) {
+      throw StateError('No more nodes to skip');
+    }
+    _index++;
+  }
 
   /// Returns all remaining nodes as a list.
   List<(String, ParseNode)> takeAll() => _nodes.sublist(_index);
@@ -196,6 +201,10 @@ class StructuredEvaluator {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
         case LabelEndMark():
+          assert(
+            stack.isNotEmpty,
+            'Invariant violation in StructuredEvaluator: label-end requires an active frame.',
+          );
           if (stack.length > 1) {
             final frame = stack.removeLast();
             final result = frame.toResult();

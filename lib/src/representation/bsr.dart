@@ -33,6 +33,11 @@ class BsrSet {
 
   /// Add a rule-completion entry.
   void add(PatternSymbol patternSymbol, int start, int pivot, int end) {
+    assert(
+      start <= pivot && pivot <= end,
+      'Invariant violation in BsrSet.add: expected start <= pivot <= end, '
+      'got ($start, $pivot, $end).',
+    );
     _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add((pivot));
   }
 
@@ -42,6 +47,10 @@ class BsrSet {
       _pivots.entries.expand((e) => e.value.map((v) => (e.key.$1, e.key.$2, e.key.$3, v)));
 
   Set<int> pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
+    assert(
+      start <= end,
+      'Invariant violation in BsrSet.pivotsFor: expected start <= end, got ($start, $end).',
+    );
     final pivots = _pivots[(ruleSymbol, start, end)];
     if (pivots == null) return const {};
     return UnmodifiableSetView(pivots);
@@ -265,6 +274,8 @@ class SppfBuilder {
   final ForestNodeManager nodeManager;
   final String input;
   final Map<PatternSymbol, (String prefix, String suffix)> _patternParts = {};
+  final Map<PatternSymbol, (int kind, int a, int b)> _tokenSpec = {};
+  final Map<PatternSymbol, int> _suffixInt = {};
 
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
@@ -290,6 +301,34 @@ class SppfBuilder {
     });
   }
 
+  (int kind, int a, int b) _tokenMatcher(PatternSymbol pattern, String suffix) {
+    return _tokenSpec.putIfAbsent(pattern, () {
+      final tag = suffix[0];
+      switch (tag) {
+        case '.':
+          return (0, 0, 0);
+        case ';':
+          return (1, int.parse(suffix.substring(1)), 0);
+        case '<':
+          return (2, int.parse(suffix.substring(1)), 0);
+        case '>':
+          return (3, int.parse(suffix.substring(1)), 0);
+        case '[':
+          final body = suffix.substring(1);
+          final commaIndex = body.indexOf(',');
+          final min = int.parse(body.substring(0, commaIndex));
+          final max = int.parse(body.substring(commaIndex + 1));
+          return (4, min, max);
+        default:
+          throw Exception(tag);
+      }
+    });
+  }
+
+  int _parsedSuffixInt(PatternSymbol pattern, String suffix) {
+    return _suffixInt.putIfAbsent(pattern, () => int.parse(suffix));
+  }
+
   // Unified public API - returns synchronously
   SymbolicNode? buildNode(
     PatternSymbol ruleSymbol,
@@ -299,6 +338,10 @@ class SppfBuilder {
     Map<String, bool> inProgress, {
     int? minPrecedenceLevel,
   }) {
+    assert(
+      start <= end,
+      'Invariant violation in SppfBuilder.buildNode: expected start <= end, got ($start, $end).',
+    );
     final key = '$ruleSymbol:$start:$end';
 
     // The Two-Stack VM
@@ -327,7 +370,13 @@ class SppfBuilder {
         taskStack.add(_ContBuildNodeFinish(symNode, task.key));
 
         // 1. Evaluate the pattern
-        final patternToEval = getChildrenOf(task.ruleSymbol).single;
+        final children = getChildrenOf(task.ruleSymbol);
+        assert(
+          children.length == 1,
+          'Invariant violation in buildNode: symbol ${task.ruleSymbol} must '
+          'map to exactly one root pattern, got ${children.length}.',
+        );
+        final patternToEval = children.single;
 
         taskStack.add(
           _EvalPattern(
@@ -356,7 +405,10 @@ class SppfBuilder {
       else if (task is _ContAltCombine) {
         final rightRes = valueStack.removeLast() as List<ForestNode>;
         final leftRes = valueStack.removeLast() as List<ForestNode>;
-        valueStack.add([...leftRes, ...rightRes]);
+        final merged = <ForestNode>[];
+        merged.addAll(leftRes);
+        merged.addAll(rightRes);
+        valueStack.add(merged);
       } else if (task is _ContRuleCallFinish) {
         final node = valueStack.removeLast() as SymbolicNode?;
         valueStack.add(node != null ? [node] : <ForestNode>[]);
@@ -545,23 +597,29 @@ class SppfBuilder {
         valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
       case "tok":
         {
-          late bool isMatching = switch (suffix[0]) {
-            "." => true,
-            ";" => input.codeUnitAt(start) == int.parse(suffix.substring(1)),
-            "<" => input.codeUnitAt(start) <= int.parse(suffix.substring(1)),
-            ">" => input.codeUnitAt(start) >= int.parse(suffix.substring(1)),
-            "[" => () {
-              final unit = input.codeUnitAt(start);
-              final [min, max] = suffix.substring(1).split(",").map(int.parse).toList();
-
-              return min <= unit && unit <= max;
-            }(),
-            _ => throw Exception(suffix[0]),
-          };
-          if (start + 1 == end && isMatching) {
-            valueStack.add([
-              nodeManager.terminal(start, end, task.pattern, input.codeUnitAt(start)),
-            ]);
+          if (start + 1 == end) {
+            assert(
+              start >= 0 && start < input.length,
+              'Invariant violation in _executePatternTask(tok): span [$start,$end) '
+              'must index into input length ${input.length}.',
+            );
+            final unit = input.codeUnitAt(start);
+            final (kind, a, b) = _tokenMatcher(task.pattern, suffix);
+            final isMatching = switch (kind) {
+              0 => true,
+              1 => unit == a,
+              2 => unit <= a,
+              3 => unit >= a,
+              4 => a <= unit && unit <= b,
+              _ => false,
+            };
+            if (isMatching) {
+              valueStack.add([
+                nodeManager.terminal(start, end, task.pattern, unit),
+              ]);
+            } else {
+              valueStack.add(const <ForestNode>[]);
+            }
           } else {
             valueStack.add(const <ForestNode>[]);
           }
@@ -740,7 +798,7 @@ class SppfBuilder {
         }
       case "rca":
         {
-          final prec = suffix.isEmpty ? null : int.parse(suffix);
+          final prec = suffix.isEmpty ? null : _parsedSuffixInt(task.pattern, suffix);
           final effectivePrec = prec ?? task.minPrecedenceLevel;
           final toCall = getChildrenOf(task.pattern).single;
           final key = '$toCall:$start:$end:${effectivePrec ?? 'null'}';
@@ -764,7 +822,8 @@ class SppfBuilder {
         }
       case "pre":
         {
-          if (task.minPrecedenceLevel != null && int.parse(suffix) < task.minPrecedenceLevel!) {
+          if (task.minPrecedenceLevel != null &&
+              _parsedSuffixInt(task.pattern, suffix) < task.minPrecedenceLevel!) {
             valueStack.add(<ForestNode>[]); // Skip
           } else {
             taskStack.add(

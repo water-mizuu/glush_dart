@@ -6,8 +6,21 @@ import 'package:glush/src/parser/state_machine.dart';
 
 import 'common.dart';
 
+/// Mutable runtime storage used by a parser during one parse session.
+///
+/// Keeping all parse-time mutable structures in one object makes reset cheap:
+/// replacing this object discards all previous runtime state at once.
+final class GlushParserRuntimeState {
+  final Map<int, TokenNode> historyByPosition = {};
+  final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
+  final Map<CallerCacheKey, Caller> callers = {};
+  final GlushListManager<Mark> markManager = GlushListManager<Mark>();
+  TokenNode? historyTail;
+}
+
 abstract interface class GlushParser {
   StateMachine get stateMachine;
+  GlushParserRuntimeState get runtimeState;
   Map<int, TokenNode> get historyByPosition;
   Map<PredicateKey, PredicateTracker> get predicateTrackers;
   Map<CallerCacheKey, Caller> get callers;
@@ -19,18 +32,26 @@ abstract interface class GlushParser {
   void clearState();
 }
 
-abstract class GlushParserBase implements GlushParser {
-  @override
-  final Map<int, TokenNode> historyByPosition = {};
+abstract base class GlushParserBase implements GlushParser {
+  GlushParserRuntimeState _runtimeState = GlushParserRuntimeState();
 
   @override
-  final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
+  GlushParserRuntimeState get runtimeState => _runtimeState;
 
   @override
-  final Map<CallerCacheKey, Caller> callers = {};
+  Map<int, TokenNode> get historyByPosition => _runtimeState.historyByPosition;
 
   @override
-  final GlushListManager<Mark> markManager = GlushListManager<Mark>();
+  Map<PredicateKey, PredicateTracker> get predicateTrackers => _runtimeState.predicateTrackers;
+
+  @override
+  Map<CallerCacheKey, Caller> get callers => _runtimeState.callers;
+
+  @override
+  GlushListManager<Mark> get markManager => _runtimeState.markManager;
+
+  TokenNode? get historyTail => _runtimeState.historyTail;
+  set historyTail(TokenNode? value) => _runtimeState.historyTail = value;
 
   @override
   void clearState() {
@@ -38,6 +59,7 @@ abstract class GlushParserBase implements GlushParser {
     predicateTrackers.clear();
     callers.clear();
     markManager.clear();
+    _runtimeState = GlushParserRuntimeState();
   }
 }
 

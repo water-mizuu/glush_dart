@@ -72,14 +72,6 @@ final class AcceptAction implements StateAction {
   const AcceptAction();
 }
 
-final class SemanticAction implements StateAction {
-  final Object? Function(String span, List<Object?> childResults) callback;
-  final State nextState;
-  final Pattern? pattern;
-
-  const SemanticAction(this.callback, this.nextState, [this.pattern]);
-}
-
 /// Predicate action for lookahead assertions (AND/NOT predicates)
 /// Does not consume input - purely a condition check
 final class PredicateAction implements StateAction {
@@ -150,6 +142,10 @@ class StateMachine {
 
     // Process each rule
     for (final rule in grammar.rules) {
+      assert(
+        rule.symbolId != null,
+        'Invariant violation in StateMachine: rule.symbolId must be assigned before compilation.',
+      );
       rules.add(rule.symbolId!);
 
       final firstState = _getOrCreateState(rule);
@@ -231,15 +227,10 @@ class StateMachine {
         final nextState = _getOrCreateState(terminal);
         final labelEndAction = LabelEndAction(terminal.name, terminal, nextState);
         state.actions.add(labelEndAction);
-      case Action<dynamic>():
-        // Create a SemanticAction state machine action with the callback
-        final nextState = _getOrCreateState(terminal);
-        final action = SemanticAction(terminal.callback, nextState, terminal);
-        state.actions.add(action);
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Alt() || Seq() || Rule() || Prec() || Label() || Opt() || Plus() || Star():
+      case Action() || Alt() || Seq() || Rule() || Prec() || Label() || Opt() || Plus() || Star():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError('Unexpected pattern type in _connect: ${terminal.runtimeType}');
     }
@@ -265,6 +256,11 @@ class StateMachine {
     } else if (pattern is Label) {
       _buildPrecedenceMap(pattern.child, current, map);
       map[pattern] = current;
+      assert(
+        pattern.firstSet().isNotEmpty && pattern.lastSet().isNotEmpty,
+        'Invariant violation in _buildPrecedenceMap: Label must expose non-empty '
+        'first/last sets for precedence propagation.',
+      );
       map[pattern.firstSet().first] = current;
       map[pattern.lastSet().first] = current;
     } else if (pattern is Opt) {

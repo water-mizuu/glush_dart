@@ -231,9 +231,9 @@ final class Caller extends CallerKey {
     return true;
   }
 
-  void forEach(void Function(CallerKey?, State, int?, Context, ParseNodeKey) callback) {
-    for (final (key, state, minPrecedence, context, node) in waiters) {
-      callback(key, state, minPrecedence, context, node);
+  Iterable<(CallerKey?, Context)> iterate() sync* {
+    for (final (key, _, _, context, _) in waiters) {
+      yield (key, context);
     }
   }
 }
@@ -391,6 +391,10 @@ class Step {
     requeued.add(frame);
     // Only predicate-owned frames affect predicate liveness counters.
     if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+      assert(
+        !frame.context.predicateStack.isEmpty,
+        'Invariant violation in requeue: predicate stack lookup implies non-empty stack.',
+      );
       // Requeued frame still counts as unresolved predicate work.
       // Requeued predicate work is still pending, so keep tracker "alive".
       parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]?.activeFrames++;
@@ -407,6 +411,16 @@ class Step {
     required this.captureTokensAsMarks,
     required this.predecessors,
   }) : _callers = parser.callers;
+
+  PredicateTracker _requirePredicateTracker(PredicateCallerKey key, {required String site}) {
+    final tracker = parser.predicateTrackers[(key.pattern, key.startPosition)];
+    assert(
+      tracker != null,
+      'Invariant violation at $site: predicate tracker for '
+      '(${key.pattern}, ${key.startPosition}) must exist.',
+    );
+    return tracker!;
+  }
 
   /// Resolve a predicate sub-parse and wake waiting continuations.
   ///
@@ -562,6 +576,10 @@ class Step {
     final predicateKey = context.predicateStack.lastOrNull;
     // Predicate bookkeeping applies only inside predicate stacks.
     if (predicateKey != null) {
+      // Contract note:
+      // `predicateStack` means this context belongs to predicate-scoped work.
+      // Tracker lookup is intentionally nullable because exhausted predicates
+      // may be removed before all queued lagging frames drain.
       // This enqueued unit contributes to predicate "still alive" accounting.
       final tracker = parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
       // Tracker can be missing when predicate already got finalized/cleaned up.
@@ -585,13 +603,6 @@ class Step {
       final source = (state.id, position, frameContext.caller);
       final callerOrRoot = frame.caller ?? const RootCallerKey();
       switch (action) {
-        case SemanticAction():
-          _enqueue(
-            action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks),
-            source: source,
-            action: action,
-          );
         case TokenAction():
           final token = _getTokenFor(frame);
           // Token actions fire only when a token exists and matches the pattern.
@@ -681,6 +692,15 @@ class Step {
             subParseKey,
             () => PredicateTracker(symbol, position, isAnd: action.isAnd),
           );
+          assert(
+            tracker.symbol == symbol && tracker.startPosition == position,
+            'Invariant violation in PredicateAction: tracker key and payload diverged.',
+          );
+          assert(
+            tracker.isAnd == action.isAnd,
+            'Invariant violation in PredicateAction: mixed AND/NOT trackers share '
+            'the same (symbol,position) key.',
+          );
 
           // Predicate already resolved true.
           if (tracker.matched) {
@@ -736,11 +756,7 @@ class Step {
             //
             // `waiters` stores "what to resume later" as:
             //   (source node for forest edge, paused parent context, nextState)
-            tracker.waiters.add((
-              source,
-              frameContext,
-              action.nextState,
-            ));
+            tracker.waiters.add((source, frameContext, action.nextState));
 
             final predicateKey = frameContext.predicateStack.lastOrNull;
             // Nested parent predicate must wait on this child resolution.
@@ -787,6 +803,10 @@ class Step {
           final CallerCacheKey key = (action.rule, position, action.minPrecedenceLevel);
           final isNewCaller = !_callers.containsKey(key);
           var caller = _callers[key];
+          assert(
+            isNewCaller == (caller == null),
+            'Invariant violation in CallAction: caller cache containsKey/get mismatch.',
+          );
           // Create caller node if no memoized node exists for this key yet.
           if (caller == null) {
             // Create shared caller node once; later calls reuse it.
@@ -801,9 +821,9 @@ class Step {
             frame.caller,
             action.returnState,
             action.minPrecedenceLevel,
-              frame.context,
-              (state.id, position, frame.context.caller),
-            );
+            frame.context,
+            (state.id, position, frame.context.caller),
+          );
 
           // New caller needs initial rule-entry seeding.
           if (isNewCaller) {
@@ -858,7 +878,9 @@ class Step {
 
           final caller = frame.caller;
           final callStart =
-              frame.context.callStart ?? (caller is Caller ? caller.startPosition : null);
+              frame.context.callStart ?? //
+              (caller is Caller ? caller.startPosition : null);
+
           // Add BSR span only when call-start information is available.
           if (bsr != null && callStart != null) {
             // Persist completed rule span for BSR consumers.
@@ -868,24 +890,38 @@ class Step {
           // Predicate callers resolve predicate trackers instead of GSS callers.
           if (caller is PredicateCallerKey) {
             // Predicate returns resolve predicate waiters, not normal call stacks.
-            final tracker = parser.predicateTrackers[(caller.pattern, caller.startPosition)];
-            if (tracker != null) {
-              // Predicate matched; resolve and wake dependent continuations.
-              _finishPredicate(tracker, true);
-            }
+            // Contract:
+            // A predicate-returning frame must map to a live tracker in the
+            // same position closure.
+            assert(
+              frame.context.predicateStack.lastOrNull == caller,
+              'Invariant violation in ReturnAction: predicate caller should be '
+              'the top of predicateStack.',
+            );
+            final tracker = _requirePredicateTracker(
+              caller,
+              site: 'ReturnAction(predicate-caller)',
+            );
+
+            // Predicate matched; resolve and wake dependent continuations.
+            _finishPredicate(tracker, true);
             continue;
           }
 
           // Caller-scope BSR stitching applies only to real caller nodes.
           if (bsr != null && caller is Caller) {
             // For normal callers, record completion edges for each parent waiter.
-            caller.forEach((parent, state, minimumPrecedence, context, node) {
-              // Parent must also be a caller node for parent-rule BSR emission.
+            for (final (parent, context) in caller.iterate()) {
               if (parent is Caller) {
+                assert(
+                  context.callStart != null,
+                  'Invariant violation in ReturnAction(BSR): caller waiter context '
+                  'must have callStart.',
+                );
                 // Mirror completion onto parent nonterminal span in BSR.
                 bsr!.add(parent.rule.symbolId!, context.callStart!, caller.startPosition, position);
               }
-            });
+            }
           }
 
           // In single-derivation mode, replay each caller's returns once.
@@ -940,6 +976,10 @@ class Step {
     StateAction? action,
     ParseNodeKey? callSite,
   }) {
+    assert(
+      parent is! Caller || parentContext.callStart != null,
+      'Invariant violation in _triggerReturn: parent Caller requires parentContext.callStart.',
+    );
     // Call-site can reject returns below its minimum precedence threshold.
     if (minPrecedence != null &&
         returnContext.precedenceLevel != null &&
@@ -997,6 +1037,7 @@ class Step {
         ),
       );
       nextFrame.nextStates.add(state);
+
       if (predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
         // Next frame belongs to a predicate branch and counts as pending.
         final tracker =
@@ -1031,6 +1072,10 @@ class Step {
     while (_currentWorkList.isNotEmpty) {
       final (state, context) = _currentWorkList.removeFirst();
       if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+        // Contract note:
+        // Being in a predicate stack does not strictly guarantee tracker
+        // presence here because exhaustion cleanup can remove a tracker before
+        // all delayed frames are drained.
         // This context belongs to a predicate sub-parse; update its tracker.
         final tracker =
             parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
@@ -1047,6 +1092,17 @@ class Step {
               context.predicateStack,
             )]!
           : context.marks;
+      assert(
+        !isSupportingAmbiguity ||
+            _activeContexts.containsKey((
+              state,
+              context.caller,
+              context.minPrecedenceLevel,
+              context.predicateStack,
+            )),
+        'Invariant violation in processFrame: ambiguity mode requires a canonical '
+        'marks entry for each active context key.',
+      );
       // In ambiguity mode, use canonical grouped marks for equivalent contexts.
       _process(Frame(context.withMarks(currentMarks)), state);
     }
@@ -1054,9 +1110,7 @@ class Step {
   }
 }
 
-mixin ParserCore on GlushParserBase {
-  TokenNode? historyTail;
-
+base mixin ParserCore on GlushParserBase {
   /// Bucket frames by their pivot position into the global work queue.
   ///
   /// The parser may hold frames from multiple pivots simultaneously when calls
@@ -1220,6 +1274,8 @@ mixin ParserCore on GlushParserBase {
 
       for (final frame in positionFrames) {
         if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
+          // Contract note mirrors processFrame():
+          // tracker can be absent after cleanup of an exhausted predicate.
           // Dequeued predicate-owned frame consumes one pending work unit.
           final tracker = predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
           if (tracker != null) {
@@ -1296,6 +1352,11 @@ mixin ParserCore on GlushParserBase {
     final alternatives = <GlushList<Mark>>[];
     for (final (source, action, marks, callSite) in predecessorsForNode) {
       if (action is ReturnAction) {
+        assert(
+          source != null && callSite != null,
+          'Invariant violation in extractForestFromGraphInternal: ReturnAction '
+          'edges must include both source and callSite.',
+        );
         // Return edges splice callee derivation into caller continuation.
         // Return edges combine callee subtree with caller continuation.
         final ruleForest = extractForestFromGraphInternal(

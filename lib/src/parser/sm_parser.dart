@@ -201,7 +201,7 @@ class ParseDerivationWithValue<T> {
 ///
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity, semantic actions, and advanced parsing features.
-class SMParser extends GlushParserBase
+final class SMParser extends GlushParserBase
     with ParserCore
     implements RecognizerAndMarksParser, ForestParser {
   static const Context _initialContext = Context(
@@ -742,7 +742,14 @@ class SMParser extends GlushParserBase
         return _countAlternatives(children.single, input, start, end, memo, inProgress);
       case "opt":
         {
-          final childCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
+          final childCount = _countAlternatives(
+            children.single,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+          );
           if (childCount > 0) {
             return childCount;
           }
@@ -1600,9 +1607,7 @@ class SMParser extends GlushParserBase
           LabelStart(:var name) => [LabelStartMark(name, tree.start)],
           LabelEnd(:var name) => [LabelEndMark(name, tree.start)],
           Token() => [StringMark(tree.getMatchedText(input), tree.start)],
-          _ => tree.children
-              .expand((c) => _extractParseTreeRawMarks(c, input))
-              .toList(),
+          _ => tree.children.expand((c) => _extractParseTreeRawMarks(c, input)).toList(),
         };
     }
   }

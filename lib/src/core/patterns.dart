@@ -861,14 +861,11 @@ class Action<T> extends Pattern {
   @override
   Set<Pattern> firstSet() => child.firstSet();
   @override
-  Set<Pattern> lastSet() => {this};
+  Set<Pattern> lastSet() => child.lastSet();
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
     child.eachPair(callback);
-    for (final l in child.lastSet()) {
-      callback(l, this);
-    }
   }
 
   @override
