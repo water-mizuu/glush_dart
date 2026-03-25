@@ -1,6 +1,5 @@
 import 'package:glush/src/core/grammar.dart';
 import 'package:glush/src/core/list.dart';
-import 'package:glush/src/core/mark.dart';
 import 'package:glush/src/parser/state_machine.dart';
 import 'common.dart';
 import 'interface.dart';
@@ -52,7 +51,6 @@ final class SMParserMini extends GlushParserBase
         codepoint,
         position,
         frames,
-        predecessors: {},
         captureTokensAsMarks: captureTokensAsMarks,
       );
       frames = stepResult.nextFrames;
@@ -64,7 +62,6 @@ final class SMParserMini extends GlushParserBase
       null,
       position,
       frames,
-      predecessors: {},
       captureTokensAsMarks: captureTokensAsMarks,
     );
     return lastStep.accept;
@@ -85,7 +82,6 @@ final class SMParserMini extends GlushParserBase
         codepoint,
         position,
         frames,
-        predecessors: {},
         captureTokensAsMarks: captureTokensAsMarks,
       );
       frames = stepResult.nextFrames;
@@ -97,7 +93,6 @@ final class SMParserMini extends GlushParserBase
       null,
       position,
       frames,
-      predecessors: {},
       captureTokensAsMarks: captureTokensAsMarks,
     );
 
@@ -111,11 +106,10 @@ final class SMParserMini extends GlushParserBase
   /// Parses ambiguous input and returns a forest of all possible results (marks).
   ///
   /// This method must remain independent of the BSR/SPPF pipeline and derive
-  /// ambiguity from the State Machine's marks and predecessor graph only.
+  /// ambiguity from the State Machine's marks system only.
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
     clearState();
-    final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
 
     var frames = _initialFrames;
     var position = 0;
@@ -127,7 +121,6 @@ final class SMParserMini extends GlushParserBase
         frames,
         isSupportingAmbiguity: true,
         captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-        predecessors: predecessors,
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -142,18 +135,10 @@ final class SMParserMini extends GlushParserBase
       frames,
       isSupportingAmbiguity: true,
       captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-      predecessors: predecessors,
     );
 
     if (lastStep.accept) {
-      final Map<ParseNodeKey, GlushList<Mark>> memo = {};
-      final results = <GlushList<Mark>>[];
-
-      for (final (state, context) in lastStep.acceptedContexts) {
-        final rootNode = (state.id, position, context.caller);
-        results.add(extractForestFromGraphInternal(rootNode, memo, predecessors));
-      }
-
+      final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
       return ParseAmbiguousForestSuccess(markManager.branched(results));
     } else {
       return ParseError(position);

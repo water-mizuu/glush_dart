@@ -36,7 +36,7 @@ sealed class GlushList<T> {
   }
 }
 
-/// Manages deduplication of [GlushList] nodes to form a shared forest.
+/// Manages sharing of [GlushList] nodes to form a persistent forest.
 class GlushListManager<T> {
   final Map<Object, GlushList<T>> _cache = {};
 
@@ -44,14 +44,8 @@ class GlushListManager<T> {
     if (alternatives.isEmpty) return const EmptyList._();
     if (alternatives.length == 1) return alternatives[0];
 
-    // Deduplicate alternatives
-    final uniqueAlt = alternatives.toSet().toList();
-    if (uniqueAlt.length == 1) return uniqueAlt[0];
-
-    uniqueAlt.sort((a, b) => a.hashCode.compareTo(b.hashCode));
-
-    final key = _BranchedKey(uniqueAlt);
-    return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(uniqueAlt)));
+    final key = _BranchedKey(List<Object?>.unmodifiable(alternatives));
+    return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(alternatives)));
   }
 
   GlushList<T> fromList(List<T> values) {
@@ -80,6 +74,23 @@ class GlushListManager<T> {
 class _BranchedKey {
   final List<Object?> elements;
   const _BranchedKey(this.elements);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _BranchedKey &&
+          elements.length == other.elements.length &&
+          _listEquals(elements, other.elements);
+
+  @override
+  int get hashCode => Object.hashAll(elements);
+}
+
+bool _listEquals(List<Object?> left, List<Object?> right) {
+  for (var i = 0; i < left.length; i++) {
+    if (left[i] != right[i]) return false;
+  }
+  return true;
 }
 
 class EmptyList<T> extends GlushList<T> {

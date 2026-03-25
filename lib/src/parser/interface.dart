@@ -6,6 +6,9 @@ import 'package:glush/src/parser/state_machine.dart';
 
 import 'common.dart';
 
+/// Key for tracking one structural derivation edge in ambiguous mode.
+typedef DerivationKey = (ParseNodeKey? source, Object branchKey, ParseNodeKey? callSite);
+
 /// Mutable runtime storage used by a parser during one parse session.
 ///
 /// Keeping all parse-time mutable structures in one object makes reset cheap:
@@ -15,6 +18,7 @@ final class GlushParserRuntimeState {
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
   final Map<CallerCacheKey, Caller> callers = {};
   final GlushListManager<Mark> markManager = GlushListManager<Mark>();
+  final GlushListManager<DerivationKey> derivationManager = GlushListManager<DerivationKey>();
   TokenNode? historyTail;
 }
 
@@ -26,6 +30,7 @@ abstract interface class GlushParser {
   Map<CallerCacheKey, Caller> get callers;
   bool get captureTokensAsMarks;
   GlushListManager<Mark> get markManager;
+  GlushListManager<DerivationKey> get derivationManager;
   GrammarInterface get grammar;
 
   /// Clear any state from previous parses
@@ -50,6 +55,9 @@ abstract base class GlushParserBase implements GlushParser {
   @override
   GlushListManager<Mark> get markManager => _runtimeState.markManager;
 
+  @override
+  GlushListManager<DerivationKey> get derivationManager => _runtimeState.derivationManager;
+
   TokenNode? get historyTail => _runtimeState.historyTail;
   set historyTail(TokenNode? value) => _runtimeState.historyTail = value;
 
@@ -59,6 +67,7 @@ abstract base class GlushParserBase implements GlushParser {
     predicateTrackers.clear();
     callers.clear();
     markManager.clear();
+    derivationManager.clear();
     _runtimeState = GlushParserRuntimeState();
   }
 }

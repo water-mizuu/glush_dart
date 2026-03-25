@@ -244,7 +244,6 @@ final class SMParser extends GlushParserBase
         position,
         frames,
         captureTokensAsMarks: captureTokensAsMarks,
-        predecessors: {},
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -258,7 +257,6 @@ final class SMParser extends GlushParserBase
       position,
       frames,
       captureTokensAsMarks: captureTokensAsMarks,
-      predecessors: {},
     );
     return lastStep.accept;
   }
@@ -284,7 +282,6 @@ final class SMParser extends GlushParserBase
         position,
         frames,
         captureTokensAsMarks: captureTokensAsMarks,
-        predecessors: {},
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -298,7 +295,6 @@ final class SMParser extends GlushParserBase
       position,
       frames,
       captureTokensAsMarks: captureTokensAsMarks,
-      predecessors: {},
     );
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
@@ -313,7 +309,7 @@ final class SMParser extends GlushParserBase
   /// In ambiguity mode, when multiple [state, caller, minPrec] tuples reach
   /// the same point, their mark lists are merged instead of deduplicated.
   /// This method must remain independent of the BSR/SPPF pipeline and derive
-  /// ambiguity purely from the State Machine's marks and predecessor graph.
+  /// ambiguity purely from the State Machine's marks system.
   ///
   /// Returns:
   /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
@@ -322,8 +318,6 @@ final class SMParser extends GlushParserBase
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
     clearState();
     final shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
-
     var frames = _initialFrames;
     var position = 0;
 
@@ -334,7 +328,6 @@ final class SMParser extends GlushParserBase
         frames,
         isSupportingAmbiguity: true,
         captureTokensAsMarks: shouldCapture,
-        predecessors: predecessors,
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -349,18 +342,10 @@ final class SMParser extends GlushParserBase
       frames,
       isSupportingAmbiguity: true,
       captureTokensAsMarks: shouldCapture,
-      predecessors: predecessors,
     );
 
     if (lastStep.accept) {
-      final Map<ParseNodeKey, GlushList<Mark>> memo = {};
-      final results = <GlushList<Mark>>[];
-
-      for (final (state, context) in lastStep.acceptedContexts) {
-        final rootNode = (state.id, position, context.caller);
-        results.add(extractForestFromGraphInternal(rootNode, memo, predecessors));
-      }
-
+      final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
       return ParseAmbiguousForestSuccess(markManager.branched(results));
     } else {
       return ParseError(position);
@@ -419,7 +404,6 @@ final class SMParser extends GlushParserBase
   }) {
     clearState();
 
-    final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
     final completer = Completer<ParseOutcome>();
     var frames = _initialFrames;
     int globalPosition = 0;
@@ -448,13 +432,7 @@ final class SMParser extends GlushParserBase
             }
 
             // Process this token with BSR recording
-            final stepResult = processTokenInternal(
-              codeUnit,
-              globalPosition,
-              frames,
-              bsr: bsr,
-              predecessors: predecessors,
-            );
+            final stepResult = processTokenInternal(codeUnit, globalPosition, frames, bsr: bsr);
             frames = stepResult.nextFrames;
 
             // If parsing fails, complete with error
@@ -487,7 +465,6 @@ final class SMParser extends GlushParserBase
               frames,
               bsr: bsr,
               captureTokensAsMarks: captureTokensAsMarks,
-              predecessors: predecessors,
             );
 
             if (lastStep.accept) {
@@ -536,13 +513,7 @@ final class SMParser extends GlushParserBase
     int position = 0;
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = processTokenInternal(
-        codepoint,
-        position,
-        frames,
-        bsr: bsr,
-        predecessors: {},
-      );
+      final stepResult = processTokenInternal(codepoint, position, frames, bsr: bsr);
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
         return BsrParseError(position);
@@ -550,7 +521,7 @@ final class SMParser extends GlushParserBase
       position++;
     }
 
-    final lastStep = processTokenInternal(null, position, frames, bsr: bsr, predecessors: {});
+    final lastStep = processTokenInternal(null, position, frames, bsr: bsr);
 
     if (lastStep.accept) {
       return BsrParseSuccess(bsr, lastStep.marks);

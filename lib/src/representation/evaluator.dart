@@ -196,12 +196,9 @@ class StructuredEvaluator {
   const StructuredEvaluator();
 
   ParseResult evaluate(List<Mark> marks) {
-    print(marks);
-    final repairedMarks = _repairMarkStream(marks);
-    print(repairedMarks);
     final stack = <_EvaluationFrame>[_EvaluationFrame('')];
 
-    for (final mark in repairedMarks) {
+    for (final mark in marks) {
       switch (mark) {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
@@ -228,50 +225,6 @@ class StructuredEvaluator {
     }
 
     return stack.first.toResult();
-  }
-
-  List<Mark> _repairMarkStream(List<Mark> marks) {
-    final repaired = <Mark>[];
-    final openLabels = <({String name, bool synthetic})>[];
-    var segmentStartIndex = 0;
-
-    for (final mark in marks) {
-      switch (mark) {
-        case LabelStartMark(:var name, :var position):
-          openLabels.add((name: name, synthetic: false));
-          if (openLabels.length == 1) {
-            segmentStartIndex = repaired.length;
-          }
-          repaired.add(mark);
-        case LabelEndMark(:var name, :var position):
-          if (openLabels.isEmpty || openLabels.last.name != name) {
-            repaired.insert(segmentStartIndex, LabelStartMark(name, position));
-            openLabels.add((name: name, synthetic: true));
-          }
-          while (openLabels.isNotEmpty && openLabels.last.name != name) {
-            openLabels.removeLast();
-          }
-          if (openLabels.isNotEmpty) {
-            final closed = openLabels.removeLast();
-            if (openLabels.isEmpty && !closed.synthetic) {
-              segmentStartIndex = repaired.length;
-            }
-          }
-          repaired.add(mark);
-        case StringMark(:var value, :var position):
-          if (openLabels.isEmpty && repaired.isEmpty) {
-            segmentStartIndex = 0;
-          }
-          repaired.add(StringMark(value, position));
-        case NamedMark(:var name, :var position):
-          if (openLabels.isEmpty && repaired.isEmpty) {
-            segmentStartIndex = 0;
-          }
-          repaired.add(NamedMark(name, position));
-      }
-    }
-
-    return repaired;
   }
 
   void _closeLabel(List<_EvaluationFrame> stack, String name, int position) {

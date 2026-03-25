@@ -61,6 +61,17 @@ class LabelStartMark extends Mark {
   List<Object> toList() => [name, position];
 
   @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelStartMark &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          position == other.position;
+
+  @override
+  int get hashCode => name.hashCode ^ position.hashCode;
+
+  @override
   String toString() => 'LabelStart($name, $position)';
 }
 
@@ -72,6 +83,17 @@ class LabelEndMark extends Mark {
 
   @override
   List<Object> toList() => [name, position];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelEndMark &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          position == other.position;
+
+  @override
+  int get hashCode => name.hashCode ^ position.hashCode;
 
   @override
   String toString() => 'LabelEnd($name, $position)';

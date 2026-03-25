@@ -53,9 +53,7 @@ It is designed for language tooling, DSLs, config parsers, and experimental pars
 The project is active and still evolving. Current caveats:
 
 - Repetition and optional operators have historically been a source of subtle ambiguity behavior.
-- Forest extraction and semantic reconstruction are still being hardened; behavior may differ between:
-  - mark-driven parse evaluation
-  - direct forest parse-tree evaluation
+- Forest extraction and semantic reconstruction are implemented, but grammars that mix nullable branches, repetition, and lookahead predicates can still need careful refactoring to avoid unintended ambiguity.
 - Some grammars that mix nullable branches, repetition, and lookahead predicates may need careful refactoring to avoid unintended ambiguity.
 - Performance for large highly-ambiguous grammars can still be improved in both memory and throughput.
 
