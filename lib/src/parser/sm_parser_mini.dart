@@ -139,7 +139,7 @@ final class SMParserMini extends GlushParserBase
 
     if (lastStep.accept) {
       final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-      return ParseAmbiguousForestSuccess(markManager.branched(results));
+      return ParseAmbiguousForestSuccess(markCache.branched(results));
     } else {
       return ParseError(position);
     }

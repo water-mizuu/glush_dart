@@ -13,10 +13,9 @@ sealed class GlushList<T> {
   const GlushList();
   const factory GlushList.empty() = EmptyList<T>._;
 
-  GlushList<T> add(GlushListManager<T> manager, T data) => manager.push(this, data);
+  GlushList<T> add(GlushListCache<T> cache, T data) => cache.push(this, data);
 
-  GlushList<T> addList(GlushListManager<T> manager, GlushList<T> list) =>
-      manager.concat(this, list);
+  GlushList<T> addList(GlushListCache<T> cache, GlushList<T> list) => cache.concat(this, list);
 
   List<T> toList() {
     final result = <T>[];
@@ -36,8 +35,8 @@ sealed class GlushList<T> {
   }
 }
 
-/// Manages sharing of [GlushList] nodes to form a persistent forest.
-class GlushListManager<T> {
+/// Caches shared [GlushList] nodes to form a persistent forest.
+class GlushListCache<T> {
   final Map<Object, GlushList<T>> _cache = {};
 
   GlushList<T> branched(List<GlushList<T>> alternatives) {

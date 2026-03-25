@@ -96,14 +96,14 @@ class BsrSet {
     GrammarInterface grammar,
     PatternSymbol startSymbol,
     String input,
-    ForestNodeManager nodeManager,
+    ForestNodeCache nodeCache,
   ) {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
     final root =
-        SppfBuilder(this, nodeManager, grammar.childrenRegistry) //
+        SppfBuilder(this, nodeCache, grammar.childrenRegistry) //
             .buildNode(startSymbol, 0, input.length, memo, inProgress);
-    return root ?? nodeManager.symbolic(0, input.length, startSymbol);
+    return root ?? nodeCache.symbolic(0, input.length, startSymbol);
   }
 
   @override
@@ -307,10 +307,10 @@ class _AscendingIntIterator implements Iterator<int> {
 
 class SppfBuilder {
   final BsrSet bsr;
-  final ForestNodeManager nodeManager;
+  final ForestNodeCache nodeCache;
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
-  SppfBuilder(this.bsr, this.nodeManager, this.childrenRegistry);
+  SppfBuilder(this.bsr, this.nodeCache, this.childrenRegistry);
 
   List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
     if (childrenRegistry[symbol] case List<PatternSymbol> children) {
@@ -362,7 +362,7 @@ class SppfBuilder {
         }
 
         inProgress[task.key] = true;
-        final symNode = nodeManager.symbolic(task.start, task.end, task.ruleSymbol);
+    final symNode = nodeCache.symbolic(task.start, task.end, task.ruleSymbol);
 
         // 2. Schedule the completion logic for AFTER the pattern evaluates
         taskStack.add(_ContBuildNodeFinish(symNode, task.key));
@@ -415,7 +415,7 @@ class SppfBuilder {
         if (nodes.isEmpty) {
           valueStack.add(<ForestNode>[]);
         } else {
-          final node = nodeManager.intermediate(task.start, task.end, task.symbolId);
+    final node = nodeCache.intermediate(task.start, task.end, task.symbolId);
           for (final n in nodes) node.addFamily(Family.unary(n));
           valueStack.add([node]);
         }
@@ -443,7 +443,7 @@ class SppfBuilder {
         if (rightNodes.isEmpty) {
           valueStack.add(<ForestNode>[]);
         } else {
-          final node = nodeManager.intermediate(
+    final node = nodeCache.intermediate(
             task.startTask.start,
             task.startTask.end,
             task.startTask.pattern,
@@ -493,7 +493,7 @@ class SppfBuilder {
       } else if (task is _ContSeqRight) {
         final rightNodes = valueStack.removeLast() as List<ForestNode>;
         if (rightNodes.isNotEmpty) {
-          task.loopTask.seqNode ??= nodeManager.intermediate(
+    task.loopTask.seqNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
@@ -503,18 +503,18 @@ class SppfBuilder {
           }
         }
       } else if (task is _ContRepEpsilon) {
-        task.loopTask.repNode ??= nodeManager.intermediate(
+    task.loopTask.repNode ??= nodeCache.intermediate(
           task.loopTask.start,
           task.loopTask.end,
           task.loopTask.pattern,
         );
         task.loopTask.repNode!.addFamily(
-          Family.unary(nodeManager.epsilon(task.loopTask.start, task.loopTask.pattern)),
+      Family.unary(nodeCache.epsilon(task.loopTask.start, task.loopTask.pattern)),
         );
       } else if (task is _ContRepBase) {
         final baseNodes = valueStack.removeLast() as List<ForestNode>;
         if (baseNodes.isNotEmpty) {
-          task.loopTask.repNode ??= nodeManager.intermediate(
+    task.loopTask.repNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
@@ -559,7 +559,7 @@ class SppfBuilder {
       } else if (task is _ContRepRight) {
         final rightNodes = valueStack.removeLast() as List<ForestNode>;
         if (rightNodes.isNotEmpty) {
-          task.loopTask.repNode ??= nodeManager.intermediate(
+    task.loopTask.repNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
@@ -575,7 +575,7 @@ class SppfBuilder {
         if (childNodes.isNotEmpty) {
           valueStack.add(childNodes);
         } else if (task.start == task.end) {
-          valueStack.add([nodeManager.epsilon(task.start, task.pattern)]);
+    valueStack.add([nodeCache.epsilon(task.start, task.pattern)]);
         } else {
           valueStack.add(<ForestNode>[]);
         }
@@ -597,12 +597,12 @@ class SppfBuilder {
 
     switch (prefix) {
       case 'eps':
-        valueStack.add(start == end ? [nodeManager.epsilon(start, task.pattern)] : <ForestNode>[]);
+    valueStack.add(start == end ? [nodeCache.epsilon(start, task.pattern)] : <ForestNode>[]);
       case 'tok':
         {
           final token = bsr.tokenFor(task.pattern, start, end);
           if (token != null) {
-            valueStack.add([nodeManager.terminal(start, end, task.pattern, token)]);
+    valueStack.add([nodeCache.terminal(start, end, task.pattern, token)]);
           } else {
             valueStack.add(const <ForestNode>[]);
           }
@@ -611,7 +611,7 @@ class SppfBuilder {
         {
           valueStack.add(
             (start == end) //
-                ? [nodeManager.marker(start, task.pattern, suffix)]
+      ? [nodeCache.marker(start, task.pattern, suffix)]
                 : const <ForestNode>[],
           );
         }
@@ -620,7 +620,7 @@ class SppfBuilder {
         {
           valueStack.add(
             (start == end) //
-                ? [nodeManager.marker(start, task.pattern, suffix)]
+      ? [nodeCache.marker(start, task.pattern, suffix)]
                 : const <ForestNode>[],
           );
         }
@@ -629,7 +629,7 @@ class SppfBuilder {
         {
           valueStack.add(
             (start == end) //
-                ? [nodeManager.epsilon(start, task.pattern)]
+      ? [nodeCache.epsilon(start, task.pattern)]
                 : <ForestNode>[],
           );
         }

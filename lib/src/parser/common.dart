@@ -420,8 +420,8 @@ class Step {
   final BsrSet? bsr;
   final bool isSupportingAmbiguity;
   final bool captureTokensAsMarks;
-  final GlushListManager<Mark> markManager;
-  final GlushListManager<DerivationKey> derivationManager;
+  final GlushListCache<Mark> markCache;
+  final GlushListCache<DerivationKey> derivationCache;
   final List<Frame> nextFrames = [];
   final Map<ContextKey, List<GlushList<Mark>>> _nextFrameGroups = {};
   final Map<ContextKey, Set<GlushList<Mark>>> _activeContexts = {};
@@ -458,8 +458,8 @@ class Step {
     this.token,
     this.position, {
     this.bsr,
-    required this.markManager,
-    required this.derivationManager,
+    required this.markCache,
+    required this.derivationCache,
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
   }) : _callers = parser.callers;
@@ -544,7 +544,7 @@ class Step {
     if (isSupportingAmbiguity && source != null) {
       final nextBranchKey =
           branchKey ?? PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState);
-      final nextPath = derivationManager.push(parentContext.derivationPath, (
+      final nextPath = derivationCache.push(parentContext.derivationPath, (
         source,
         nextBranchKey,
         null,
@@ -567,7 +567,7 @@ class Step {
       throw StateError('Predicate symbol must resolve to a rule: $symbol');
     }
     final newPredicateKey = PredicateCallerKey(symbol, position);
-    final nextStack = GlushListManager<PredicateCallerKey>().push(
+    final nextStack = GlushListCache<PredicateCallerKey>().push(
       frame.context.predicateStack,
       newPredicateKey,
     );
@@ -620,7 +620,7 @@ class Step {
     var nextContext = context;
     if (isSupportingAmbiguity && source != null) {
       final nextBranchKey = branchKey ?? action ?? state;
-      final nextPath = derivationManager.push(context.derivationPath, (
+      final nextPath = derivationCache.push(context.derivationPath, (
         source,
         nextBranchKey,
         callSite,
@@ -699,7 +699,7 @@ class Step {
             if (shouldCapture) {
               // Emit consumed character as mark for downstream reconstruction.
               newMarks = newMarks.add(
-                markManager,
+                markCache,
                 StringMark(String.fromCharCode(token), position),
               );
             }
@@ -728,7 +728,7 @@ class Step {
           final mark = NamedMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markManager, mark)),
+            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markCache, mark)),
             source: source,
             action: action,
           );
@@ -736,7 +736,7 @@ class Step {
           final mark = LabelStartMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markManager, mark)),
+            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markCache, mark)),
             source: source,
             action: action,
             callSite: null,
@@ -746,7 +746,7 @@ class Step {
           final mark = LabelEndMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markManager, mark)),
+            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(markCache, mark)),
             source: source,
             action: action,
           );
@@ -1028,9 +1028,7 @@ class Step {
     } else if (returnContext.marks.isEmpty) {
       nextMarks = parentContext.marks;
     } else {
-      nextMarks = markManager
-          .branched([parentContext.marks])
-          .addList(markManager, returnContext.marks);
+      nextMarks = markCache.branched([parentContext.marks]).addList(markCache, returnContext.marks);
     }
 
     final nextContext = Context(
@@ -1063,7 +1061,7 @@ class Step {
   void finalize() {
     for (final MapEntry(:key, value: marksGroup) in _nextFrameGroups.entries) {
       final (state, caller, minPrecedenceLevel, predicateStack, derivationPath) = key;
-      final branchedMarks = markManager.branched(marksGroup);
+      final branchedMarks = markCache.branched(marksGroup);
       final callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
@@ -1252,8 +1250,8 @@ base mixin ParserCore on GlushParserBase {
           positionToken,
           position,
           bsr: bsr,
-          markManager: markManager,
-          derivationManager: derivationManager,
+          markCache: markCache,
+          derivationCache: derivationCache,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
         );
@@ -1304,8 +1302,8 @@ base mixin ParserCore on GlushParserBase {
           token,
           currentPosition,
           bsr: bsr,
-          markManager: markManager,
-          derivationManager: derivationManager,
+          markCache: markCache,
+          derivationCache: derivationCache,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
         )..finalize());

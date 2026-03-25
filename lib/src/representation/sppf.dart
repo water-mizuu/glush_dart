@@ -173,8 +173,8 @@ class EpsilonNode extends ForestNode {
   String toString() => 'ε[$start]';
 }
 
-/// Forest node manager (deduplicates and caches nodes)
-class ForestNodeManager {
+/// Forest node cache (deduplicates and caches nodes)
+class ForestNodeCache {
   final Map<(int, int, int, PatternSymbol), ForestNode> _nodeCache = {};
   final Set<SymbolicNode> _symbolicNodes = {};
   final Set<TerminalNode> _terminalNodes = {};
@@ -196,7 +196,7 @@ class ForestNodeManager {
     final cached = _nodeCache[key];
     assert(
       cached == null || cached is TerminalNode,
-      'Invariant violation in ForestNodeManager.terminal: cache key reused by '
+      'Invariant violation in ForestNodeCache.terminal: cache key reused by '
       'non-terminal node type (${cached.runtimeType}).',
     );
     if (_nodeCache[key] case TerminalNode node) {
@@ -214,7 +214,7 @@ class ForestNodeManager {
     final cached = _nodeCache[key];
     assert(
       cached == null || cached is SymbolicNode,
-      'Invariant violation in ForestNodeManager.symbolic: cache key reused by '
+      'Invariant violation in ForestNodeCache.symbolic: cache key reused by '
       'different node type (${cached.runtimeType}).',
     );
     if (_nodeCache[key] case SymbolicNode node) {
@@ -232,7 +232,7 @@ class ForestNodeManager {
     final cached = _nodeCache[key];
     assert(
       cached == null || cached is IntermediateNode,
-      'Invariant violation in ForestNodeManager.intermediate: cache key reused '
+      'Invariant violation in ForestNodeCache.intermediate: cache key reused '
       'by different node type (${cached.runtimeType}).',
     );
     if (_nodeCache[key] case IntermediateNode node) {
@@ -250,7 +250,7 @@ class ForestNodeManager {
     final cached = _nodeCache[key];
     assert(
       cached == null || cached is EpsilonNode,
-      'Invariant violation in ForestNodeManager.epsilon: cache key reused by '
+      'Invariant violation in ForestNodeCache.epsilon: cache key reused by '
       'different node type (${cached.runtimeType}).',
     );
     if (_nodeCache[key] case EpsilonNode node) {
@@ -267,7 +267,7 @@ class ForestNodeManager {
     final cached = _nodeCache[key];
     assert(
       cached == null || cached is MarkerNode,
-      'Invariant violation in ForestNodeManager.marker: cache key reused by '
+      'Invariant violation in ForestNodeCache.marker: cache key reused by '
       'different node type (${cached.runtimeType}).',
     );
     if (_nodeCache[key] case MarkerNode node) {
@@ -287,10 +287,10 @@ class ForestNodeManager {
 
 /// Parse forest representation
 class ParseForest {
-  final ForestNodeManager nodeManager;
+  final ForestNodeCache nodeCache;
   final SymbolicNode root;
 
-  const ParseForest(this.nodeManager, this.root);
+  const ParseForest(this.nodeCache, this.root);
 
   /// Count total nodes in the forest
   int countNodes() {

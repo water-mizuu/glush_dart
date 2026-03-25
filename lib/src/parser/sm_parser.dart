@@ -346,7 +346,7 @@ final class SMParser extends GlushParserBase
 
     if (lastStep.accept) {
       final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-      return ParseAmbiguousForestSuccess(markManager.branched(results));
+      return ParseAmbiguousForestSuccess(markCache.branched(results));
     } else {
       return ParseError(position);
     }
@@ -373,9 +373,9 @@ final class SMParser extends GlushParserBase
 
     final bsrSuccess = bsrOutcome as BsrParseSuccess;
     final startSymbol = stateMachine.grammar.startSymbol;
-    final nodeManager = ForestNodeManager();
-    final root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeManager);
-    final forest = ParseForest(nodeManager, root);
+    final nodeCache = ForestNodeCache();
+    final root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeCache);
+    final forest = ParseForest(nodeCache, root);
     return ParseForestSuccess(forest);
   }
 
@@ -470,10 +470,10 @@ final class SMParser extends GlushParserBase
             if (lastStep.accept) {
               // Build SPPF from the recorded BSR
               final startSymbol = stateMachine.grammar.startSymbol;
-              final nodeManager = ForestNodeManager();
+              final nodeCache = ForestNodeCache();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeManager);
-              final forest = ParseForest(nodeManager, root);
+              final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeCache);
+              final forest = ParseForest(nodeCache, root);
               completer.complete(ParseForestSuccess(forest));
             } else {
               completer.complete(ParseError(globalPosition));

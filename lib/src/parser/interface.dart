@@ -17,8 +17,8 @@ final class GlushParserRuntimeState {
   final Map<int, TokenNode> historyByPosition = {};
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
   final Map<CallerCacheKey, Caller> callers = {};
-  final GlushListManager<Mark> markManager = GlushListManager<Mark>();
-  final GlushListManager<DerivationKey> derivationManager = GlushListManager<DerivationKey>();
+  final GlushListCache<Mark> markCache = GlushListCache<Mark>();
+  final GlushListCache<DerivationKey> derivationCache = GlushListCache<DerivationKey>();
   TokenNode? historyTail;
 }
 
@@ -29,8 +29,8 @@ abstract interface class GlushParser {
   Map<PredicateKey, PredicateTracker> get predicateTrackers;
   Map<CallerCacheKey, Caller> get callers;
   bool get captureTokensAsMarks;
-  GlushListManager<Mark> get markManager;
-  GlushListManager<DerivationKey> get derivationManager;
+  GlushListCache<Mark> get markCache;
+  GlushListCache<DerivationKey> get derivationCache;
   GrammarInterface get grammar;
 
   /// Clear any state from previous parses
@@ -53,10 +53,10 @@ abstract base class GlushParserBase implements GlushParser {
   Map<CallerCacheKey, Caller> get callers => _runtimeState.callers;
 
   @override
-  GlushListManager<Mark> get markManager => _runtimeState.markManager;
+  GlushListCache<Mark> get markCache => _runtimeState.markCache;
 
   @override
-  GlushListManager<DerivationKey> get derivationManager => _runtimeState.derivationManager;
+  GlushListCache<DerivationKey> get derivationCache => _runtimeState.derivationCache;
 
   TokenNode? get historyTail => _runtimeState.historyTail;
   set historyTail(TokenNode? value) => _runtimeState.historyTail = value;
@@ -66,8 +66,8 @@ abstract base class GlushParserBase implements GlushParser {
     historyByPosition.clear();
     predicateTrackers.clear();
     callers.clear();
-    markManager.clear();
-    derivationManager.clear();
+    markCache.clear();
+    derivationCache.clear();
     _runtimeState = GlushParserRuntimeState();
   }
 }
