@@ -39,6 +39,8 @@ if (outcome is ParseSuccess) {
 ## Flat Marks (Legacy/Advanced)
 
 Glush also supports a flatter mark system using named markers and automatic token capture.
+Forest reconstruction for these paths reads the existing `prefix:id:suffix`
+symbol encoding directly, so there is no separate pattern metadata table.
 
 ### Types of Flat Marks
 - **NamedMark**: Created by `$nameTerm` or explicit `Marker` patterns. They carry a name and the position.

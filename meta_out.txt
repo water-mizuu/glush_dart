@@ -1,9 +1,2 @@
 Evaluated Meta Grammar Paths:
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
-[(abc, [|, c, [!, [*, e]]])]
+[(abc, [|, c, [seq, [seq, [&, d], [!, [*, e]]], complex]]), (xyz, [seq, [seq, 'foo', a-z], mark])]

@@ -85,12 +85,8 @@ void main() {
     test('kicks in for right-tail recursion followed by dead epsilon suffix', () {
       final grammar = Grammar(() {
         late final Rule s;
-        s = Rule(
-          'S',
-          () =>
-              Token.char('s') |
-              (Token.char('s') >> s.call() >> Eps()),
-        );
+        s = Rule('S', () => Token.char('s') | (Token.char('s') >> s.call() >> Eps()));
+
         return s;
       });
 

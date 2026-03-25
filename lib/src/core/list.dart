@@ -54,6 +54,14 @@ class GlushListManager<T> {
     return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(uniqueAlt)));
   }
 
+  GlushList<T> fromList(List<T> values) {
+    GlushList<T> list = const GlushList.empty();
+    for (final value in values) {
+      list = push(list, value);
+    }
+    return list;
+  }
+
   GlushList<T> push(GlushList<T> parent, T data) {
     final key = ('push', parent, data);
     return _cache.putIfAbsent(key, () => Push<T>._(parent, data));

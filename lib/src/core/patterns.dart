@@ -15,9 +15,7 @@ sealed class Pattern {
       ? null
       : PatternSymbol("$_symbolPrefix:$_symbolId:$_symbolSuffix");
 
-  /// Called by Grammar during finalize to assign this pattern a symbol ID
-  /// within the grammar's namespace
-  void assignSymbolId(PatternSymbol id) {
+  set symbolId(PatternSymbol id) {
     if ((id as String).split(":") case [_, final mid, _]) {
       _symbolId = PatternSymbol(mid);
       return;

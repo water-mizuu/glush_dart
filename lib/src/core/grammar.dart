@@ -29,6 +29,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
+
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
 
@@ -90,7 +91,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     for (final pattern in allPatterns) {
       if (pattern.symbolId == null) {
         final symbolId = 'S${symbolCounter++}';
-        pattern.assignSymbolId(PatternSymbol(symbolId));
+        pattern.symbolId = PatternSymbol(symbolId);
       }
       final actualSymbolId = pattern.symbolId!;
       symbolRegistry[actualSymbolId] = pattern;
@@ -99,7 +100,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
-      // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
         Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
         Alt(:var left, :var right) ||
@@ -411,7 +411,7 @@ class GrammarAdapter implements GrammarInterface {
     for (final pattern in allPatterns) {
       if (pattern.symbolId == null) {
         final symbolId = 'S${_symbolCounter++}';
-        pattern.assignSymbolId(PatternSymbol(symbolId));
+        pattern.symbolId = PatternSymbol(symbolId);
       }
       final actualSymbolId = pattern.symbolId!;
       symbolRegistry[actualSymbolId] = pattern;
@@ -420,18 +420,20 @@ class GrammarAdapter implements GrammarInterface {
 
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
-      // print(pattern.symbolId!);
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
         Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
+        //
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
+        //
         Label(:var child) ||
         Action(:var child) ||
         Prec(:var child) ||
         Opt(:var child) ||
         Plus(:var child) ||
         Star(:var child) => [child.symbolId!],
+        //
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],

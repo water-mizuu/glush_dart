@@ -130,6 +130,99 @@ void main() {
         expect(parser.recognize('a'), isTrue);
       },
     );
+
+    testBoth(
+      'AND predicate keeps labeled lookahead isolated',
+      Grammar(() {
+        final target = Label('inner', Token.char('a') >> Token.char('b'));
+        return Rule(
+          'start',
+          () =>
+              And(target) >> Label('outer', Token.char('a') >> Token.char('b') >> Token.char('c')),
+        );
+      }),
+      (parser) {
+        final outcome = parser.parseAmbiguous('abc', captureTokensAsMarks: true);
+        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+
+        final forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        final paths = forest.allPaths().toList();
+        expect(paths, hasLength(1));
+
+        final tree = const StructuredEvaluator().evaluate(paths.single);
+        expect(tree.get('outer').single.span, equals('abc'));
+        expect(tree.get('inner'), isEmpty);
+      },
+    );
+
+    testBoth(
+      'NOT predicate keeps labeled lookahead isolated',
+      Grammar(() {
+        final target = Label('inner', Token.char('a') >> Token.char('b'));
+        return Rule(
+          'start',
+          () => Not(target) >> Label('outer', Token.char('a') >> Token.char('c')),
+        );
+      }),
+      (parser) {
+        final outcome = parser.parseAmbiguous('ac', captureTokensAsMarks: true);
+        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+
+        final forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        final paths = forest.allPaths().toList();
+        expect(paths, hasLength(1));
+
+        final tree = const StructuredEvaluator().evaluate(paths.single);
+        expect(tree.get('outer').single.span, equals('ac'));
+        expect(tree.get('inner'), isEmpty);
+      },
+    );
+
+    testBoth(
+      'AND predicate survives duplicate labeled returns',
+      Grammar(() {
+        final target = Label('inner', Token.char('a')) | Label('inner', Token.char('a'));
+        return Rule('start', () => And(target) >> Label('outer', Token.char('a')));
+      }),
+      (parser) {
+        final outcome = parser.parseAmbiguous('a', captureTokensAsMarks: true);
+        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+
+        final forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        final paths = forest.allPaths().toList();
+        expect(paths, hasLength(1));
+
+        final tree = const StructuredEvaluator().evaluate(paths.single);
+        expect(tree.get('outer').single.span, equals('a'));
+        expect(tree.get('inner'), isEmpty);
+      },
+    );
+
+    testBoth(
+      'Ambiguous label paths remain structurally valid',
+      Grammar(() {
+        final left = Label('left', And(Token.char('a')) >> Token.char('a'));
+        final right = Label('right', Token.char('a'));
+        return Rule('start', () => Label('outer', (left | right) >> Token.char('b')));
+      }),
+      (parser) {
+        final outcome = parser.parseAmbiguous('ab', captureTokensAsMarks: true);
+        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+
+        final forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        final paths = forest.allPaths().toList();
+        expect(paths, hasLength(2));
+
+        for (final path in paths) {
+          expect(() => path.evaluateStructure(), returnsNormally);
+        }
+
+        final trees = paths.map((path) => const StructuredEvaluator().evaluate(path)).toList();
+        expect(trees.every((tree) => tree.get('outer').single.span == 'ab'), isTrue);
+
+        print(trees.map((t) => t.get('outer').map((l) => l.span).toList()).toList());
+      },
+    );
   });
 
   group('Edge Case Tests - Recursion and Cycles', () {

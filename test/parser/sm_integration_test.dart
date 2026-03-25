@@ -69,7 +69,30 @@ void main() {
       final result = parser.parseAmbiguous('abc', captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
       final success = result as ParseAmbiguousForestSuccess;
-      expect(success.forest.allPaths().length, equals(1));
+      final paths = success.forest.allPaths().toList();
+      expect(paths.length, equals(1));
+      expect(paths.single.toShortMarks().join(''), equals('abc'));
+    });
+
+    test('NOT Predicate Catch-up and Sub-parse', () {
+      // The NOT lookahead must stay parked until Target exhausts on the next
+      // token, then resume the outer parse at the original pivot.
+      final parser =
+          r"""
+        S = !Target 'a' 'c'
+        Target = 'a' 'b'
+      """
+              .toSMParser();
+
+      final successResult = parser.parseAmbiguous('ac', captureTokensAsMarks: true);
+      expect(successResult, isA<ParseAmbiguousForestSuccess>());
+
+      final success = successResult as ParseAmbiguousForestSuccess;
+      final paths = success.forest.allPaths().toList();
+      expect(paths.length, equals(1));
+      expect(paths.single.toShortMarks().join(''), equals('ac'));
+
+      expect(parser.parseAmbiguous('ab', captureTokensAsMarks: true), isA<ParseError>());
     });
 
     test('Context Deduplication fixes explosion', () {

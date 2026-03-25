@@ -73,8 +73,7 @@ fn main() {
 
   if (outcome is ParseSuccess) {
     final result = outcome.result;
-    final evaluator = StructuredEvaluator();
-    final tree = evaluator.evaluate(result.rawMarks);
+    final tree = result.rawMarks.evaluateStructure();
 
     print("\nSTRUCTURED TREE:");
     _printTree(tree, 0);

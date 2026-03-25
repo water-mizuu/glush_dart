@@ -37,6 +37,10 @@ final class SMParserMini extends GlushParserBase
     return [initialFrame];
   }
 
+  /// Fast recognition that stays on the State Machine path only.
+  ///
+  /// This method must remain independent of the BSR/SPPF pipeline and rely
+  /// only on the State Machine execution plus marks bookkeeping.
   @override
   bool recognize(String input) {
     clearState();
@@ -67,6 +71,9 @@ final class SMParserMini extends GlushParserBase
   }
 
   /// Standard parsing that returns the first valid result found.
+  ///
+  /// This method must remain independent of the BSR/SPPF pipeline and rely
+  /// only on the State Machine execution plus marks bookkeeping.
   @override
   ParseOutcome parse(String input) {
     clearState();
@@ -102,6 +109,9 @@ final class SMParserMini extends GlushParserBase
   }
 
   /// Parses ambiguous input and returns a forest of all possible results (marks).
+  ///
+  /// This method must remain independent of the BSR/SPPF pipeline and derive
+  /// ambiguity from the State Machine's marks and predecessor graph only.
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
     clearState();

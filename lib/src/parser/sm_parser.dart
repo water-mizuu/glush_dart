@@ -45,13 +45,6 @@ import '../representation/evaluator.dart';
 import 'common.dart';
 import 'interface.dart';
 
-const isDebug = true;
-void printDebug(String message) {
-  if (isDebug) {
-    print(message);
-  }
-}
-
 // ---------------------------------------------------------------------------
 
 /// Represents a single parse tree derivation.
@@ -237,7 +230,9 @@ final class SMParser extends GlushParserBase
   /// Recognize input without building a parse tree (boolean result).
   ///
   /// Fast path that only checks if the input matches, without marking or
-  /// other semantic computation. Returns true iff the entire input is accepted.
+  /// other semantic computation. This method must remain independent of the
+  /// BSR/SPPF pipeline and rely only on the State Machine execution and mark
+  /// bookkeeping. Returns true iff the entire input is accepted.
   bool recognize(String input) {
     clearState();
     var frames = _initialFrames;
@@ -271,7 +266,9 @@ final class SMParser extends GlushParserBase
   /// Parse input and return a [ParseSuccess] or [ParseError].
   ///
   /// This is the basic parsing method: runs the state machine on the input
-  /// and returns true only if the entire input is accepted.
+  /// and returns true only if the entire input is accepted. This method must
+  /// remain independent of the BSR/SPPF pipeline and rely only on the State
+  /// Machine's marks system.
   ///
   /// Returns:
   /// - [ParseSuccess] if the entire input matches the grammar
@@ -315,13 +312,16 @@ final class SMParser extends GlushParserBase
   /// Like [parse], but records marks for all possible interpretations.
   /// In ambiguity mode, when multiple [state, caller, minPrec] tuples reach
   /// the same point, their mark lists are merged instead of deduplicated.
+  /// This method must remain independent of the BSR/SPPF pipeline and derive
+  /// ambiguity purely from the State Machine's marks and predecessor graph.
   ///
   /// Returns:
   /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
   /// - [ParseError] if parsing fails
   @override
-  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
+  ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
     clearState();
+    final shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
     final Map<ParseNodeKey, Set<PredecessorInfo>> predecessors = {};
 
     var frames = _initialFrames;
@@ -333,9 +333,8 @@ final class SMParser extends GlushParserBase
         position,
         frames,
         isSupportingAmbiguity: true,
-        captureTokensAsMarks: captureTokensAsMarks,
+        captureTokensAsMarks: shouldCapture,
         predecessors: predecessors,
-        bsr: null,
       );
       frames = stepResult.nextFrames;
       if (frames.isEmpty) {
@@ -349,9 +348,8 @@ final class SMParser extends GlushParserBase
       position,
       frames,
       isSupportingAmbiguity: true,
-      captureTokensAsMarks: captureTokensAsMarks,
+      captureTokensAsMarks: shouldCapture,
       predecessors: predecessors,
-      bsr: null,
     );
 
     if (lastStep.accept) {
@@ -392,8 +390,7 @@ final class SMParser extends GlushParserBase
     final startSymbol = stateMachine.grammar.startSymbol;
     final nodeManager = ForestNodeManager();
     final root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeManager);
-    final effectiveRoot = root ?? nodeManager.symbolic(0, input.length, startSymbol);
-    final forest = ParseForest(nodeManager, effectiveRoot);
+    final forest = ParseForest(nodeManager, root);
     return ParseForestSuccess(forest);
   }
 
@@ -499,18 +496,7 @@ final class SMParser extends GlushParserBase
               final nodeManager = ForestNodeManager();
               final fullInput = String.fromCharCodes(allInput);
               final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeManager);
-              if (root == null) {
-                print(
-                  'DEBUG: buildSppf returned null for symbol=$startSymbol, span=0:$globalPosition',
-                );
-                print('DEBUG: BSR total entries: ${bsr.entries.length}');
-                // Print some sample entries
-                final samples = bsr.entries.take(10).toList();
-                print('DEBUG: BSR Sample entries: $samples');
-              }
-              final effectiveRoot = root ?? nodeManager.symbolic(0, globalPosition, startSymbol);
-
-              final forest = ParseForest(nodeManager, effectiveRoot);
+              final forest = ParseForest(nodeManager, root);
               completer.complete(ParseForestSuccess(forest));
             } else {
               completer.complete(ParseError(globalPosition));
@@ -1318,7 +1304,6 @@ final class SMParser extends GlushParserBase
         // Try fallback to symbolRegistry if it exists
         final pattern = grammar.symbolRegistry[tree.symbol];
         if (pattern == null) {
-          print('MISSING: ${tree.symbol.symbol}');
           return null;
         }
 
@@ -1458,9 +1443,17 @@ final class SMParser extends GlushParserBase
 
   /// Extract full raw marks (NamedMark/StringMark/LabelStartMark/LabelEndMark)
   /// from a parse tree in-order.
-  List<Mark> extractParseTreeRawMarks(ParseTree tree, String input) {
+  List<Mark> extractParseTreeRawMarks(
+    ParseTree tree,
+    String input, {
+    bool captureTokensAsMarks = true,
+  }) {
     final derivation = parseTreeToDerivation(tree, input);
-    final extracted = _extractParseTreeRawMarks(derivation, input);
+    final extracted = _extractParseTreeRawMarks(
+      derivation,
+      input,
+      captureTokensAsMarks: captureTokensAsMarks,
+    );
 
     // Hygiene fallback:
     // Current SPPF extraction can miss zero-width marker/label structure in some
@@ -1565,7 +1558,11 @@ final class SMParser extends GlushParserBase
     return input.substring(s, e);
   }
 
-  List<Mark> _extractParseTreeRawMarks(ParseDerivation tree, String input) {
+  List<Mark> _extractParseTreeRawMarks(
+    ParseDerivation tree,
+    String input, {
+    required bool captureTokensAsMarks,
+  }) {
     final symbol = tree.symbol.symbol;
     final split = symbol.split(":");
     if (split.length < 3) return const <Mark>[];
@@ -1577,7 +1574,11 @@ final class SMParser extends GlushParserBase
       case "not":
         return const <Mark>[];
       case "tok":
-        return [StringMark(tree.getMatchedText(input), tree.start)];
+        final pattern = grammar.symbolRegistry[tree.symbol];
+        if (captureTokensAsMarks || pattern is Token && pattern.choice is! ExactToken) {
+          return [StringMark(tree.getMatchedText(input), tree.start)];
+        }
+        return const <Mark>[];
       case "mar":
         return [NamedMark(suffix, tree.start)];
       case "las":
@@ -1595,8 +1596,16 @@ final class SMParser extends GlushParserBase
       case "rul":
       case "lab":
         final out = <Mark>[];
+        if (prefix == "lab") {
+          out.add(LabelStartMark(suffix, tree.start));
+        }
         for (final child in tree.children) {
-          out.addAll(_extractParseTreeRawMarks(child, input));
+          out.addAll(
+            _extractParseTreeRawMarks(child, input, captureTokensAsMarks: captureTokensAsMarks),
+          );
+        }
+        if (prefix == "lab") {
+          out.add(LabelEndMark(suffix, tree.start));
         }
         return out;
       default:
@@ -1606,8 +1615,20 @@ final class SMParser extends GlushParserBase
           Marker(:var name) => [NamedMark(name, tree.start)],
           LabelStart(:var name) => [LabelStartMark(name, tree.start)],
           LabelEnd(:var name) => [LabelEndMark(name, tree.start)],
-          Token() => [StringMark(tree.getMatchedText(input), tree.start)],
-          _ => tree.children.expand((c) => _extractParseTreeRawMarks(c, input)).toList(),
+          Token() =>
+            captureTokensAsMarks
+                ? [StringMark(tree.getMatchedText(input), tree.start)]
+                : const <Mark>[],
+          _ =>
+            tree.children
+                .expand(
+                  (c) => _extractParseTreeRawMarks(
+                    c,
+                    input,
+                    captureTokensAsMarks: captureTokensAsMarks,
+                  ),
+                )
+                .toList(),
         };
     }
   }

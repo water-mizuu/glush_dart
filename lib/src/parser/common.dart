@@ -243,6 +243,7 @@ class Context {
   final CallerKey caller;
   final GlushList<Mark> marks;
   final GlushList<PredicateCallerKey> predicateStack;
+  final PatternSymbol? bsrRuleSymbol;
   final int? callStart;
   final int? pivot;
   final TokenNode? tokenHistory;
@@ -253,6 +254,7 @@ class Context {
     this.caller,
     this.marks, {
     this.predicateStack = const GlushList.empty(),
+    this.bsrRuleSymbol,
     this.callStart,
     this.pivot,
     this.tokenHistory,
@@ -264,6 +266,7 @@ class Context {
     CallerKey? caller,
     GlushList<Mark>? marks,
     GlushList<PredicateCallerKey>? predicateStack,
+    PatternSymbol? bsrRuleSymbol,
     int? callStart,
     int? pivot,
     TokenNode? tokenHistory,
@@ -274,6 +277,7 @@ class Context {
       caller ?? this.caller,
       marks ?? this.marks,
       predicateStack: predicateStack ?? this.predicateStack,
+      bsrRuleSymbol: bsrRuleSymbol ?? this.bsrRuleSymbol,
       callStart: callStart ?? this.callStart,
       pivot: pivot ?? this.pivot,
       tokenHistory: tokenHistory ?? this.tokenHistory,
@@ -288,6 +292,7 @@ class Context {
       caller,
       nextMarks,
       predicateStack: predicateStack,
+      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       tokenHistory: tokenHistory,
@@ -302,6 +307,7 @@ class Context {
       nextCaller,
       marks,
       predicateStack: predicateStack,
+      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       tokenHistory: tokenHistory,
@@ -316,6 +322,7 @@ class Context {
       nextCaller,
       nextMarks,
       predicateStack: predicateStack,
+      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       tokenHistory: tokenHistory,
@@ -354,7 +361,8 @@ class Context {
 class Frame {
   final Context context;
   final Set<State> nextStates;
-  Frame(this.context) : nextStates = {};
+  final bool replay;
+  Frame(this.context, {this.replay = false}) : nextStates = {};
   Frame copy() => Frame(context);
   CallerKey? get caller => context.caller;
   GlushList<Mark> get marks => context.marks;
@@ -412,16 +420,6 @@ class Step {
     required this.predecessors,
   }) : _callers = parser.callers;
 
-  PredicateTracker _requirePredicateTracker(PredicateCallerKey key, {required String site}) {
-    final tracker = parser.predicateTrackers[(key.pattern, key.startPosition)];
-    assert(
-      tracker != null,
-      'Invariant violation at $site: predicate tracker for '
-      '(${key.pattern}, ${key.startPosition}) must exist.',
-    );
-    return tracker!;
-  }
-
   /// Resolve a predicate sub-parse and wake waiting continuations.
   ///
   /// Rules:
@@ -451,23 +449,13 @@ class Step {
 
         // AND predicate continues only on a successful inner parse.
         if (tracker.isAnd) {
-          // AND predicate succeeds only when inner parse matched.
-          if (isSupportingAmbiguity) {
-            // In forest mode keep explicit predicate edge for reconstruction.
-            final target = (nextState.id, position, parentContext.caller);
-            final predAction = PredicateAction(
-              isAnd: tracker.isAnd,
-              symbol: tracker.symbol,
-              nextState: nextState,
-            );
-            predecessors.putIfAbsent(target, () => {}).add((
-              source,
-              predAction,
-              const GlushList.empty(),
-              null,
-            ));
-          }
-          requeue(Frame(parentContext)..nextStates.add(nextState));
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: parentContext,
+            nextState: nextState,
+            isAnd: tracker.isAnd,
+            symbol: tracker.symbol,
+          );
         }
       }
       tracker.waiters.clear();
@@ -494,25 +482,76 @@ class Step {
         // NOT predicate continues only when inner parse did not match.
         if (!tracker.isAnd) {
           // NOT predicate succeeds only when inner parse is exhausted unmatched.
-          if (isSupportingAmbiguity) {
-            // In forest mode keep explicit predicate edge for reconstruction.
-            final target = (nextState.id, position, parentContext.caller);
-            final predAction = PredicateAction(
-              isAnd: tracker.isAnd,
-              symbol: tracker.symbol,
-              nextState: nextState,
-            );
-            predecessors.putIfAbsent(target, () => {}).add((
-              source,
-              predAction,
-              const GlushList.empty(),
-              null,
-            ));
-          }
-          requeue(Frame(parentContext)..nextStates.add(nextState));
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: parentContext,
+            nextState: nextState,
+            isAnd: tracker.isAnd,
+            symbol: tracker.symbol,
+          );
         }
       }
       tracker.waiters.clear();
+    }
+  }
+
+  /// Resume a continuation that was parked behind a predicate.
+  ///
+  /// The frame is requeued at the original parent pivot so it can catch up
+  /// through already-seen input using the parser's token history, just like an
+  /// epsilon transition reopening a delayed path.
+  void _resumeLaggedPredicateContinuation({
+    required ParseNodeKey? source,
+    required Context parentContext,
+    required State nextState,
+    required bool isAnd,
+    required PatternSymbol symbol,
+  }) {
+    if (isSupportingAmbiguity && source != null) {
+      // In forest mode keep explicit predicate edge for reconstruction.
+      final target = (nextState.id, position, parentContext.caller);
+      final predAction = PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState);
+      predecessors.putIfAbsent(target, () => {}).add((
+        source,
+        predAction,
+        parentContext.marks,
+        null,
+      ));
+    }
+
+    requeue(Frame(parentContext)..nextStates.add(nextState));
+  }
+
+  /// Seed a predicate sub-parse at the current input position.
+  ///
+  /// Predicates are lookahead-only, so their entry states are spawned in a
+  /// separate sub-parse that can resolve later and wake parked continuations.
+  void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame) {
+    final states = parser.stateMachine.ruleFirst[symbol];
+    // Missing entry states indicates invalid predicate target symbol.
+    if (states == null) {
+      // Predicates must map to rule entries in the state machine.
+      throw StateError('Predicate symbol must resolve to a rule: $symbol');
+    }
+    final newPredicateKey = PredicateCallerKey(symbol, position);
+    final nextStack = GlushListManager<PredicateCallerKey>().push(
+      frame.context.predicateStack,
+      newPredicateKey,
+    );
+
+    for (final firstState in states) {
+      _enqueue(
+        firstState,
+        Context(
+          newPredicateKey,
+          const GlushList.empty(),
+          predicateStack: nextStack,
+          bsrRuleSymbol: null,
+          callStart: position,
+          pivot: position,
+          tokenHistory: frame.context.tokenHistory,
+        ),
+      );
     }
   }
 
@@ -556,16 +595,22 @@ class Step {
     final key = (state, context.caller, context.minPrecedenceLevel, context.predicateStack);
     // Forest mode tracks alternate derivation edges for equivalent contexts.
     if (isSupportingAmbiguity) {
-      // Forest mode keeps all edges, even for already-seen target contexts.
       if (source != null) {
-        // Keep derivation edge even if target context already exists.
         final target = (state.id, position, context.caller);
         predecessors.putIfAbsent(target, () => {}).add((source, action, marks, callSite));
       }
-
+      // Forest mode keeps alternate derivation edges even when a context is
+      // already active. If the mark branch changed, replay the state so the new
+      // branch can propagate through downstream actions.
       final existingMarks = _activeContexts[key];
-      // In forest mode, equivalent active context already exists.
-      if (existingMarks != null) return;
+      if (existingMarks != null) {
+        final mergedMarks = markManager.branched([existingMarks, context.marks]);
+        if (!identical(mergedMarks, existingMarks)) {
+          _activeContexts[key] = mergedMarks;
+          requeue(Frame(context.withMarks(mergedMarks), replay: true));
+        }
+        return;
+      }
       _activeContexts[key] = context.marks;
     } else {
       // In non-forest mode, keep only the first equivalent context.
@@ -608,9 +653,14 @@ class Step {
           // Token actions fire only when a token exists and matches the pattern.
           if (token != null && action.pattern.match(token)) {
             var newMarks = frame.marks;
+            final terminalSymbol = action.pattern.symbolId;
             final pattern = action.pattern;
             final shouldCapture =
                 captureTokensAsMarks || (pattern is Token && pattern.choice is! ExactToken);
+
+            if (terminalSymbol != null) {
+              bsr?.addTerminal(terminalSymbol, position, position + 1, token);
+            }
 
             // Capture policy controls whether consumed chars become StringMarks.
             if (shouldCapture) {
@@ -621,11 +671,13 @@ class Step {
               );
             }
 
-            // BSR updates are relevant only for normal rule callers.
-            if (bsr != null && frame.caller is Caller) {
-              // Record token-step contribution to the caller's BSR span.
-              final rule = (frame.caller as Caller).rule;
-              bsr!.add(rule.symbolId!, frame.context.callStart!, position, position + 1);
+            if (frame.context.bsrRuleSymbol != null && frame.context.callStart != null) {
+              bsr?.add(
+                frame.context.bsrRuleSymbol!,
+                frame.context.callStart!,
+                position,
+                position + 1,
+              );
             }
 
             // Batched until finalize() so token-consuming transitions advance
@@ -673,7 +725,9 @@ class Step {
             source: source,
             action: action,
             marks: deltaMarks,
+            callSite: null,
           );
+          break;
         case LabelEndAction():
           final mark = LabelEndMark(action.name, position);
           final deltaMarks = const GlushList<Mark>.empty().add(markManager, mark);
@@ -684,6 +738,7 @@ class Step {
             action: action,
             marks: deltaMarks,
           );
+          break;
         case PredicateAction():
           final symbol = action.symbol;
           final subParseKey = (symbol, position);
@@ -708,21 +763,13 @@ class Step {
             // We do not spawn/wait again; just continue according to AND/NOT.
             if (tracker.isAnd) {
               // AND continuation is allowed after successful predicate.
-              if (isSupportingAmbiguity) {
-                final target = (action.nextState.id, position, frame.context.caller);
-                final predAction = PredicateAction(
-                  isAnd: action.isAnd,
-                  symbol: action.symbol,
-                  nextState: action.nextState,
-                );
-                predecessors.putIfAbsent(target, () => {}).add((
-                  source,
-                  predAction,
-                  const GlushList.empty(),
-                  null,
-                ));
-              }
-              requeue(Frame(frame.context)..nextStates.add(action.nextState));
+              _resumeLaggedPredicateContinuation(
+                source: source,
+                parentContext: frame.context,
+                nextState: action.nextState,
+                isAnd: action.isAnd,
+                symbol: action.symbol,
+              );
             }
             // Existing tracker with no active work means exhausted false.
           } else if (!isFirst && tracker.activeFrames == 0) {
@@ -732,21 +779,13 @@ class Step {
             // => it is exhausted with no match; NOT can continue immediately.
             if (!tracker.isAnd) {
               // NOT continuation is allowed only when predicate exhausted false.
-              if (isSupportingAmbiguity) {
-                final target = (action.nextState.id, position, frame.context.caller);
-                final predAction = PredicateAction(
-                  isAnd: action.isAnd,
-                  symbol: action.symbol,
-                  nextState: action.nextState,
-                );
-                predecessors.putIfAbsent(target, () => {}).add((
-                  source,
-                  predAction,
-                  const GlushList.empty(),
-                  null,
-                ));
-              }
-              requeue(Frame(frame.context)..nextStates.add(action.nextState));
+              _resumeLaggedPredicateContinuation(
+                source: source,
+                parentContext: frame.context,
+                nextState: action.nextState,
+                isAnd: action.isAnd,
+                symbol: action.symbol,
+              );
             }
           } else {
             // Logical meaning:
@@ -772,31 +811,7 @@ class Step {
           // Only first unresolved encounter should spawn predicate entry states.
           if (isFirst && !tracker.matched) {
             // First encounter and unresolved => spawn predicate sub-parse.
-            final states = parser.stateMachine.ruleFirst[symbol];
-            // Missing entry states indicates invalid predicate target symbol.
-            if (states == null) {
-              // Predicates must map to rule entries in the state machine.
-              throw StateError('Predicate symbol must resolve to a rule: $symbol');
-            }
-            final newPredicateKey = PredicateCallerKey(symbol, position);
-            final nextStack = GlushListManager<PredicateCallerKey>().push(
-              frame.context.predicateStack,
-              newPredicateKey,
-            );
-
-            for (final firstState in states) {
-              _enqueue(
-                firstState,
-                Context(
-                  newPredicateKey,
-                  const GlushList.empty(),
-                  predicateStack: nextStack,
-                  callStart: position,
-                  pivot: position,
-                  tokenHistory: frame.context.tokenHistory,
-                ),
-              );
-            }
+            _spawnPredicateSubparse(symbol, frame);
           }
 
         case CallAction():
@@ -835,6 +850,7 @@ class Step {
                   caller,
                   const GlushList.empty(),
                   predicateStack: frame.context.predicateStack,
+                  bsrRuleSymbol: action.rule.symbolId!,
                   callStart: position,
                   pivot: position,
                   tokenHistory: frame.context.tokenHistory,
@@ -897,10 +913,13 @@ class Step {
               frame.context.callStart ?? //
               (caller is Caller ? caller.startPosition : null);
 
-          // Add BSR span only when call-start information is available.
-          if (bsr != null && callStart != null) {
-            // Persist completed rule span for BSR consumers.
-            bsr!.add(action.rule.symbolId!, callStart, frame.context.pivot ?? callStart, position);
+          if (frame.context.bsrRuleSymbol != null && callStart != null) {
+            bsr?.add(
+              frame.context.bsrRuleSymbol!,
+              callStart,
+              frame.context.pivot ?? callStart,
+              position,
+            );
           }
 
           // Predicate callers resolve predicate trackers instead of GSS callers.
@@ -914,28 +933,29 @@ class Step {
               'Invariant violation in ReturnAction: predicate caller should be '
               'the top of predicateStack.',
             );
-            final tracker = _requirePredicateTracker(
-              caller,
-              site: 'ReturnAction(predicate-caller)',
-            );
+            final tracker = parser.predicateTrackers[(caller.pattern, caller.startPosition)];
+            if (tracker == null) {
+              // The predicate may already have been resolved and cleaned up by
+              // an earlier return path in this position. That is safe to ignore
+              // because the success continuations have already been resumed.
+              continue;
+            }
 
             // Predicate matched; resolve and wake dependent continuations.
             _finishPredicate(tracker, true);
             continue;
           }
 
-          // Caller-scope BSR stitching applies only to real caller nodes.
-          if (bsr != null && caller is Caller) {
-            // For normal callers, record completion edges for each parent waiter.
-            for (final (parent, context) in caller.iterate()) {
-              if (parent is Caller) {
-                assert(
-                  context.callStart != null,
-                  'Invariant violation in ReturnAction(BSR): caller waiter context '
-                  'must have callStart.',
+          if (caller is Caller) {
+            // Record completion edges for each parent waiter.
+            for (final (_, context) in caller.iterate()) {
+              if (context.bsrRuleSymbol != null && context.callStart != null) {
+                bsr?.add(
+                  context.bsrRuleSymbol!,
+                  context.callStart!,
+                  caller.startPosition,
+                  position,
                 );
-                // Mirror completion onto parent nonterminal span in BSR.
-                bsr!.add(parent.rule.symbolId!, context.callStart!, caller.startPosition, position);
               }
             }
           }
@@ -1020,16 +1040,15 @@ class Step {
       parent ?? const RootCallerKey(),
       nextMarks,
       predicateStack: parentContext.predicateStack,
+      bsrRuleSymbol: parentContext.bsrRuleSymbol,
       callStart: parentContext.callStart,
       pivot: returnContext.pivot,
       tokenHistory: parentContext.tokenHistory,
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
-    // BSR back-link exists only when parent is an actual caller node.
-    if (bsr != null && parent is Caller) {
-      // Attach parent-call span to returned child span in BSR set.
-      bsr!.add(
-        parent.rule.symbolId!,
+    if (parentContext.bsrRuleSymbol != null && parentContext.callStart != null) {
+      bsr?.add(
+        parentContext.bsrRuleSymbol!,
         parentContext.callStart!,
         caller.startPosition,
         returnContext.pivot ?? position,
@@ -1055,6 +1074,7 @@ class Step {
           caller,
           branchedMarks,
           predicateStack: predicateStack,
+          bsrRuleSymbol: caller is Caller ? caller.rule.symbolId! : null,
           callStart: callerStartPosition,
           pivot: position + 1,
           tokenHistory: parser.historyByPosition[position],
@@ -1096,17 +1116,19 @@ class Step {
     }
     while (_currentWorkList.isNotEmpty) {
       final (state, context) = _currentWorkList.removeFirst();
-      if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-        // Contract note:
-        // Being in a predicate stack does not strictly guarantee tracker
-        // presence here because exhaustion cleanup can remove a tracker before
-        // all delayed frames are drained.
-        // This context belongs to a predicate sub-parse; update its tracker.
-        final tracker =
-            parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-        if (tracker != null) {
-          // Work unit is now being processed; decrement "pending work" counter.
-          tracker.activeFrames--;
+      if (!frame.replay) {
+        if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+          // Contract note:
+          // Being in a predicate stack does not strictly guarantee tracker
+          // presence here because exhaustion cleanup can remove a tracker before
+          // all delayed frames are drained.
+          // This context belongs to a predicate sub-parse; update its tracker.
+          final tracker =
+              parser.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          if (tracker != null) {
+            // Work unit is now being processed; decrement "pending work" counter.
+            tracker.activeFrames--;
+          }
         }
       }
       final currentMarks = isSupportingAmbiguity
@@ -1201,7 +1223,7 @@ base mixin ParserCore on GlushParserBase {
               predecessors.putIfAbsent(target, () => {}).add((
                 source,
                 predAction,
-                const GlushList.empty(),
+                parentContext.marks,
                 null,
               ));
 
@@ -1298,14 +1320,16 @@ base mixin ParserCore on GlushParserBase {
       final currentStep = stepsAtPosition[position]!;
 
       for (final frame in positionFrames) {
-        if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
-          // Contract note mirrors processFrame():
-          // tracker can be absent after cleanup of an exhausted predicate.
-          // Dequeued predicate-owned frame consumes one pending work unit.
-          final tracker = predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-          if (tracker != null) {
-            // Frame left the queue and is about to be processed at this position.
-            tracker.activeFrames--;
+        if (!frame.replay) {
+          if (frame.context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+            // Contract note mirrors processFrame():
+            // tracker can be absent after cleanup of an exhausted predicate.
+            // Dequeued predicate-owned frame consumes one pending work unit.
+            final tracker = predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+            if (tracker != null) {
+              // Frame left the queue and is about to be processed at this position.
+              tracker.activeFrames--;
+            }
           }
         }
         currentStep.processFrame(frame);
@@ -1394,7 +1418,10 @@ base mixin ParserCore on GlushParserBase {
             ? extractForestFromGraphInternal(callSite, memo, predecessors, currentVisiting)
             : const GlushList<Mark>.empty();
 
-        alternatives.add(parentForest.addList(markManager, ruleForest));
+        final returnMarks = marks;
+        alternatives.add(
+          parentForest.addList(markManager, returnMarks).addList(markManager, ruleForest),
+        );
       } else if (source != null) {
         // Non-return edge extends predecessor forest with edge-local marks.
         final base = extractForestFromGraphInternal(source, memo, predecessors, currentVisiting);
@@ -1408,5 +1435,65 @@ base mixin ParserCore on GlushParserBase {
 
     final result = markManager.branched(alternatives);
     return memo[node] = result;
+  }
+
+  /// Reconstructs all ambiguous mark streams from a predecessor graph.
+  ///
+  /// This walks the graph forward from source-less edges and keeps every
+  /// distinct continuation that can reach one of [acceptedNodes].
+  GlushList<Mark> extractAmbiguousForestFromGraphInternal(
+    Map<ParseNodeKey, Set<PredecessorInfo>> predecessors,
+    Set<ParseNodeKey> acceptedNodes,
+  ) {
+    final successors = <ParseNodeKey, List<(ParseNodeKey, GlushList<Mark>)>>{};
+    final startEdges = <(ParseNodeKey, GlushList<Mark>)>[];
+
+    for (final MapEntry(:key, value: incomingEdges) in predecessors.entries) {
+      for (final (source, _, marks, _) in incomingEdges) {
+        if (source == null) {
+          startEdges.add((key, marks));
+        } else {
+          successors.putIfAbsent(source, () => []).add((key, marks));
+        }
+      }
+    }
+
+    final memo = <ParseNodeKey, List<GlushList<Mark>>>{};
+    final visiting = <ParseNodeKey>{};
+
+    List<GlushList<Mark>> pathsFrom(ParseNodeKey node) {
+      if (memo.containsKey(node)) {
+        return memo[node]!;
+      }
+      if (!visiting.add(node)) {
+        return const [];
+      }
+
+      final outgoing = successors[node] ?? const [];
+      final result = <GlushList<Mark>>[];
+
+      if (acceptedNodes.contains(node)) {
+        result.add(const GlushList<Mark>.empty());
+      } else {
+        for (final (nextNode, marks) in outgoing) {
+          for (final tail in pathsFrom(nextNode)) {
+            result.add(marks.addList(markManager, tail));
+          }
+        }
+      }
+
+      visiting.remove(node);
+      memo[node] = result;
+      return result;
+    }
+
+    final results = <GlushList<Mark>>[];
+    for (final (startNode, marks) in startEdges) {
+      for (final tail in pathsFrom(startNode)) {
+        results.add(marks.addList(markManager, tail));
+      }
+    }
+
+    return markManager.branched(results);
   }
 }

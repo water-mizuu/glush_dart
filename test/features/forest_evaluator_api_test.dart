@@ -50,6 +50,14 @@ void main() {
       expect(marks.any((m) => m is LabelEndMark && m.name == 'file'), isTrue);
       expect(marks.any((m) => m is LabelStartMark && m.name == 'left'), isTrue);
       expect(marks.any((m) => m is LabelEndMark && m.name == 'left'), isTrue);
+
+      final fileEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == 'file');
+      final itemEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == 'item');
+      final leftEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == 'left');
+
+      expect(fileEnd.position, equals(0));
+      expect(itemEnd.position, equals(0));
+      expect(leftEnd.position, equals(0));
     });
   });
 }

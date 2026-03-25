@@ -147,7 +147,7 @@ void _methodParse(GrammarInterface grammar, String input) {
 
   if (result is ParseSuccess) {
     print('Parse succeeded.');
-    final tree = StructuredEvaluator().evaluate(result.result.rawMarks);
+    final tree = result.result.rawMarks.evaluateStructure();
     final value = evaluator.evaluate(tree);
     print('Evaluated result: $value');
   } else if (result is ParseError) {

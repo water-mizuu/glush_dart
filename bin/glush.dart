@@ -61,7 +61,7 @@ void mathSimple() {
   });
   if (ambiguousResult is ParseAmbiguousForestSuccess) {
     for (var result in ambiguousResult.forest.allPaths()) {
-      final tree = StructuredEvaluator().evaluate(result);
+      final tree = result.evaluateStructure();
       print(evaluator.evaluate(tree));
     }
   }
@@ -92,7 +92,7 @@ void ambiguous() {
     print(length);
     print("=" * 30);
     for (final markList in result.forest.allPaths()) {
-      final tree = StructuredEvaluator().evaluate(markList);
+      final tree = markList.evaluateStructure();
       final evaluated = evaluator.evaluate(tree);
       print(evaluated);
     }
@@ -117,8 +117,8 @@ void orderedChoice() {
 }
 
 void meta() {
-  final parser =
-      r"""
+  final grammar = GrammarFileCompiler(
+    GrammarFileParser(r"""
         # ==========================
         #   Full Meta Grammar
         # ==========================
@@ -171,8 +171,10 @@ void meta() {
         comment = '#' (!newline .)*
         plain_ws = [ \t]+
         newline = [\n\r]+
-      """
-          .toSMParser(startRuleName: 'full');
+      """).parse(),
+  ).compile(startRuleName: 'full');
+
+  final parser = SMParserMini(grammar);
 
   for (Rule rule in parser.grammar.rules) {
     print((rule.name, rule.body()));
@@ -200,7 +202,7 @@ void meta() {
     "plus": (ctx) => '+',
     "question": (ctx) => '?',
     "group": (ctx) => ctx<Object?>('inner'),
-    "label": (ctx) => (ctx<String>('name'), ctx<Object?>('atom')),
+    "label": (ctx) => (ctx<String>('name'), ctx<Object?>('body')),
     "mark": (ctx) => '\$${ctx<String>('name')}',
     "ref": (ctx) => ctx<String>('name'),
     "lit": (ctx) => ctx.span,
@@ -215,14 +217,12 @@ abc = c | &d !e* # complex
 xyz = 'foo' [a-z] $mark
 """;
 
-  switch (parser.parseAmbiguous(input.trim(), captureTokensAsMarks: true)) {
-    case ParseAmbiguousForestSuccess result:
+  switch (parser.parse(input.trim())) {
+    case ParseSuccess result:
       var output = "Evaluated Meta Grammar Paths:\n";
-      for (final treePath in result.forest.allPaths()) {
-        final tree = StructuredEvaluator().evaluate(treePath);
-        final evaluated = evaluator.evaluate(tree);
-        output += "$evaluated\n";
-      }
+      final tree = result.result.rawMarks.evaluateStructure();
+      final evaluated = evaluator.evaluate(tree);
+      output += "$evaluated\n";
       File('meta_out.txt').writeAsStringSync(output);
       print("Output written to meta_out.txt");
       break;
@@ -268,7 +268,7 @@ void main() async {
   // mathSimple();
   // ambiguous();
   // orderedChoice();
-  // meta();
+  meta();
   var smol =
       r"""
         file = leading_ws comments trailing_ws
@@ -288,6 +288,7 @@ void main() async {
   const input = """
 # abc
 # deadf
+# asdf
 """;
 
   switch (smol.parseAmbiguous(input, captureTokensAsMarks: true)) {
@@ -296,6 +297,7 @@ void main() async {
     case ParseAmbiguousForestSuccess(:var forest):
       print(forest.allPaths().length);
       print(forest.allPaths().join("\n"));
+      print(forest.allPaths().first.evaluateStructure());
     case _:
       break;
   }

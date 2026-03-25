@@ -193,23 +193,20 @@ class ParseResult extends ParseNode {
 
 /// Evaluator that produces a structured tree of results based on labels.
 class StructuredEvaluator {
+  const StructuredEvaluator();
+
   ParseResult evaluate(List<Mark> marks) {
+    print(marks);
+    final repairedMarks = _repairMarkStream(marks);
+    print(repairedMarks);
     final stack = <_EvaluationFrame>[_EvaluationFrame('')];
 
-    for (final mark in marks) {
+    for (final mark in repairedMarks) {
       switch (mark) {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
-        case LabelEndMark():
-          assert(
-            stack.isNotEmpty,
-            'Invariant violation in StructuredEvaluator: label-end requires an active frame.',
-          );
-          if (stack.length > 1) {
-            final frame = stack.removeLast();
-            final result = frame.toResult();
-            stack.last.addChild(frame.name, result);
-          }
+        case LabelEndMark(:var name, :var position):
+          _closeLabel(stack, name, position);
         case NamedMark(:var name):
           if (stack.last.children.isNotEmpty) {
             final lastChild = stack.last.children.removeLast();
@@ -226,8 +223,139 @@ class StructuredEvaluator {
       }
     }
 
+    if (stack.length != 1) {
+      _closeRemainingLabels(stack);
+    }
+
     return stack.first.toResult();
   }
+
+  List<Mark> _repairMarkStream(List<Mark> marks) {
+    final repaired = <Mark>[];
+    final openLabels = <({String name, bool synthetic})>[];
+    var segmentStartIndex = 0;
+
+    for (final mark in marks) {
+      switch (mark) {
+        case LabelStartMark(:var name, :var position):
+          openLabels.add((name: name, synthetic: false));
+          if (openLabels.length == 1) {
+            segmentStartIndex = repaired.length;
+          }
+          repaired.add(mark);
+        case LabelEndMark(:var name, :var position):
+          if (openLabels.isEmpty || openLabels.last.name != name) {
+            repaired.insert(segmentStartIndex, LabelStartMark(name, position));
+            openLabels.add((name: name, synthetic: true));
+          }
+          while (openLabels.isNotEmpty && openLabels.last.name != name) {
+            openLabels.removeLast();
+          }
+          if (openLabels.isNotEmpty) {
+            final closed = openLabels.removeLast();
+            if (openLabels.isEmpty && !closed.synthetic) {
+              segmentStartIndex = repaired.length;
+            }
+          }
+          repaired.add(mark);
+        case StringMark(:var value, :var position):
+          if (openLabels.isEmpty && repaired.isEmpty) {
+            segmentStartIndex = 0;
+          }
+          repaired.add(StringMark(value, position));
+        case NamedMark(:var name, :var position):
+          if (openLabels.isEmpty && repaired.isEmpty) {
+            segmentStartIndex = 0;
+          }
+          repaired.add(NamedMark(name, position));
+      }
+    }
+
+    return repaired;
+  }
+
+  void _closeLabel(List<_EvaluationFrame> stack, String name, int position) {
+    if (stack.length <= 1) {
+      return;
+    }
+
+    var matchIndex = stack.length - 1;
+    while (matchIndex > 0 && stack[matchIndex].name != name) {
+      matchIndex--;
+    }
+
+    if (matchIndex == 0 && stack[0].name != name) {
+      return;
+    }
+
+    while (stack.length - 1 > matchIndex) {
+      final frame = stack.removeLast();
+      stack.last.addChild(frame.name, frame.toResult());
+    }
+
+    final frame = stack.removeLast();
+    stack.last.addChild(frame.name, frame.toResult());
+  }
+
+  void _closeRemainingLabels(List<_EvaluationFrame> stack) {
+    while (stack.length > 1) {
+      final frame = stack.removeLast();
+      stack.last.addChild(frame.name, frame.toResult());
+    }
+  }
+
+  ParseResult evaluateStrict(List<Mark> marks) {
+    final stack = <_EvaluationFrame>[_EvaluationFrame('')];
+
+    for (final mark in marks) {
+      switch (mark) {
+        case LabelStartMark(:var name):
+          stack.add(_EvaluationFrame(name));
+        case LabelEndMark(:var name, :var position):
+          _closeStrictLabel(stack, name, position);
+        case NamedMark(:var name):
+          if (stack.last.children.isNotEmpty) {
+            final lastChild = stack.last.children.removeLast();
+            final newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+            stack.last.children.add((name, newNode));
+          } else {
+            final newNode = ParseResult([], stack.last.spanBuffer.toString());
+            stack.last.children.add((name, newNode));
+          }
+
+        case StringMark(:var value):
+          stack.last.addToken(value);
+      }
+    }
+
+    if (stack.length != 1) {
+      final openLabels = stack.skip(1).map((frame) => frame.name).toList();
+      throw StateError('Unclosed label(s) at end of mark stream: $openLabels');
+    }
+
+    return stack.first.toResult();
+  }
+
+  void _closeStrictLabel(List<_EvaluationFrame> stack, String name, int position) {
+    if (stack.length <= 1) {
+      throw StateError('Unexpected label end "$name" at position $position');
+    }
+
+    final frame = stack.last;
+    if (frame.name != name) {
+      throw StateError(
+        'Mismatched label end "$name" at position $position; '
+        'expected "${frame.name}"',
+      );
+    }
+
+    stack.removeLast();
+    stack.last.addChild(frame.name, frame.toResult());
+  }
+}
+
+extension StructuredEvaluatorExtension on List<Mark> {
+  ParseResult evaluateStructure() => const StructuredEvaluator().evaluate(this);
 }
 
 class _EvaluationFrame {

@@ -70,5 +70,25 @@ void main() {
       expect(person['last'].first.span, equals('Doe'));
       expect(person.span, equals('John Doe'));
     });
+
+    test('Mismatched label nesting fails fast in strict mode', () {
+      final evaluator = StructuredEvaluator();
+
+      expect(
+        () => evaluator.evaluateStrict([
+          LabelStartMark('outer', 0),
+          LabelStartMark('inner', 1),
+          LabelEndMark('outer', 0),
+          StringMark('x', 3),
+        ]),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Mismatched label end "outer"'),
+          ),
+        ),
+      );
+    });
   });
 }

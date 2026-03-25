@@ -36,6 +36,8 @@ It is designed for language tooling, DSLs, config parsers, and experimental pars
 - `StructuredEvaluator` for converting marks into a labeled `ParseResult` tree
 - `Evaluator<T>` for typed semantic interpretation
 - Forest-side parse-tree evaluation helpers (including evaluator bridge methods)
+- Internally, pattern symbols are encoded as `prefix:id:suffix`; forest
+  reconstruction reads that encoding directly instead of a separate metadata map.
 
 ## What Is Special About Glush
 
