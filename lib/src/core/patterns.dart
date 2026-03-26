@@ -26,6 +26,8 @@ sealed class Pattern {
   Pattern();
 
   factory Pattern.char(String char) = Token.char;
+  factory Pattern.start() = StartAnchor;
+  factory Pattern.eof() = EofAnchor;
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
       return Eps();
@@ -138,6 +140,8 @@ sealed class Pattern {
     return switch (this) {
       Token() => "tok",
       Marker() => "mar",
+      StartAnchor() => "bos",
+      EofAnchor() => "eof",
       Eps() => "eps",
       Alt() => "alt",
       Seq() => "seq",
@@ -167,6 +171,8 @@ sealed class Pattern {
         GreaterToken(:var bound) => ">$bound",
       },
       Marker(:var name) => "$name",
+      StartAnchor() => "",
+      EofAnchor() => "",
       Eps() => "",
       Alt() => "",
       Seq() => "",
@@ -376,6 +382,58 @@ class Eps extends Pattern {
 
   @override
   String toString() => 'eps';
+}
+
+/// Beginning-of-stream anchor.
+///
+/// Matches only at absolute input position 0 and consumes no input.
+final class StartAnchor extends Pattern {
+  @override
+  StartAnchor copy() => StartAnchor();
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  String toString() => '^';
+}
+
+/// End-of-stream anchor.
+///
+/// Matches only at the final zero-width step after the last token.
+final class EofAnchor extends Pattern {
+  @override
+  EofAnchor copy() => EofAnchor();
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  String toString() => '\$';
 }
 
 /// Alternation (choice between patterns)

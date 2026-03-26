@@ -59,5 +59,16 @@ void main() {
       expect(itemEnd.position, equals(0));
       expect(leftEnd.position, equals(0));
     });
+
+    test('evaluateChildren skips unhandled siblings until it finds a handler', () {
+      final tree = ParseResult([
+        ('ws', ParseResult([], ' ')),
+        ('value', ParseResult([], 'beta')),
+      ], ' beta');
+
+      final evaluator = Evaluator<String>({'value': (ctx) => ctx.span});
+
+      expect(evaluator.evaluate(tree), equals('beta'));
+    });
   });
 }

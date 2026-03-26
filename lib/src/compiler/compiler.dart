@@ -48,6 +48,12 @@ class GrammarFileCompiler {
       case AnyPattern():
         return Token(AnyToken());
 
+      case StartPattern():
+        return Pattern.start();
+
+      case EofPattern():
+        return Pattern.eof();
+
       case LiteralPattern(:var literal):
         return Pattern.string(literal);
 

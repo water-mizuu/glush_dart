@@ -101,7 +101,7 @@ class BsrSet {
     final memo = <String, SymbolicNode?>{};
     final inProgress = <String, bool>{};
     final root =
-        SppfBuilder(this, nodeCache, grammar.childrenRegistry) //
+        SppfBuilder(this, nodeCache, grammar.childrenRegistry, input.length) //
             .buildNode(startSymbol, 0, input.length, memo, inProgress);
     return root ?? nodeCache.symbolic(0, input.length, startSymbol);
   }
@@ -309,8 +309,9 @@ class SppfBuilder {
   final BsrSet bsr;
   final ForestNodeCache nodeCache;
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
+  final int inputLength;
 
-  SppfBuilder(this.bsr, this.nodeCache, this.childrenRegistry);
+  SppfBuilder(this.bsr, this.nodeCache, this.childrenRegistry, this.inputLength);
 
   List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
     if (childrenRegistry[symbol] case List<PatternSymbol> children) {
@@ -597,7 +598,19 @@ class SppfBuilder {
 
     switch (prefix) {
       case 'eps':
-    valueStack.add(start == end ? [nodeCache.epsilon(start, task.pattern)] : <ForestNode>[]);
+        valueStack.add(start == end ? [nodeCache.epsilon(start, task.pattern)] : <ForestNode>[]);
+      case 'bos':
+        valueStack.add(
+          start == end && start == 0
+              ? [nodeCache.epsilon(start, task.pattern)]
+              : <ForestNode>[],
+        );
+      case 'eof':
+        valueStack.add(
+          start == end && end == inputLength
+              ? [nodeCache.epsilon(start, task.pattern)]
+              : <ForestNode>[],
+        );
       case 'tok':
         {
           final token = bsr.tokenFor(task.pattern, start, end);

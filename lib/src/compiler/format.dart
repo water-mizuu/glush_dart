@@ -210,6 +210,22 @@ class AnyPattern implements PatternExpr {
   const AnyPattern();
 }
 
+/// Beginning-of-stream anchor.
+class StartPattern implements PatternExpr {
+  const StartPattern();
+
+  @override
+  String toString() => '^';
+}
+
+/// End-of-stream anchor.
+class EofPattern implements PatternExpr {
+  const EofPattern();
+
+  @override
+  String toString() => '\$';
+}
+
 /// Labeled pattern (e.g., name:ident)
 class LabeledPattern implements PatternExpr {
   final String label;

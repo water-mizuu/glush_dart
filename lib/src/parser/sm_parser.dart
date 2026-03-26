@@ -28,7 +28,7 @@
 /// 6. [parseToBsr]: Intermediate BSR representation (for testing/analysis)
 ///
 /// The parser uses a work-queue algorithm where frames at different input positions
-/// can coexist, enabling proper handling of lookahead and backtracking.
+/// can coexist, enabling proper handling of predicates and backtracking.
 library glush.sm_parser;
 
 import 'dart:async';
@@ -142,7 +142,6 @@ class ParseDerivationWithValue<T> {
   final GrammarInterface? grammar;
 
   /// Creates a parse derivation with its evaluated semantic value.
-  /// Creates a parse derivation with its evaluated semantic value.
   ParseDerivationWithValue(this.tree, this.value, {this.grammar});
 
   /// Returns the substring of input that this derivation matched.
@@ -152,7 +151,7 @@ class ParseDerivationWithValue<T> {
   PatternSymbol get symbol => tree.symbol;
 
   /// Returns the resolved pattern object from the grammar registry.
-  /// Returns null if grammar is unavailable or pattern not found.
+  /// Returns null if grammar is unavailable or the symbol is not registered.
   Pattern? get pattern {
     if (grammar case var grammar?) {
       return grammar.symbolRegistry[tree.symbol];
@@ -177,7 +176,7 @@ class ParseDerivationWithValue<T> {
 /// Main parser implementation using a state machine-based LR-like algorithm.
 ///
 /// Converts an abstract grammar into a state machine (StateMachine) and drives
-/// parsing using lookahead, operator precedence filtering, and memoization.
+/// parsing using operator precedence filtering, memoization, and predicates.
 /// Supports multiple parse modes: basic recognition, mark-based results, ambiguous
 /// forest extraction, full forest construction, and streaming input.
 ///
@@ -194,9 +193,7 @@ class ParseDerivationWithValue<T> {
 ///
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity, semantic actions, and advanced parsing features.
-final class SMParser extends GlushParserBase
-    with ParserCore
-    implements RecognizerAndMarksParser, ForestParser {
+final class SMParser extends GlushParserBase implements RecognizerAndMarksParser, ForestParser {
   static const Context _initialContext = Context(
     RootCallerKey(),
     GlushList.empty(),
@@ -212,6 +209,9 @@ final class SMParser extends GlushParserBase
   /// Returns the grammar used to construct this parser's state machine.
   GrammarInterface get grammar => stateMachine.grammar;
 
+  /// Render the parser's compiled state machine as Graphviz DOT.
+  String toDot() => stateMachine.toDot();
+
   /// Create a parser from a grammar.
   ///
   /// Builds the state machine on first use and initializes the parser state.
@@ -221,9 +221,11 @@ final class SMParser extends GlushParserBase
 
   SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
 
-  List<Frame> get _initialFrames {
+  @override
+  List<Frame> get initialFrames {
     final initialFrame = Frame(_initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
+
     return [initialFrame];
   }
 
@@ -234,31 +236,17 @@ final class SMParser extends GlushParserBase
   /// BSR/SPPF pipeline and rely only on the State Machine execution and mark
   /// bookkeeping. Returns true iff the entire input is accepted.
   bool recognize(String input) {
-    clearState();
-    var frames = _initialFrames;
-    int position = 0;
+    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = processTokenInternal(
-        codepoint,
-        position,
-        frames,
-        captureTokensAsMarks: captureTokensAsMarks,
-      );
-      frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
+      parseState.processToken(codepoint);
+      // If no frames remain, the parser cannot recover from this prefix.
+      if (parseState.frames.isEmpty) {
         return false;
       }
-      position++;
     }
 
-    final lastStep = processTokenInternal(
-      null,
-      position,
-      frames,
-      captureTokensAsMarks: captureTokensAsMarks,
-    );
-    return lastStep.accept;
+    return parseState.finish().accept;
   }
 
   /// Parse input and return a [ParseSuccess] or [ParseError].
@@ -272,34 +260,22 @@ final class SMParser extends GlushParserBase
   /// - [ParseSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails at some position
   ParseOutcome parse(String input) {
-    clearState();
-    var frames = _initialFrames;
-    int position = 0;
+    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = processTokenInternal(
-        codepoint,
-        position,
-        frames,
-        captureTokensAsMarks: captureTokensAsMarks,
-      );
-      frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
-        return ParseError(position);
+      parseState.processToken(codepoint);
+      // No active frames means the parse has already failed.
+      if (parseState.frames.isEmpty) {
+        return ParseError(parseState.position - 1);
       }
-      position++;
     }
 
-    final lastStep = processTokenInternal(
-      null,
-      position,
-      frames,
-      captureTokensAsMarks: captureTokensAsMarks,
-    );
+    final lastStep = parseState.finish();
+    // Only a final accepted step counts as a successful parse.
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
     } else {
-      return ParseError(position);
+      return ParseError(parseState.position);
     }
   }
 
@@ -316,39 +292,28 @@ final class SMParser extends GlushParserBase
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
-    clearState();
     final shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    var frames = _initialFrames;
-    var position = 0;
-
-    for (final codepoint in input.codeUnits) {
-      final stepResult = processTokenInternal(
-        codepoint,
-        position,
-        frames,
-        isSupportingAmbiguity: true,
-        captureTokensAsMarks: shouldCapture,
-      );
-      frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
-        return ParseError(position);
-      }
-      position++;
-    }
-
-    final lastStep = processTokenInternal(
-      null,
-      position,
-      frames,
+    final parseState = this.createParseState(
       isSupportingAmbiguity: true,
       captureTokensAsMarks: shouldCapture,
     );
 
+    for (final codepoint in input.codeUnits) {
+      parseState.processToken(codepoint);
+      // No active frames means the parse has already failed.
+      if (parseState.frames.isEmpty) {
+        return ParseError(parseState.position - 1);
+      }
+    }
+
+    final lastStep = parseState.finish();
+
+    // Ambiguous mode merges all accepted mark branches into one result.
     if (lastStep.accept) {
       final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-      return ParseAmbiguousForestSuccess(markCache.branched(results));
+      return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
     } else {
-      return ParseError(position);
+      return ParseError(parseState.position);
     }
   }
 
@@ -367,6 +332,7 @@ final class SMParser extends GlushParserBase
   /// - [ParseError] if parsing fails
   ParseOutcome parseWithForest(String input) {
     final bsrOutcome = parseToBsr(input);
+    // The forest can only be built when the BSR pass succeeded.
     if (bsrOutcome is BsrParseError) {
       return ParseError(bsrOutcome.position);
     }
@@ -381,62 +347,34 @@ final class SMParser extends GlushParserBase
 
   /// Parse a stream of input chunks with forest extraction.
   ///
-  /// Processes input incrementally as chunks arrive without buffering the entire
-  /// stream in memory. Uses a bounded sliding-window buffer for predicate lookahead
-  /// (default 1MB). Suitable for streaming large files.
-  ///
-  /// WARNING: If the grammar has predicates that require lookahead beyond the
-  /// buffer window, results may be incorrect. Adjust [lookaheadWindowSize] if needed.
-  ///
   /// Implementation details:
-  /// - Maintains all input for a second pass (required for correct SPPF construction)
   /// - Records BSR (Binarised Shared Representation) during parsing
   /// - Defers finalization to avoid blocking stream listeners
-  /// - Total memory usage: 2 * input size + lookaheadWindowSize
   ///
   /// Returns a Future that completes with:
   /// - [ParseForestSuccess] if the entire stream matches the grammar
   /// - [ParseError] if parsing fails
   /// - Error if stream processing fails
-  Future<ParseOutcome> parseWithForestAsync(
-    Stream<String> input, {
-    int lookaheadWindowSize = 1048576,
-  }) {
-    clearState();
-
+  Future<ParseOutcome> parseWithForestAsync(Stream<String> input) {
     final completer = Completer<ParseOutcome>();
-    var frames = _initialFrames;
+    final parseState = createParseStateWithBsr(bsr: BsrSet());
     int globalPosition = 0;
 
-    // Bounded buffer for lookahead: prevents unbounded memory growth
-    final lookaheadWindow = <int>[];
-
-    // Keep all input for a second pass to get marks (required for correct SPPF construction)
+    // Keep the full input so the forest can be built after parsing completes.
     final allInput = <int>[];
-
-    // BSR recording happens as we parse
-    final bsr = BsrSet();
 
     input.listen(
       (chunk) {
         try {
           // Feed chunk data into the parser token-by-token
           for (final codeUnit in chunk.codeUnits) {
-            // Store for second pass
             allInput.add(codeUnit);
 
-            // Maintain bounded window: keep only recent data for lookahead
-            lookaheadWindow.add(codeUnit);
-            if (lookaheadWindow.length > lookaheadWindowSize) {
-              lookaheadWindow.removeAt(0);
-            }
+            // Process this token with BSR recording.
+            parseState.processToken(codeUnit);
 
-            // Process this token with BSR recording
-            final stepResult = processTokenInternal(codeUnit, globalPosition, frames, bsr: bsr);
-            frames = stepResult.nextFrames;
-
-            // If parsing fails, complete with error
-            if (frames.isEmpty) {
+            // An empty frame set means this stream can no longer parse.
+            if (parseState.frames.isEmpty) {
               completer.complete(ParseError(globalPosition));
               return;
             }
@@ -458,21 +396,15 @@ final class SMParser extends GlushParserBase
           try {
             if (completer.isCompleted) return;
 
-            // Process end-of-stream token
-            final lastStep = processTokenInternal(
-              null,
-              globalPosition,
-              frames,
-              bsr: bsr,
-              captureTokensAsMarks: captureTokensAsMarks,
-            );
+            // Finalize once the stream ends so trailing accept states can settle.
+            final lastStep = parseState.finish();
 
             if (lastStep.accept) {
               // Build SPPF from the recorded BSR
               final startSymbol = stateMachine.grammar.startSymbol;
               final nodeCache = ForestNodeCache();
               final fullInput = String.fromCharCodes(allInput);
-              final root = bsr.buildSppf(grammar, startSymbol, fullInput, nodeCache);
+              final root = parseState.bsr.buildSppf(grammar, startSymbol, fullInput, nodeCache);
               final forest = ParseForest(nodeCache, root);
               completer.complete(ParseForestSuccess(forest));
             } else {
@@ -507,26 +439,21 @@ final class SMParser extends GlushParserBase
   /// - [BsrParseSuccess] with the recorded BSR set if input matches
   /// - [BsrParseError] if parsing fails
   BsrParseOutcome parseToBsr(String input) {
-    clearState();
     final bsr = BsrSet();
-    var frames = _initialFrames;
-    int position = 0;
+    final state = createParseStateWithBsr(bsr: bsr);
 
     for (final codepoint in input.codeUnits) {
-      final stepResult = processTokenInternal(codepoint, position, frames, bsr: bsr);
-      frames = stepResult.nextFrames;
-      if (frames.isEmpty) {
-        return BsrParseError(position);
+      state.processToken(codepoint);
+      if (state.frames.isEmpty) {
+        return BsrParseError(state.position - 1);
       }
-      position++;
     }
 
-    final lastStep = processTokenInternal(null, position, frames, bsr: bsr);
-
-    if (lastStep.accept) {
-      return BsrParseSuccess(bsr, lastStep.marks);
+    state.finish();
+    if (state.accept) {
+      return BsrParseSuccess(bsr, state.marks);
     } else {
-      return BsrParseError(position);
+      return BsrParseError(state.position);
     }
   }
 
@@ -667,6 +594,14 @@ final class SMParser extends GlushParserBase
       case "eps":
         {
           return start == end ? 1 : 0;
+        }
+      case "bos":
+        {
+          return start == end && start == 0 ? 1 : 0;
+        }
+      case "eof":
+        {
+          return start == end && end == input.length ? 1 : 0;
         }
       case "tok":
         {
@@ -912,6 +847,18 @@ final class SMParser extends GlushParserBase
       case "eps":
         {
           if (start == end) {
+            yield ParseDerivation(symbol, start, end, []);
+          }
+        }
+      case "bos":
+        {
+          if (start == end && start == 0) {
+            yield ParseDerivation(symbol, start, end, []);
+          }
+        }
+      case "eof":
+        {
+          if (start == end && end == input.length) {
             yield ParseDerivation(symbol, start, end, []);
           }
         }
@@ -1242,6 +1189,10 @@ final class SMParser extends GlushParserBase
     switch (prefix) {
       case "eps":
         return "";
+      case "bos":
+        return "";
+      case "eof":
+        return "";
       case "tok":
         return tree.getMatchedText(input);
       case "mar":
@@ -1376,6 +1327,10 @@ final class SMParser extends GlushParserBase
     final [prefix, _, suffix] = split;
     switch (prefix) {
       case "eps":
+        return "";
+      case "bos":
+        return "";
+      case "eof":
         return "";
       case "tok":
         return StringMark(tree.getMatchedText(input), tree.start);
@@ -1541,6 +1496,8 @@ final class SMParser extends GlushParserBase
 
     switch (prefix) {
       case "eps":
+      case "bos":
+      case "eof":
       case "and":
       case "not":
         return const <Mark>[];

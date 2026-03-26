@@ -38,6 +38,8 @@ class EvaluationContext<T> {
   String get span => node.span;
 }
 
+const fallback = "__FALLBACK__";
+
 /// A generic evaluator for mark-based parse results and nested entry structures.
 ///
 /// This evaluator is designed to be "porting safe" across languages:
@@ -89,24 +91,40 @@ class Evaluator<T> {
     if (!it.hasNext) {
       throw StateError('Cannot evaluate empty children list');
     }
-    var (label, node) = it.next();
-    if (handlers.containsKey(label)) {
-      var childIt = node is ParseResult
-          ? NodeIterator(node.children) //
-          : NodeIterator(const []);
+    final first = it.next();
+    var current = first;
 
-      // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
-      while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
-        node = childIt.next().$2;
-        childIt = node is ParseResult
+    while (true) {
+      var (label, node) = current;
+      // Walk forward until we find the first sibling with a registered handler.
+      // This lets structural wrappers or ignored siblings appear before the
+      // semantic node we actually want to interpret.
+      if (handlers.containsKey(label)) {
+        var childIt = node is ParseResult
             ? NodeIterator(node.children) //
             : NodeIterator(const []);
+
+        // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
+        while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
+          node = childIt.next().$2;
+          childIt = node is ParseResult
+              ? NodeIterator(node.children) //
+              : NodeIterator(const []);
+        }
+
+        final ctx = EvaluationContext(this, node, childIt);
+
+        if (handlers[label] != null) {
+          return handlers[label]!.call(ctx);
+        }
+        return handlers[fallback]!.call(ctx);
       }
 
-      final ctx = EvaluationContext(this, node, childIt);
-      return handlers[label]!(ctx);
+      if (!it.hasNext) {
+        return evaluate(first.$2);
+      }
+      current = it.next();
     }
-    return evaluate(node);
   }
 }
 

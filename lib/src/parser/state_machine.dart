@@ -25,6 +25,16 @@ final class TokenAction implements StateAction {
   const TokenAction(this.pattern, this.nextState);
 }
 
+enum BoundaryKind { start, eof }
+
+final class BoundaryAction implements StateAction {
+  final BoundaryKind kind;
+  final Pattern pattern;
+  final State nextState;
+
+  const BoundaryAction(this.kind, this.pattern, this.nextState);
+}
+
 final class LabelStartAction implements StateAction {
   final String name;
   final Pattern pattern;
@@ -117,6 +127,20 @@ class State {
   String toString() => 'State($id)';
 }
 
+final class _PredicateCluster {
+  final Rule rule;
+  final String label;
+  final List<State> states;
+  final List<State> terminalStates;
+
+  const _PredicateCluster({
+    required this.rule,
+    required this.label,
+    required this.states,
+    required this.terminalStates,
+  });
+}
+
 /// The compiled state machine
 class StateMachine {
   final GrammarInterface grammar;
@@ -202,6 +226,14 @@ class StateMachine {
       case Token() || Conj():
         final nextState = _getOrCreateState(terminal);
         final action = TokenAction(terminal, nextState);
+        state.actions.add(action);
+      case StartAnchor() || EofAnchor():
+        final nextState = _getOrCreateState(terminal);
+        final action = BoundaryAction(
+          terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof,
+          terminal,
+          nextState,
+        );
         state.actions.add(action);
       case Marker():
         final nextState = _getOrCreateState(terminal);
@@ -303,6 +335,381 @@ class StateMachine {
 
   List<State> get initialStates => _initialStates;
 
+  /// Render the compiled state machine as Graphviz DOT.
+  ///
+  /// The export includes synthetic start/accept nodes so the entry and exit
+  /// points stay connected when the machine is viewed as a graph.
+  ///
+  /// Predicate actions also draw a visual edge to their spawned sub-parse
+  /// entry states so lookahead rules do not appear disconnected.
+  String toDot() {
+    final buffer = StringBuffer();
+    final sortedStates = [...states]..sort((a, b) => a.id.compareTo(b.id));
+    final predicateClusters = _predicateClusters(sortedStates);
+    final hiddenStates = _predicateWrapperStates();
+    final predicateClustersByRule = {
+      for (final cluster in predicateClusters) cluster.rule: cluster,
+    };
+
+    final callTargets = <Rule, Set<State>>{};
+    for (final state in sortedStates) {
+      for (final action in state.actions) {
+        if (action case CallAction(:final rule, :final returnState)) {
+          callTargets.putIfAbsent(rule, () => <State>{}).add(returnState);
+        }
+      }
+    }
+
+    buffer.writeln('digraph StateMachine {');
+    buffer.writeln('  rankdir=LR;');
+    buffer.writeln('  node [fontname="Courier"];');
+    buffer.writeln('  "__start__" [shape=point, label=""];');
+    buffer.writeln('  "__accept__" [shape=doublecircle, label="accept"];');
+
+    for (final state in sortedStates) {
+      if (hiddenStates.contains(state)) {
+        continue;
+      }
+      final isAccept = state.actions.any((action) => action is AcceptAction);
+      final label = _dotEscape(_stateLabel(state));
+      final shape = isAccept ? 'doublecircle' : 'circle';
+      buffer.writeln('  "S${state.id}" [shape=$shape, label="$label"];');
+    }
+
+    buffer.writeln('  "__start__" -> "S${startState.id}" [label="start"];');
+
+    for (var i = 0; i < predicateClusters.length; i++) {
+      final cluster = predicateClusters[i];
+      buffer.writeln('  subgraph cluster_predicate_$i {');
+      buffer.writeln('    style="rounded,dashed";');
+      buffer.writeln('    color="gray70";');
+      buffer.writeln('    label="${_dotEscape(cluster.label)}";');
+      for (final state in cluster.states) {
+        buffer.writeln('    "S${state.id}";');
+      }
+      buffer.writeln('  }');
+    }
+
+    for (final state in sortedStates) {
+      for (final action in state.actions) {
+        switch (action) {
+          case TokenAction(:final pattern, :final nextState):
+            _writeEdge(buffer, from: state, to: nextState, label: _patternEdgeLabel(pattern));
+          case BoundaryAction(:final kind, :final nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: kind == BoundaryKind.start ? 'start' : 'eof',
+            );
+          case MarkAction(:final name, :final nextState):
+            _writeEdge(buffer, from: state, to: nextState, label: 'mark $name');
+          case LabelStartAction(:final name, :final nextState):
+            _writeEdge(buffer, from: state, to: nextState, label: 'label+ $name');
+          case LabelEndAction(:final name, :final nextState):
+            _writeEdge(buffer, from: state, to: nextState, label: 'label- $name');
+          case PredicateAction(:final isAnd, :final symbol, :final nextState):
+            final cluster = predicateClustersByRule[grammar.symbolRegistry[symbol]];
+            for (final entry in ruleFirst[symbol] ?? const <State>[]) {
+              _writeEdge(
+                buffer,
+                from: state,
+                to: entry,
+                label: '${isAnd ? 'AND' : 'NOT'} ${_symbolName(symbol)}',
+                style: 'dashed',
+                color: isAnd ? 'seagreen4' : 'firebrick3',
+                constraint: false,
+              );
+            }
+            if (cluster != null) {
+              final continuationTargets = _continuationTargets(nextState, hiddenStates);
+              for (final terminal in cluster.terminalStates) {
+                for (final target in continuationTargets) {
+                  _writeEdge(
+                    buffer,
+                    from: terminal,
+                    to: target,
+                    label: isAnd ? 'AND' : 'NOT',
+                    style: 'dashed',
+                    color: isAnd ? 'seagreen4' : 'firebrick3',
+                    constraint: false,
+                  );
+                }
+              }
+            }
+          case TailCallAction(:final rule):
+            for (final entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
+              _writeEdge(
+                buffer,
+                from: state,
+                to: entry,
+                label: 'tail ${rule.name.symbol}',
+                style: 'dotted',
+              );
+            }
+          case CallAction(:final rule, :final minPrecedenceLevel):
+            for (final entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
+              _writeEdge(
+                buffer,
+                from: state,
+                to: entry,
+                label: minPrecedenceLevel == null
+                    ? 'call ${rule.name.symbol}'
+                    : 'call ${rule.name.symbol}^$minPrecedenceLevel',
+                style: 'bold',
+              );
+            }
+          case ReturnAction(:final rule, :final precedenceLevel):
+            for (final target in callTargets[rule] ?? const <State>{}) {
+              _writeEdge(
+                buffer,
+                from: state,
+                to: target,
+                label: precedenceLevel == null
+                    ? 'return ${rule.name.symbol}'
+                    : 'return ${rule.name.symbol}^$precedenceLevel',
+                style: 'dashed',
+                color: 'gray45',
+              );
+            }
+          case AcceptAction():
+            _writeEdge(buffer, from: state, to: null, label: 'accept');
+        }
+      }
+    }
+
+    buffer.writeln('}');
+    return buffer.toString();
+  }
+
+  String _stateLabel(State state) {
+    for (final entry in _stateMapping.entries) {
+      if (identical(entry.value, state)) {
+        final key = entry.key;
+        return switch (key) {
+          ':init' => 'init',
+          Pattern pattern => pattern.toString(),
+          _ => key.toString(),
+        };
+      }
+    }
+    return 'state ${state.id}';
+  }
+
+  String _patternEdgeLabel(Pattern pattern) {
+    return switch (pattern) {
+      Token(:final choice) => switch (choice) {
+        AnyToken() => 'token any',
+        ExactToken(:final value) => 'token ${String.fromCharCode(value)}',
+        RangeToken(:final start, :final end) => 'token [$start-$end]',
+        LessToken(:final bound) => 'token <= $bound',
+        GreaterToken(:final bound) => 'token >= $bound',
+      },
+      StartAnchor() => 'start',
+      EofAnchor() => 'eof',
+      Marker(:final name) => 'mark $name',
+      Conj() => 'conj',
+      RuleCall(:final rule, :final minPrecedenceLevel) =>
+        minPrecedenceLevel == null
+            ? 'call ${rule.name.symbol}'
+            : 'call ${rule.name.symbol}^$minPrecedenceLevel',
+      LabelStart(:final name) => 'label+ $name',
+      LabelEnd(:final name) => 'label- $name',
+      And(:final pattern) => '& ${_patternSummary(pattern)}',
+      Not(:final pattern) => '! ${_patternSummary(pattern)}',
+      _ => pattern.toString(),
+    };
+  }
+
+  String _patternSummary(Pattern pattern) {
+    return switch (pattern) {
+      RuleCall(:final rule) => rule.name.symbol,
+      _ => pattern.toString(),
+    };
+  }
+
+  String _symbolName(PatternSymbol symbol) {
+    final pattern = grammar.symbolRegistry[symbol];
+    if (pattern == null) return symbol.symbol;
+    return pattern.toString();
+  }
+
+  String _dotEscape(String value) {
+    final out = StringBuffer();
+    for (final rune in value.runes) {
+      switch (rune) {
+        case 0x5C: // \
+          out.write(r'\\');
+        case 0x22: // "
+          out.write(r'\"');
+        case 0x0A: // newline
+          out.write(r'\n');
+        case 0x0D: // carriage return
+          out.write(r'\r');
+        case 0x09: // tab
+          out.write(r'\t');
+        default:
+          out.write(String.fromCharCode(rune));
+      }
+    }
+    return out.toString();
+  }
+
+  void _writeEdge(
+    StringBuffer buffer, {
+    required State from,
+    State? to,
+    required String label,
+    String? style,
+    String? color,
+    bool? constraint,
+  }) {
+    if (to == null) {
+      buffer.writeln('  "S${from.id}" -> "__accept__" [label="${_dotEscape(label)}"];');
+      return;
+    }
+
+    final attrs = <String>['label="${_dotEscape(label)}"'];
+    if (style != null) {
+      attrs.add('style=$style');
+    }
+    if (color != null) {
+      attrs.add('color=$color');
+    }
+    if (constraint != null) {
+      attrs.add('constraint=$constraint');
+    }
+    buffer.writeln('  "S${from.id}" -> "S${to.id}" [${attrs.join(', ')}];');
+  }
+
+  List<_PredicateCluster> _predicateClusters(List<State> sortedStates) {
+    final clusters = <_PredicateCluster>[];
+    final seenRules = <Rule>{};
+
+    for (final entry in _stateMapping.entries) {
+      final key = entry.key;
+      if (key is! Rule) continue;
+      final rule = key;
+      if (!rule.name.symbol.startsWith('pred\$')) continue;
+      if (!seenRules.add(rule)) continue;
+
+      final patterns = <Pattern>{};
+      _collectPatterns(rule.body(), patterns);
+      patterns.add(rule);
+
+      final clusterStates = <State>[];
+      final seenStates = <State>{};
+      for (final pattern in patterns) {
+        final state = _stateMapping[pattern];
+        if (state != null && seenStates.add(state)) {
+          clusterStates.add(state);
+        }
+      }
+      clusterStates.sort((a, b) => a.id.compareTo(b.id));
+
+      if (clusterStates.isNotEmpty) {
+        final terminalStates = <State>[];
+        final seenTerminalStates = <State>{};
+        for (final state in clusterStates) {
+          final isTerminal = state.actions.any(
+            (action) => action is ReturnAction && identical(action.rule, rule),
+          );
+          if (isTerminal && seenTerminalStates.add(state)) {
+            terminalStates.add(state);
+          }
+        }
+        terminalStates.sort((a, b) => a.id.compareTo(b.id));
+        clusters.add(
+          _PredicateCluster(
+            rule: rule,
+            label: 'predicate ${rule.name.symbol}',
+            states: clusterStates,
+            terminalStates: terminalStates.isEmpty ? clusterStates : terminalStates,
+          ),
+        );
+      }
+    }
+
+    clusters.sort((a, b) => a.states.first.id.compareTo(b.states.first.id));
+    return clusters;
+  }
+
+  Set<State> _predicateWrapperStates() {
+    final hidden = <State>{};
+    for (final state in states) {
+      for (final action in state.actions) {
+        if (action case PredicateAction(:final nextState)) {
+          hidden.add(nextState);
+        }
+      }
+    }
+    return hidden;
+  }
+
+  Set<State> _continuationTargets(State wrapperState, Set<State> hiddenStates) {
+    final targets = <State>{};
+    for (final action in wrapperState.actions) {
+      switch (action) {
+        case TokenAction(:final nextState):
+          targets.add(nextState);
+        case BoundaryAction(:final nextState):
+          targets.add(nextState);
+        case MarkAction(:final nextState):
+          targets.add(nextState);
+        case LabelStartAction(:final nextState):
+          targets.add(nextState);
+        case LabelEndAction(:final nextState):
+          targets.add(nextState);
+        case PredicateAction(:final nextState):
+          targets.addAll(_continuationTargets(nextState, hiddenStates));
+        case CallAction():
+        case TailCallAction():
+        case ReturnAction():
+        case AcceptAction():
+          break;
+      }
+    }
+
+    return targets.where((state) => !hiddenStates.contains(state)).toSet();
+  }
+
+  void _collectPatterns(Pattern pattern, Set<Pattern> patterns) {
+    if (!patterns.add(pattern)) return;
+    switch (pattern) {
+      case Seq(:final left, :final right) ||
+          Alt(:final left, :final right) ||
+          Conj(:final left, :final right):
+        _collectPatterns(left, patterns);
+        _collectPatterns(right, patterns);
+      case And(:final pattern):
+        _collectPatterns(pattern, patterns);
+      case Not(:final pattern):
+        _collectPatterns(pattern, patterns);
+      case Action(:final child):
+        _collectPatterns(child, patterns);
+      case Prec(:final child):
+        _collectPatterns(child, patterns);
+      case Opt(:final child):
+        _collectPatterns(child, patterns);
+      case Plus(:final child):
+        _collectPatterns(child, patterns);
+      case Star(:final child):
+        _collectPatterns(child, patterns);
+      case Label(:final child):
+        _collectPatterns(child, patterns);
+      case Rule():
+      case RuleCall():
+      case Token():
+      case Marker():
+      case StartAnchor():
+      case EofAnchor():
+      case Eps():
+      case LabelStart():
+      case LabelEnd():
+        break;
+    }
+  }
+
   Set<RuleCall> _findDirectTailSelfCalls(Rule rule) {
     final branches = _flattenAlternation(_stripTransparent(rule.body()));
     // Only optimize the simple shape:
@@ -357,7 +764,10 @@ class StateMachine {
 
   List<Pattern> _flattenAlternation(Pattern pattern) {
     return switch (pattern) {
-      Alt(:final left, :final right) => [..._flattenAlternation(left), ..._flattenAlternation(right)],
+      Alt(:final left, :final right) => [
+        ..._flattenAlternation(left),
+        ..._flattenAlternation(right),
+      ],
       _ => [pattern],
     };
   }
@@ -405,18 +815,26 @@ class StateMachine {
   }
 
   Pattern _joinSequence(List<Pattern> patterns) {
-    assert(patterns.isNotEmpty, 'Invariant violation: sequence join requires at least one pattern.');
+    assert(
+      patterns.isNotEmpty,
+      'Invariant violation: sequence join requires at least one pattern.',
+    );
     return patterns.reduce((left, right) => left >> right);
   }
 
   bool _isDefinitelyNonEmpty(Pattern pattern) {
     return switch (pattern) {
       Eps() || Opt() || Star() => false,
-      Token() || Marker() || LabelStart() || LabelEnd() || Rule() || RuleCall() => true,
-      Alt(:final left, :final right) =>
-        _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
-      Seq(:final left, :final right) =>
-        _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
+      Token() ||
+      Marker() ||
+      StartAnchor() ||
+      EofAnchor() ||
+      LabelStart() ||
+      LabelEnd() ||
+      Rule() ||
+      RuleCall() => true,
+      Alt(:final left, :final right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
+      Seq(:final left, :final right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:final left, :final right) =>
         _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       And() || Not() => false,

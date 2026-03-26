@@ -122,17 +122,19 @@ void meta() {
         # ==========================
         #   Full Meta Grammar
         # ==========================
-        full = $full _ file:file _
+        full = $full start _ file:file _ eof
 
         file = $rules left:file _ right:rule
             | $first rule:rule
 
-        rule = $rule name:ident _ '=' _ body:choice ( _ ';' )?
+        # Allow trailing trivia after a rule body so line comments behave
+        # like whitespace instead of becoming the next token stream.
+        rule = $rule name:ident _ '=' _ body:choice _ ( ';' )?
 
         choice = $choice left:choice _ '|' _ right:seq
               | seq
 
-        seq = $seq left:seq _ (&isContinuation) right:prefix
+        seq = $seq left:seq _ &isContinuation right:prefix
             | prefix
 
         prefix = $and '&' atom:rep
@@ -142,25 +144,28 @@ void meta() {
         rep = $rep atom:primary kind:repKind
             | primary
 
-        repKind = $star '*' | $plus '+' | $question '?'
+        repKind = $star '*'      | $plus '+'
+                | $starBang "*!" | $plusBang "+!"
+                | $question '?'
 
         primary = $group '(' _ inner:choice _ ')'
                 | $label name:ident ':' atom:primary
                 | $mark '$' name:ident
+                | start
+                | eof
                 | $ref name:ident
                 | $lit literal
                 | $range charRange
                 | $any '.'
 
-        isContinuation = &(ident !(_ [=]))
-                      | &literal
-                      | &charRange
-                      | &'['
-                      | &'('
-                      | &'.'
-                      | &'$'
-                      | &'!'
-                      | &'&'
+        isContinuation = ident !(_ [=])
+                       | literal
+                       | charRange
+                       | '['
+                       | '('
+                       | '.'
+                       | '!'
+                       | '&'
 
         # Terminals
         ident = [A-Za-z$_] [A-Za-z$_0-9]*
@@ -168,62 +173,61 @@ void meta() {
         charRange = '[' (!']' .)* ']'
 
         _ = $ws (plain_ws | comment | newline)*
-        comment = '#' (!newline .)*
-        plain_ws = [ \t]+
-        newline = [\n\r]+
+        comment = '#' (!newline .)* (newline | eof)
+        plain_ws = [ \t]+ ![ \t]
+        newline = [\n\r]+ ![\n\r]
       """).parse(),
   ).compile(startRuleName: 'full');
 
   final parser = SMParserMini(grammar);
 
-  for (Rule rule in parser.grammar.rules) {
-    print((rule.name, rule.body()));
-  }
   final evaluator = Evaluator<Object?>({
     "full": (ctx) => ctx<Object?>('file'),
-    "rules": (ctx) {
-      final left = ctx<List>('left');
-      final right = ctx<Object?>('right');
-      return [...left, right];
-    },
+    "rules": (ctx) => [...ctx<List>('left'), ctx<Object?>('right')],
     "first": (ctx) => [ctx<Object?>('rule')],
     "rule": (ctx) => (ctx<String>('name'), ctx<Object?>('body')),
     "choice": (ctx) => ['|', ctx<Object?>('left'), ctx<Object?>('right')],
-    "seq": (ctx) {
-      final children = ctx.it.takeAll();
-      print("SEQ count: ${children.length}");
-      return ['seq', ctx<Object?>('left'), ctx<Object?>('right')];
-    },
+    "seq": (ctx) => ['seq', ctx<Object?>('left'), ctx<Object?>('right')],
     "conj": (ctx) => ['&', ctx<Object?>('left'), ctx<Object?>('right')],
     "and": (ctx) => ['&', ctx<Object?>('atom')],
     "not": (ctx) => ['!', ctx<Object?>('atom')],
     "rep": (ctx) => [ctx<String>('kind'), ctx<Object?>('atom')],
     "star": (ctx) => '*',
     "plus": (ctx) => '+',
+    "starBang": (ctx) => '*!',
+    "plusBang": (ctx) => '+!',
     "question": (ctx) => '?',
     "group": (ctx) => ctx<Object?>('inner'),
     "label": (ctx) => (ctx<String>('name'), ctx<Object?>('body')),
     "mark": (ctx) => '\$${ctx<String>('name')}',
-    "ref": (ctx) => ctx<String>('name'),
-    "lit": (ctx) => ctx.span,
-    "range": (ctx) => ctx.span,
+    "ref": (ctx) => ['ref', ctx<String>('name')],
+    "lit": (ctx) => ['lit', ctx.span],
+    "range": (ctx) => ['range', ctx.span],
     "any": (ctx) => '.',
-    "name": (ctx) => ctx.span,
-    "ws": (ctx) => ctx.span,
+    "name": (ctx) => ['name', ctx.span],
+    "ws": (ctx) => "WS: ${ctx.span}",
+    fallback: (ctx) => "iDK",
   });
 
   final input = r"""
-abc = c | &d !e* # complex
-xyz = 'foo' [a-z] $mark
+abc = c | &d !(e*!)
+xyz = $test 'foo' [a-z]
+# hello there
+one = S 's' | 's' # wat
+# helo helo
 """;
 
-  switch (parser.parse(input.trim())) {
+  switch (parser.parse(input.trim() + "\n")) {
     case ParseSuccess result:
       var output = "Evaluated Meta Grammar Paths:\n";
       final tree = result.result.rawMarks.evaluateStructure();
+      File('marks.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(result.result.rawMarks.toString());
       final evaluated = evaluator.evaluate(tree);
       output += "$evaluated\n";
       File('meta_out.txt').writeAsStringSync(output);
+      print(output);
       print("Output written to meta_out.txt");
       break;
     case ParseError(:var position):
@@ -269,36 +273,4 @@ void main() async {
   // ambiguous();
   // orderedChoice();
   meta();
-  var smol =
-      r"""
-        file = leading_ws comments trailing_ws
-
-        comments = acc:comments (newline curr:commentLine)
-                 | commentLine
-        commentLine = $comment '#' (!newline .)*
-
-        leading_ws = $ws plain_ws*
-        trailing_ws = $ws (plain_ws | newline)*
-
-        plain_ws = [ \t]+
-        newline = [\n\r]+
-      """
-          .toSMParser();
-
-  const input = """
-# abc
-# deadf
-# asdf
-""";
-
-  switch (smol.parseAmbiguous(input, captureTokensAsMarks: true)) {
-    case ParseError error:
-      error.displayError(input);
-    case ParseAmbiguousForestSuccess(:var forest):
-      print(forest.allPaths().length);
-      print(forest.allPaths().join("\n"));
-      print(forest.allPaths().first.evaluateStructure());
-    case _:
-      break;
-  }
 }

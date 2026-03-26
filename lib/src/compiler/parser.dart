@@ -282,12 +282,19 @@ class GrammarFileParser {
     final rules = <RuleDefinition>[];
 
     while (!_isAtEnd()) {
-      if (_peek().type == _TokenType.eof) break;
-
+      final token = _peek();
+      if (token.type == _TokenType.eof) break;
       final rule = _parseRule();
       if (rule != null) {
         rules.add(rule);
+        continue;
       }
+
+      throw GrammarFileParseError(
+        'Expected a rule definition',
+        line: token.line,
+        column: token.column,
+      );
     }
 
     if (rules.isEmpty) {
@@ -424,13 +431,12 @@ class GrammarFileParser {
   }
 
   MarkerPattern? _tryParseMainMark() {
-    if (_peek().type == _TokenType.dollar) {
-      _advance();
-      if (_peek() case _Token(type: _TokenType.identifier, :var value)) {
-        _advance();
-
-        return MarkerPattern(value);
-      }
+    if (_peek().type == _TokenType.dollar &&
+        tokenIndex + 1 < tokens.length &&
+        tokens[tokenIndex + 1].type == _TokenType.identifier) {
+      _advance(); // consume $
+      final value = _advance().value;
+      return MarkerPattern(value);
     }
 
     return null;
@@ -485,10 +491,7 @@ class GrammarFileParser {
     }
 
     if (type == _TokenType.dollar) {
-      final nextIndex = tokenIndex + 1;
-      if (nextIndex < tokens.length && tokens[nextIndex].type == _TokenType.identifier) {
-        return true; // This is now a new rule.
-      }
+      return true;
     }
 
     return type == _TokenType.identifier ||
@@ -496,6 +499,8 @@ class GrammarFileParser {
         type == _TokenType.charRange ||
         type == _TokenType.backslashLiteral ||
         type == _TokenType.lparen ||
+        type == _TokenType.caret ||
+        type == _TokenType.dollar ||
         type == _TokenType.ampersand ||
         type == _TokenType.bang ||
         type == _TokenType.dot;
@@ -539,8 +544,9 @@ class GrammarFileParser {
     }
 
     if (type == _TokenType.charRange) {
-      final rangeStr = _advance().value;
-      final ranges = _parseCharRanges(rangeStr);
+      final token = _peek();
+      _advance();
+      final ranges = _parseCharRanges(token.value, line: token.line, column: token.column);
       return CharRangePattern(ranges);
     }
 
@@ -552,18 +558,26 @@ class GrammarFileParser {
     if (type == _TokenType.dollar) {
       _advance(); // consume $
       if (_peek().type != _TokenType.identifier) {
-        throw GrammarFileParseError(
-          'Expected identifier after \$',
-          line: _peek().line,
-          column: _peek().column,
-        );
+        return EofPattern();
       }
       final markName = _advance().value;
       return MarkerPattern(markName);
     }
 
+    if (type == _TokenType.caret) {
+      _advance();
+      return StartPattern();
+    }
+
     if (type == _TokenType.identifier) {
       final id = _advance().value;
+
+      if (id == 'start') {
+        return StartPattern();
+      }
+      if (id == 'eof') {
+        return EofPattern();
+      }
 
       // Check for label: name:pattern
       if (_peek().type == _TokenType.colon) {
@@ -635,18 +649,33 @@ class GrammarFileParser {
     );
   }
 
-  List<CharRange> _parseCharRanges(String rangeStr) {
+  List<CharRange> _parseCharRanges(
+    String rangeStr, {
+    required int line,
+    required int column,
+  }) {
     // Parse "[a-z]" or "[0-9a-zA-Z]"
     if (!rangeStr.startsWith('[') || !rangeStr.endsWith(']')) {
-      throw GrammarFileParseError('Invalid character range: $rangeStr');
+      throw GrammarFileParseError('Invalid character range: $rangeStr', line: line, column: column);
     }
 
     final inner = rangeStr.substring(1, rangeStr.length - 1);
+    if (inner.isEmpty) {
+      throw GrammarFileParseError('Empty character range', line: line, column: column);
+    }
+
     final ranges = <CharRange>[];
 
     int i = 0;
 
     int readCode() {
+      if (i >= inner.length) {
+        throw GrammarFileParseError(
+          'Unterminated character range',
+          line: line,
+          column: column,
+        );
+      }
       if (i < inner.length && inner[i] == '\\' && i + 1 < inner.length) {
         i++; // consume backslash
         final escaped = inner[i++];
@@ -666,6 +695,13 @@ class GrammarFileParser {
       if (i < inner.length && inner[i] == '-') {
         i++; // consume '-'
         final endCode = readCode();
+        if (endCode < startCode) {
+          throw GrammarFileParseError(
+            'Invalid character range: $rangeStr',
+            line: line,
+            column: column,
+          );
+        }
         ranges.add(CharRange(startCode, endCode));
       } else {
         ranges.add(CharRange(startCode, startCode));

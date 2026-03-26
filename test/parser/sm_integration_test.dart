@@ -95,6 +95,46 @@ void main() {
       expect(parser.parseAmbiguous('ab', captureTokensAsMarks: true), isA<ParseError>());
     });
 
+    test('Manual AND predicate catch-up preserves marks', () {
+      final parser =
+          r"""
+        S = $start &Target 'a' 'b' 'c'
+        Target = 'a' 'b'
+      """
+              .toSMParser(captureTokensAsMarks: true);
+
+      final parseState = parser.createParseState(captureTokensAsMarks: true);
+
+      for (final unit in 'abc'.codeUnits) {
+        parseState.processToken(unit);
+      }
+
+      final finalStep = parseState.finish();
+
+      expect(finalStep.accept, isTrue);
+      expect(finalStep.marks.toShortMarks(), equals(['start', 'abc']));
+    });
+
+    test('Manual NOT predicate catch-up preserves marks', () {
+      final parser =
+          r"""
+        S = $start !Target 'a' 'c'
+        Target = 'a' 'b'
+      """
+              .toSMParser(captureTokensAsMarks: true);
+
+      final parseState = parser.createParseState(captureTokensAsMarks: true);
+
+      for (final unit in 'ac'.codeUnits) {
+        parseState.processToken(unit);
+      }
+
+      final finalStep = parseState.finish();
+
+      expect(finalStep.accept, isTrue);
+      expect(finalStep.marks.toShortMarks(), equals(['start', 'ac']));
+    });
+
     test('Context Deduplication fixes explosion', () {
       // This grammar is right-recursive and ambiguous (S -> aS | a)
       // Actually it's not ambiguous for 'aaa' unless we have another rule.

@@ -24,6 +24,24 @@ void main() {
 
       expect(grammar, isNotNull);
     });
+
+    test('grammar-file parser rejects stray top-level tokens', () {
+      expect(
+        () => r"start = 'a'; }".toSMParser(),
+        throwsA(isA<GrammarFileParseError>()),
+      );
+    });
+
+    test('grammar-file parser rejects malformed character ranges', () {
+      expect(
+        () => r"start = [];".toSMParser(),
+        throwsA(isA<GrammarFileParseError>()),
+      );
+      expect(
+        () => r"start = [z-a];".toSMParser(),
+        throwsA(isA<GrammarFileParseError>()),
+      );
+    });
   });
 
   group('Pattern operations', () {
@@ -120,6 +138,28 @@ void main() {
         expect(parserResult.marks, isNotEmpty);
         expect(parserResult.marks[0], 'mark');
       }
+    });
+
+    test('recognizes start and eof anchors in the Dart DSL', () {
+      final grammar = Grammar(() {
+        final rule = Rule('expr', () => Pattern.start() >> Pattern.eof());
+        return rule;
+      });
+
+      final parser = SMParser(grammar);
+      expect(parser.recognize(''), isTrue);
+      expect(parser.recognize('a'), isFalse);
+      expect(parser.parseWithForest(''), isA<ParseForestSuccess>());
+    });
+
+    test('grammar-file parser compiles start and eof anchors', () {
+      final parser = r"""
+        expr = start 'a' eof
+      """.toSMParser();
+
+      expect(parser.recognize('a'), isTrue);
+      expect(parser.recognize(''), isFalse);
+      expect(parser.recognize('aa'), isFalse);
     });
   });
 

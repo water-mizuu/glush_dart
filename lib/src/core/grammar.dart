@@ -101,7 +101,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
+        Token() ||
+        Marker() ||
+        StartAnchor() ||
+        EofAnchor() ||
+        Eps() ||
+        LabelStart() ||
+        LabelEnd() => [],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
@@ -183,6 +189,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(star.child);
         case Label label:
           queue.add(label.child);
+        case StartAnchor():
+        case EofAnchor():
         default:
           break;
       }
@@ -219,7 +227,15 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():
+      case Token() ||
+          Marker() ||
+          StartAnchor() ||
+          EofAnchor() ||
+          Eps() ||
+          Rule() ||
+          RuleCall() ||
+          LabelStart() ||
+          LabelEnd():
         break;
     }
   }
@@ -291,6 +307,10 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   }
 
   Eps eps() => Eps();
+
+  Pattern start() => StartAnchor();
+
+  Pattern eof() => EofAnchor();
 
   Rule defRule(String name, Pattern Function() builder) {
     final rule = Rule(name, builder);
@@ -421,7 +441,13 @@ class GrammarAdapter implements GrammarInterface {
   void _fillChildrenMapping() {
     for (final pattern in allPatterns) {
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        Token() || Marker() || Eps() || LabelStart() || LabelEnd() => [],
+        Token() ||
+        Marker() ||
+        StartAnchor() ||
+        EofAnchor() ||
+        Eps() ||
+        LabelStart() ||
+        LabelEnd() => [],
         //
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
@@ -478,7 +504,15 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
-      case Token() || Marker() || Eps() || Rule() || RuleCall() || LabelStart() || LabelEnd():
+      case Token() ||
+          Marker() ||
+          StartAnchor() ||
+          EofAnchor() ||
+          Eps() ||
+          Rule() ||
+          RuleCall() ||
+          LabelStart() ||
+          LabelEnd():
         break;
     }
   }
