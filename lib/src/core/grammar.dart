@@ -111,6 +111,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         Eps() ||
         LabelStart() ||
         LabelEnd() => [],
+        Neg(:var pattern) => [pattern.symbolId!],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
@@ -170,6 +171,18 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       var child = pattern.pattern;
       if (child is! RuleCall) {
         var syntheticName = "pred\$${_syntheticRuleCounter++}";
+        var syntheticRule = Rule(syntheticName, () => child);
+        rules.add(syntheticRule);
+        pattern.pattern = syntheticRule.call();
+      }
+      return pattern;
+    }
+
+    if (pattern is Neg) {
+      pattern.pattern = _normalizePattern(pattern.pattern, seen);
+      var child = pattern.pattern;
+      if (child is! RuleCall) {
+        var syntheticName = "neg\$${_syntheticRuleCounter++}";
         var syntheticRule = Rule(syntheticName, () => child);
         rules.add(syntheticRule);
         pattern.pattern = syntheticRule.call();
@@ -244,6 +257,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
+      case Neg neg:
+        _collectPatternsFromPattern(neg.pattern, patterns);
       case Action<dynamic> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
@@ -480,6 +495,7 @@ class GrammarAdapter implements GrammarInterface {
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
         //
+        Neg(:var pattern) => [pattern.symbolId!],
         Label(:var child) ||
         Action(:var child) ||
         Prec(:var child) ||
@@ -521,6 +537,8 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
+      case Neg neg:
+        _collectPatternsFromPattern(neg.pattern, patterns);
       case Action<dynamic> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:

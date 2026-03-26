@@ -17,6 +17,9 @@ import "package:meta/meta.dart";
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 typedef PredicateKey = (PatternSymbol pattern, int startPosition);
 
+/// Partner-end rendezvous for negations
+typedef NegationKey = (PatternSymbol pattern, int startPosition);
+
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
 typedef ConjunctionKey = (PatternSymbol left, PatternSymbol right, int startPosition);
 
@@ -40,32 +43,6 @@ typedef AcceptedContext = (State state, Context context);
 /// Identifies a parser continuation point by state, position, and caller context.
 typedef ParseNodeKey = (int stateId, int position, Object? caller);
 
-/// Returns true when a mark stream has balanced label start/end markers.
-bool hasBalancedLabelMarks(Iterable<Mark> marks) {
-  var stack = <String>[];
-  for (var mark in marks) {
-    switch (mark) {
-      case LabelStartMark(:var name):
-        stack.add(name);
-      case LabelEndMark(:var name):
-        // A closing label must match the most recent open label to be valid.
-        if (stack.isEmpty || stack.last != name) {
-          return false;
-        }
-        stack.removeLast();
-      case ConjunctionMark():
-        // Conjunction marks hold parallel branches that should be balanced
-        // independently. For the purposes of this top-level check, they are
-        // treated as atomic.
-        break;
-      case NamedMark():
-      case StringMark():
-        break;
-    }
-  }
-  return stack.isEmpty;
-}
-
 /// Represents a waiting frame at a rule call site, to be resumed upon completion.
 typedef WaiterInfo = (
   CallerKey? parent,
@@ -88,6 +65,25 @@ final class ParseError extends ParseOutcome implements Exception {
   final int position;
   @override
   String toString() => "ParseError at position $position";
+}
+
+final class NegationCallerKey implements CallerKey {
+  NegationCallerKey(this.pattern, this.startPosition);
+  final PatternSymbol pattern;
+  final int startPosition;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NegationCallerKey &&
+          pattern == other.pattern &&
+          startPosition == other.startPosition;
+
+  @override
+  int get hashCode => Object.hash(pattern, startPosition);
+
+  @override
+  String toString() => "neg($pattern @ $startPosition)";
 }
 
 /// Returned when parsing succeeds (marks-based parse).
@@ -143,6 +139,8 @@ final class ParseState {
 
   /// Live conjunction sub-parses keyed by `(left, right, startPosition)`.
   final Map<ConjunctionKey, ConjunctionTracker> conjunctionTrackers = {};
+
+  final Map<NegationKey, NegationTracker> negationTrackers = {};
 
   /// Memoized call sites keyed by rule and precedence constraints.
   final Map<CallerCacheKey, Caller> callers = {};
@@ -331,6 +329,56 @@ class ConjunctionTracker {
     activeFrames--;
   }
 
+  bool get isExhausted => activeFrames == 0;
+}
+
+/// Tracks one negation sub-parse for a specific `(pattern, startPosition)`.
+///
+/// The parser may enter the same negation from multiple branches, so the
+/// tracker counts how many negation-owned frames are still live (`activeFrames`).
+/// Once all branches finish, the tracker can resolve the negation as matched
+/// or exhausted, and then wake any parked continuations.
+class NegationTracker {
+  NegationTracker(this.symbol, this.startPosition);
+  final PatternSymbol symbol;
+  final int startPosition;
+  int activeFrames = 0;
+
+  /// Set of end positions j that the sub-parse A matched.
+  final Set<int> matchedPositions = <int>{};
+
+  /// Map of end positions j to waiters that should resume if A does NOT match j.
+  final Map<int, List<(ParseNodeKey? source, Context, State)>> waiters = {};
+
+  /// Add a waiter for a specific end position.
+  void addWaiter(int endPosition, (ParseNodeKey? source, Context, State) waiter) {
+    waiters.putIfAbsent(endPosition, () => []).add(waiter);
+  }
+
+  /// Record that the sub-parse matched [endPosition] and cancel any parked waiters there.
+  void markMatchedPosition(int endPosition) {
+    matchedPositions.add(endPosition);
+    waiters.remove(endPosition);
+  }
+
+  /// Whether a waiter for [endPosition] is still parked.
+  bool hasWaiterAt(int endPosition) => waiters.containsKey(endPosition);
+
+  /// Mark one negation-owned frame as live.
+  void addPendingFrame() {
+    activeFrames++;
+  }
+
+  /// Mark one negation-owned frame as finished.
+  void removePendingFrame() {
+    assert(
+      activeFrames > 0,
+      "NegationTracker underflow: removePendingFrame() called with no pending frames.",
+    );
+    activeFrames--;
+  }
+
+  /// True when the negation sub-parse is fully exhausted.
   bool get isExhausted => activeFrames == 0;
 }
 
@@ -875,6 +923,31 @@ class Step {
     }
   }
 
+  /// Seed a negation sub-parse at the current input position.
+  void _spawnNegationSubparse(PatternSymbol symbol, Frame frame) {
+    var states = parseState.parser.stateMachine.ruleFirst[symbol];
+    // Missing entry states indicates invalid negation target symbol.
+    if (states == null) {
+      // Negations must map to rule entries in the state machine.
+      throw StateError("Negation symbol must resolve to a rule: $symbol");
+    }
+    var newNegationKey = NegationCallerKey(symbol, position);
+
+    for (var firstState in states) {
+      _enqueue(
+        firstState,
+        Context(
+          newNegationKey,
+          const GlushList.empty(),
+          callStart: position,
+          pivot: position,
+          tokenHistory: frame.context.tokenHistory,
+          predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
+        ),
+      );
+    }
+  }
+
   int? _getTokenFor(Frame frame) {
     var framePos = frame.context.pivot ?? 0;
     // Frame already at this step's pivot: use current token directly.
@@ -967,7 +1040,7 @@ class Step {
   /// Execute outgoing actions for one `(frame,state)` pair.
   ///
   /// Token-consuming actions are batched into `_nextFrameGroups` and finalized
-  /// together in [_finalize], while zero-width actions are enqueued immediately.
+  /// together in [finalize], while zero-width actions are enqueued immediately.
   /// This split avoids interleaving same-position closure with next-position work.
   void _process(Frame frame, State state) {
     var frameContext = frame.context;
@@ -1143,6 +1216,43 @@ class Step {
             _spawnConjunctionSubparse(left, right, frame);
           }
 
+        case NegationAction():
+          var symbol = action.symbol;
+          var key = (symbol, position);
+          var isFirst = !parseState.negationTrackers.containsKey(key);
+          var tracker = parseState.negationTrackers.putIfAbsent(
+            key,
+            () => NegationTracker(symbol, position),
+          );
+
+          // Probing: If a pivot is set, we are waiting for this negation to NOT match that pivot.
+          var targetJ = frame.context.pivot;
+          if (targetJ != null) {
+            if (tracker.matchedPositions.contains(targetJ)) {
+              // This span has already been proved impossible.
+            } else if (tracker.isExhausted) {
+              // The child sub-parse is already complete, so the result is final.
+              _resumeLaggedPredicateContinuation(
+                source: source,
+                parentContext: frame.context,
+                nextState: action.nextState,
+                isAnd: true,
+                symbol: action.symbol,
+                branchKey: action,
+              );
+            } else if (!tracker.hasWaiterAt(targetJ)) {
+              tracker.addWaiter(targetJ, (source, frameContext, action.nextState));
+            }
+          } else {
+            // Unconstrained negation: This is a design-time warning/error in spec,
+            // but for now we just ignore it or log it.
+            // In a better implementation, we might try to match ALL possible j.
+          }
+
+          if (isFirst) {
+            _spawnNegationSubparse(symbol, frame);
+          }
+
         case CallAction():
           CallerCacheKey key = (action.rule, position, action.minPrecedenceLevel);
           var isNewCaller = !parseState.callers.containsKey(key);
@@ -1272,6 +1382,15 @@ class Step {
             var tracker = parseState.conjunctionTrackers[key];
             if (tracker != null) {
               _finishConjunction(tracker, position, caller.isLeft, frame.marks);
+            }
+            continue;
+          }
+
+          if (caller is NegationCallerKey) {
+            var key = (caller.pattern, caller.startPosition);
+            var tracker = parseState.negationTrackers[key];
+            if (tracker != null) {
+              tracker.markMatchedPosition(position);
             }
             continue;
           }
@@ -1536,6 +1655,44 @@ abstract base class GlushParserBase implements GlushParser {
     }
   }
 
+  /// Helper to enqueue a frame at a specific future position.
+  void _enqueueAt(
+    SplayTreeMap<int, List<Frame>> workQueue,
+    int position,
+    State state,
+    Context context, {
+    ParseNodeKey? source,
+  }) {
+    var frame = Frame(context)..nextStates.add(state);
+    workQueue.putIfAbsent(position, () => []).add(frame);
+  }
+
+  /// Detect negations that are now fully exhausted and resume surviving waiters.
+  void _checkExhaustedNegations(
+    ParseState parseState,
+    SplayTreeMap<int, List<Frame>> workQueue,
+    int currentPosition,
+  ) {
+    for (var entry in parseState.negationTrackers.entries) {
+      var tracker = entry.value;
+      if (tracker.isExhausted) {
+        // Negation sub-parse is done. Resume any waiter for a position j
+        // that was NEVER returned by the sub-parse A.
+        for (var MapEntry(key: j, value: waiters) in tracker.waiters.entries) {
+          if (!tracker.matchedPositions.contains(j)) {
+            // Surviving waiter! Resume at j.
+            for (var (source, context, nextState) in waiters) {
+              _enqueueAt(workQueue, j, nextState, context, source: source);
+            }
+          }
+        }
+        // Keep the tracker in place so later candidate positions can resolve
+        // immediately without respawning the child sub-parse.
+        tracker.waiters.clear();
+      }
+    }
+  }
+
   /// Create a reusable manual parse cursor.
   ParseState createParseState({
     bool isSupportingAmbiguity = false,
@@ -1677,6 +1834,7 @@ abstract base class GlushParserBase implements GlushParser {
         // => there is no more work that could still produce predicate matches
         // at/before this boundary, so exhaustion checks are safe now.
         _checkExhaustedPredicates(parseState, workQueue, currentPosition);
+        _checkExhaustedNegations(parseState, workQueue, currentPosition);
       }
 
       if (position < currentPosition) {

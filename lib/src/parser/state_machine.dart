@@ -147,6 +147,28 @@ final class ConjunctionAction implements StateAction {
   String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
 
+/// Negation action for consuming complement (¬A)
+final class NegationAction implements StateAction {
+  const NegationAction({
+    required this.symbol,
+    required this.nextState,
+  });
+
+  final PatternSymbol symbol;
+  final State nextState;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NegationAction && symbol == other.symbol && nextState == other.nextState;
+
+  @override
+  int get hashCode => Object.hash(symbol, nextState);
+
+  @override
+  String toString() => "Neg($symbol)";
+}
+
 /// State in the state machine
 class State {
   State(this.id);
@@ -299,6 +321,14 @@ class StateMachine {
         var nextState = _getOrCreateState(terminal);
         var action = PredicateAction(
           isAnd: false,
+          symbol: (terminal.pattern as RuleCall).rule.symbolId!,
+          nextState: nextState,
+        );
+        state.actions.add(action);
+      case Neg():
+        // Span-level negation: create negation action
+        var nextState = _getOrCreateState(terminal);
+        var action = NegationAction(
           symbol: (terminal.pattern as RuleCall).rule.symbolId!,
           nextState: nextState,
         );
@@ -529,6 +559,15 @@ class StateMachine {
               style: "dashed",
               color: "blue",
             );
+          case NegationAction(:var symbol, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: "neg ${_symbolName(symbol)}",
+              style: "dashed",
+              color: "orange",
+            );
           case AcceptAction():
             _writeEdge(buffer, from: state, label: "accept");
         }
@@ -574,6 +613,7 @@ class StateMachine {
       LabelEnd(:var name) => "label- $name",
       And(:var pattern) => "& ${_patternSummary(pattern)}",
       Not(:var pattern) => "! ${_patternSummary(pattern)}",
+      Neg(:var pattern) => "¬ ${_patternSummary(pattern)}",
       _ => pattern.toString(),
     };
   }
@@ -729,6 +769,8 @@ class StateMachine {
           targets.addAll(_continuationTargets(nextState, hiddenStates));
         case ConjunctionAction(:var nextState):
           targets.add(nextState);
+        case NegationAction(:var nextState):
+          targets.add(nextState);
         case CallAction():
         case TailCallAction():
         case ReturnAction():
@@ -751,6 +793,8 @@ class StateMachine {
       case And(:var pattern):
         _collectPatterns(pattern, patterns);
       case Not(:var pattern):
+        _collectPatterns(pattern, patterns);
+      case Neg(:var pattern):
         _collectPatterns(pattern, patterns);
       case Action(:var child):
         _collectPatterns(child, patterns);
@@ -914,7 +958,7 @@ class StateMachine {
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
-      And() || Not() => false,
+      And() || Not() || Neg() => false,
       Action(:var child) ||
       Prec(:var child) ||
       Plus(:var child) ||

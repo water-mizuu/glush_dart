@@ -700,6 +700,18 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           }
         }
         return 0;
+      case "neg":
+        {
+          var childCount = _countDerivations(
+            children.single,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+          );
+          return childCount == 0 ? 1 : 0;
+        }
       case "con":
         {
           var leftCount = _countAlternatives(children.first, input, start, end, memo, inProgress);
@@ -1085,6 +1097,19 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         ).any((_) => true)) {
           yield ParseDerivation(symbol, start, start, []);
         }
+      case "neg":
+        if (!_enumerateDerivations(
+          bsr,
+          children.single,
+          start,
+          end,
+          input,
+          memo,
+          inProgress: inProgress,
+          minPrecedenceLevel: minPrecedenceLevel,
+        ).any((_) => true)) {
+          yield ParseDerivation(symbol, start, end, []);
+        }
       case "con":
         {
           var leftList = _enumerateAlternatives(
@@ -1269,6 +1294,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return results;
       case "and":
       case "not":
+      case "neg":
         return [];
       case "con":
         // Conjunction A & B. Both A and B matched the same span.
@@ -1289,6 +1315,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           Token() => tree.getMatchedText(input),
           Marker(:var name) => NamedMark(name, tree.start),
           Eps() => "",
+          Neg() => [],
           Action<dynamic> action => () {
             var childResults = tree.children
                 .map((c) => _evaluateParseDerivation(c, input))
@@ -1423,6 +1450,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return results;
       case "and":
       case "not":
+      case "neg":
         return [];
       case "con":
         var results = <Object?>[];
@@ -1574,6 +1602,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "eof":
       case "and":
       case "not":
+      case "neg":
         return const <Mark>[];
       case "tok":
         var pattern = grammar.symbolRegistry[tree.symbol];
@@ -1625,6 +1654,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
             captureTokensAsMarks
                 ? [StringMark(tree.getMatchedText(input), tree.start)]
                 : const <Mark>[],
+          Neg() => const <Mark>[],
           _ =>
             tree.children
                 .expand(

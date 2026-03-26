@@ -166,9 +166,10 @@ class _EvalPattern extends _Task {
 
 // --- Continuation Tasks (Replacing callbacks) ---
 class _ContBuildNodeFinish extends _Task {
-  const _ContBuildNodeFinish(this.symNode, this.key);
+  const _ContBuildNodeFinish(this.symNode, this.key, this.ruleSymbol);
   final SymbolicNode symNode;
   final String key;
+  final PatternSymbol ruleSymbol;
 }
 
 class _ContAltCombine extends _Task {
@@ -375,7 +376,7 @@ class SppfBuilder {
         var symNode = nodeCache.symbolic(task.start, task.end, task.ruleSymbol);
 
         // 2. Schedule the completion logic for AFTER the pattern evaluates
-        taskStack.add(_ContBuildNodeFinish(symNode, task.key));
+        taskStack.add(_ContBuildNodeFinish(symNode, task.key, task.ruleSymbol));
 
         // 1. Evaluate the pattern
         var children = getChildrenOf(task.ruleSymbol);
@@ -398,6 +399,25 @@ class SppfBuilder {
         );
       } else if (task is _ContBuildNodeFinish) {
         var childNodes = valueStack.removeLast()! as List<ForestNode>;
+        var split = _splitSymbol(task.ruleSymbol);
+        var isNeg = switch (split) {
+          (String prefix, _) when prefix == "neg" => true,
+          _ => false,
+        };
+
+        if (isNeg) {
+          if (childNodes.isEmpty) {
+            inProgress[task.key] = false;
+            memo[task.key] = null;
+            valueStack.add(null);
+          } else {
+            inProgress[task.key] = false;
+            memo[task.key] = task.symNode;
+            valueStack.add(task.symNode);
+          }
+          continue;
+        }
+
         for (var child in childNodes) {
           task.symNode.addFamily(Family.unary(child));
         }
@@ -658,6 +678,13 @@ class SppfBuilder {
                 ? [nodeCache.epsilon(start, task.pattern)]
                 : <ForestNode>[],
           );
+        }
+      case "neg":
+        {
+          // Negation is a leaf-style node in the forest. The parser has already
+          // validated the span, so the forest only needs a placeholder child to
+          // signal success to the build-node continuation.
+          valueStack.add([nodeCache.epsilon(start, task.pattern)]);
         }
       case "alt":
         {
