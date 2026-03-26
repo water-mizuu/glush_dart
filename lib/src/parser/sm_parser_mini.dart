@@ -1,8 +1,10 @@
-import 'package:glush/src/core/grammar.dart';
-import 'package:glush/src/core/list.dart';
-import 'package:glush/src/parser/state_machine.dart';
-import 'common.dart';
-import 'interface.dart';
+import "package:glush/glush.dart" show SMParser;
+import "package:glush/src/core/grammar.dart";
+import "package:glush/src/core/list.dart";
+import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/sm_parser.dart" show SMParser;
+import "package:glush/src/parser/state_machine.dart";
 
 /// Minimal version of [SMParser] that only supports recognize, parse, and parseAmbiguous.
 ///
@@ -10,27 +12,24 @@ import 'interface.dart';
 /// Representation (BSR) or a Shared Packed Parse Forest (SPPF) by default. It is
 /// optimized for cases where only the results (marks) are needed.
 final class SMParserMini extends GlushParserBase implements RecognizerAndMarksParser {
-  static const Context _initialContext = Context(
-    RootCallerKey(),
-    GlushList.empty(),
-    predicateStack: GlushList.empty(),
-  );
+  SMParserMini(GrammarInterface grammar, {this.captureTokensAsMarks = false})
+    : stateMachine = StateMachine(grammar);
 
+  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  static const Context _initialContext = Context(RootCallerKey(), GlushList.empty());
+
+  @override
   final StateMachine stateMachine;
 
   @override
   bool captureTokensAsMarks;
 
+  @override
   GrammarInterface get grammar => stateMachine.grammar;
-
-  SMParserMini(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar);
-
-  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
 
   @override
   List<Frame> get initialFrames {
-    final initialFrame = Frame(_initialContext);
+    var initialFrame = Frame(_initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     return [initialFrame];
   }
@@ -41,12 +40,14 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// only on the State Machine execution plus marks bookkeeping.
   @override
   bool recognize(String input) {
-    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // If no frames remain, the parser cannot recover from this prefix.
-      if (parseState.frames.isEmpty) return false;
+      if (parseState.frames.isEmpty) {
+        return false;
+      }
     }
 
     return parseState.finish().accept;
@@ -58,9 +59,9 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// only on the State Machine execution plus marks bookkeeping.
   @override
   ParseOutcome parse(String input) {
-    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // No active frames means the parse has already failed.
       if (parseState.frames.isEmpty) {
@@ -68,7 +69,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       }
     }
 
-    final lastStep = parseState.finish();
+    var lastStep = parseState.finish();
 
     // Only a final accepted step counts as a successful parse.
     if (lastStep.accept) {
@@ -84,13 +85,13 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// ambiguity from the State Machine's marks system only.
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
-    final shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    final parseState = this.createParseState(
+    var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
+    var parseState = createParseState(
       isSupportingAmbiguity: true,
       captureTokensAsMarks: shouldCapture,
     );
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // No active frames means the parse has already failed.
       if (parseState.frames.isEmpty) {
@@ -98,11 +99,11 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       }
     }
 
-    final lastStep = parseState.finish();
+    var lastStep = parseState.finish();
 
     // Ambiguous mode merges all accepted mark branches into one result.
     if (lastStep.accept) {
-      final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
+      var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
       return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
     } else {
       return ParseError(parseState.position);

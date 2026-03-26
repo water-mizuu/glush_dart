@@ -1,14 +1,14 @@
-import 'package:glush/glush.dart';
+import "package:glush/glush.dart";
 
 /// Example: Using the DSL (string-based) grammar format with operator precedence
 ///
 /// This demonstrates how to define operator precedence using the grammar file format,
 /// which provides a more natural syntax for specifying grammar rules with precedence levels.
 void main() {
-  print('╔════════════════════════════════════════════════════════════╗');
-  print('║  DSL Grammar Example: Expression with Operator Precedence  ║');
-  print('╚════════════════════════════════════════════════════════════╝');
-  print('');
+  print("╔════════════════════════════════════════════════════════════╗");
+  print("║  DSL Grammar Example: Expression with Operator Precedence  ║");
+  print("╚════════════════════════════════════════════════════════════╝");
+  print("");
 
   // Grammar definition using the DSL string format
   // Precedence syntax:
@@ -27,7 +27,7 @@ void main() {
   //   - This prevents "a+b+c" from becoming "a+(b+c)" (right-assoc)
   //   - Instead it becomes "(a+b)+c" (left-assoc) since right side needs level 7+
 
-  final grammarText = '''
+  const grammarText = """
 # Expression grammar with operator precedence using DSL syntax
 
 expr =
@@ -39,105 +39,105 @@ expr =
   6 | expr^6 '+' expr^7
   6 | expr^6 '-' expr^7
     ;
-''';
+""";
 
-  print('Grammar Definition (DSL format):');
-  print('─' * 60);
+  print("Grammar Definition (DSL format):");
+  print("─" * 60);
   print(grammarText);
-  print('─' * 60);
-  print('');
+  print("─" * 60);
+  print("");
 
   try {
     // Parse the grammar file
-    final grammarParser = GrammarFileParser(grammarText);
-    final grammarFile = grammarParser.parse();
+    var grammarParser = GrammarFileParser(grammarText);
+    var grammarFile = grammarParser.parse();
 
-    print('✓ Grammar parsed successfully!');
-    print('');
+    print("✓ Grammar parsed successfully!");
+    print("");
 
     // Display parsed rules
-    print('Parsed Rules:');
-    for (final rule in grammarFile.rules) {
-      print('  ${rule.name}: ${rule.pattern}');
+    print("Parsed Rules:");
+    for (var rule in grammarFile.rules) {
+      print("  ${rule.name}: ${rule.pattern}");
       if (rule.precedenceLevels.isNotEmpty) {
-        print('    Precedence levels assigned: ${rule.precedenceLevels.values.toSet()}');
+        print("    Precedence levels assigned: ${rule.precedenceLevels.values.toSet()}");
       }
     }
-    print('');
+    print("");
 
     // Compile to executable grammar using the GrammarFileCompiler
-    final grammarCompiler = GrammarFileCompiler(grammarFile);
-    final compiledGrammar = grammarCompiler.compile();
+    var grammarCompiler = GrammarFileCompiler(grammarFile);
+    var compiledGrammar = grammarCompiler.compile();
 
-    print('✓ Grammar compiled to executable format');
-    print('');
+    print("✓ Grammar compiled to executable format");
+    print("");
 
     // Create parser from compiled grammar
-    final parser = SMParser(compiledGrammar);
-    print('✓ Parser initialized with precedence constraints');
-    print('');
+    var parser = SMParser(compiledGrammar);
+    print("✓ Parser initialized with precedence constraints");
+    print("");
 
     // Test cases showing how precedence affects parsing
-    final testCases = [
-      ('2+3', 'simple addition'),
-      ('2*3', 'simple multiplication'),
-      ('2+3*4', 'addition and multiplication (3*4 should bind first)'),
-      ('2*3+4', 'multiplication and addition (2*3 should bind first)'),
-      ('2+3+4', 'chained addition (left-associative)'),
-      ('2*3*4', 'chained multiplication (left-associative)'),
-      ('(2+3)*4', 'parentheses override precedence'),
-      ('2*(3+4)', 'multiplication with parenthesized sum'),
-      ('2+3*4+5', 'complex expression'),
-      ('10+2*3', 'multi-digit numbers'),
+    var testCases = [
+      ("2+3", "simple addition"),
+      ("2*3", "simple multiplication"),
+      ("2+3*4", "addition and multiplication (3*4 should bind first)"),
+      ("2*3+4", "multiplication and addition (2*3 should bind first)"),
+      ("2+3+4", "chained addition (left-associative)"),
+      ("2*3*4", "chained multiplication (left-associative)"),
+      ("(2+3)*4", "parentheses override precedence"),
+      ("2*(3+4)", "multiplication with parenthesized sum"),
+      ("2+3*4+5", "complex expression"),
+      ("10+2*3", "multi-digit numbers"),
     ];
 
-    print('Test Results with DSL-defined Precedence (Forest Parsing):');
-    print('━' * 60);
+    print("Test Results with DSL-defined Precedence (Forest Parsing):");
+    print("━" * 60);
 
-    for (final (expr, description) in testCases) {
-      print('');
+    for (var (String expr, String description) in testCases) {
+      print("");
       print('✓ "$expr" ($description)');
 
       try {
-        final result = parser.parseWithForest(expr);
+        var result = parser.parseWithForest(expr);
 
         if (result is ParseForestSuccess) {
-          final trees = result.forest.extract().toList();
-          print('  Status: ✓ Success (Forest)');
-          print('  Parse trees extracted: ${trees.length}');
+          var trees = result.forest.extract().toList();
+          print("  Status: ✓ Success (Forest)");
+          print("  Parse trees extracted: ${trees.length}");
 
           for (int i = 0; i < trees.length; i++) {
-            final tree = trees[i];
-            print('  [$i] Tree structure:');
+            var tree = trees[i];
+            print("  [$i] Tree structure:");
             print(tree.toTreeString(2));
-            final precedenceStr = tree.toPrecedenceString(expr);
-            print('      Precedence: $precedenceStr');
+            var precedenceStr = tree.toPrecedenceString(expr);
+            print("      Precedence: $precedenceStr");
           }
 
           if (trees.length > 1) {
-            print('  WARNING: Multiple parse trees found (ambiguity!)');
+            print("  WARNING: Multiple parse trees found (ambiguity!)");
           }
         } else if (result is ParseError) {
-          print('  Status: ✗ Parse error at position ${result.position}');
+          print("  Status: ✗ Parse error at position ${result.position}");
         }
-      } catch (e) {
-        print('  Exception: $e');
+      } on Exception catch (e) {
+        print("  Exception: $e");
       }
     }
 
-    print('');
-    print('━' * 60);
-    print('');
-    print('Key Observations:');
-    print('  • Using parseWithForest() for forest-based parsing (not enumeration)');
-    print('  • Precedence levels (7 for *, 6 for +) prevent ambiguity in forest');
-    print('  • Constraints (expr^7, expr^11) enforce operator associativity');
-    print('  • Parenthesized expressions (level 11) override precedence rules');
-    print('  • Forest building with minPrecedenceLevel filtering now implemented!');
-  } catch (e) {
-    print('✗ Error: $e');
+    print("");
+    print("━" * 60);
+    print("");
+    print("Key Observations:");
+    print("  • Using parseWithForest() for forest-based parsing (not enumeration)");
+    print("  • Precedence levels (7 for *, 6 for +) prevent ambiguity in forest");
+    print("  • Constraints (expr^7, expr^11) enforce operator associativity");
+    print("  • Parenthesized expressions (level 11) override precedence rules");
+    print("  • Forest building with minPrecedenceLevel filtering now implemented!");
+  } on Exception catch (e) {
+    print("✗ Error: $e");
     if (e is GrammarFileParseError) {
-      print('  Location: Line ${e.line}, Column ${e.column}');
+      print("  Location: Line ${e.line}, Column ${e.column}");
     }
   }
 }

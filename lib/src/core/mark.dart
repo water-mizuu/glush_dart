@@ -1,16 +1,20 @@
 /// Mark class for tracking parse positions
 library glush.mark;
 
+import "package:meta/meta.dart";
+
+@immutable
 sealed class Mark {
+  const Mark();
   List<Object> toList();
 }
 
-class NamedMark extends Mark {
+class NamedMark implements Mark {
+  const NamedMark(this.name, this.position);
   final String name;
   final int position;
 
-  NamedMark(this.name, this.position);
-
+  @override
   List<Object> toList() => [name, position];
 
   @override
@@ -25,15 +29,15 @@ class NamedMark extends Mark {
   int get hashCode => name.hashCode ^ position.hashCode;
 
   @override
-  String toString() => 'NamedMark($name, $position)';
+  String toString() => "NamedMark($name, $position)";
 }
 
-class StringMark extends Mark {
+class StringMark implements Mark {
+  const StringMark(this.value, this.position);
   final String value;
   final int position;
 
-  StringMark(this.value, this.position);
-
+  @override
   List<Object> toList() => [value, position];
 
   @override
@@ -51,11 +55,10 @@ class StringMark extends Mark {
   String toString() => "StringMark('${_escapeDisplay(value)}', $position)";
 }
 
-class LabelStartMark extends Mark {
+class LabelStartMark implements Mark {
+  const LabelStartMark(this.name, this.position);
   final String name;
   final int position;
-
-  LabelStartMark(this.name, this.position);
 
   @override
   List<Object> toList() => [name, position];
@@ -72,14 +75,13 @@ class LabelStartMark extends Mark {
   int get hashCode => name.hashCode ^ position.hashCode;
 
   @override
-  String toString() => 'LabelStart($name, $position)';
+  String toString() => "LabelStart($name, $position)";
 }
 
-class LabelEndMark extends Mark {
+class LabelEndMark implements Mark {
+  const LabelEndMark(this.name, this.position);
   final String name;
   final int position;
-
-  LabelEndMark(this.name, this.position);
 
   @override
   List<Object> toList() => [name, position];
@@ -96,30 +98,30 @@ class LabelEndMark extends Mark {
   int get hashCode => name.hashCode ^ position.hashCode;
 
   @override
-  String toString() => 'LabelEnd($name, $position)';
+  String toString() => "LabelEnd($name, $position)";
 }
 
 String _escapeDisplay(String value) {
-  final out = StringBuffer();
-  for (final rune in value.runes) {
+  var out = StringBuffer();
+  for (var rune in value.runes) {
     switch (rune) {
       case 0x5C: // \
-        out.write(r'\\');
+        out.write(r"\\");
       case 0x27: // '
         out.write(r"\'");
       case 0x20: // space
-        out.write(r'\s');
+        out.write(r"\s");
       case 0x09: // tab
-        out.write(r'\t');
+        out.write(r"\t");
       case 0x0A: // newline
-        out.write(r'\n');
+        out.write(r"\n");
       case 0x0D: // carriage return
-        out.write(r'\r');
+        out.write(r"\r");
       default:
         if (rune < 0x20 || rune == 0x7F) {
-          out.write(r'\u{');
+          out.write(r"\u{");
           out.write(rune.toRadixString(16));
-          out.write('}');
+          out.write("}");
         } else {
           out.write(String.fromCharCode(rune));
         }
@@ -130,10 +132,10 @@ String _escapeDisplay(String value) {
 
 extension MarkListExtension on List<Mark> {
   List<String> toShortMarks() {
-    final result = <String>[];
+    var result = <String>[];
     String? currentStringMark;
 
-    for (final mark in this) {
+    for (var mark in this) {
       if (mark is NamedMark) {
         if (currentStringMark != null) {
           result.add(currentStringMark);
@@ -147,7 +149,7 @@ extension MarkListExtension on List<Mark> {
         }
         result.add(mark.name);
       } else if (mark is StringMark) {
-        currentStringMark = (currentStringMark ?? '') + mark.value;
+        currentStringMark = (currentStringMark ?? "") + mark.value;
       }
     }
 

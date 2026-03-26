@@ -1,28 +1,11 @@
 /// Pattern system for grammar definition
 library glush.patterns;
 
-import 'errors.dart';
+import "package:glush/src/core/errors.dart";
 
 extension type const PatternSymbol(String symbol) {}
 
 sealed class Pattern {
-  /// Symbol ID assigned by the grammar this pattern belongs to.
-  /// Initially null, assigned during Grammar.finalize()
-  PatternSymbol? _symbolId;
-
-  PatternSymbol? get symbolId =>
-      (_symbolId == null) //
-      ? null
-      : PatternSymbol("$_symbolPrefix:$_symbolId:$_symbolSuffix");
-
-  set symbolId(PatternSymbol id) {
-    if ((id as String).split(":") case [_, final mid, _]) {
-      _symbolId = PatternSymbol(mid);
-      return;
-    }
-    _symbolId = id;
-  }
-
   Pattern();
 
   factory Pattern.char(String char) = Token.char;
@@ -47,6 +30,23 @@ sealed class Pattern {
     return result;
   }
 
+  /// Symbol ID assigned by the grammar this pattern belongs to.
+  /// Initially null, assigned during Grammar.finalize()
+  PatternSymbol? _symbolId;
+
+  PatternSymbol? get symbolId =>
+      (_symbolId == null) //
+      ? null
+      : PatternSymbol("$_symbolPrefix:$_symbolId:$_symbolSuffix");
+
+  set symbolId(PatternSymbol id) {
+    if ((id as String).split(":") case [_, var mid, _]) {
+      _symbolId = PatternSymbol(mid);
+      return;
+    }
+    _symbolId = id;
+  }
+
   bool? _isEmptyComputed;
   bool? _isEmpty;
   bool _consumed = false;
@@ -68,10 +68,11 @@ sealed class Pattern {
     if (_isEmptyComputed != null) {
       return _isEmpty ?? false;
     }
-    throw StateError('empty is not computed for ${runtimeType}');
+    throw StateError("empty is not computed for $runtimeType");
   }
 
   /// Set the empty flag (computed by grammar)
+  // ignore: avoid_positional_boolean_parameters
   void setEmpty(bool value) {
     _isEmpty = value;
     _isEmptyComputed = true;
@@ -82,32 +83,32 @@ sealed class Pattern {
 
   /// Check if the pattern matches a token
   bool match(int? token) {
-    throw UnimplementedError('match not implemented for $runtimeType');
+    throw UnimplementedError("match not implemented for $runtimeType");
   }
 
   /// Invert this pattern  (matches everything except this)
   Pattern invert() {
-    throw UnimplementedError('invert not implemented for $runtimeType');
+    throw UnimplementedError("invert not implemented for $runtimeType");
   }
 
   /// Calculate if pattern is empty
   bool calculateEmpty(Set<Rule> emptyRules) {
-    throw UnimplementedError('calculateEmpty not implemented for $runtimeType');
+    throw UnimplementedError("calculateEmpty not implemented for $runtimeType");
   }
 
   /// Check if pattern is "static" (can appear in empty position)
   bool isStatic() {
-    throw UnimplementedError('isStatic not implemented for $runtimeType');
+    throw UnimplementedError("isStatic not implemented for $runtimeType");
   }
 
   /// Get first set (patterns at the beginning)
   Set<Pattern> firstSet() {
-    throw UnimplementedError('firstSet not implemented for $runtimeType');
+    throw UnimplementedError("firstSet not implemented for $runtimeType");
   }
 
   /// Get last set (patterns at the end)
   Set<Pattern> lastSet() {
-    throw UnimplementedError('lastSet not implemented for $runtimeType');
+    throw UnimplementedError("lastSet not implemented for $runtimeType");
   }
 
   /// Iterate over (a, b) pairs where a is connected to b
@@ -130,8 +131,11 @@ sealed class Pattern {
   }
 
   /// Repetition operators
+  // ignore: use_to_and_as_if_applicable
   Pattern plus() => Plus(this);
+  // ignore: use_to_and_as_if_applicable
   Pattern star() => Star(this);
+  // ignore: use_to_and_as_if_applicable
   Pattern opt() => Opt(this);
 
   /// This discriminates the type of the pattern from the symbol
@@ -170,7 +174,7 @@ sealed class Pattern {
         LessToken(:var bound) => "<$bound",
         GreaterToken(:var bound) => ">$bound",
       },
-      Marker(:var name) => "$name",
+      Marker(:var name) => name,
       StartAnchor() => "",
       EofAnchor() => "",
       Eps() => "",
@@ -186,9 +190,9 @@ sealed class Pattern {
       Opt() => "",
       Plus() => "",
       Star() => "",
-      Label(:var name) => "$name",
-      LabelStart(:var name) => "$name",
-      LabelEnd(:var name) => "$name",
+      Label(:var name) => name,
+      LabelStart(:var name) => name,
+      LabelEnd(:var name) => name,
     };
   }
 
@@ -197,11 +201,13 @@ sealed class Pattern {
   /// Positive lookahead predicate (AND) - succeeds if pattern matches at current position
   /// without consuming input. Allows lookahead without consumption.
   /// Example: &token('a') >> token('a') matches 'a' only when 'a' is present
+  // ignore: use_to_and_as_if_applicable
   And and() => And(this);
 
   /// Negative lookahead predicate (NOT) - succeeds if pattern does NOT match at current position
   /// without consuming input. Prevents matching when pattern would succeed.
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
+  // ignore: use_to_and_as_if_applicable
   Not not() => Not(this);
 }
 
@@ -219,13 +225,13 @@ final class AnyToken extends TokenChoice {
   bool matches(int? value) => value != null;
 
   @override
-  String toString() => 'any';
+  String toString() => "any";
 }
 
 /// Matches an exact code-point value
 final class ExactToken extends TokenChoice {
-  final int value;
   const ExactToken(this.value);
+  final int value;
 
   @override
   bool matches(int? token) => token == value;
@@ -236,52 +242,54 @@ final class ExactToken extends TokenChoice {
 
 /// Matches a code-point within an inclusive range
 final class RangeToken extends TokenChoice {
+  const RangeToken(this.start, this.end);
   final int start;
   final int end;
-  const RangeToken(this.start, this.end);
 
   @override
   bool matches(int? token) => token != null && token >= start && token <= end;
 
   @override
-  String toString() => '$start..$end';
+  String toString() => "$start..$end";
 }
 
 /// Matches a code-point <= bound
 final class LessToken extends TokenChoice {
-  final int bound;
   const LessToken(this.bound);
+  final int bound;
 
   @override
   bool matches(int? token) => token != null && token <= bound;
 
   @override
-  String toString() => 'less($bound)';
+  String toString() => "less($bound)";
 }
 
 /// Matches a code-point >= bound
 final class GreaterToken extends TokenChoice {
-  final int bound;
   const GreaterToken(this.bound);
+  final int bound;
 
   @override
   bool matches(int? token) => token != null && token >= bound;
 
   @override
-  String toString() => 'greater($bound)';
+  String toString() => "greater($bound)";
 }
 
 /// Single token pattern
 class Token extends Pattern {
-  final TokenChoice choice;
-
   Token(this.choice);
   Token.char(String char) //
-    : assert(char.length == 1),
-      assert(char.length == char.codeUnits.length),
+    : assert(char.length == 1, "Character patterns should have only one value!"),
+      assert(
+        char.length == char.codeUnits.length,
+        "Unicode characters cannot be used in character patterns!",
+      ),
       choice = ExactToken(char.codeUnits.single);
   Token.charRange(String from, String to)
     : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
+  final TokenChoice choice;
 
   @override
   bool singleToken() => true;
@@ -292,16 +300,16 @@ class Token extends Pattern {
   @override
   Pattern invert() {
     switch (choice) {
-      case ExactToken(:final value):
+      case ExactToken(:var value):
         return Token(LessToken(value - 1)) | Token(GreaterToken(value + 1));
-      case RangeToken(:final start, :final end):
+      case RangeToken(:var start, :var end):
         return Token(LessToken(start - 1)) | Token(GreaterToken(end + 1));
-      case LessToken(:final bound):
+      case LessToken(:var bound):
         return Token(GreaterToken(bound + 1));
-      case GreaterToken(:final bound):
+      case GreaterToken(:var bound):
         return Token(LessToken(bound - 1));
       default:
-        throw Exception('Cannot invert $choice');
+        throw Exception("Cannot invert $choice");
     }
   }
 
@@ -329,9 +337,8 @@ class Token extends Pattern {
 
 /// Marker for parse tracking
 class Marker extends Pattern {
-  final String name;
-
   Marker(this.name);
+  final String name;
 
   @override
   Marker copy() => Marker(name);
@@ -352,7 +359,7 @@ class Marker extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  String toString() => 'mark($name)';
+  String toString() => "mark($name)";
 }
 
 /// Epsilon (empty pattern)
@@ -381,7 +388,7 @@ class Eps extends Pattern {
   Eps copy() => Eps();
 
   @override
-  String toString() => 'eps';
+  String toString() => "eps";
 }
 
 /// Beginning-of-stream anchor.
@@ -407,7 +414,7 @@ final class StartAnchor extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  String toString() => '^';
+  String toString() => "^";
 }
 
 /// End-of-stream anchor.
@@ -433,15 +440,14 @@ final class EofAnchor extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  String toString() => '\$';
+  String toString() => r"$";
 }
 
 /// Alternation (choice between patterns)
 class Alt extends Pattern {
+  Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
   final Pattern left;
   final Pattern right;
-
-  Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Alt copy() => Alt(left, right);
@@ -457,9 +463,9 @@ class Alt extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final leftEmpty = left.calculateEmpty(emptyRules);
-    final rightEmpty = right.calculateEmpty(emptyRules);
-    final result = leftEmpty || rightEmpty;
+    var leftEmpty = left.calculateEmpty(emptyRules);
+    var rightEmpty = right.calculateEmpty(emptyRules);
+    var result = leftEmpty || rightEmpty;
     setEmpty(result);
     return result;
   }
@@ -485,24 +491,23 @@ class Alt extends Pattern {
   }
 
   @override
-  String toString() => 'alt($left, $right)';
+  String toString() => "alt($left, $right)";
 }
 
 /// Sequence (patterns in order)
 class Seq extends Pattern {
+  Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
   final Pattern left;
   final Pattern right;
-
-  Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   @override
   Seq copy() => Seq(left, right);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final leftEmpty = left.calculateEmpty(emptyRules);
-    final rightEmpty = right.calculateEmpty(emptyRules);
-    final result = leftEmpty && rightEmpty;
+    var leftEmpty = left.calculateEmpty(emptyRules);
+    var rightEmpty = right.calculateEmpty(emptyRules);
+    var result = leftEmpty && rightEmpty;
     setEmpty(result);
     return result;
   }
@@ -512,7 +517,7 @@ class Seq extends Pattern {
 
   @override
   Set<Pattern> firstSet() {
-    final leftFirst = left.firstSet();
+    var leftFirst = left.firstSet();
     if (left.empty()) {
       return {...leftFirst, ...right.firstSet()};
     }
@@ -521,7 +526,7 @@ class Seq extends Pattern {
 
   @override
   Set<Pattern> lastSet() {
-    final rightLast = right.lastSet();
+    var rightLast = right.lastSet();
     if (right.empty()) {
       return {...left.lastSet(), ...rightLast};
     }
@@ -533,8 +538,8 @@ class Seq extends Pattern {
     left.eachPair(callback);
     right.eachPair(callback);
 
-    for (final a in left.lastSet()) {
-      for (final b in right.firstSet()) {
+    for (var a in left.lastSet()) {
+      for (var b in right.firstSet()) {
         callback(a, b);
       }
     }
@@ -547,15 +552,14 @@ class Seq extends Pattern {
   }
 
   @override
-  String toString() => 'seq($left, $right)';
+  String toString() => "seq($left, $right)";
 }
 
 /// Optional pattern (zero-or-one) with ordered-choice semantics.
 /// This is modeled as a first-class node instead of rewriting to Alt(child, Eps).
 class Opt extends Pattern {
-  final Pattern child;
-
   Opt(Pattern child) : child = child.consume();
+  final Pattern child;
 
   @override
   Opt copy() => Opt(child);
@@ -587,14 +591,13 @@ class Opt extends Pattern {
   }
 
   @override
-  String toString() => 'opt($child)';
+  String toString() => "opt($child)";
 }
 
 /// Zero-or-more repetition
 class Star extends Pattern {
-  final Pattern child;
-
   Star(Pattern child) : child = child.consume();
+  final Pattern child;
 
   @override
   Star copy() => Star(child);
@@ -620,8 +623,8 @@ class Star extends Pattern {
     child.eachPair(callback);
 
     // Prefer staying in the repetition before exiting in non-ambiguity mode.
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
+    for (var a in child.lastSet()) {
+      for (var b in child.firstSet()) {
         callback(a, b);
       }
     }
@@ -633,21 +636,20 @@ class Star extends Pattern {
   }
 
   @override
-  String toString() => 'star($child)';
+  String toString() => "star($child)";
 }
 
 /// One-or-more repetition
 class Plus extends Pattern {
-  final Pattern child;
-
   Plus(Pattern child) : child = child.consume();
+  final Pattern child;
 
   @override
   Plus copy() => Plus(child);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
+    var childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
@@ -666,8 +668,8 @@ class Plus extends Pattern {
     child.eachPair(callback);
 
     // Prefer staying in the repetition before exiting in non-ambiguity mode.
-    for (final a in child.lastSet()) {
-      for (final b in child.firstSet()) {
+    for (var a in child.lastSet()) {
+      for (var b in child.firstSet()) {
         callback(a, b);
       }
     }
@@ -679,19 +681,18 @@ class Plus extends Pattern {
   }
 
   @override
-  String toString() => 'plus($child)';
+  String toString() => "plus($child)";
 }
 
 /// Conjunction (both patterns must match)
 class Conj extends Pattern {
-  final Pattern left;
-  final Pattern right;
-
   Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume() {
     if (!left.singleToken() || !right.singleToken()) {
-      throw GrammarError('only single token can be used in conjunctions');
+      throw GrammarError("only single token can be used in conjunctions");
     }
   }
+  final Pattern left;
+  final Pattern right;
 
   @override
   bool singleToken() => true;
@@ -723,15 +724,14 @@ class Conj extends Pattern {
   }
 
   @override
-  String toString() => 'conj($left, $right)';
+  String toString() => "conj($left, $right)";
 }
 
 /// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming
 /// Example: &('a' >> 'b') >> 'a' will only match 'a' if followed by 'b'
 class And extends Pattern {
-  Pattern pattern;
-
   And(Pattern p) : pattern = p.consume();
+  Pattern pattern;
 
   @override
   And copy() => And(pattern);
@@ -763,15 +763,14 @@ class And extends Pattern {
   }
 
   @override
-  String toString() => 'and($pattern)';
+  String toString() => "and($pattern)";
 }
 
 /// Negative lookahead predicate (NOT) - matches if pattern fails without consuming
 /// Example: !('a' >> 'b') >> 'a' will only match 'a' if NOT followed by 'b'
 class Not extends Pattern {
-  Pattern pattern;
-
   Not(Pattern p) : pattern = p.consume();
+  Pattern pattern;
 
   @override
   Not copy() => Not(pattern);
@@ -803,32 +802,29 @@ class Not extends Pattern {
   }
 
   @override
-  String toString() => 'not($pattern)';
+  String toString() => "not($pattern)";
 }
 
 extension type RuleName(String symbol) {}
 
 /// Grammar rule
 class Rule extends Pattern {
+  Rule(String name, this._code) : name = RuleName(name);
   final RuleName name;
   final Pattern Function() _code;
   Pattern? _body;
   Pattern? guard;
   final List<RuleCall> calls = [];
 
-  Rule(String name, this._code) : name = RuleName(name);
-
   RuleCall call({int? minPrecedenceLevel}) {
-    final name = '${this.name}_${calls.length}';
-    final call = RuleCall(name, this, minPrecedenceLevel: minPrecedenceLevel);
+    var name = "${this.name}_${calls.length}";
+    var call = RuleCall(name, this, minPrecedenceLevel: minPrecedenceLevel);
     calls.add(call);
     return call;
   }
 
   Pattern body() {
-    if (_body == null) {
-      _body = _code().consume();
-    }
+    _body ??= _code().consume();
     return _body!;
   }
 
@@ -851,11 +847,12 @@ class Rule extends Pattern {
   bool isStatic() => false;
 
   @override
-  String toString() => '<$name>';
+  String toString() => "<$name>";
 }
 
 /// Call to a rule with optional precedence constraint
 class RuleCall extends Pattern {
+  RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
   final String name;
   final Rule rule;
 
@@ -863,8 +860,6 @@ class RuleCall extends Pattern {
   /// with precedenceLevel >= minPrecedenceLevel will match.
   /// This implements EXPR^N syntax where N is the minimum precedence level.
   final int? minPrecedenceLevel;
-
-  RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   @override
   RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
@@ -890,23 +885,22 @@ class RuleCall extends Pattern {
   }
 
   @override
-  String toString() => minPrecedenceLevel != null ? '<$name^$minPrecedenceLevel>' : '<$name>';
+  String toString() => minPrecedenceLevel != null ? "<$name^$minPrecedenceLevel>" : "<$name>";
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.
 /// The callback receives (span, childResults) where childResults are the evaluated semantic values.
 class Action<T> extends Pattern {
+  Action(this.child, this.callback);
   final Pattern child;
   final T Function(String span, List<dynamic> childResults) callback;
-
-  Action(this.child, this.callback);
 
   @override
   Action<T> copy() => Action<T>(child.copy(), callback);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
+    var childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
@@ -936,7 +930,7 @@ class Action<T> extends Pattern {
   bool match(int? token) => child.match(token);
 
   @override
-  String toString() => 'action($child)';
+  String toString() => "action($child)";
 }
 
 /// Pattern labeled with a precedence level for operator precedence parsing.
@@ -944,17 +938,16 @@ class Action<T> extends Pattern {
 /// determines which alternatives can match based on precedence constraints.
 /// Example: In "6| $add EXPR^6 ... EXPR^7", the entire sequence gets precedenceLevel=6
 class Prec extends Pattern {
+  Prec(this.precedenceLevel, this.child);
   final int precedenceLevel;
   final Pattern child;
-
-  Prec(this.precedenceLevel, this.child);
 
   @override
   Prec copy() => Prec(precedenceLevel, child.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
+    var childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
@@ -984,27 +977,26 @@ class Prec extends Pattern {
   bool match(int? token) => child.match(token);
 
   @override
-  String toString() => '[$precedenceLevel] $child';
+  String toString() => "[$precedenceLevel] $child";
 }
 
 /// Pattern that labels its child
 class Label extends Pattern {
-  final String name;
-  final Pattern child;
-  late final LabelStart _start;
-  late final LabelEnd _end;
-
   Label(this.name, Pattern child) : child = child.consume() {
     _start = LabelStart(name);
     _end = LabelEnd(name);
   }
+  final String name;
+  final Pattern child;
+  late final LabelStart _start;
+  late final LabelEnd _end;
 
   @override
   Label copy() => Label(name, child.copy());
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    final childEmpty = child.calculateEmpty(emptyRules);
+    var childEmpty = child.calculateEmpty(emptyRules);
     setEmpty(childEmpty);
     return childEmpty;
   }
@@ -1020,11 +1012,11 @@ class Label extends Pattern {
 
   @override
   void eachPair(void Function(Pattern, Pattern) callback) {
-    for (final f in child.firstSet()) {
+    for (var f in child.firstSet()) {
       callback(_start, f);
     }
     child.eachPair(callback);
-    for (final l in child.lastSet()) {
+    for (var l in child.lastSet()) {
       callback(l, _end);
     }
     if (child.empty()) {
@@ -1038,12 +1030,12 @@ class Label extends Pattern {
   }
 
   @override
-  String toString() => '$name:($child)';
+  String toString() => "$name:($child)";
 }
 
 class LabelStart extends Pattern {
-  final String name;
   LabelStart(this.name);
+  final String name;
 
   @override
   LabelStart copy() => LabelStart(name);
@@ -1064,12 +1056,12 @@ class LabelStart extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  String toString() => 'label_start($name)';
+  String toString() => "label_start($name)";
 }
 
 class LabelEnd extends Pattern {
-  final String name;
   LabelEnd(this.name);
+  final String name;
 
   @override
   LabelEnd copy() => LabelEnd(name);
@@ -1090,7 +1082,7 @@ class LabelEnd extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  String toString() => 'label_end($name)';
+  String toString() => "label_end($name)";
 }
 
 // ---------------------------------------------------------------------------

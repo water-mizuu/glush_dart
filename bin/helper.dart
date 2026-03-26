@@ -1,8 +1,11 @@
-import 'dart:async';
-import 'dart:isolate';
+import "dart:async";
+import "dart:isolate";
 
 /// Helper class for managing a parser isolate.
 class ProcessParser {
+  ProcessParser._(this._isolate, this._parserSendPort, this._initPort, this._onError) {
+    // We don't need to listen to initPort or onError anymore after setup
+  }
   late final StreamSubscription<Object?> _subscription;
   final Isolate _isolate;
   final SendPort _parserSendPort;
@@ -11,29 +14,25 @@ class ProcessParser {
   int _requestId = 0;
   final Map<int, Completer<List<Object?>>> _pendingRequests = {};
 
-  ProcessParser._(this._isolate, this._parserSendPort, this._initPort, this._onError) {
-    // We don't need to listen to initPort or onError anymore after setup
-  }
-
   /// Parses the given [input] string and returns the result.
   /// Returns a list: ["ok", result] on success, ["fail", errors] on parse failure,
   /// or ["error", message, stackTrace] on exception.
   Future<List<Object?>> parse(String input) async {
-    final responsePort = ReceivePort();
-    final requestId = _requestId++;
+    var responsePort = ReceivePort();
+    var requestId = _requestId++;
 
-    final completer = Completer<List<Object?>>();
+    var completer = Completer<List<Object?>>();
     _pendingRequests[requestId] = completer;
 
     // Listen for this specific response
     _subscription = responsePort.listen((response) {
       if (_pendingRequests.containsKey(requestId)) {
-        final completer = _pendingRequests.remove(requestId)!;
+        var completer = _pendingRequests.remove(requestId)!;
         if (response is List<Object?>) {
-          String first = response[0] as String;
+          String first = response[0]! as String;
 
           if (first == "ok") {
-            List<String> second = (response[1] as List).whereType<String>().toList();
+            List<String> second = (response[1]! as List).whereType<String>().toList();
 
             completer.complete(["ok", second]);
           }
@@ -53,6 +52,6 @@ class ProcessParser {
     _isolate.kill();
     _initPort.close();
     _onError.close();
-    _subscription.cancel();
+    await _subscription.cancel();
   }
 }

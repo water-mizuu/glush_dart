@@ -1,43 +1,43 @@
-import 'package:glush/glush.dart';
-import 'package:test/test.dart';
+import "package:glush/glush.dart";
+import "package:test/test.dart";
 
 void main() {
-  group('State Machine Integrated Features', () {
-    test('Simple sequence S = a b c', () {
-      final parser =
-          r"""
+  group("State Machine Integrated Features", () {
+    test("Simple sequence S = a b c", () {
+      var parser =
+          """
         S = 'a' 'b' 'c'
       """
               .toSMParser();
 
-      final result = parser.parseAmbiguous('abc');
+      var result = parser.parseAmbiguous("abc");
       expect(result, isA<ParseAmbiguousForestSuccess>());
-      final success = result as ParseAmbiguousForestSuccess;
+      var success = result as ParseAmbiguousForestSuccess;
       expect(success.forest.allPaths().length, equals(1));
     });
 
-    test('Shared Forest prevents exponential explosion', () {
+    test("Shared Forest prevents exponential explosion", () {
       // Highly ambiguous grammar: S -> S S | 'a'
-      final parser =
-          r"""
+      var parser =
+          """
         S = S S | 'a'
       """
               .toSMParser();
 
-      final input = 'a' * 5;
-      final result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
+      var input = "a" * 5;
+      var result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
 
       expect(result, isA<ParseAmbiguousForestSuccess>());
-      final success = result as ParseAmbiguousForestSuccess;
+      var success = result as ParseAmbiguousForestSuccess;
 
       // For N=5, the number of derivations is the 4th Catalan number = 14
-      final paths = success.forest.allPaths();
+      var paths = success.forest.allPaths();
       expect(paths.length, equals(14));
     });
 
-    test('Precedence Filtering', () {
+    test("Precedence Filtering", () {
       // Classic math grammar with precedence
-      final parser =
+      var parser =
           r"""
         expr =
             6| $add expr^6 '+' expr^7
@@ -48,139 +48,136 @@ void main() {
 
       // Input: n + n * n
       // Unambiguous with precedence: (n + (n * n))
-      final result = parser.parseAmbiguous('n+n*n', captureTokensAsMarks: true);
+      var result = parser.parseAmbiguous("n+n*n", captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
-      final success = result as ParseAmbiguousForestSuccess;
+      var success = result as ParseAmbiguousForestSuccess;
 
-      final paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
+      var paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
-      expect(paths[0].join(''), equals('addn+muln*n'));
+      expect(paths[0].join(), equals("addn+muln*n"));
     });
 
-    test('Predicate Catch-up and Sub-parse', () {
+    test("Predicate Catch-up and Sub-parse", () {
       // Grammar with a predicate rule
-      final parser =
-          r"""
+      var parser =
+          """
         S = &Target 'a' 'b' 'c'
         Target = 'a' 'b'
       """
               .toSMParser();
 
-      final result = parser.parseAmbiguous('abc', captureTokensAsMarks: true);
+      var result = parser.parseAmbiguous("abc", captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
-      final success = result as ParseAmbiguousForestSuccess;
-      final paths = success.forest.allPaths().toList();
+      var success = result as ParseAmbiguousForestSuccess;
+      var paths = success.forest.allPaths().toList();
       expect(paths.length, equals(1));
-      expect(paths.single.toShortMarks().join(''), equals('abc'));
+      expect(paths.single.toShortMarks().join(), equals("abc"));
     });
 
-    test('NOT Predicate Catch-up and Sub-parse', () {
+    test("NOT Predicate Catch-up and Sub-parse", () {
       // The NOT lookahead must stay parked until Target exhausts on the next
       // token, then resume the outer parse at the original pivot.
-      final parser =
-          r"""
+      var parser =
+          """
         S = !Target 'a' 'c'
         Target = 'a' 'b'
       """
               .toSMParser();
 
-      final successResult = parser.parseAmbiguous('ac', captureTokensAsMarks: true);
+      var successResult = parser.parseAmbiguous("ac", captureTokensAsMarks: true);
       expect(successResult, isA<ParseAmbiguousForestSuccess>());
 
-      final success = successResult as ParseAmbiguousForestSuccess;
-      final paths = success.forest.allPaths().toList();
+      var success = successResult as ParseAmbiguousForestSuccess;
+      var paths = success.forest.allPaths().toList();
       expect(paths.length, equals(1));
-      expect(paths.single.toShortMarks().join(''), equals('ac'));
+      expect(paths.single.toShortMarks().join(), equals("ac"));
 
-      expect(parser.parseAmbiguous('ab', captureTokensAsMarks: true), isA<ParseError>());
+      expect(parser.parseAmbiguous("ab", captureTokensAsMarks: true), isA<ParseError>());
     });
 
-    test('Manual AND predicate catch-up preserves marks', () {
-      final parser =
+    test("Manual AND predicate catch-up preserves marks", () {
+      var parser =
           r"""
         S = $start &Target 'a' 'b' 'c'
         Target = 'a' 'b'
       """
               .toSMParser(captureTokensAsMarks: true);
 
-      final parseState = parser.createParseState(captureTokensAsMarks: true);
+      var parseState = parser.createParseState(captureTokensAsMarks: true);
 
-      for (final unit in 'abc'.codeUnits) {
+      for (var unit in "abc".codeUnits) {
         parseState.processToken(unit);
       }
 
-      final finalStep = parseState.finish();
+      var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(['start', 'abc']));
+      expect(finalStep.marks.toShortMarks(), equals(["start", "abc"]));
     });
 
-    test('Manual NOT predicate catch-up preserves marks', () {
-      final parser =
+    test("Manual NOT predicate catch-up preserves marks", () {
+      var parser =
           r"""
         S = $start !Target 'a' 'c'
         Target = 'a' 'b'
       """
               .toSMParser(captureTokensAsMarks: true);
 
-      final parseState = parser.createParseState(captureTokensAsMarks: true);
+      var parseState = parser.createParseState(captureTokensAsMarks: true);
 
-      for (final unit in 'ac'.codeUnits) {
+      for (var unit in "ac".codeUnits) {
         parseState.processToken(unit);
       }
 
-      final finalStep = parseState.finish();
+      var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(['start', 'ac']));
+      expect(finalStep.marks.toShortMarks(), equals(["start", "ac"]));
     });
 
-    test('Context Deduplication fixes explosion', () {
+    test("Context Deduplication fixes explosion", () {
       // This grammar is right-recursive and ambiguous (S -> aS | a)
       // Actually it's not ambiguous for 'aaa' unless we have another rule.
       // S -> s S | s s | s
-      final parser2 =
-          r"""
+      var parser2 =
+          """
         S = 's' S | 's' 's' | 's'
       """
               .toSMParser();
 
-      final input = 's' * 20;
-      final result = parser2.parseAmbiguous(input, captureTokensAsMarks: true);
+      var input = "s" * 20;
+      var result = parser2.parseAmbiguous(input, captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousForestSuccess>());
     });
 
-    test('Nested predicates', () {
+    test("Nested predicates", () {
       // S = &( &('a') 'a' ) 'a'
-      final grammar = Grammar(() {
-        final rule = Rule(
-          'S',
-          () => And(And(Token.char('a')) >> Token.char('a')) >> Token.char('a'),
-        );
+      var grammar = Grammar(() {
+        var rule = Rule("S", () => And(And(Token.char("a")) >> Token.char("a")) >> Token.char("a"));
         return rule;
       });
-      final parser = SMParser(grammar);
+      var parser = SMParser(grammar);
 
-      expect(parser.recognize('a'), isTrue);
-      expect(parser.recognize('b'), isFalse);
+      expect(parser.recognize("a"), isTrue);
+      expect(parser.recognize("b"), isFalse);
     });
-    test('Double negation !!a', () {
-      final grammar = Grammar(() {
-        final a = Token(ExactToken(97));
-        return Rule('test', () => a.not().not() >> a);
+    test("Double negation !!a", () {
+      var grammar = Grammar(() {
+        var a = Token(const ExactToken(97));
+        return Rule("test", () => a.not().not() >> a);
       });
-      final parser = SMParserMini(grammar);
-      expect(parser.recognize('a'), isTrue, reason: '!!a should match a');
-      expect(parser.recognize('b'), isFalse);
+      var parser = SMParserMini(grammar);
+      expect(parser.recognize("a"), isTrue, reason: "!!a should match a");
+      expect(parser.recognize("b"), isFalse);
     });
 
-    test('Triple negation !!!a', () {
-      final grammar = Grammar(() {
-        final a = Token(ExactToken(97));
-        return Rule('test', () => a.not().not().not() >> a);
+    test("Triple negation !!!a", () {
+      var grammar = Grammar(() {
+        var a = Token(const ExactToken(97));
+        return Rule("test", () => a.not().not().not() >> a);
       });
-      final parser = SMParserMini(grammar);
-      expect(parser.recognize('a'), isFalse, reason: '!!!a should NOT match a');
+      var parser = SMParserMini(grammar);
+      expect(parser.recognize("a"), isFalse, reason: "!!!a should NOT match a");
     });
   });
 }

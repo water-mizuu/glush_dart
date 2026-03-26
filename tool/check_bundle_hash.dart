@@ -1,28 +1,28 @@
-import 'dart:convert';
-import 'dart:io';
-import 'package:crypto/crypto.dart';
+import "dart:convert";
+import "dart:io";
+import "package:crypto/crypto.dart";
 
 /// Computes SHA256 hash of all source files in lib/src/ directory
 /// (excluding the generated runtime_bundle.dart itself)
 String computeSrcHash() {
-  final srcDir = Directory('lib/src');
+  var srcDir = Directory("lib/src");
   if (!srcDir.existsSync()) {
-    throw Exception('lib/src directory not found');
+    throw Exception("lib/src directory not found");
   }
 
-  final files = srcDir
+  var files = srcDir
       .listSync()
       .whereType<File>()
-      .where((f) => f.path.endsWith('.dart') && !f.path.endsWith('runtime_bundle.dart'))
+      .where((f) => f.path.endsWith(".dart") && !f.path.endsWith("runtime_bundle.dart"))
       .map((f) => f.path)
       .toList();
 
   files.sort();
 
-  final buffer = StringBuffer();
-  for (final filepath in files) {
-    final file = File(filepath);
-    final content = file.readAsStringSync();
+  var buffer = StringBuffer();
+  for (var filepath in files) {
+    var file = File(filepath);
+    var content = file.readAsStringSync();
     buffer.write(content);
   }
 
@@ -31,7 +31,7 @@ String computeSrcHash() {
 
 /// Gets the stored hash from tool/bundle_hash.txt, or null if file doesn't exist
 String? getStoredHash() {
-  final hashFile = File('tool/bundle_hash.txt');
+  var hashFile = File("tool/bundle_hash.txt");
   if (!hashFile.existsSync()) {
     return null;
   }
@@ -40,17 +40,17 @@ String? getStoredHash() {
 
 /// Saves the hash to tool/bundle_hash.txt
 void saveHash(String hash) {
-  final hashFile = File('tool/bundle_hash.txt');
-  hashFile.writeAsStringSync('$hash\n');
+  var hashFile = File("tool/bundle_hash.txt");
+  hashFile.writeAsStringSync("$hash\n");
 }
 
 /// Runs the bundle_runtime.dart script
 void runBundler() {
-  print('lib/src/ has changed. Regenerating runtime bundle...');
-  final result = Process.runSync('dart', ['run', 'tool/bundle_runtime.dart']);
+  print("lib/src/ has changed. Regenerating runtime bundle...");
+  var result = Process.runSync("dart", ["run", "tool/bundle_runtime.dart"]);
 
   if (result.exitCode != 0) {
-    print('ERROR: Failed to run bundler');
+    print("ERROR: Failed to run bundler");
     print(result.stderr);
     exit(1);
   }
@@ -61,8 +61,8 @@ void runBundler() {
 /// Checks if runtime bundle needs to be regenerated
 /// Returns true if regeneration was performed, false otherwise
 bool ensureBundleUpToDate() {
-  final currentHash = computeSrcHash();
-  final storedHash = getStoredHash();
+  var currentHash = computeSrcHash();
+  var storedHash = getStoredHash();
 
   if (storedHash == currentHash) {
     return false;
@@ -75,8 +75,8 @@ bool ensureBundleUpToDate() {
 
 void main() {
   if (ensureBundleUpToDate()) {
-    print('Runtime bundle regenerated and hash updated.');
+    print("Runtime bundle regenerated and hash updated.");
   } else {
-    print('Runtime bundle is up to date.');
+    print("Runtime bundle is up to date.");
   }
 }

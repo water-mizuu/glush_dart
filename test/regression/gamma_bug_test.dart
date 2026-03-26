@@ -1,15 +1,15 @@
-import 'package:glush/glush.dart';
-import 'package:test/test.dart';
+import "package:glush/glush.dart";
+import "package:test/test.dart";
 
 int counter = 0;
 
 void main() {
-  group('gamma 3 related bugs', () {
+  group("gamma 3 related bugs", () {
     evaluateGamma3(
       Grammar(() {
-        late final Rule s;
-        s = Rule('S', () {
-          return Token.char('s') | // s
+        late Rule s;
+        s = Rule("S", () {
+          return Token.char("s") | // s
               (s() >> s()) |
               (s() >> s() >> s()) |
               (s() >> s() >> s() >> s());
@@ -20,12 +20,12 @@ void main() {
 
     evaluateGamma3(
       Grammar(() {
-        late final Rule s;
-        s = Rule('S', () {
-          return Token.char('s') | // s
-              (Marker('') >> s() >> s()) |
-              (Marker('') >> s() >> s() >> s()) |
-              (Marker('') >> s() >> s() >> s() >> s());
+        late Rule s;
+        s = Rule("S", () {
+          return Token.char("s") | // s
+              (Marker("") >> s() >> s()) |
+              (Marker("") >> s() >> s() >> s()) |
+              (Marker("") >> s() >> s() >> s() >> s());
         });
         return s;
       }),
@@ -33,10 +33,10 @@ void main() {
 
     evaluateGamma3(
       Grammar(() {
-        late final Rule s;
-        s = Rule('S', () {
-          return Marker('T') >>
-              (Token.char('s') | // s
+        late Rule s;
+        s = Rule("S", () {
+          return Marker("T") >>
+              (Token.char("s") | // s
                   (s() >> s()) |
                   (s() >> s() >> s()) |
                   (s() >> s() >> s() >> s()));
@@ -48,12 +48,12 @@ void main() {
 }
 
 void evaluateGamma3(Grammar grammar) {
-  const testInput = 'ssss';
-  final parser = SMParser(grammar);
-  final derivationCount = parser.countAllParses(testInput);
-  final derivations = parser.enumerateAllParses(testInput).toList();
-  final forestResult = parser.parseWithForest(testInput);
-  test('Grammar ${counter++}', () {
+  const testInput = "ssss";
+  var parser = SMParser(grammar);
+  var derivationCount = parser.countAllParses(testInput);
+  var derivations = parser.enumerateAllParses(testInput).toList();
+  var forestResult = parser.parseWithForest(testInput);
+  test("Grammar ${counter++}", () {
     expect(forestResult, isA<ParseForestSuccess>());
 
     if (forestResult is ParseForestSuccess) {
@@ -66,7 +66,7 @@ void evaluateGamma3(Grammar grammar) {
           .map((s) => s.toPrecedenceString(testInput))
           .toSet();
 
-      final trees = forestResult.forest.extract().toList();
+      var trees = forestResult.forest.extract().toList();
       expect(enumerations.difference(forestExtracted), equals(<String>{}));
       expect(forestExtracted.difference(enumerations), equals(<String>{}));
       // Both enumeration and forest extraction should find the same number

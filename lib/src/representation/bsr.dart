@@ -8,12 +8,12 @@
 /// Reference: Scott & Johnstone, "GLL Parse-Tree Generation" (2013).
 library glush.bsr;
 
-import 'dart:collection';
+import "dart:collection";
 
-import 'package:glush/src/core/grammar.dart';
-import 'package:glush/src/core/mark.dart';
-import 'package:glush/src/core/patterns.dart';
-import 'sppf.dart';
+import "package:glush/src/core/grammar.dart";
+import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/representation/sppf.dart";
 
 /// A BSR entry (RuleSlot, start, pivot, end) according to Scott & Johnstone.
 typedef BsrEntry = (PatternSymbol slot, int start, int pivot, int end);
@@ -46,25 +46,25 @@ class BsrSet {
   void add(PatternSymbol patternSymbol, int start, int pivot, int end) {
     assert(
       start <= pivot && pivot <= end,
-      'Invariant violation in BsrSet.add: expected start <= pivot <= end, '
-      'got ($start, $pivot, $end).',
+      "Invariant violation in BsrSet.add: expected start <= pivot <= end, "
+      "got ($start, $pivot, $end).",
     );
-    _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add((pivot));
+    _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add(pivot);
   }
 
   /// Record the exact token matched by a terminal symbol.
   void addTerminal(PatternSymbol symbol, int start, int end, int token) {
     assert(
       start + 1 == end,
-      'Invariant violation in BsrSet.addTerminal: expected a single-token span, '
-      'got ($start, $end).',
+      "Invariant violation in BsrSet.addTerminal: expected a single-token span, "
+      "got ($start, $end).",
     );
-    final key = (symbol, start, end);
-    final existing = _terminals[key];
+    var key = (symbol, start, end);
+    var existing = _terminals[key];
     assert(
       existing == null || existing == token,
-      'Invariant violation in BsrSet.addTerminal: conflicting token payload '
-      'for $symbol at [$start, $end).',
+      "Invariant violation in BsrSet.addTerminal: conflicting token payload "
+      "for $symbol at [$start, $end).",
     );
     _terminals[key] = token;
   }
@@ -80,10 +80,12 @@ class BsrSet {
   Set<int> pivotsFor(PatternSymbol ruleSymbol, int start, int end) {
     assert(
       start <= end,
-      'Invariant violation in BsrSet.pivotsFor: expected start <= end, got ($start, $end).',
+      "Invariant violation in BsrSet.pivotsFor: expected start <= end, got ($start, $end).",
     );
-    final pivots = _pivots[(ruleSymbol, start, end)];
-    if (pivots == null) return const {};
+    var pivots = _pivots[(ruleSymbol, start, end)];
+    if (pivots == null) {
+      return const {};
+    }
     return UnmodifiableSetView(pivots);
   }
 
@@ -91,36 +93,36 @@ class BsrSet {
     return _terminals[(symbol, start, end)];
   }
 
-  /// Build an SPPF rooted at [startRule] over the full input.
+  /// Build an SPPF rooted at [startSymbol] over the full input.
   SymbolicNode buildSppf(
     GrammarInterface grammar,
     PatternSymbol startSymbol,
     String input,
     ForestNodeCache nodeCache,
   ) {
-    final memo = <String, SymbolicNode?>{};
-    final inProgress = <String, bool>{};
-    final root =
+    var memo = <String, SymbolicNode?>{};
+    var inProgress = <String, bool>{};
+    var root =
         SppfBuilder(this, nodeCache, grammar.childrenRegistry, input.length) //
             .buildNode(startSymbol, 0, input.length, memo, inProgress);
     return root ?? nodeCache.symbolic(0, input.length, startSymbol);
   }
 
   @override
-  String toString() => 'BsrSet(${_pivots.length} entries)';
+  String toString() => "BsrSet(${_pivots.length} entries)";
 }
 
 sealed class BsrParseOutcome {}
 
 final class BsrParseError implements BsrParseOutcome, Exception {
-  final int position;
   const BsrParseError(this.position);
+  final int position;
 }
 
 final class BsrParseSuccess implements BsrParseOutcome {
+  const BsrParseSuccess(this.bsrSet, this.marks);
   final BsrSet bsrSet;
   final List<Mark> marks;
-  const BsrParseSuccess(this.bsrSet, this.marks);
 }
 
 sealed class _Task {
@@ -129,12 +131,6 @@ sealed class _Task {
 
 // --- Core Execution Tasks ---
 class _DoBuildNode extends _Task {
-  final String key;
-  final PatternSymbol ruleSymbol;
-  final int start, end;
-  final int? minPrecedenceLevel;
-  final bool isRoot;
-
   const _DoBuildNode(
     this.key,
     this.ruleSymbol,
@@ -143,14 +139,15 @@ class _DoBuildNode extends _Task {
     this.minPrecedenceLevel, {
     this.isRoot = false,
   });
+  final String key;
+  final PatternSymbol ruleSymbol;
+  final int start;
+  final int end;
+  final int? minPrecedenceLevel;
+  final bool isRoot;
 }
 
 class _EvalPattern extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-
   const _EvalPattern(
     this.currentRule,
     this.pattern,
@@ -159,13 +156,19 @@ class _EvalPattern extends _Task {
     this.ruleStart,
     this.minPrecedenceLevel,
   );
+  final PatternSymbol currentRule;
+  final PatternSymbol pattern;
+  final int start;
+  final int end;
+  final int ruleStart;
+  final int? minPrecedenceLevel;
 }
 
 // --- Continuation Tasks (Replacing callbacks) ---
 class _ContBuildNodeFinish extends _Task {
+  const _ContBuildNodeFinish(this.symNode, this.key);
   final SymbolicNode symNode;
   final String key;
-  const _ContBuildNodeFinish(this.symNode, this.key);
 }
 
 class _ContAltCombine extends _Task {
@@ -177,20 +180,14 @@ class _ContRuleCallFinish extends _Task {
 }
 
 class _ContActionFinish extends _Task {
-  final int start, end;
-  final PatternSymbol symbolId;
   const _ContActionFinish(this.start, this.end, this.symbolId);
+  final int start;
+  final int end;
+  final PatternSymbol symbolId;
 }
 
 // --- Loop State Tasks ---
 class _ContSeqLoop extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-  final Iterator<int> it;
-  IntermediateNode? seqNode;
-
   _ContSeqLoop(
     this.currentRule,
     this.pattern,
@@ -200,28 +197,29 @@ class _ContSeqLoop extends _Task {
     this.minPrecedenceLevel,
     this.it,
   );
+  final PatternSymbol currentRule;
+  final PatternSymbol pattern;
+  final int start;
+  final int end;
+  final int ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? seqNode;
 }
 
 class _ContSeqLeft extends _Task {
+  _ContSeqLeft(this.loopTask, this.mid);
   final _ContSeqLoop loopTask;
   final int mid;
-  _ContSeqLeft(this.loopTask, this.mid);
 }
 
 class _ContSeqRight extends _Task {
+  _ContSeqRight(this.loopTask, this.leftNodes);
   final _ContSeqLoop loopTask;
   final List<ForestNode> leftNodes;
-  _ContSeqRight(this.loopTask, this.leftNodes);
 }
 
 class _ContRepLoop extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-  final Iterator<int> it;
-  IntermediateNode? repNode;
-
   _ContRepLoop(
     this.currentRule,
     this.pattern,
@@ -231,43 +229,46 @@ class _ContRepLoop extends _Task {
     this.minPrecedenceLevel,
     this.it,
   );
+  final PatternSymbol currentRule;
+  final PatternSymbol pattern;
+  final int start;
+  final int end;
+  final int ruleStart;
+  final int? minPrecedenceLevel;
+  final Iterator<int> it;
+  IntermediateNode? repNode;
 }
 
 class _ContRepBase extends _Task {
-  final _ContRepLoop loopTask;
   _ContRepBase(this.loopTask);
+  final _ContRepLoop loopTask;
 }
 
 class _ContRepEpsilon extends _Task {
-  final _ContRepLoop loopTask;
   _ContRepEpsilon(this.loopTask);
+  final _ContRepLoop loopTask;
 }
 
 class _ContRepLeft extends _Task {
+  _ContRepLeft(this.loopTask, this.mid);
   final _ContRepLoop loopTask;
   final int mid;
-  _ContRepLeft(this.loopTask, this.mid);
 }
 
 class _ContRepRight extends _Task {
+  _ContRepRight(this.loopTask, this.leftNodes);
   final _ContRepLoop loopTask;
   final List<ForestNode> leftNodes;
-  _ContRepRight(this.loopTask, this.leftNodes);
 }
 
 class _ContOptChoose extends _Task {
-  final int start, end;
-  final PatternSymbol pattern;
-
   const _ContOptChoose(this.start, this.end, this.pattern);
+  final int start;
+  final int end;
+  final PatternSymbol pattern;
 }
 
 class _ContConjLeft extends _Task {
-  final PatternSymbol currentRule;
-  final PatternSymbol pattern;
-  final int start, end, ruleStart;
-  final int? minPrecedenceLevel;
-
   const _ContConjLeft(
     this.currentRule,
     this.pattern,
@@ -276,29 +277,35 @@ class _ContConjLeft extends _Task {
     this.ruleStart,
     this.minPrecedenceLevel,
   );
+  final PatternSymbol currentRule;
+  final PatternSymbol pattern;
+  final int start;
+  final int end;
+  final int ruleStart;
+  final int? minPrecedenceLevel;
 }
 
 class _ContConjRight extends _Task {
+  const _ContConjRight(this.startTask, this.leftNodes);
   final _ContConjLeft startTask;
   final List<ForestNode> leftNodes;
-
-  const _ContConjRight(this.startTask, this.leftNodes);
 }
 
 class _AscendingIntIterator implements Iterator<int> {
+  _AscendingIntIterator(int startInclusive, this._endInclusive) : _cursor = startInclusive - 1;
   int _cursor;
   final int _endInclusive;
   int _current = 0;
-
-  _AscendingIntIterator(int startInclusive, this._endInclusive) : _cursor = startInclusive - 1;
 
   @override
   int get current => _current;
 
   @override
   bool moveNext() {
-    final next = _cursor + 1;
-    if (next > _endInclusive) return false;
+    var next = _cursor + 1;
+    if (next > _endInclusive) {
+      return false;
+    }
     _cursor = next;
     _current = next;
     return true;
@@ -306,12 +313,11 @@ class _AscendingIntIterator implements Iterator<int> {
 }
 
 class SppfBuilder {
+  SppfBuilder(this.bsr, this.nodeCache, this.childrenRegistry, this.inputLength);
   final BsrSet bsr;
   final ForestNodeCache nodeCache;
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
   final int inputLength;
-
-  SppfBuilder(this.bsr, this.nodeCache, this.childrenRegistry, this.inputLength);
 
   List<PatternSymbol> getChildrenOf(PatternSymbol symbol) {
     if (childrenRegistry[symbol] case List<PatternSymbol> children) {
@@ -323,8 +329,11 @@ class SppfBuilder {
   (String prefix, String suffix)? _splitSymbol(PatternSymbol pattern) {
     // Patterns are encoded as `prefix:id:suffix`; the prefix drives forest
     // reconstruction while the suffix carries the readable payload.
-    final split = pattern.symbol.split(':');
-    if (split.length < 3) return null;
+    var split = pattern.symbol.split(":");
+    if (split.length < 3) {
+      return null;
+    }
+
     return (split[0], split[2]);
   }
 
@@ -339,18 +348,18 @@ class SppfBuilder {
   }) {
     assert(
       start <= end,
-      'Invariant violation in SppfBuilder.buildNode: expected start <= end, got ($start, $end).',
+      "Invariant violation in SppfBuilder.buildNode: expected start <= end, got ($start, $end).",
     );
-    final key = '$ruleSymbol:$start:$end';
+    var key = "$ruleSymbol:$start:$end";
 
     // The Two-Stack VM
-    final taskStack = <_Task>[
+    var taskStack = <_Task>[
       _DoBuildNode(key, ruleSymbol, start, end, minPrecedenceLevel, isRoot: true),
     ];
-    final valueStack = <Object?>[]; // Holds List<ForestNode> and SymbolicNode?
+    var valueStack = <Object?>[]; // Holds List<ForestNode> and SymbolicNode?
 
     while (taskStack.isNotEmpty) {
-      final task = taskStack.removeLast();
+      var task = taskStack.removeLast();
 
       if (task is _DoBuildNode) {
         if (memo.containsKey(task.key)) {
@@ -363,19 +372,19 @@ class SppfBuilder {
         }
 
         inProgress[task.key] = true;
-    final symNode = nodeCache.symbolic(task.start, task.end, task.ruleSymbol);
+        var symNode = nodeCache.symbolic(task.start, task.end, task.ruleSymbol);
 
         // 2. Schedule the completion logic for AFTER the pattern evaluates
         taskStack.add(_ContBuildNodeFinish(symNode, task.key));
 
         // 1. Evaluate the pattern
-        final children = getChildrenOf(task.ruleSymbol);
+        var children = getChildrenOf(task.ruleSymbol);
         assert(
           children.length == 1,
-          'Invariant violation in buildNode: symbol ${task.ruleSymbol} must '
-          'map to exactly one root pattern, got ${children.length}.',
+          "Invariant violation in buildNode: symbol ${task.ruleSymbol} must "
+          "map to exactly one root pattern, got ${children.length}.",
         );
-        final patternToEval = children.single;
+        var patternToEval = children.single;
 
         taskStack.add(
           _EvalPattern(
@@ -388,13 +397,13 @@ class SppfBuilder {
           ),
         );
       } else if (task is _ContBuildNodeFinish) {
-        final childNodes = valueStack.removeLast() as List<ForestNode>;
-        for (final child in childNodes) {
+        var childNodes = valueStack.removeLast()! as List<ForestNode>;
+        for (var child in childNodes) {
           task.symNode.addFamily(Family.unary(child));
         }
 
         inProgress[task.key] = false;
-        final result = task.symNode.families.isNotEmpty ? task.symNode : null;
+        var result = task.symNode.families.isNotEmpty ? task.symNode : null;
         memo[task.key] = result;
         valueStack.add(result);
       } else if (task is _EvalPattern) {
@@ -402,28 +411,30 @@ class SppfBuilder {
       }
       // --- Structural Continuations ---
       else if (task is _ContAltCombine) {
-        final rightRes = valueStack.removeLast() as List<ForestNode>;
-        final leftRes = valueStack.removeLast() as List<ForestNode>;
-        final merged = <ForestNode>[];
+        var rightRes = valueStack.removeLast()! as List<ForestNode>;
+        var leftRes = valueStack.removeLast()! as List<ForestNode>;
+        var merged = <ForestNode>[];
         merged.addAll(leftRes);
         merged.addAll(rightRes);
         valueStack.add(merged);
       } else if (task is _ContRuleCallFinish) {
-        final node = valueStack.removeLast() as SymbolicNode?;
+        var node = valueStack.removeLast() as SymbolicNode?;
         valueStack.add(node != null ? [node] : <ForestNode>[]);
       } else if (task is _ContActionFinish) {
-        final nodes = valueStack.removeLast() as List<ForestNode>;
+        var nodes = valueStack.removeLast()! as List<ForestNode>;
         if (nodes.isEmpty) {
           valueStack.add(<ForestNode>[]);
         } else {
-    final node = nodeCache.intermediate(task.start, task.end, task.symbolId);
-          for (final n in nodes) node.addFamily(Family.unary(n));
+          var node = nodeCache.intermediate(task.start, task.end, task.symbolId);
+          for (var n in nodes) {
+            node.addFamily(Family.unary(n));
+          }
           valueStack.add([node]);
         }
       }
       // --- Conj ---
       else if (task is _ContConjLeft) {
-        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        var leftNodes = valueStack.removeLast()! as List<ForestNode>;
         if (leftNodes.isEmpty) {
           valueStack.add(<ForestNode>[]); // Short circuit
         } else {
@@ -440,17 +451,19 @@ class SppfBuilder {
           );
         }
       } else if (task is _ContConjRight) {
-        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        var rightNodes = valueStack.removeLast()! as List<ForestNode>;
         if (rightNodes.isEmpty) {
           valueStack.add(<ForestNode>[]);
         } else {
-    final node = nodeCache.intermediate(
+          var node = nodeCache.intermediate(
             task.startTask.start,
             task.startTask.end,
             task.startTask.pattern,
           );
-          for (final l in task.leftNodes) {
-            for (final r in rightNodes) node.addFamily(Family.binary(l, r));
+          for (var l in task.leftNodes) {
+            for (var r in rightNodes) {
+              node.addFamily(Family.binary(l, r));
+            }
           }
           valueStack.add([node]);
         }
@@ -460,7 +473,7 @@ class SppfBuilder {
         if (!task.it.moveNext()) {
           valueStack.add(task.seqNode != null ? [task.seqNode!] : <ForestNode>[]);
         } else {
-          final mid = task.it.current;
+          var mid = task.it.current;
           taskStack.add(task); // Re-queue loop state
           taskStack.add(_ContSeqLeft(task, mid));
           taskStack.add(
@@ -475,7 +488,7 @@ class SppfBuilder {
           );
         }
       } else if (task is _ContSeqLeft) {
-        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        var leftNodes = valueStack.removeLast()! as List<ForestNode>;
         if (leftNodes.isEmpty) {
           // Skip right evaluation, let loop continue on next tick
         } else {
@@ -492,35 +505,37 @@ class SppfBuilder {
           );
         }
       } else if (task is _ContSeqRight) {
-        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        var rightNodes = valueStack.removeLast()! as List<ForestNode>;
         if (rightNodes.isNotEmpty) {
-    task.loopTask.seqNode ??= nodeCache.intermediate(
+          task.loopTask.seqNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
           );
-          for (final l in task.leftNodes) {
-            for (final r in rightNodes) task.loopTask.seqNode!.addFamily(Family.binary(l, r));
+          for (var l in task.leftNodes) {
+            for (var r in rightNodes) {
+              task.loopTask.seqNode!.addFamily(Family.binary(l, r));
+            }
           }
         }
       } else if (task is _ContRepEpsilon) {
-    task.loopTask.repNode ??= nodeCache.intermediate(
+        task.loopTask.repNode ??= nodeCache.intermediate(
           task.loopTask.start,
           task.loopTask.end,
           task.loopTask.pattern,
         );
         task.loopTask.repNode!.addFamily(
-      Family.unary(nodeCache.epsilon(task.loopTask.start, task.loopTask.pattern)),
+          Family.unary(nodeCache.epsilon(task.loopTask.start, task.loopTask.pattern)),
         );
       } else if (task is _ContRepBase) {
-        final baseNodes = valueStack.removeLast() as List<ForestNode>;
+        var baseNodes = valueStack.removeLast()! as List<ForestNode>;
         if (baseNodes.isNotEmpty) {
-    task.loopTask.repNode ??= nodeCache.intermediate(
+          task.loopTask.repNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
           );
-          for (final base in baseNodes) {
+          for (var base in baseNodes) {
             task.loopTask.repNode!.addFamily(Family.unary(base));
           }
         }
@@ -528,7 +543,7 @@ class SppfBuilder {
         if (!task.it.moveNext()) {
           valueStack.add(task.repNode != null ? [task.repNode!] : <ForestNode>[]);
         } else {
-          final mid = task.it.current;
+          var mid = task.it.current;
           taskStack.add(task);
           taskStack.add(_ContRepLeft(task, mid));
           taskStack.add(
@@ -543,7 +558,7 @@ class SppfBuilder {
           );
         }
       } else if (task is _ContRepLeft) {
-        final leftNodes = valueStack.removeLast() as List<ForestNode>;
+        var leftNodes = valueStack.removeLast()! as List<ForestNode>;
         if (leftNodes.isNotEmpty) {
           taskStack.add(_ContRepRight(task.loopTask, leftNodes));
           taskStack.add(
@@ -558,25 +573,25 @@ class SppfBuilder {
           );
         }
       } else if (task is _ContRepRight) {
-        final rightNodes = valueStack.removeLast() as List<ForestNode>;
+        var rightNodes = valueStack.removeLast()! as List<ForestNode>;
         if (rightNodes.isNotEmpty) {
-    task.loopTask.repNode ??= nodeCache.intermediate(
+          task.loopTask.repNode ??= nodeCache.intermediate(
             task.loopTask.start,
             task.loopTask.end,
             task.loopTask.pattern,
           );
-          for (final l in task.leftNodes) {
-            for (final r in rightNodes) {
+          for (var l in task.leftNodes) {
+            for (var r in rightNodes) {
               task.loopTask.repNode!.addFamily(Family.binary(l, r));
             }
           }
         }
       } else if (task is _ContOptChoose) {
-        final childNodes = valueStack.removeLast() as List<ForestNode>;
+        var childNodes = valueStack.removeLast()! as List<ForestNode>;
         if (childNodes.isNotEmpty) {
           valueStack.add(childNodes);
         } else if (task.start == task.end) {
-    valueStack.add([nodeCache.epsilon(task.start, task.pattern)]);
+          valueStack.add([nodeCache.epsilon(task.start, task.pattern)]);
         } else {
           valueStack.add(<ForestNode>[]);
         }
@@ -587,68 +602,66 @@ class SppfBuilder {
   }
 
   void _executePatternTask(_EvalPattern task, List<_Task> taskStack, List<Object?> valueStack) {
-    final start = task.start;
-    final end = task.end;
+    var start = task.start;
+    var end = task.end;
 
-    final split = _splitSymbol(task.pattern);
+    var split = _splitSymbol(task.pattern);
     if (split == null) {
       throw StateError("Couldn't parse symbol encoding for ${task.pattern}.");
     }
-    final (prefix, suffix) = split;
+    var (prefix, suffix) = split;
 
     switch (prefix) {
-      case 'eps':
+      case "eps":
         valueStack.add(start == end ? [nodeCache.epsilon(start, task.pattern)] : <ForestNode>[]);
-      case 'bos':
+      case "bos":
         valueStack.add(
-          start == end && start == 0
-              ? [nodeCache.epsilon(start, task.pattern)]
-              : <ForestNode>[],
+          start == end && start == 0 ? [nodeCache.epsilon(start, task.pattern)] : <ForestNode>[],
         );
-      case 'eof':
+      case "eof":
         valueStack.add(
           start == end && end == inputLength
               ? [nodeCache.epsilon(start, task.pattern)]
               : <ForestNode>[],
         );
-      case 'tok':
+      case "tok":
         {
-          final token = bsr.tokenFor(task.pattern, start, end);
+          var token = bsr.tokenFor(task.pattern, start, end);
           if (token != null) {
-    valueStack.add([nodeCache.terminal(start, end, task.pattern, token)]);
+            valueStack.add([nodeCache.terminal(start, end, task.pattern, token)]);
           } else {
             valueStack.add(const <ForestNode>[]);
           }
         }
-      case 'mar':
+      case "mar":
         {
           valueStack.add(
             (start == end) //
-      ? [nodeCache.marker(start, task.pattern, suffix)]
+                ? [nodeCache.marker(start, task.pattern, suffix)]
                 : const <ForestNode>[],
           );
         }
-      case 'las':
-      case 'lae':
+      case "las":
+      case "lae":
         {
           valueStack.add(
             (start == end) //
-      ? [nodeCache.marker(start, task.pattern, suffix)]
+                ? [nodeCache.marker(start, task.pattern, suffix)]
                 : const <ForestNode>[],
           );
         }
-      case 'and':
-      case 'not':
+      case "and":
+      case "not":
         {
           valueStack.add(
             (start == end) //
-      ? [nodeCache.epsilon(start, task.pattern)]
+                ? [nodeCache.epsilon(start, task.pattern)]
                 : <ForestNode>[],
           );
         }
-      case 'alt':
+      case "alt":
         {
-          taskStack.add(_ContAltCombine());
+          taskStack.add(const _ContAltCombine());
 
           taskStack.add(
             _EvalPattern(
@@ -671,7 +684,7 @@ class SppfBuilder {
             ),
           );
         }
-      case 'lab':
+      case "lab":
         {
           taskStack.add(_ContActionFinish(start, end, task.pattern));
           taskStack.add(
@@ -685,7 +698,7 @@ class SppfBuilder {
             ),
           );
         }
-      case 'opt':
+      case "opt":
         {
           taskStack.add(_ContOptChoose(start, end, task.pattern));
           taskStack.add(
@@ -699,9 +712,9 @@ class SppfBuilder {
             ),
           );
         }
-      case 'seq':
+      case "seq":
         {
-          final pivots = bsr.pivotsFor(task.currentRule, start, end);
+          var pivots = bsr.pivotsFor(task.currentRule, start, end);
           taskStack.add(
             _ContSeqLoop(
               task.currentRule,
@@ -714,10 +727,10 @@ class SppfBuilder {
             ),
           );
         }
-      case 'sta':
+      case "sta":
         {
-          final mids = _AscendingIntIterator(start + 1, end);
-          final loop = _ContRepLoop(
+          var mids = _AscendingIntIterator(start + 1, end);
+          var loop = _ContRepLoop(
             task.currentRule,
             task.pattern,
             start,
@@ -731,10 +744,10 @@ class SppfBuilder {
             taskStack.add(_ContRepEpsilon(loop));
           }
         }
-      case 'plu':
+      case "plu":
         {
-          final mids = _AscendingIntIterator(start + 1, end);
-          final loop = _ContRepLoop(
+          var mids = _AscendingIntIterator(start + 1, end);
+          var loop = _ContRepLoop(
             task.currentRule,
             task.pattern,
             start,
@@ -756,7 +769,7 @@ class SppfBuilder {
             ),
           );
         }
-      case 'con':
+      case "con":
         {
           taskStack.add(
             _ContConjLeft(
@@ -779,7 +792,7 @@ class SppfBuilder {
             ),
           );
         }
-      case 'rul':
+      case "rul":
         {
           taskStack.add(
             _EvalPattern(
@@ -792,16 +805,16 @@ class SppfBuilder {
             ),
           );
         }
-      case 'rca':
+      case "rca":
         {
-          final effectivePrec = int.tryParse(suffix) ?? task.minPrecedenceLevel;
-          final toCall = getChildrenOf(task.pattern).single;
-          final key = '$toCall:$start:$end:${effectivePrec ?? 'null'}';
+          var effectivePrec = int.tryParse(suffix) ?? task.minPrecedenceLevel;
+          var toCall = getChildrenOf(task.pattern).single;
+          var key = '$toCall:$start:$end:${effectivePrec ?? 'null'}';
 
-          taskStack.add(_ContRuleCallFinish());
+          taskStack.add(const _ContRuleCallFinish());
           taskStack.add(_DoBuildNode(key, toCall, start, end, effectivePrec));
         }
-      case 'act':
+      case "act":
         {
           taskStack.add(_ContActionFinish(start, end, task.pattern));
           taskStack.add(
@@ -815,9 +828,9 @@ class SppfBuilder {
             ),
           );
         }
-      case 'pre':
+      case "pre":
         {
-          final precedenceLevel = int.tryParse(suffix) ?? 0;
+          var precedenceLevel = int.tryParse(suffix) ?? 0;
           if (task.minPrecedenceLevel != null && precedenceLevel < task.minPrecedenceLevel!) {
             valueStack.add(<ForestNode>[]); // Skip
           } else {

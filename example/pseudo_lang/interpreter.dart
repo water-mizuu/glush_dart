@@ -1,4 +1,4 @@
-import 'package:glush/glush.dart';
+import "package:glush/glush.dart";
 
 /// Helper to get all results with a given label
 List<ParseNode> getLabel(List<(String label, ParseNode node)> children, String label) {
@@ -25,8 +25,8 @@ sealed class Value {
 }
 
 class IntValue extends Value {
-  final int value;
   const IntValue(this.value);
+  final int value;
 
   @override
   int asInt() => value;
@@ -36,8 +36,9 @@ class IntValue extends Value {
 }
 
 class BoolValue extends Value {
-  final bool value;
+  // ignore: avoid_positional_boolean_parameters
   const BoolValue(this.value);
+  final bool value;
 
   @override
   bool asBool() => value;
@@ -47,13 +48,15 @@ class BoolValue extends Value {
 }
 
 class FunctionValue extends Value {
-  final ParseNode node;
   const FunctionValue(this.node);
+  final ParseNode node;
 
   @override
   String toString() {
-    if (node is! ParseResult) return "<fn ?>";
-    final names = getLabel((node as ParseResult).children, 'name');
+    if (node is! ParseResult) {
+      return "<fn ?>";
+    }
+    var names = getLabel((node as ParseResult).children, "name");
     return "<fn ${names.isNotEmpty ? names.first.span : '?'}>";
   }
 }
@@ -67,10 +70,9 @@ class NullValue extends Value {
 
 /// Manages variable scopes and function definitions for the interpreter.
 class Environment {
+  Environment([this.parent]);
   final Map<String, Value> _values = {};
   final Environment? parent;
-
-  Environment([this.parent]);
 
   void define(String name, Value value) {
     _values[name] = value;
@@ -105,51 +107,54 @@ class Environment {
 
 /// A tree-walking interpreter for the pseudo-programming language.
 class Interpreter {
-  final Environment globals = Environment();
-  late Environment _environment;
-
   Interpreter() {
     _environment = globals;
   }
+  final Environment globals = Environment();
+  late Environment _environment;
 
   void execute(ParseResult program) {
-    final functions = getLabel(program.children, 'function');
-    for (final function in functions) {
+    var functions = getLabel(program.children, "function");
+    for (var function in functions) {
       _defineFunction(function);
     }
 
-    final mainFunc = globals.get('main');
+    var mainFunc = globals.get("main");
     if (mainFunc is FunctionValue) {
       _callFunction(mainFunc.node, []);
     }
   }
 
   void _defineFunction(ParseNode functionNode) {
-    if (functionNode is! ParseResult) return;
-    final names = getLabel(functionNode.children, 'name');
+    if (functionNode is! ParseResult) {
+      return;
+    }
+    var names = getLabel(functionNode.children, "name");
     if (names.isNotEmpty) {
-      final name = names.first.span;
+      var name = names.first.span;
       globals.define(name, FunctionValue(functionNode));
     }
   }
 
   Value _callFunction(ParseNode functionNode, List<Value> arguments) {
-    if (functionNode is! ParseResult) return const NullValue();
-    final previousEnv = _environment;
+    if (functionNode is! ParseResult) {
+      return const NullValue();
+    }
+    var previousEnv = _environment;
     _environment = Environment(globals);
 
-    final paramsNodeList = getLabel(functionNode.children, 'params');
+    var paramsNodeList = getLabel(functionNode.children, "params");
     if (paramsNodeList.isNotEmpty && paramsNodeList.first is ParseResult) {
-      final paramsNode = paramsNodeList.first as ParseResult;
-      final names = getLabel(paramsNode.children, 'name').map((n) => n.span).toList();
+      var paramsNode = paramsNodeList.first as ParseResult;
+      var names = getLabel(paramsNode.children, "name").map((n) => n.span).toList();
       for (var i = 0; i < names.length && i < arguments.length; i++) {
         _environment.define(names[i], arguments[i]);
       }
     }
 
-    final bodyList = getLabel(functionNode.children, 'body');
+    var bodyList = getLabel(functionNode.children, "body");
     if (bodyList.isNotEmpty) {
-      final result = _executeBlock(bodyList.first);
+      var result = _executeBlock(bodyList.first);
       _environment = previousEnv;
       return result ?? const NullValue();
     }
@@ -159,76 +164,84 @@ class Interpreter {
   }
 
   Value? _executeBlock(ParseNode blockNode) {
-    if (blockNode is! ParseResult) return null;
-    final stmts = getLabel(blockNode.children, 'stmts');
-    for (final stmt in stmts) {
-      final val = _executeStatement(stmt);
-      if (val != null) return val;
+    if (blockNode is! ParseResult) {
+      return null;
+    }
+    var stmts = getLabel(blockNode.children, "stmts");
+    for (var stmt in stmts) {
+      var val = _executeStatement(stmt);
+      if (val != null) {
+        return val;
+      }
     }
     return null;
   }
 
   Value? _executeStatement(ParseNode stmtNode) {
-    if (stmtNode is! ParseResult) return null;
-    final children = stmtNode.children;
+    if (stmtNode is! ParseResult) {
+      return null;
+    }
+    var children = stmtNode.children;
 
-    if (hasLabel(children, 'decl')) {
-      final declList = getLabel(children, 'decl');
+    if (hasLabel(children, "decl")) {
+      var declList = getLabel(children, "decl");
       if (declList.isNotEmpty && declList.first is ParseResult) {
-        final decl = declList.first as ParseResult;
-        final names = getLabel(decl.children, 'name');
-        final values = getLabel(decl.children, 'value');
+        var decl = declList.first as ParseResult;
+        var names = getLabel(decl.children, "name");
+        var values = getLabel(decl.children, "value");
         if (names.isNotEmpty && values.isNotEmpty) {
-          final name = names.first.span;
-          final value = _evaluateExpression(values.first);
+          var name = names.first.span;
+          var value = _evaluateExpression(values.first);
           _environment.define(name, value);
         }
       }
-    } else if (hasLabel(children, 'assign')) {
-      final assignList = getLabel(children, 'assign');
+    } else if (hasLabel(children, "assign")) {
+      var assignList = getLabel(children, "assign");
       if (assignList.isNotEmpty && assignList.first is ParseResult) {
-        final assign = assignList.first as ParseResult;
-        final names = getLabel(assign.children, 'name');
-        final values = getLabel(assign.children, 'value');
+        var assign = assignList.first as ParseResult;
+        var names = getLabel(assign.children, "name");
+        var values = getLabel(assign.children, "value");
         if (names.isNotEmpty && values.isNotEmpty) {
-          final name = names.first.span;
-          final value = _evaluateExpression(values.first);
+          var name = names.first.span;
+          var value = _evaluateExpression(values.first);
           _environment.assign(name, value);
         }
       }
-    } else if (hasLabel(children, 'call')) {
-      final callList = getLabel(children, 'call');
+    } else if (hasLabel(children, "call")) {
+      var callList = getLabel(children, "call");
       if (callList.isNotEmpty) {
         _executeFunctionCall(callList.first);
       }
-    } else if (hasLabel(children, 'ifStmt')) {
-      final ifStmtList = getLabel(children, 'ifStmt');
+    } else if (hasLabel(children, "ifStmt")) {
+      var ifStmtList = getLabel(children, "ifStmt");
       if (ifStmtList.isNotEmpty && ifStmtList.first is ParseResult) {
-        final ifStmt = ifStmtList.first as ParseResult;
-        final conditions = getLabel(ifStmt.children, 'cond');
-        final thenBlocks = getLabel(ifStmt.children, 'then');
+        var ifStmt = ifStmtList.first as ParseResult;
+        var conditions = getLabel(ifStmt.children, "cond");
+        var thenBlocks = getLabel(ifStmt.children, "then");
         if (conditions.isNotEmpty && thenBlocks.isNotEmpty) {
-          final condition = _evaluateExpression(conditions.first);
+          var condition = _evaluateExpression(conditions.first);
           if (_isTruthy(condition)) {
             return _executeBlock(thenBlocks.first);
-          } else if (hasLabel(ifStmt.children, 'else')) {
-            final elseBlocks = getLabel(ifStmt.children, 'else');
+          } else if (hasLabel(ifStmt.children, "else")) {
+            var elseBlocks = getLabel(ifStmt.children, "else");
             if (elseBlocks.isNotEmpty) {
               return _executeBlock(elseBlocks.first);
             }
           }
         }
       }
-    } else if (hasLabel(children, 'whileStmt')) {
-      final whileStmtList = getLabel(children, 'whileStmt');
+    } else if (hasLabel(children, "whileStmt")) {
+      var whileStmtList = getLabel(children, "whileStmt");
       if (whileStmtList.isNotEmpty && whileStmtList.first is ParseResult) {
-        final whileStmt = whileStmtList.first as ParseResult;
-        final conditions = getLabel(whileStmt.children, 'cond');
-        final bodies = getLabel(whileStmt.children, 'body');
+        var whileStmt = whileStmtList.first as ParseResult;
+        var conditions = getLabel(whileStmt.children, "cond");
+        var bodies = getLabel(whileStmt.children, "body");
         if (conditions.isNotEmpty && bodies.isNotEmpty) {
           while (_isTruthy(_evaluateExpression(conditions.first))) {
-            final result = _executeBlock(bodies.first);
-            if (result != null) return result;
+            var result = _executeBlock(bodies.first);
+            if (result != null) {
+              return result;
+            }
           }
         }
       }
@@ -237,30 +250,34 @@ class Interpreter {
   }
 
   void _executeFunctionCall(ParseNode callNode) {
-    if (callNode is! ParseResult) return;
-    final names = getLabel(callNode.children, 'name');
-    if (names.isEmpty) return;
+    if (callNode is! ParseResult) {
+      return;
+    }
+    var names = getLabel(callNode.children, "name");
+    if (names.isEmpty) {
+      return;
+    }
 
-    final name = names.first.span;
-    final argsNodes = getLabel(callNode.children, 'arguments');
-    final args = <Value>[];
+    var name = names.first.span;
+    var argsNodes = getLabel(callNode.children, "arguments");
+    var args = <Value>[];
 
     if (argsNodes.isNotEmpty && argsNodes.first is ParseResult) {
-      final argsNode = argsNodes.first as ParseResult;
-      final heads = getLabel(argsNode.children, 'head');
+      var argsNode = argsNodes.first as ParseResult;
+      var heads = getLabel(argsNode.children, "head");
       if (heads.isNotEmpty) {
         args.add(_evaluateExpression(heads.first));
       }
-      final tails = getLabel(argsNode.children, 'tail');
-      for (final tail in tails) {
+      var tails = getLabel(argsNode.children, "tail");
+      for (var tail in tails) {
         args.add(_evaluateExpression(tail));
       }
     }
 
-    if (name == 'print') {
-      print("${args.join(', ')}");
+    if (name == "print") {
+      print(args.join(", "));
     } else {
-      final val = globals.get(name);
+      var val = globals.get(name);
       if (val is FunctionValue) {
         _callFunction(val.node, args);
       } else {
@@ -270,18 +287,22 @@ class Interpreter {
   }
 
   Value _evaluateExpression(ParseNode exprNode) {
-    if (exprNode is! ParseResult) throw Exception("Expected ParseResult for expression");
-    final lefts = getLabel(exprNode.children, 'left');
-    if (lefts.isEmpty) throw Exception("No left operand in expression");
+    if (exprNode is! ParseResult) {
+      throw Exception("Expected ParseResult for expression");
+    }
+    var lefts = getLabel(exprNode.children, "left");
+    if (lefts.isEmpty) {
+      throw Exception("No left operand in expression");
+    }
 
     var result = _evaluatePrimary(lefts.first);
 
-    final ops = getLabel(exprNode.children, 'op');
-    final rights = getLabel(exprNode.children, 'right');
+    var ops = getLabel(exprNode.children, "op");
+    var rights = getLabel(exprNode.children, "right");
 
     for (var i = 0; i < ops.length && i < rights.length; i++) {
-      final op = ops[i].span;
-      final right = _evaluatePrimary(rights[i]);
+      var op = ops[i].span;
+      var right = _evaluatePrimary(rights[i]);
       result = _applyOperator(result, op, right);
     }
 
@@ -289,18 +310,20 @@ class Interpreter {
   }
 
   Value _evaluatePrimary(ParseNode primaryNode) {
-    if (primaryNode is! ParseResult) throw Exception("Expected ParseResult for primary");
-    final vals = getLabel(primaryNode.children, 'val');
+    if (primaryNode is! ParseResult) {
+      throw Exception("Expected ParseResult for primary");
+    }
+    var vals = getLabel(primaryNode.children, "val");
     if (vals.isNotEmpty) {
       return IntValue(int.parse(vals.first.span));
     }
 
-    final refs = getLabel(primaryNode.children, 'ref');
+    var refs = getLabel(primaryNode.children, "ref");
     if (refs.isNotEmpty) {
       return _environment.get(refs.first.span);
     }
 
-    final expressions = getLabel(primaryNode.children, 'expression');
+    var expressions = getLabel(primaryNode.children, "expression");
     if (expressions.isNotEmpty) {
       return _evaluateExpression(expressions.first);
     }
@@ -310,29 +333,37 @@ class Interpreter {
 
   Value _applyOperator(Value left, String op, Value right) {
     switch (op) {
-      case '+':
+      case "+":
         return IntValue(left.asInt() + right.asInt());
-      case '-':
+      case "-":
         return IntValue(left.asInt() - right.asInt());
-      case '*':
+      case "*":
         return IntValue(left.asInt() * right.asInt());
-      case '/':
+      case "/":
         return IntValue(left.asInt() ~/ right.asInt());
-      case '==':
-        if (left is IntValue && right is IntValue) return BoolValue(left.value == right.value);
-        if (left is BoolValue && right is BoolValue) return BoolValue(left.value == right.value);
+      case "==":
+        if (left is IntValue && right is IntValue) {
+          return BoolValue(left.value == right.value);
+        }
+        if (left is BoolValue && right is BoolValue) {
+          return BoolValue(left.value == right.value);
+        }
         return const BoolValue(false);
-      case '!=':
-        if (left is IntValue && right is IntValue) return BoolValue(left.value != right.value);
-        if (left is BoolValue && right is BoolValue) return BoolValue(left.value != right.value);
+      case "!=":
+        if (left is IntValue && right is IntValue) {
+          return BoolValue(left.value != right.value);
+        }
+        if (left is BoolValue && right is BoolValue) {
+          return BoolValue(left.value != right.value);
+        }
         return const BoolValue(true);
-      case '<':
+      case "<":
         return BoolValue(left.asInt() < right.asInt());
-      case '>':
+      case ">":
         return BoolValue(left.asInt() > right.asInt());
-      case '<=':
+      case "<=":
         return BoolValue(left.asInt() <= right.asInt());
-      case '>=':
+      case ">=":
         return BoolValue(left.asInt() >= right.asInt());
       default:
         throw Exception("Unknown operator '$op'.");
@@ -340,9 +371,15 @@ class Interpreter {
   }
 
   bool _isTruthy(Value value) {
-    if (value is BoolValue) return value.value;
-    if (value is IntValue) return value.value != 0;
-    if (value is NullValue) return false;
+    if (value is BoolValue) {
+      return value.value;
+    }
+    if (value is IntValue) {
+      return value.value != 0;
+    }
+    if (value is NullValue) {
+      return false;
+    }
     return true;
   }
 }

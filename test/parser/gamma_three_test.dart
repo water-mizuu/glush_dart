@@ -1,24 +1,24 @@
-import 'package:glush/glush.dart';
-import 'package:test/test.dart';
+import "package:glush/glush.dart";
+import "package:test/test.dart";
 
 void main() {
-  test('counts match for more complex ambiguity S->SSS|SS|s', () {
-    final grammar = Grammar(() {
-      late final Rule s;
-      s = Rule('S', () {
-        return Token.char('s') | // s
-            (Marker('') >> s() >> s()) |
-            (Marker('') >> s() >> s() >> s()) |
-            (Marker('') >> s() >> s() >> s() >> s());
+  test("counts match for more complex ambiguity S->SSS|SS|s", () {
+    var grammar = Grammar(() {
+      late Rule s;
+      s = Rule("S", () {
+        return Token.char("s") | // s
+            (Marker("") >> s() >> s()) |
+            (Marker("") >> s() >> s() >> s()) |
+            (Marker("") >> s() >> s() >> s() >> s());
       });
       return s;
     });
 
-    final parser = SMParser(grammar);
-    const testInput = 'ssss';
-    final derivationCount = parser.countAllParses(testInput);
-    final derivations = parser.enumerateAllParses(testInput).toList();
-    final forestResult = parser.parseWithForest(testInput);
+    var parser = SMParser(grammar);
+    const testInput = "ssss";
+    var derivationCount = parser.countAllParses(testInput);
+    var derivations = parser.enumerateAllParses(testInput).toList();
+    var forestResult = parser.parseWithForest(testInput);
     expect(forestResult, isA<ParseForestSuccess>());
 
     if (forestResult is ParseForestSuccess) {
@@ -31,7 +31,7 @@ void main() {
           .map((s) => s.toPrecedenceString(testInput))
           .toSet();
 
-      final trees = forestResult.forest.extract().toList();
+      var trees = forestResult.forest.extract().toList();
       expect(enumerations.difference(forestExtracted), equals(<String>{}));
       expect(forestExtracted.difference(enumerations), equals(<String>{}));
       // Both enumeration and forest extraction should find the same number

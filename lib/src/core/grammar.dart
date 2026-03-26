@@ -1,11 +1,11 @@
 /// Grammar definition and building
 library glush.grammar;
 
-import 'dart:collection';
+import "dart:collection";
 
-import 'patterns.dart';
-import '../parser/state_machine.dart' as sm;
-import 'errors.dart';
+import "package:glush/src/core/errors.dart";
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/state_machine.dart" as sm;
 
 typedef GrammarBuilder = Rule Function();
 
@@ -22,7 +22,15 @@ sealed class GrammarInterface {
 }
 
 class Grammar with _GrammarMixin implements GrammarInterface {
+  Grammar(GrammarBuilder builder) {
+    var result = builder();
+    finalize(result.call());
+  }
+
+  @override
   final List<Rule> rules = [];
+
+  @override
   late final RuleCall startCall;
   Map<Pattern, List<Pattern>>? transitions;
   sm.StateMachine? _stateMachine;
@@ -36,28 +44,23 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   @override
   PatternSymbol get startSymbol => startCall.rule.symbolId!;
 
-  Grammar(GrammarBuilder builder) {
-    final result = builder();
-    finalize(result.call());
-  }
-
   void finalize(RuleCall start) {
     startCall = start.consume() as RuleCall;
 
     // Discover all rules referenced from the start call
-    final discoveredRules = <Rule>{startCall.rule};
-    final toProcess = Queue.of([startCall.rule]);
+    var discoveredRules = <Rule>{startCall.rule};
+    var toProcess = Queue.of([startCall.rule]);
 
     // Recursively discover rules by examining their bodies
     while (toProcess.isNotEmpty) {
-      final rule = toProcess.removeFirst();
+      var rule = toProcess.removeFirst();
 
       // Now safe to call body() since rule is registered
-      final body = rule.body();
-      final referencedRules = <Rule>{};
+      var body = rule.body();
+      var referencedRules = <Rule>{};
       body.collectRules(referencedRules);
 
-      for (final ref in referencedRules) {
+      for (var ref in referencedRules) {
         if (!discoveredRules.contains(ref)) {
           discoveredRules.add(ref);
           toProcess.addLast(ref);
@@ -78,28 +81,28 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   /// Discovers all patterns in the grammar and assigns them symbol IDs
   void _assignPatternSymbols() {
-    final allPatterns = <Pattern>{};
+    var allPatterns = <Pattern>{};
 
     // Collect all patterns from the grammar's rules, including the rules themselves
-    for (final rule in rules) {
+    for (var rule in rules) {
       allPatterns.add(rule); // Add the rule itself
       _collectPatternsFromRule(rule, allPatterns);
     }
 
     int symbolCounter = 0;
     // Assign symbol IDs to each pattern in discovery order
-    for (final pattern in allPatterns) {
+    for (var pattern in allPatterns) {
       if (pattern.symbolId == null) {
-        final symbolId = 'S${symbolCounter++}';
+        var symbolId = "S${symbolCounter++}";
         pattern.symbolId = PatternSymbol(symbolId);
       }
-      final actualSymbolId = pattern.symbolId!;
+      var actualSymbolId = pattern.symbolId!;
       symbolRegistry[actualSymbolId] = pattern;
     }
   }
 
   void _fillChildrenMapping() {
-    for (final pattern in allPatterns) {
+    for (var pattern in allPatterns) {
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
         Token() ||
         Marker() ||
@@ -126,7 +129,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   /// Recursively collects all patterns used in a rule's body
   void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
-    final body = rule.body();
+    var body = rule.body();
     _collectPatternsFromPattern(body, patterns);
   }
 
@@ -141,24 +144,35 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   void _normalizePattern(Pattern pattern) {
     // We use a set to avoid infinite recursion in graph
-    final seen = <Pattern>{};
-    final queue = <Pattern>[pattern];
+    var seen = <Pattern>{};
+    var queue = <Pattern>[pattern];
 
     while (queue.isNotEmpty) {
-      final patternNode = queue.removeAt(0);
-      if (seen.contains(patternNode)) continue;
+      var patternNode = queue.removeAt(0);
+      if (seen.contains(patternNode)) {
+        continue;
+      }
       seen.add(patternNode);
 
-      if (patternNode is And || patternNode is Not) {
-        final dynamic pred = patternNode;
-        final child = pred.pattern;
+      if (patternNode is And) {
+        var child = patternNode.pattern;
         if (child is! RuleCall) {
-          final syntheticName = 'pred\$${_syntheticRuleCounter++}';
-          final syntheticRule = Rule(syntheticName, () => child);
+          var syntheticName = "pred\$${_syntheticRuleCounter++}";
+          var syntheticRule = Rule(syntheticName, () => child);
           rules.add(syntheticRule);
-          pred.pattern = syntheticRule.call();
-          // The new RuleCall will be seen in the next iteration or via recursive discovery
-          queue.add(pred.pattern);
+          patternNode.pattern = syntheticRule.call() as Pattern;
+          // The new RuleCall will be seen in the next iteration or via recursive discovery.
+          queue.add(patternNode.pattern);
+        }
+      } else if (patternNode is Not) {
+        var child = patternNode.pattern;
+        if (child is! RuleCall) {
+          var syntheticName = "pred\$${_syntheticRuleCounter++}";
+          var syntheticRule = Rule(syntheticName, () => child);
+          rules.add(syntheticRule);
+          patternNode.pattern = syntheticRule.call() as Pattern;
+          // The new RuleCall will be seen in the next iteration or via recursive discovery.
+          queue.add(patternNode.pattern);
         }
       }
 
@@ -177,7 +191,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           queue.add(and.pattern);
         case Not not:
           queue.add(not.pattern);
-        case Action action:
+        case Action<dynamic> action:
           queue.add(action.child);
         case Prec plp:
           queue.add(plp.child);
@@ -198,7 +212,9 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   }
 
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
-    if (patterns.contains(pattern)) return; // Avoid cycles
+    if (patterns.contains(pattern)) {
+      return; // Avoid cycles
+    }
     patterns.add(pattern);
 
     switch (pattern) {
@@ -215,7 +231,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
-      case Action action:
+      case Action<dynamic> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
@@ -263,13 +279,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   Token tokenRange(int start, int end) {
     if (start < 0 || end < 0) {
-      throw GrammarError('only positive code points supported in range');
+      throw GrammarError("only positive code points supported in range");
     }
     return Token(RangeToken(start, end));
   }
 
   Pattern str(String text) {
-    final codepoints = text.codeUnits;
+    var codepoints = text.codeUnits;
     Pattern result = token(codepoints[0]);
     for (int i = 1; i < codepoints.length; i++) {
       result = result >> token(codepoints[i]);
@@ -301,7 +317,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   Pattern strRange(IntRange range) {
     if (range.start < 0 || range.end < 0) {
-      throw GrammarError('only positive code points supported in range');
+      throw GrammarError("only positive code points supported in range");
     }
     return Token(RangeToken(range.start, range.end));
   }
@@ -313,7 +329,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   Pattern eof() => EofAnchor();
 
   Rule defRule(String name, Pattern Function() builder) {
-    final rule = Rule(name, builder);
+    var rule = Rule(name, builder);
     rules.add(rule);
     return rule;
   }
@@ -321,19 +337,19 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   Label label(String name, Pattern child) => Label(name, child);
 
   void _computeEmpty() {
-    final emptyRules = <Rule>{};
+    var emptyRules = <Rule>{};
 
     bool changed;
     do {
-      final sizeBefore = emptyRules.length;
+      var sizeBefore = emptyRules.length;
 
       // Only process rules that are in the explicit rules list
-      for (final rule in rules) {
+      for (var rule in rules) {
         try {
           if (rule.calculateEmpty(emptyRules)) {
             emptyRules.add(rule);
           }
-        } catch (e) {
+        } on Exception {
           // Skip rules that can't be computed yet
         }
       }
@@ -345,13 +361,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   void _computeTransitions() {
     transitions = {};
 
-    for (final rule in rules) {
+    for (var rule in rules) {
       rule.body().eachPair((a, b) {
         transitions![a] ??= [];
         transitions![a]!.add(b);
       });
 
-      for (final lastState in rule.body().lastSet()) {
+      for (var lastState in rule.body().lastSet()) {
         transitions![lastState] ??= [];
         transitions![lastState]!.add(rule);
       }
@@ -366,7 +382,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     }
 
     // Use a marker Pattern for the success node
-    final successMarker = Marker('__start__');
+    var successMarker = Marker("__start__");
     transitions![startCall] ??= [];
     transitions![startCall]!.add(successMarker);
   }
@@ -385,13 +401,21 @@ extension IntRangeExtension on int {
 }
 
 class IntRange {
+  IntRange(this.start, this.end);
   final int start;
   final int end;
-
-  IntRange(this.start, this.end);
 }
 
 class GrammarAdapter implements GrammarInterface {
+  GrammarAdapter(sm.StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
+    symbolRegistry.addAll(sm.grammar.symbolRegistry);
+    childrenRegistry.addAll(sm.grammar.childrenRegistry);
+  }
+
+  GrammarAdapter.withRules(this.rules, this.startCall) {
+    _assignPatternSymbols();
+    _fillChildrenMapping();
+  }
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
   @override
@@ -404,42 +428,32 @@ class GrammarAdapter implements GrammarInterface {
   /// Counter for assigning symbol IDs within this grammar
   int _symbolCounter = 0;
 
-  GrammarAdapter(sm.StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
-    symbolRegistry.addAll(sm.grammar.symbolRegistry);
-    childrenRegistry.addAll(sm.grammar.childrenRegistry);
-  }
-
   @override
   PatternSymbol get startSymbol => startCall.rule.symbolId!;
 
-  GrammarAdapter.withRules(this.rules, this.startCall) {
-    _assignPatternSymbols();
-    _fillChildrenMapping();
-  }
-
   /// Discovers all patterns in the grammar and assigns them symbol IDs
   void _assignPatternSymbols() {
-    final allPatterns = <Pattern>{};
+    var allPatterns = <Pattern>{};
 
     // Collect all patterns from the grammar's rules, including the rules themselves
-    for (final rule in rules) {
+    for (var rule in rules) {
       allPatterns.add(rule); // Add the rule itself
       _collectPatternsFromRule(rule, allPatterns);
     }
 
     // Assign symbol IDs to each pattern in discovery order
-    for (final pattern in allPatterns) {
+    for (var pattern in allPatterns) {
       if (pattern.symbolId == null) {
-        final symbolId = 'S${_symbolCounter++}';
+        var symbolId = "S${_symbolCounter++}";
         pattern.symbolId = PatternSymbol(symbolId);
       }
-      final actualSymbolId = pattern.symbolId!;
+      var actualSymbolId = pattern.symbolId!;
       symbolRegistry[actualSymbolId] = pattern;
     }
   }
 
   void _fillChildrenMapping() {
-    for (final pattern in allPatterns) {
+    for (var pattern in allPatterns) {
       childrenRegistry[pattern.symbolId!] = switch (pattern) {
         Token() ||
         Marker() ||
@@ -469,13 +483,15 @@ class GrammarAdapter implements GrammarInterface {
 
   /// Recursively collects all patterns used in a rule's body
   void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
-    final body = rule.body();
+    var body = rule.body();
     _collectPatternsFromPattern(body, patterns);
   }
 
   /// Recursively collects patterns from a pattern structure
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
-    if (patterns.contains(pattern)) return; // Avoid cycles
+    if (patterns.contains(pattern)) {
+      return; // Avoid cycles
+    }
     patterns.add(pattern);
 
     switch (pattern) {
@@ -492,7 +508,7 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
-      case Action action:
+      case Action<dynamic> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
@@ -530,6 +546,12 @@ class GrammarAdapter implements GrammarInterface {
 }
 
 class ShellGrammar implements GrammarInterface {
+  ShellGrammar({
+    required this.startSymbol,
+    required this.childrenRegistry,
+    required this.rules,
+    required this.startCall,
+  });
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
   @override
@@ -540,13 +562,6 @@ class ShellGrammar implements GrammarInterface {
   final List<Rule> rules;
   @override
   final RuleCall startCall;
-
-  ShellGrammar({
-    required this.startSymbol,
-    required this.childrenRegistry,
-    required this.rules,
-    required this.startCall,
-  });
 
   @override
   bool isEmpty() => false; // Default for imported

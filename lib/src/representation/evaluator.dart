@@ -1,4 +1,4 @@
-import '../core/mark.dart';
+import "package:glush/src/core/mark.dart";
 
 /// Signature for an evaluation handler.
 typedef EvaluatorHandler<T> = T Function(EvaluationContext<T> ctx);
@@ -7,6 +7,7 @@ typedef EvaluatorHandler<T> = T Function(EvaluationContext<T> ctx);
 ///
 /// This provides a clean API for accessing children and text content.
 class EvaluationContext<T> {
+  EvaluationContext(this.evaluator, this.node, this.it);
   final Evaluator<T> evaluator;
 
   /// The node currently being handled.
@@ -15,8 +16,6 @@ class EvaluationContext<T> {
   /// An iterator over the labeled children of [node].
   final NodeIterator it;
 
-  EvaluationContext(this.evaluator, this.node, this.it);
-
   /// Evaluates a child with the given [label].
   ///
   /// Throws if the label is not found in the current node.
@@ -24,7 +23,7 @@ class EvaluationContext<T> {
     if (node is! ParseResult) {
       throw StateError('Cannot access label "$label" on leaf node');
     }
-    final matches = (node as ParseResult).get(label);
+    var matches = (node as ParseResult).get(label);
     if (matches.isEmpty) {
       throw StateError('No child with label "$label" found in ${node.span}');
     }
@@ -37,8 +36,6 @@ class EvaluationContext<T> {
   /// The full text content of the current node.
   String get span => node.span;
 }
-
-const fallback = "__FALLBACK__";
 
 /// A generic evaluator for mark-based parse results and nested entry structures.
 ///
@@ -55,10 +52,10 @@ const fallback = "__FALLBACK__";
 /// });
 /// ```
 class Evaluator<T> {
+  Evaluator(this.handlers);
+
   /// Map of label names to their corresponding handlers.
   final Map<String, EvaluatorHandler<T>> handlers;
-
-  Evaluator(this.handlers);
 
   /// Evaluates a [ParseNode] and returns the result of type [T].
   T evaluate(ParseNode node) {
@@ -70,11 +67,11 @@ class Evaluator<T> {
       if (node.children.isEmpty) {
         return translateToken(node);
       }
-      final it = NodeIterator(node.children);
+      var it = NodeIterator(node.children);
       return evaluateChildren(it);
     }
 
-    throw UnimplementedError('Unknown node type: ${node.runtimeType}');
+    throw UnimplementedError("Unknown node type: ${node.runtimeType}");
   }
 
   /// Shorthand for [evaluate].
@@ -89,9 +86,9 @@ class Evaluator<T> {
   /// Usually returns the result of the first node or a combined result.
   T evaluateChildren(NodeIterator it) {
     if (!it.hasNext) {
-      throw StateError('Cannot evaluate empty children list');
+      throw StateError("Cannot evaluate empty children list");
     }
-    final first = it.next();
+    var first = it.next();
     var current = first;
 
     while (true) {
@@ -112,12 +109,9 @@ class Evaluator<T> {
               : NodeIterator(const []);
         }
 
-        final ctx = EvaluationContext(this, node, childIt);
+        var ctx = EvaluationContext(this, node, childIt);
 
-        if (handlers[label] != null) {
-          return handlers[label]!.call(ctx);
-        }
-        return handlers[fallback]!.call(ctx);
+        return handlers[label]!.call(ctx);
       }
 
       if (!it.hasNext) {
@@ -130,29 +124,34 @@ class Evaluator<T> {
 
 /// An iterator over labeled parse nodes.
 class NodeIterator {
+  NodeIterator(this._nodes);
   final List<(String label, ParseNode node)> _nodes;
   int _index = 0;
-
-  NodeIterator(this._nodes);
 
   bool get hasNext => _index < _nodes.length;
   int get remainingCount => _nodes.length - _index;
 
   (String label, ParseNode node) next() {
-    if (!hasNext) throw StateError('No more nodes');
+    if (!hasNext) {
+      throw StateError("No more nodes");
+    }
+
     return _nodes[_index++];
   }
 
   /// Peek at the next node without consuming it.
   (String label, ParseNode node) peek() {
-    if (!hasNext) throw StateError('No more nodes');
+    if (!hasNext) {
+      throw StateError("No more nodes");
+    }
+
     return _nodes[_index];
   }
 
   /// Skips the next node.
   void skip() {
     if (!hasNext) {
-      throw StateError('No more nodes to skip');
+      throw StateError("No more nodes to skip");
     }
     _index++;
   }
@@ -169,10 +168,9 @@ sealed class ParseNode {
 
 /// A node representing a raw token (leaf).
 class TokenResult extends ParseNode {
+  TokenResult(this.span);
   @override
   final String span;
-
-  TokenResult(this.span);
 
   @override
   String toString() => 'Token("$span")';
@@ -180,6 +178,8 @@ class TokenResult extends ParseNode {
 
 /// A node in the structured parse result tree
 class ParseResult extends ParseNode {
+  ParseResult(this.children, this.span);
+
   /// List of (label, result) tuples.
   final List<(String label, ParseNode node)> children;
   Map<String, List<ParseNode>>? _childrenByLabel;
@@ -188,21 +188,22 @@ class ParseResult extends ParseNode {
   @override
   final String span;
 
-  ParseResult(this.children, this.span);
-
   @override
-  String toString() => children.isEmpty ? 'ParseResult(span: $span)' : 'ParseResult($children)';
+  String toString() => children.isEmpty ? "ParseResult(span: $span)" : "ParseResult($children)";
 
   /// Get all results with a given label name.
   List<ParseNode> get(String name) {
-    final byLabel = _childrenByLabel ??= () {
-      final grouped = <String, List<ParseNode>>{};
-      for (final (key, node) in children) {
+    if (_childrenByLabel == null) {
+      var grouped = <String, List<ParseNode>>{};
+      for (var (String key, ParseNode node) in children) {
         grouped.putIfAbsent(key, () => []).add(node);
       }
-      return grouped.map((key, value) => MapEntry(key, List<ParseNode>.unmodifiable(value)));
-    }();
-    return byLabel[name] ?? const [];
+      _childrenByLabel = grouped.map(
+        (key, value) => MapEntry(key, List<ParseNode>.unmodifiable(value)),
+      );
+    }
+
+    return _childrenByLabel![name] ?? const [];
   }
 
   /// Dictionary-style access to get all results with a given label.
@@ -214,9 +215,9 @@ class StructuredEvaluator {
   const StructuredEvaluator();
 
   ParseResult evaluate(List<Mark> marks) {
-    final stack = <_EvaluationFrame>[_EvaluationFrame('')];
+    var stack = <_EvaluationFrame>[_EvaluationFrame("")];
 
-    for (final mark in marks) {
+    for (var mark in marks) {
       switch (mark) {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
@@ -224,12 +225,12 @@ class StructuredEvaluator {
           _closeLabel(stack, name, position);
         case NamedMark(:var name):
           if (stack.last.children.isNotEmpty) {
-            final lastChild = stack.last.children.removeLast();
-            final newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+            var lastChild = stack.last.children.removeLast();
+            var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
             stack.last.children.add((name, newNode));
           } else {
             // Legacy fallback: if no labeled children, wrap the text matched so far
-            final newNode = ParseResult([], stack.last.spanBuffer.toString());
+            var newNode = ParseResult([], stack.last.spanBuffer.toString());
             stack.last.children.add((name, newNode));
           }
 
@@ -260,25 +261,25 @@ class StructuredEvaluator {
     }
 
     while (stack.length - 1 > matchIndex) {
-      final frame = stack.removeLast();
+      var frame = stack.removeLast();
       stack.last.addChild(frame.name, frame.toResult());
     }
 
-    final frame = stack.removeLast();
+    var frame = stack.removeLast();
     stack.last.addChild(frame.name, frame.toResult());
   }
 
   void _closeRemainingLabels(List<_EvaluationFrame> stack) {
     while (stack.length > 1) {
-      final frame = stack.removeLast();
+      var frame = stack.removeLast();
       stack.last.addChild(frame.name, frame.toResult());
     }
   }
 
   ParseResult evaluateStrict(List<Mark> marks) {
-    final stack = <_EvaluationFrame>[_EvaluationFrame('')];
+    var stack = <_EvaluationFrame>[_EvaluationFrame("")];
 
-    for (final mark in marks) {
+    for (var mark in marks) {
       switch (mark) {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
@@ -286,11 +287,11 @@ class StructuredEvaluator {
           _closeStrictLabel(stack, name, position);
         case NamedMark(:var name):
           if (stack.last.children.isNotEmpty) {
-            final lastChild = stack.last.children.removeLast();
-            final newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+            var lastChild = stack.last.children.removeLast();
+            var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
             stack.last.children.add((name, newNode));
           } else {
-            final newNode = ParseResult([], stack.last.spanBuffer.toString());
+            var newNode = ParseResult([], stack.last.spanBuffer.toString());
             stack.last.children.add((name, newNode));
           }
 
@@ -300,8 +301,8 @@ class StructuredEvaluator {
     }
 
     if (stack.length != 1) {
-      final openLabels = stack.skip(1).map((frame) => frame.name).toList();
-      throw StateError('Unclosed label(s) at end of mark stream: $openLabels');
+      var openLabels = stack.skip(1).map((frame) => frame.name).toList();
+      throw StateError("Unclosed label(s) at end of mark stream: $openLabels");
     }
 
     return stack.first.toResult();
@@ -312,7 +313,7 @@ class StructuredEvaluator {
       throw StateError('Unexpected label end "$name" at position $position');
     }
 
-    final frame = stack.last;
+    var frame = stack.last;
     if (frame.name != name) {
       throw StateError(
         'Mismatched label end "$name" at position $position; '
@@ -330,11 +331,10 @@ extension StructuredEvaluatorExtension on List<Mark> {
 }
 
 class _EvaluationFrame {
+  _EvaluationFrame(this.name);
   final String name;
   final List<(String label, ParseNode node)> children = [];
   final StringBuffer spanBuffer = StringBuffer();
-
-  _EvaluationFrame(this.name);
 
   void addChild(String label, ParseNode result) {
     children.add((label, result));

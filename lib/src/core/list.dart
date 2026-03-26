@@ -1,7 +1,8 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
-import 'mark.dart';
+import "package:glush/src/core/mark.dart";
+import "package:meta/meta.dart";
 
 /// Abstract base class for managing parse alternatives as a tree structure.
 ///
@@ -18,7 +19,7 @@ sealed class GlushList<T> {
   GlushList<T> addList(GlushListCache<T> cache, GlushList<T> list) => cache.concat(this, list);
 
   List<T> toList() {
-    final result = <T>[];
+    var result = <T>[];
     forEach(result.add);
     return result;
   }
@@ -28,7 +29,9 @@ sealed class GlushList<T> {
   bool get isEmpty;
 
   T? get lastOrNull {
-    if (isEmpty) return null;
+    if (isEmpty) {
+      return null;
+    }
     T? last;
     forEach((e) => last = e);
     return last;
@@ -40,39 +43,48 @@ class GlushListCache<T> {
   final Map<Object, GlushList<T>> _cache = {};
 
   GlushList<T> branched(List<GlushList<T>> alternatives) {
-    if (alternatives.isEmpty) return const EmptyList._();
-    if (alternatives.length == 1) return alternatives[0];
+    if (alternatives.isEmpty) {
+      return const EmptyList._();
+    }
+    if (alternatives.length == 1) {
+      return alternatives[0];
+    }
 
-    final key = _BranchedKey(List<Object?>.unmodifiable(alternatives));
+    var key = _BranchedKey(List<Object?>.unmodifiable(alternatives));
     return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(alternatives)));
   }
 
   GlushList<T> fromList(List<T> values) {
     GlushList<T> list = const GlushList.empty();
-    for (final value in values) {
+    for (var value in values) {
       list = push(list, value);
     }
     return list;
   }
 
   GlushList<T> push(GlushList<T> parent, T data) {
-    final key = ('push', parent, data);
+    var key = ("push", parent, data);
     return _cache.putIfAbsent(key, () => Push<T>._(parent, data));
   }
 
   GlushList<T> concat(GlushList<T> left, GlushList<T> right) {
-    if (left is EmptyList<T>) return right;
-    if (right is EmptyList<T>) return left;
-    final key = ('concat', left, right);
+    if (left is EmptyList<T>) {
+      return right;
+    }
+    if (right is EmptyList<T>) {
+      return left;
+    }
+    var key = ("concat", left, right);
     return _cache.putIfAbsent(key, () => Concat<T>._(left, right));
   }
 
   void clear() => _cache.clear();
 }
 
+@immutable
 class _BranchedKey {
-  final List<Object?> elements;
   const _BranchedKey(this.elements);
+  final List<Object?> elements;
 
   @override
   bool operator ==(Object other) =>
@@ -87,7 +99,9 @@ class _BranchedKey {
 
 bool _listEquals(List<Object?> left, List<Object?> right) {
   for (var i = 0; i < left.length; i++) {
-    if (left[i] != right[i]) return false;
+    if (left[i] != right[i]) {
+      return false;
+    }
   }
   return true;
 }
@@ -103,13 +117,12 @@ class EmptyList<T> extends GlushList<T> {
 }
 
 class BranchedList<T> extends GlushList<T> {
-  final List<GlushList<T>> alternatives;
-
   const BranchedList._(this.alternatives);
+  final List<GlushList<T>> alternatives;
 
   @override
   void forEach(void Function(T) callback) {
-    for (final alt in alternatives) {
+    for (var alt in alternatives) {
       alt.forEach(callback);
     }
   }
@@ -119,10 +132,9 @@ class BranchedList<T> extends GlushList<T> {
 }
 
 class Push<T> extends GlushList<T> {
+  const Push._(this.parent, this.data);
   final GlushList<T> parent;
   final T data;
-
-  const Push._(this.parent, this.data);
 
   @override
   void forEach(void Function(T) callback) {
@@ -135,10 +147,9 @@ class Push<T> extends GlushList<T> {
 }
 
 class Concat<T> extends GlushList<T> {
+  const Concat._(this.left, this.right);
   final GlushList<T> left;
   final GlushList<T> right;
-
-  const Concat._(this.left, this.right);
 
   @override
   void forEach(void Function(T) callback) {
@@ -169,10 +180,10 @@ extension GlushListVisualizer<T> on GlushList<T> {
         memo[node] = const [[]];
         return;
       case BranchedList<T>():
-        final result = <List<T>>[];
-        for (final alt in node.alternatives) {
-          final branches = _collect(alt, memo);
-          for (final branch in branches) {
+        var result = <List<T>>[];
+        for (var alt in node.alternatives) {
+          var branches = _collect(alt, memo);
+          for (var branch in branches) {
             yield branch;
           }
           result.addAll(branches);
@@ -180,21 +191,21 @@ extension GlushListVisualizer<T> on GlushList<T> {
         memo[node] = result;
         return;
       case Push<T>():
-        final result = <List<T>>[];
-        for (final path in _collect(node.parent, memo)) {
-          final added = [...path, node.data];
+        var result = <List<T>>[];
+        for (var path in _collect(node.parent, memo)) {
+          var added = [...path, node.data];
           yield added;
           result.add(added);
         }
         memo[node] = result;
         return;
       case Concat<T>():
-        final result = <List<T>>[];
-        final leftPaths = _collect(node.left, memo);
-        final rightPaths = _collect(node.right, memo);
-        for (final l in leftPaths) {
-          for (final r in rightPaths) {
-            final branches = [...l, ...r];
+        var result = <List<T>>[];
+        var leftPaths = _collect(node.left, memo);
+        var rightPaths = _collect(node.right, memo);
+        for (var l in leftPaths) {
+          for (var r in rightPaths) {
+            var branches = [...l, ...r];
 
             yield branches;
             result.add(branches);
@@ -206,7 +217,7 @@ extension GlushListVisualizer<T> on GlushList<T> {
   }
 
   String visualize() {
-    final buffer = StringBuffer();
+    var buffer = StringBuffer();
     _visualize(this, buffer, "", true, {});
     return buffer.toString();
   }
@@ -218,7 +229,7 @@ extension GlushListVisualizer<T> on GlushList<T> {
     bool isLast,
     Set<GlushList<T>> visited,
   ) {
-    final connector = isLast ? "└── " : "├── ";
+    var connector = isLast ? "└── " : "├── ";
     buffer.write(prefix);
     buffer.write(connector);
 
@@ -254,10 +265,10 @@ extension GlushListVisualizer<T> on GlushList<T> {
 
 extension ListMarkExtractor on List<Mark> {
   List<String> toStringList() {
-    final result = <String>[];
+    var result = <String>[];
     String? currentStringMark;
 
-    for (final mark in this) {
+    for (var mark in this) {
       if (mark is NamedMark) {
         if (currentStringMark != null) {
           result.add(currentStringMark);
@@ -271,7 +282,7 @@ extension ListMarkExtractor on List<Mark> {
         }
         result.add(mark.name);
       } else if (mark is StringMark) {
-        currentStringMark = (currentStringMark ?? '') + mark.value;
+        currentStringMark = (currentStringMark ?? "") + mark.value;
       }
     }
 
@@ -283,8 +294,8 @@ extension ListMarkExtractor on List<Mark> {
   }
 
   List<String> toMarkStrings() {
-    final result = <String>[];
-    for (final mark in this) {
+    var result = <String>[];
+    for (var mark in this) {
       if (mark is NamedMark) {
         result.add(mark.name);
       } else if (mark is LabelStartMark) {

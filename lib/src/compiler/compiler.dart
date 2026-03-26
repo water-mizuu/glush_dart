@@ -1,25 +1,23 @@
 /// Compiles a parsed grammar file into an executable Grammar
 library glush.grammar_file_compiler;
 
-import 'package:glush/src/compiler/parser.dart';
-import 'package:glush/src/parser/sm_parser.dart';
-
-import 'format.dart';
-import '../core/patterns.dart';
-import '../core/grammar.dart';
+import "package:glush/src/compiler/format.dart";
+import "package:glush/src/compiler/parser.dart";
+import "package:glush/src/core/grammar.dart";
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/sm_parser.dart";
 
 /// Compiles a GrammarFile into an executable Grammar
 class GrammarFileCompiler {
+  GrammarFileCompiler(this.grammarFile);
   final GrammarFile grammarFile;
   late final Map<String, Rule> _rules = {};
-
-  GrammarFileCompiler(this.grammarFile);
 
   /// Compile the grammar file into an executable Grammar
   Grammar compile({String? startRuleName}) {
     // First pass: create rule stubs with builder functions
-    for (final ruleDef in grammarFile.rules) {
-      final rule = Rule(ruleDef.name, () {
+    for (var ruleDef in grammarFile.rules) {
+      var rule = Rule(ruleDef.name, () {
         return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
       });
       _rules[ruleDef.name] = rule;
@@ -27,10 +25,10 @@ class GrammarFileCompiler {
 
     // Return grammar with the first rule as the start rule
     if (grammarFile.rules.isEmpty) {
-      throw Exception('No rules defined in grammar');
+      throw Exception("No rules defined in grammar");
     }
 
-    final startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
+    var startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
     return Grammar(() => startRule);
   }
 
@@ -46,7 +44,7 @@ class GrammarFileCompiler {
   Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
       case AnyPattern():
-        return Token(AnyToken());
+        return Token(const AnyToken());
 
       case StartPattern():
         return Pattern.start();
@@ -59,7 +57,7 @@ class GrammarFileCompiler {
 
       case CharRangePattern(:var ranges):
         if (ranges.length == 1) {
-          final range = ranges[0];
+          var range = ranges[0];
           return Token(RangeToken(range.startCode, range.endCode));
         }
         // Multiple ranges: use alternation
@@ -78,9 +76,9 @@ class GrammarFileCompiler {
         return Marker(name);
 
       case RuleRefPattern():
-        final rule = _rules[expr.ruleName];
+        var rule = _rules[expr.ruleName];
         if (rule == null) {
-          throw Exception('Undefined rule: ${expr.ruleName}');
+          throw Exception("Undefined rule: ${expr.ruleName}");
         }
         return rule(minPrecedenceLevel: expr.precedenceConstraint);
 
@@ -94,7 +92,7 @@ class GrammarFileCompiler {
       case AlternationPattern():
         // Compile each alternative and apply its individual precedence level if specified
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
-        final level0 = precedenceLevels[expr.patterns[0]];
+        var level0 = precedenceLevels[expr.patterns[0]];
         if (level0 != null) {
           result = result.atLevel(level0);
         }
@@ -102,7 +100,7 @@ class GrammarFileCompiler {
         for (int i = 1; i < expr.patterns.length; i++) {
           var altPattern = _compilePattern(expr.patterns[i], precedenceLevels);
           // Apply precedence level to this specific alternative if it has one
-          final altLevel = precedenceLevels[expr.patterns[i]];
+          var altLevel = precedenceLevels[expr.patterns[i]];
           if (altLevel != null) {
             altPattern = altPattern.atLevel(altLevel);
           }
@@ -119,7 +117,7 @@ class GrammarFileCompiler {
         return result;
 
       case RepetitionPattern():
-        final pattern = _compilePattern(expr.pattern, precedenceLevels);
+        var pattern = _compilePattern(expr.pattern, precedenceLevels);
         switch (expr.kind) {
           case RepetitionKind.zeroOrMore:
             return pattern.star();
@@ -142,10 +140,10 @@ class GrammarFileCompiler {
         return Label(label, _compilePattern(inner, precedenceLevels));
 
       case ActionExpr():
-        throw Exception('ActionExpr cannot be compiled as a pattern');
+        throw Exception("ActionExpr cannot be compiled as a pattern");
 
       case PredicatePattern():
-        final inner = _compilePattern(expr.pattern, precedenceLevels);
+        var inner = _compilePattern(expr.pattern, precedenceLevels);
         if (expr.isAnd) {
           return And(inner);
         } else {
@@ -154,38 +152,38 @@ class GrammarFileCompiler {
 
       case BackslashLiteralPattern(:var char):
         return switch (char) {
-          'n' => Token(ExactToken(10)),
-          'r' => Token(ExactToken(13)),
-          't' => Token(ExactToken(9)),
-          'd' => Token(RangeToken(48, 57)),
-          'D' => Token(RangeToken(48, 57)).invert(),
-          'w' =>
-            Token(RangeToken(65, 90)) |
-                Token(RangeToken(97, 122)) |
-                Token(RangeToken(48, 57)) |
-                Token(ExactToken(95)),
-          'W' =>
-            (Token(RangeToken(65, 90)) |
-                    Token(RangeToken(97, 122)) |
-                    Token(RangeToken(48, 57)) |
-                    Token(ExactToken(95)))
+          "n" => Token(const ExactToken(10)),
+          "r" => Token(const ExactToken(13)),
+          "t" => Token(const ExactToken(9)),
+          "d" => Token(const RangeToken(48, 57)),
+          "D" => Token(const RangeToken(48, 57)).invert(),
+          "w" =>
+            Token(const RangeToken(65, 90)) |
+                Token(const RangeToken(97, 122)) |
+                Token(const RangeToken(48, 57)) |
+                Token(const ExactToken(95)),
+          "W" =>
+            (Token(const RangeToken(65, 90)) |
+                    Token(const RangeToken(97, 122)) |
+                    Token(const RangeToken(48, 57)) |
+                    Token(const ExactToken(95)))
                 .invert(),
-          's' =>
-            Token(ExactToken(32)) | // space
-                Token(ExactToken(9)) | // tab
-                Token(ExactToken(10)) | // nl
-                Token(ExactToken(13)) | // cr
-                Token(ExactToken(12)) | // ff
-                Token(ExactToken(11)), // vt
-          'S' =>
-            (Token(ExactToken(32)) |
-                    Token(ExactToken(9)) |
-                    Token(ExactToken(10)) |
-                    Token(ExactToken(13)) |
-                    Token(ExactToken(12)) |
-                    Token(ExactToken(11)))
+          "s" =>
+            Token(const ExactToken(32)) | // space
+                Token(const ExactToken(9)) | // tab
+                Token(const ExactToken(10)) | // nl
+                Token(const ExactToken(13)) | // cr
+                Token(const ExactToken(12)) | // ff
+                Token(const ExactToken(11)), // vt
+          "S" =>
+            (Token(const ExactToken(32)) |
+                    Token(const ExactToken(9)) |
+                    Token(const ExactToken(10)) |
+                    Token(const ExactToken(13)) |
+                    Token(const ExactToken(12)) |
+                    Token(const ExactToken(11)))
                 .invert(),
-          _ => throw Exception('Unsupported backslash literal: \\$char'),
+          _ => throw Exception("Unsupported backslash literal: \\$char"),
         };
     }
   }

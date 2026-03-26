@@ -1,8 +1,8 @@
-import 'package:glush/glush.dart';
-import 'interpreter.dart';
+import "package:glush/glush.dart";
+import "interpreter.dart";
 
 void main() {
-  final grammarString = r'''
+  const grammarString = r'''
     # ============================================
     # Program structure
     # ============================================
@@ -52,9 +52,9 @@ void main() {
     _ = [ \n\r\t]*;
   ''';
 
-  final parser = grammarString.toSMParser(captureTokensAsMarks: true);
+  var parser = grammarString.toSMParser(captureTokensAsMarks: true);
 
-  final input = r'''
+  const input = """
 fn main() {
   let counter = 1;
   while (counter <= 5) {
@@ -66,20 +66,20 @@ fn main() {
     counter = counter + 1;
   }
 }
-''';
+""";
 
   print("PARSING PROGRAM:\n$input");
-  final outcome = parser.parse(input);
+  var outcome = parser.parse(input);
 
   if (outcome is ParseSuccess) {
-    final result = outcome.result;
-    final tree = result.rawMarks.evaluateStructure();
+    var result = outcome.result;
+    var tree = result.rawMarks.evaluateStructure();
 
     print("\nSTRUCTURED TREE:");
     _printTree(tree, 0);
 
     print("\nEXECUTING PROGRAM:");
-    final interpreter = Interpreter();
+    var interpreter = Interpreter();
     interpreter.execute(tree);
   } else if (outcome is ParseError) {
     print("\nPARSE FAILED: Error at position ${outcome.position}");
@@ -90,12 +90,10 @@ fn main() {
 }
 
 void _printTree(ParseResult node, int depth) {
-  final indent = "  " * depth;
-  for (final (label, node) in node.children) {
-    final spanSnippet = node.span.replaceAll('\n', '\\n');
-    final displaySpan = spanSnippet.length > 40
-        ? "${spanSnippet.substring(0, 37)}..."
-        : spanSnippet;
+  var indent = "  " * depth;
+  for (var (label, node) in node.children) {
+    var spanSnippet = node.span.replaceAll("\n", r"\n");
+    var displaySpan = spanSnippet.length > 40 ? "${spanSnippet.substring(0, 37)}..." : spanSnippet;
     print("${indent}LABEL: $label => '$displaySpan'");
     if (node is ParseResult) {
       _printTree(node, depth + 1);

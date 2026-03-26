@@ -1,8 +1,7 @@
-import 'package:glush/src/representation/bsr.dart';
-import 'package:glush/src/core/grammar.dart';
-import 'package:glush/src/parser/state_machine.dart';
-
-import 'common.dart';
+import "package:glush/src/core/grammar.dart";
+import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/representation/bsr.dart";
 
 /// Key for tracking one structural derivation edge in ambiguous mode.
 typedef DerivationKey = (ParseNodeKey? source, Object branchKey, ParseNodeKey? callSite);

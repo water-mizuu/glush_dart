@@ -12,38 +12,37 @@
 /// - Streaming parse support for large inputs
 ///
 /// Key Classes:
-/// - [SMParser]: Main parser interface with multiple parse methods
-/// - [Context]: Parsing state carrying marks, caller info, and constraints
-/// - [Frame]: A set of states to explore from a context
-/// - [Step]: Processing state at a single input position
-/// - [Caller]: Graph-Shared Stack node for rule call memoization
-/// - [PredicateTracker]: Coordinator for lookahead predicate sub-parses
+/// - SMParser: Main parser interface with multiple parse methods
+/// - Context: Parsing state carrying marks, caller info, and constraints
+/// - Frame: A set of states to explore from a context
+/// - Step: Processing state at a single input position
+/// - Caller: Graph-Shared Stack node for rule call memoization
+/// - PredicateTracker: Coordinator for lookahead predicate sub-parses
 ///
 /// Parse Methods (in increasing complexity):
-/// 1. [recognize]: Boolean check (fastest)
-/// 2. [parse]: Marks-based parse with results
-/// 3. [parseAmbiguous]: All ambiguous interpretations merged
-/// 4. [parseWithForest]: Full SPPF forest for enumeration/evaluation
-/// 5. [parseWithForestAsync]: Streaming version for large inputs
-/// 6. [parseToBsr]: Intermediate BSR representation (for testing/analysis)
+/// 1. recognize(): Boolean check (fastest)
+/// 2. parse(): Marks-based parse with results
+/// 3. parseAmbiguous(): All ambiguous interpretations merged
+/// 4. parseWithForest(): Full SPPF forest for enumeration/evaluation
+/// 5. parseWithForestAsync(): Streaming version for large inputs
+/// 6. parseToBsr(): Intermediate BSR representation (for testing/analysis)
 ///
 /// The parser uses a work-queue algorithm where frames at different input positions
 /// can coexist, enabling proper handling of predicates and backtracking.
 library glush.sm_parser;
 
-import 'dart:async';
+import "dart:async";
 
-import 'package:glush/src/core/grammar.dart';
-
-import '../core/patterns.dart';
-import 'state_machine.dart';
-import '../core/mark.dart';
-import '../core/list.dart';
-import '../representation/sppf.dart';
-import '../representation/bsr.dart';
-import '../representation/evaluator.dart';
-import 'common.dart';
-import 'interface.dart';
+import "package:glush/src/core/grammar.dart";
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/representation/bsr.dart";
+import "package:glush/src/representation/evaluator.dart";
+import "package:glush/src/representation/sppf.dart";
 
 // ---------------------------------------------------------------------------
 
@@ -51,9 +50,12 @@ import 'interface.dart';
 ///
 /// An immutable tree structure representing one complete parse of the input.
 /// Each node contains a symbol, span [start:end], and child derivations.
-/// Used by enumeration methods ([enumerateAllParses]) and for evaluating
+/// Used by enumeration methods and for evaluating
 /// semantic values. Supports conversion to strings and precedence analysis.
 class ParseDerivation {
+  /// Creates a parse derivation for a symbol spanning [start] to [end].
+  const ParseDerivation(this.symbol, this.start, this.end, this.children);
+
   /// The grammar symbol or pattern that this node represents.
   final PatternSymbol symbol;
 
@@ -66,26 +68,22 @@ class ParseDerivation {
   /// Child derivations for the child symbols of this pattern.
   final List<ParseDerivation> children;
 
-  /// Creates a parse derivation for a symbol spanning [start] to [end].
-  /// Creates a parse derivation for a symbol spanning [start] to [end].
-  const ParseDerivation(this.symbol, this.start, this.end, this.children);
-
   /// Returns the substring of the input that this derivation matched.
   /// Safe for out-of-bounds positions.
   String getMatchedText(String input) {
     if (input.isEmpty || start >= input.length) {
-      return '';
+      return "";
     }
-    final actualEnd = end > input.length ? input.length : end;
+    var actualEnd = end > input.length ? input.length : end;
     return input.substring(start, actualEnd);
   }
 
   /// Converts the derivation tree to a formatted string with indentation.
   /// Useful for debugging and visualizing parse trees.
   String toTreeString(String input, [int indent = 0]) {
-    final prefix = '  ' * indent;
-    final str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
-    return str + children.map((c) => c.toTreeString(input, indent + 1)).join('');
+    var prefix = "  " * indent;
+    var str = '$prefix$this${children.isEmpty ? '  ${input.substring(start, end)}' : ''}\n';
+    return str + children.map((c) => c.toTreeString(input, indent + 1)).join();
   }
 
   /// Converts the derivation to a parenthesized string representation.
@@ -104,7 +102,7 @@ class ParseDerivation {
       return mapped.single;
     }
 
-    return "(${mapped.join("")})";
+    return "(${mapped.join()})";
   }
 
   /// Returns a simplified parse tree by collapsing single-child chains.
@@ -123,15 +121,18 @@ class ParseDerivation {
 
   /// Returns a compact string representation showing symbol and span.
   @override
-  String toString() => '$symbol[$start:$end]';
+  String toString() => "$symbol[$start:$end]";
 }
 
 /// Represents a parse tree with its evaluated semantic value.
 ///
 /// Combines a [ParseDerivation] tree with a computed semantic value (T).
 /// Provides convenient access to both the tree structure and its evaluated result,
-/// useful when iterating over all parse interpretations with [enumerateAllParsesWithResults].
+/// useful when iterating over all parse interpretations.
 class ParseDerivationWithValue<T> {
+  /// Creates a parse derivation with its evaluated semantic value.
+  ParseDerivationWithValue(this.tree, this.value, {this.grammar});
+
   /// The underlying parse tree structure.
   final ParseDerivation tree;
 
@@ -140,9 +141,6 @@ class ParseDerivationWithValue<T> {
 
   /// Optional reference to the grammar for symbol resolution.
   final GrammarInterface? grammar;
-
-  /// Creates a parse derivation with its evaluated semantic value.
-  ParseDerivationWithValue(this.tree, this.value, {this.grammar});
 
   /// Returns the substring of input that this derivation matched.
   String getMatchedText(String input) => tree.getMatchedText(input);
@@ -170,7 +168,7 @@ class ParseDerivationWithValue<T> {
 
   /// Returns a string showing the symbol, span, and semantic value.
   @override
-  String toString() => '$symbol[$start:$end]=$value';
+  String toString() => "$symbol[$start:$end]=$value";
 }
 
 /// Main parser implementation using a state machine-based LR-like algorithm.
@@ -194,24 +192,6 @@ class ParseDerivationWithValue<T> {
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity, semantic actions, and advanced parsing features.
 final class SMParser extends GlushParserBase implements RecognizerAndMarksParser, ForestParser {
-  static const Context _initialContext = Context(
-    RootCallerKey(),
-    GlushList.empty(),
-    predicateStack: GlushList.empty(),
-  );
-
-  /// The state machine constructed from the grammar.
-  final StateMachine stateMachine;
-
-  @override
-  bool captureTokensAsMarks;
-
-  /// Returns the grammar used to construct this parser's state machine.
-  GrammarInterface get grammar => stateMachine.grammar;
-
-  /// Render the parser's compiled state machine as Graphviz DOT.
-  String toDot() => stateMachine.toDot();
-
   /// Create a parser from a grammar.
   ///
   /// Builds the state machine on first use and initializes the parser state.
@@ -220,10 +200,25 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     : stateMachine = StateMachine(grammar);
 
   SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  static const Context _initialContext = Context(RootCallerKey(), GlushList.empty());
+
+  /// The state machine constructed from the grammar.
+  @override
+  final StateMachine stateMachine;
+
+  @override
+  bool captureTokensAsMarks;
+
+  /// Returns the grammar used to construct this parser's state machine.
+  @override
+  GrammarInterface get grammar => stateMachine.grammar;
+
+  /// Render the parser's compiled state machine as Graphviz DOT.
+  String toDot() => stateMachine.toDot();
 
   @override
   List<Frame> get initialFrames {
-    final initialFrame = Frame(_initialContext);
+    var initialFrame = Frame(_initialContext);
     initialFrame.nextStates.addAll(stateMachine.initialStates);
 
     return [initialFrame];
@@ -235,10 +230,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// other semantic computation. This method must remain independent of the
   /// BSR/SPPF pipeline and rely only on the State Machine execution and mark
   /// bookkeeping. Returns true iff the entire input is accepted.
+  @override
   bool recognize(String input) {
-    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // If no frames remain, the parser cannot recover from this prefix.
       if (parseState.frames.isEmpty) {
@@ -259,10 +255,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Returns:
   /// - [ParseSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails at some position
+  @override
   ParseOutcome parse(String input) {
-    final parseState = this.createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // No active frames means the parse has already failed.
       if (parseState.frames.isEmpty) {
@@ -270,7 +267,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       }
     }
 
-    final lastStep = parseState.finish();
+    var lastStep = parseState.finish();
     // Only a final accepted step counts as a successful parse.
     if (lastStep.accept) {
       return ParseSuccess(ParserResult(lastStep.marks));
@@ -292,13 +289,13 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
-    final shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    final parseState = this.createParseState(
+    var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
+    var parseState = createParseState(
       isSupportingAmbiguity: true,
       captureTokensAsMarks: shouldCapture,
     );
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       parseState.processToken(codepoint);
       // No active frames means the parse has already failed.
       if (parseState.frames.isEmpty) {
@@ -306,11 +303,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       }
     }
 
-    final lastStep = parseState.finish();
+    var lastStep = parseState.finish();
 
     // Ambiguous mode merges all accepted mark branches into one result.
     if (lastStep.accept) {
-      final results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
+      var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
       return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
     } else {
       return ParseError(parseState.position);
@@ -330,18 +327,19 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Returns:
   /// - [ParseForestSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails
+  @override
   ParseOutcome parseWithForest(String input) {
-    final bsrOutcome = parseToBsr(input);
+    var bsrOutcome = parseToBsr(input);
     // The forest can only be built when the BSR pass succeeded.
     if (bsrOutcome is BsrParseError) {
       return ParseError(bsrOutcome.position);
     }
 
-    final bsrSuccess = bsrOutcome as BsrParseSuccess;
-    final startSymbol = stateMachine.grammar.startSymbol;
-    final nodeCache = ForestNodeCache();
-    final root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeCache);
-    final forest = ParseForest(nodeCache, root);
+    var bsrSuccess = bsrOutcome as BsrParseSuccess;
+    var startSymbol = stateMachine.grammar.startSymbol;
+    var nodeCache = ForestNodeCache();
+    var root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeCache);
+    var forest = ParseForest(nodeCache, root);
     return ParseForestSuccess(forest);
   }
 
@@ -355,19 +353,20 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseForestSuccess] if the entire stream matches the grammar
   /// - [ParseError] if parsing fails
   /// - Error if stream processing fails
+  @override
   Future<ParseOutcome> parseWithForestAsync(Stream<String> input) {
-    final completer = Completer<ParseOutcome>();
-    final parseState = createParseStateWithBsr(bsr: BsrSet());
+    var completer = Completer<ParseOutcome>();
+    var parseState = createParseStateWithBsr(bsr: BsrSet());
     int globalPosition = 0;
 
     // Keep the full input so the forest can be built after parsing completes.
-    final allInput = <int>[];
+    var allInput = <int>[];
 
     input.listen(
       (chunk) {
         try {
           // Feed chunk data into the parser token-by-token
-          for (final codeUnit in chunk.codeUnits) {
+          for (var codeUnit in chunk.codeUnits) {
             allInput.add(codeUnit);
 
             // Process this token with BSR recording.
@@ -385,27 +384,29 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           completer.completeError(e);
         }
       },
-      onError: (error) {
+      onError: (Object error) {
         if (!completer.isCompleted) {
           completer.completeError(error);
         }
       },
-      onDone: () {
+      onDone: () async {
         // Defer finalization to avoid blocking
-        Future.microtask(() {
+        await Future.microtask(() {
           try {
-            if (completer.isCompleted) return;
+            if (completer.isCompleted) {
+              return;
+            }
 
             // Finalize once the stream ends so trailing accept states can settle.
-            final lastStep = parseState.finish();
+            var lastStep = parseState.finish();
 
             if (lastStep.accept) {
               // Build SPPF from the recorded BSR
-              final startSymbol = stateMachine.grammar.startSymbol;
-              final nodeCache = ForestNodeCache();
-              final fullInput = String.fromCharCodes(allInput);
-              final root = parseState.bsr.buildSppf(grammar, startSymbol, fullInput, nodeCache);
-              final forest = ParseForest(nodeCache, root);
+              var startSymbol = stateMachine.grammar.startSymbol;
+              var nodeCache = ForestNodeCache();
+              var fullInput = String.fromCharCodes(allInput);
+              var root = parseState.bsr.buildSppf(grammar, startSymbol, fullInput, nodeCache);
+              var forest = ParseForest(nodeCache, root);
               completer.complete(ParseForestSuccess(forest));
             } else {
               completer.complete(ParseError(globalPosition));
@@ -430,7 +431,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// BSR (Binarised Shared Representation) records which rule applications
   /// succeeded during parsing. Each entry is (symbol, callStart, midPoint, end),
-  /// representing a rule match from [callStart] to [end].
+  /// representing a rule match.
   ///
   /// Used as the foundation for forest extraction ([parseWithForest]) and
   /// for counting/enumerating all derivations ([enumerateAllParses]).
@@ -438,11 +439,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Returns:
   /// - [BsrParseSuccess] with the recorded BSR set if input matches
   /// - [BsrParseError] if parsing fails
+  @override
   BsrParseOutcome parseToBsr(String input) {
-    final bsr = BsrSet();
-    final state = createParseStateWithBsr(bsr: bsr);
+    var bsr = BsrSet();
+    var state = createParseStateWithBsr(bsr: bsr);
 
-    for (final codepoint in input.codeUnits) {
+    for (var codepoint in input.codeUnits) {
       state.processToken(codepoint);
       if (state.frames.isEmpty) {
         return BsrParseError(state.position - 1);
@@ -464,7 +466,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// and grammar-level recursion with memoization. Useful for understanding
   /// parser ambiguity without memory overhead.
   int countAllParses(String input) {
-    final startSymbol = stateMachine.grammar.startSymbol;
+    var startSymbol = stateMachine.grammar.startSymbol;
     return _countDerivations(startSymbol, input, 0, input.length, {}, {});
   }
 
@@ -477,12 +479,14 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Based on BSR (Binarised Shared Representation) from [parseToBsr],
   /// so only explores spans proven reachable by the parser (not all grammar possibilities).
   Iterable<ParseDerivation> enumerateAllParses(String input) sync* {
-    final bsrOutcome = parseToBsr(input);
-    if (bsrOutcome is! BsrParseSuccess) return;
+    var bsrOutcome = parseToBsr(input);
+    if (bsrOutcome is! BsrParseSuccess) {
+      return;
+    }
 
-    final bsrSet = bsrOutcome.bsrSet;
-    final startSymbol = stateMachine.grammar.startSymbol;
-    final memo = <String, List<ParseDerivation>?>{};
+    var bsrSet = bsrOutcome.bsrSet;
+    var startSymbol = stateMachine.grammar.startSymbol;
+    var memo = <String, List<ParseDerivation>?>{};
 
     yield* _enumerateDerivations(bsrSet, startSymbol, 0, input.length, input, memo);
   }
@@ -496,8 +500,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// [ParseDerivationWithValue] objects containing both the derivation
   /// and its evaluated result.
   Iterable<ParseDerivationWithValue<dynamic>> enumerateAllParsesWithResults(String input) sync* {
-    for (final derivation in enumerateAllParses(input)) {
-      final value = evaluateParseDerivation(derivation, input);
+    for (var derivation in enumerateAllParses(input)) {
+      var value = evaluateParseDerivation(derivation, input);
       yield ParseDerivationWithValue(derivation, value, grammar: grammar);
     }
   }
@@ -507,7 +511,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Transforms the shared forest structure back to the recursive tree format
   /// used by enumeration and evaluation methods.
   static ParseDerivation parseTreeToDerivation(ParseTree tree, String input) {
-    final childDerivations = tree
+    var childDerivations = tree
         .children //
         .map((c) => parseTreeToDerivation(c, input))
         .toList();
@@ -533,7 +537,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     Map<String, int> memo,
     Map<String, bool> inProgress,
   ) {
-    final key = '$symbol:$start:$end';
+    var key = "$symbol:$start:$end";
 
     if (memo.containsKey(key)) {
       return memo[key]!;
@@ -546,9 +550,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     inProgress[key] = true;
     int totalCount = 0;
 
-    final children = grammar.childrenRegistry[symbol] ?? [];
+    var children = grammar.childrenRegistry[symbol] ?? [];
 
-    if (symbol.symbol.startsWith('rul:')) {
+    if (symbol.symbol.startsWith("rul:")) {
       if (children.isNotEmpty) {
         totalCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
       }
@@ -584,11 +588,13 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     Map<String, int> memo,
     Map<String, bool> inProgress,
   ) {
-    final pattern = symbol.symbol;
-    final children = grammar.childrenRegistry[symbol] ?? [];
-    final split = pattern.split(":");
-    if (split.length < 3) return 0;
-    final [prefix, _, suffix] = split;
+    var pattern = symbol.symbol;
+    var children = grammar.childrenRegistry[symbol] ?? [];
+    var split = pattern.split(":");
+    if (split.length < 3) {
+      return 0;
+    }
+    var [prefix, _, suffix] = split;
 
     switch (prefix) {
       case "eps":
@@ -605,17 +611,19 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
       case "tok":
         {
-          if (start + 1 != end) return 0;
-          final unit = input.codeUnitAt(start);
+          if (start + 1 != end) {
+            return 0;
+          }
+          var unit = input.codeUnitAt(start);
           bool isMatching = switch (suffix[0]) {
             "." => true,
             ";" => unit == int.parse(suffix.substring(1)),
             "<" => unit <= int.parse(suffix.substring(1)),
             ">" => unit >= int.parse(suffix.substring(1)),
             "[" => () {
-              final parts = suffix.substring(1).split(",");
-              final min = int.parse(parts[0]);
-              final max = int.parse(parts[1]);
+              var parts = suffix.substring(1).split(",");
+              var min = int.parse(parts[0]);
+              var max = int.parse(parts[1]);
               return min <= unit && unit <= max;
             }(),
             _ => false,
@@ -634,14 +642,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return _countAlternatives(children.single, input, start, end, memo, inProgress);
       case "opt":
         {
-          final childCount = _countAlternatives(
-            children.single,
-            input,
-            start,
-            end,
-            memo,
-            inProgress,
-          );
+          var childCount = _countAlternatives(children.single, input, start, end, memo, inProgress);
           if (childCount > 0) {
             return childCount;
           }
@@ -651,23 +652,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         {
           int totalCount = 0;
           for (int mid = start; mid <= end; mid++) {
-            final leftCount = _countAlternatives(
-              children.first,
-              input,
-              start,
-              mid,
-              memo,
-              inProgress,
-            );
+            var leftCount = _countAlternatives(children.first, input, start, mid, memo, inProgress);
             if (leftCount > 0) {
-              final rightCount = _countAlternatives(
-                children.last,
-                input,
-                mid,
-                end,
-                memo,
-                inProgress,
-              );
+              var rightCount = _countAlternatives(children.last, input, mid, end, memo, inProgress);
               totalCount += leftCount * rightCount;
             }
           }
@@ -700,7 +687,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "and":
       case "not":
         if (start == end) {
-          final childCount = _countDerivations(
+          var childCount = _countDerivations(
             children.single,
             input,
             start,
@@ -740,9 +727,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
     // Force progress in the recursive branch to avoid epsilon loops.
     for (int mid = start + 1; mid <= end; mid++) {
-      final leftCount = _countAlternatives(child, input, start, mid, memo, inProgress);
-      if (leftCount == 0) continue;
-      final rightCount = _countAlternatives(symbol, input, mid, end, memo, inProgress);
+      var leftCount = _countAlternatives(child, input, start, mid, memo, inProgress);
+      if (leftCount == 0) {
+        continue;
+      }
+      var rightCount = _countAlternatives(symbol, input, mid, end, memo, inProgress);
       totalCount += leftCount * rightCount;
     }
 
@@ -771,22 +760,26 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     int? minPrecedenceLevel,
     Map<String, bool>? inProgress,
   }) sync* {
-    final key = '$symbol:$start:$end:${minPrecedenceLevel ?? ""}';
+    var key = '$symbol:$start:$end:${minPrecedenceLevel ?? ""}';
     if (memo.containsKey(key)) {
-      final results = memo[key];
-      if (results != null) yield* results;
+      var results = memo[key];
+      if (results != null) {
+        yield* results;
+      }
       return;
     }
 
     inProgress ??= {};
-    if (inProgress[key] == true) return;
+    if (inProgress[key] == true) {
+      return;
+    }
 
     inProgress[key] = true;
 
     // For rules or other patterns, we check their children
-    final children = grammar.childrenRegistry[symbol] ?? [];
+    var children = grammar.childrenRegistry[symbol] ?? [];
 
-    if (symbol.symbol.startsWith('rul:')) {
+    if (symbol.symbol.startsWith("rul:")) {
       // It's a rule, evaluate its body (the single child)
       if (children.isNotEmpty) {
         yield* _enumerateAlternatives(
@@ -837,11 +830,13 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     Map<String, bool> inProgress, {
     int? minPrecedenceLevel,
   }) sync* {
-    final pattern = symbol.symbol;
-    final children = grammar.childrenRegistry[symbol] ?? [];
-    final split = pattern.split(":");
-    if (split.length < 3) return;
-    final [prefix, _, suffix] = split;
+    var pattern = symbol.symbol;
+    var children = grammar.childrenRegistry[symbol] ?? [];
+    var split = pattern.split(":");
+    if (split.length < 3) {
+      return;
+    }
+    var [prefix, _, suffix] = split;
 
     switch (prefix) {
       case "eps":
@@ -870,10 +865,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
             "<" => input.codeUnitAt(start) <= int.parse(suffix.substring(1)),
             ">" => input.codeUnitAt(start) >= int.parse(suffix.substring(1)),
             "[" => () {
-              final unit = input.codeUnitAt(start);
-              final parts = suffix.substring(1).split(",");
-              final min = int.parse(parts[0]);
-              final max = int.parse(parts[1]);
+              var unit = input.codeUnitAt(start);
+              var parts = suffix.substring(1).split(",");
+              var min = int.parse(parts[0]);
+              var max = int.parse(parts[1]);
               return min <= unit && unit <= max;
             }(),
             _ => false,
@@ -883,14 +878,20 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           }
         }
       case "mar":
-        if (start == end) yield ParseDerivation(symbol, start, end, []);
+        if (start == end) {
+          yield ParseDerivation(symbol, start, end, []);
+        }
       case "las":
       case "lae":
-        if (start == end) yield ParseDerivation(symbol, start, end, []);
+        if (start == end) {
+          yield ParseDerivation(symbol, start, end, []);
+        }
       case "pre":
         {
-          final prec = int.parse(suffix);
-          if (minPrecedenceLevel != null && prec < minPrecedenceLevel) return;
+          var prec = int.parse(suffix);
+          if (minPrecedenceLevel != null && prec < minPrecedenceLevel) {
+            return;
+          }
           yield* _enumerateAlternatives(
             bsr,
             children.single,
@@ -927,7 +928,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
       case "lab":
         {
-          for (final child in _enumerateAlternatives(
+          for (var child in _enumerateAlternatives(
             bsr,
             children.single,
             input,
@@ -942,7 +943,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
       case "opt":
         {
-          final childList = _enumerateAlternatives(
+          var childList = _enumerateAlternatives(
             bsr,
             children.single,
             input,
@@ -953,7 +954,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
             minPrecedenceLevel: minPrecedenceLevel,
           ).toList();
           if (childList.isNotEmpty) {
-            for (final child in childList) {
+            for (var child in childList) {
               yield ParseDerivation(symbol, start, end, [child]);
             }
           } else if (start == end) {
@@ -963,7 +964,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "seq":
         {
           for (int mid = start; mid <= end; mid++) {
-            final leftList = _enumerateAlternatives(
+            var leftList = _enumerateAlternatives(
               bsr,
               children.first,
               input,
@@ -973,9 +974,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
               inProgress,
               minPrecedenceLevel: minPrecedenceLevel,
             ).toList();
-            if (leftList.isEmpty) continue;
+            if (leftList.isEmpty) {
+              continue;
+            }
 
-            final rightList = _enumerateAlternatives(
+            var rightList = _enumerateAlternatives(
               bsr,
               children.last,
               input,
@@ -985,10 +988,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
               inProgress,
               minPrecedenceLevel: minPrecedenceLevel,
             ).toList();
-            if (rightList.isEmpty) continue;
+            if (rightList.isEmpty) {
+              continue;
+            }
 
-            for (final left in leftList) {
-              for (final right in rightList) {
+            for (var left in leftList) {
+              for (var right in rightList) {
                 yield ParseDerivation(symbol, start, end, [left, right]);
               }
             }
@@ -1022,7 +1027,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         );
       case "rca":
         {
-          final prec = suffix.isEmpty ? null : int.parse(suffix);
+          var prec = suffix.isEmpty ? null : int.parse(suffix);
           yield* _enumerateDerivations(
             bsr,
             children.single,
@@ -1035,7 +1040,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           );
         }
       case "act":
-        for (final child in _enumerateAlternatives(
+        for (var child in _enumerateAlternatives(
           bsr,
           children.single,
           input,
@@ -1097,7 +1102,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     }
 
     if (isPlus) {
-      for (final base in _enumerateAlternatives(
+      for (var base in _enumerateAlternatives(
         bsr,
         child,
         input,
@@ -1113,7 +1118,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
     // Force progress in the recursive branch to avoid epsilon loops.
     for (int mid = start + 1; mid <= end; mid++) {
-      final leftList = _enumerateAlternatives(
+      var leftList = _enumerateAlternatives(
         bsr,
         child,
         input,
@@ -1123,9 +1128,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         inProgress,
         minPrecedenceLevel: minPrecedenceLevel,
       ).toList();
-      if (leftList.isEmpty) continue;
+      if (leftList.isEmpty) {
+        continue;
+      }
 
-      final rightList = _enumerateAlternatives(
+      var rightList = _enumerateAlternatives(
         bsr,
         symbol,
         input,
@@ -1135,10 +1142,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         inProgress,
         minPrecedenceLevel: minPrecedenceLevel,
       ).toList();
-      if (rightList.isEmpty) continue;
+      if (rightList.isEmpty) {
+        continue;
+      }
 
-      for (final left in leftList) {
-        for (final right in rightList) {
+      for (var left in leftList) {
+        for (var right in rightList) {
           yield ParseDerivation(symbol, start, end, [left, right]);
         }
       }
@@ -1178,13 +1187,13 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - and/not: returns []
   /// - Others: pass through to child or fallback to pattern registry
   Object? _evaluateParseDerivation(ParseDerivation tree, String input) {
-    final symbol = tree.symbol.symbol;
-    final split = symbol.split(":");
+    var symbol = tree.symbol.symbol;
+    var split = symbol.split(":");
     if (split.length < 3) {
       // Fallback for symbols that don't follow the prefix:id:suffix format
       return null;
     }
-    final [prefix, _, suffix] = split;
+    var [prefix, _, suffix] = split;
 
     switch (prefix) {
       case "eps":
@@ -1214,8 +1223,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "seq":
       case "plu":
       case "sta":
-        final results = <Object?>[];
-        for (final child in tree.children) {
+        var results = <Object?>[];
+        for (var child in tree.children) {
           results.add(_evaluateParseDerivation(child, input));
         }
         return results;
@@ -1224,7 +1233,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return [];
       default:
         // Try fallback to symbolRegistry if it exists
-        final pattern = grammar.symbolRegistry[tree.symbol];
+        var pattern = grammar.symbolRegistry[tree.symbol];
         if (pattern == null) {
           return null;
         }
@@ -1233,11 +1242,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           Token() => tree.getMatchedText(input),
           Marker(:var name) => NamedMark(name, tree.start),
           Eps() => "",
-          Action action => () {
-            final childResults = tree.children
+          Action<dynamic> action => () {
+            var childResults = tree.children
                 .map((c) => _evaluateParseDerivation(c, input))
                 .toList();
-            final span = tree.getMatchedText(input);
+            var span = tree.getMatchedText(input);
             if (childResults case List(length: 1, :List<Object?> single)) {
               return action.callback(span, single);
             }
@@ -1271,7 +1280,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// This produces the final mark sequence used for semantic annotations.
   List<String> _aggregateMarks(List<Mark> marks) {
-    final List<String> result = [];
+    List<String> result = [];
 
     StringMark? builtMark;
     for (int i = 0; i < marks.length; ++i) {
@@ -1306,9 +1315,15 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// flattens it into a single list in parse order. Handles Mark objects
   /// and lists of marks.
   List<Mark> _flattenParseTreeMarks(Object? marks) {
-    if (marks is StringMark) return [marks];
-    if (marks is NamedMark) return [marks];
-    if (marks is List<Object?>) return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
+    if (marks is StringMark) {
+      return [marks];
+    }
+    if (marks is NamedMark) {
+      return [marks];
+    }
+    if (marks is List<Object?>) {
+      return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
+    }
     return [];
   }
 
@@ -1317,14 +1332,14 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Like [_evaluateParseDerivation], but returns Mark objects instead of values.
   /// Used by [extractParseTreeMarks] to collect all marks in parse order.
   Object? _extractParseTreeMarks(ParseDerivation tree, String input) {
-    final symbol = tree.symbol.symbol;
-    final split = symbol.split(":");
+    var symbol = tree.symbol.symbol;
+    var split = symbol.split(":");
     if (split.length < 3) {
       // Fallback for symbols that don't follow the prefix:id:suffix format
       return null;
     }
 
-    final [prefix, _, suffix] = split;
+    var [prefix, _, suffix] = split;
     switch (prefix) {
       case "eps":
         return "";
@@ -1354,8 +1369,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "seq":
       case "plu":
       case "sta":
-        final results = <Object?>[];
-        for (final child in tree.children) {
+        var results = <Object?>[];
+        for (var child in tree.children) {
           results.add(_extractParseTreeMarks(child, input));
         }
         return results;
@@ -1374,8 +1389,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     String input, {
     bool captureTokensAsMarks = true,
   }) {
-    final derivation = parseTreeToDerivation(tree, input);
-    final extracted = _extractParseTreeRawMarks(
+    var derivation = parseTreeToDerivation(tree, input);
+    var extracted = _extractParseTreeRawMarks(
       derivation,
       input,
       captureTokensAsMarks: captureTokensAsMarks,
@@ -1385,12 +1400,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     // Current SPPF extraction can miss zero-width marker/label structure in some
     // grammars. When that happens for a full-input root tree, recover marks from
     // the standard parse pipeline so evaluator APIs remain usable.
-    final hasStructuralMarks = extracted.any(
+    var hasStructuralMarks = extracted.any(
       (m) => m is NamedMark || m is LabelStartMark || m is LabelEndMark,
     );
 
     if (!hasStructuralMarks && tree.node.start == 0 && tree.node.end == input.length) {
-      final outcome = parse(input);
+      var outcome = parse(input);
       if (outcome is ParseSuccess) {
         return outcome.result.rawMarks;
       }
@@ -1410,45 +1425,45 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   }
 
   ParseResult _structuredFromParseTreeNoMarks(ParseTree tree, String input) {
-    final stack = <_ForestStructuredFrame>[_ForestStructuredFrame('')];
+    var stack = <_ForestStructuredFrame>[_ForestStructuredFrame("")];
 
     void visit(ParseTree current) {
-      final parts = _splitSymbol(current.node.symbol.symbol);
-      final prefix = parts?.$1;
-      final suffix = parts?.$2 ?? '';
+      var parts = _splitSymbol(current.node.symbol.symbol);
+      var prefix = parts?.$1;
+      var suffix = parts?.$2 ?? "";
 
-      if (prefix == 'las') {
+      if (prefix == "las") {
         stack.add(_ForestStructuredFrame(suffix));
         return;
       }
 
-      if (prefix == 'lae') {
+      if (prefix == "lae") {
         if (stack.length > 1) {
-          final frame = stack.removeLast();
+          var frame = stack.removeLast();
           stack.last.addChild(frame.name, frame.toResult());
         }
         return;
       }
 
-      if (prefix == 'tok') {
+      if (prefix == "tok") {
         stack.last.addToken(_safeSpan(input, current.node.start, current.node.end));
         return;
       }
 
-      if (prefix == 'lab') {
+      if (prefix == "lab") {
         stack.add(_ForestStructuredFrame(suffix));
-        for (final child in current.children) {
+        for (var child in current.children) {
           visit(child);
         }
-        final frame = stack.removeLast();
+        var frame = stack.removeLast();
         stack.last.addChild(frame.name, frame.toResult());
         return;
       }
 
-      if (prefix == 'mar') {
+      if (prefix == "mar") {
         if (stack.last.children.isNotEmpty) {
-          final lastChild = stack.last.children.removeLast();
-          final wrapped = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+          var lastChild = stack.last.children.removeLast();
+          var wrapped = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
           stack.last.children.add((suffix, wrapped));
         } else {
           stack.last.children.add((suffix, ParseResult([], stack.last.spanBuffer.toString())));
@@ -1456,7 +1471,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return;
       }
 
-      for (final child in current.children) {
+      for (var child in current.children) {
         visit(child);
       }
     }
@@ -1464,7 +1479,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     visit(tree);
 
     while (stack.length > 1) {
-      final frame = stack.removeLast();
+      var frame = stack.removeLast();
       stack.last.addChild(frame.name, frame.toResult());
     }
 
@@ -1472,15 +1487,19 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   }
 
   (String prefix, String suffix)? _splitSymbol(String symbol) {
-    final split = symbol.split(':');
-    if (split.length < 3) return null;
+    var split = symbol.split(":");
+    if (split.length < 3) {
+      return null;
+    }
     return (split[0], split[2]);
   }
 
   String _safeSpan(String input, int start, int end) {
-    final s = start.clamp(0, input.length);
-    final e = end.clamp(0, input.length);
-    if (s >= e) return '';
+    var s = start.clamp(0, input.length);
+    var e = end.clamp(0, input.length);
+    if (s >= e) {
+      return "";
+    }
     return input.substring(s, e);
   }
 
@@ -1489,10 +1508,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     String input, {
     required bool captureTokensAsMarks,
   }) {
-    final symbol = tree.symbol.symbol;
-    final split = symbol.split(":");
-    if (split.length < 3) return const <Mark>[];
-    final [prefix, _, suffix] = split;
+    var symbol = tree.symbol.symbol;
+    var split = symbol.split(":");
+    if (split.length < 3) {
+      return const <Mark>[];
+    }
+    var [prefix, _, suffix] = split;
 
     switch (prefix) {
       case "eps":
@@ -1502,7 +1523,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "not":
         return const <Mark>[];
       case "tok":
-        final pattern = grammar.symbolRegistry[tree.symbol];
+        var pattern = grammar.symbolRegistry[tree.symbol];
         if (captureTokensAsMarks || pattern is Token && pattern.choice is! ExactToken) {
           return [StringMark(tree.getMatchedText(input), tree.start)];
         }
@@ -1523,11 +1544,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "rca":
       case "rul":
       case "lab":
-        final out = <Mark>[];
+        var out = <Mark>[];
         if (prefix == "lab") {
           out.add(LabelStartMark(suffix, tree.start));
         }
-        for (final child in tree.children) {
+        for (var child in tree.children) {
           out.addAll(
             _extractParseTreeRawMarks(child, input, captureTokensAsMarks: captureTokensAsMarks),
           );
@@ -1537,8 +1558,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
         return out;
       default:
-        final pattern = grammar.symbolRegistry[tree.symbol];
-        if (pattern == null) return const <Mark>[];
+        var pattern = grammar.symbolRegistry[tree.symbol];
+        if (pattern == null) {
+          return const <Mark>[];
+        }
+
         return switch (pattern) {
           Marker(:var name) => [NamedMark(name, tree.start)],
           LabelStart(:var name) => [LabelStartMark(name, tree.start)],
@@ -1563,11 +1587,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 }
 
 class _ForestStructuredFrame {
+  _ForestStructuredFrame(this.name);
   final String name;
   final List<(String label, ParseNode node)> children = [];
   final StringBuffer spanBuffer = StringBuffer();
-
-  _ForestStructuredFrame(this.name);
 
   void addChild(String label, ParseNode node) {
     children.add((label, node));

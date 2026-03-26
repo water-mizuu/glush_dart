@@ -1,16 +1,16 @@
-import 'package:test/test.dart';
-import 'package:glush/glush.dart';
+import "package:glush/glush.dart";
+import "package:test/test.dart";
 
 void main() {
-  group('Deeply recursive grammars', () {
-    test('parses right recursive grammars correctly', () {
-      final grammar = Grammar(() {
-        late final Rule S;
+  group("Deeply recursive grammars", () {
+    test("parses right recursive grammars correctly", () {
+      var grammar = Grammar(() {
+        late Rule S;
         S = Rule(
-          'S',
+          "S",
           () =>
-              Token.char('s') | //
-              Token.char('s') >> Token.char("+") >> S.call(),
+              Token.char("s") | //
+              Token.char("s") >> Token.char("+") >> S.call(),
         );
 
         return S;
@@ -18,30 +18,30 @@ void main() {
 
       SMParser parser = SMParser(grammar);
       for (int count = 20; count <= 500; count += 20) {
-        final input = "s+" * count + "s";
+        var input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
         expect(parser.parseWithForest(input), isNotNull);
       }
     });
 
-    test('parses left recursive grammars correctly', () {
-      final grammar = Grammar(() {
-        late final Rule S;
+    test("parses left recursive grammars correctly", () {
+      var grammar = Grammar(() {
+        late Rule S;
         S = Rule(
-          'S',
+          "S",
           () =>
-              Token.char('s') | //
-              S.call() >> Token.char("+") >> Token.char('s'),
+              Token.char("s") | //
+              S.call() >> Token.char("+") >> Token.char("s"),
         );
 
         return S;
       });
 
-      final parser = SMParser(grammar);
+      var parser = SMParser(grammar);
 
       for (int count = 20; count <= 500; count += 20) {
-        final input = "s+" * count + "s";
+        var input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
         expect(parser.parseWithForest(input), isNotNull);
