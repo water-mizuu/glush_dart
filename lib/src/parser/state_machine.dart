@@ -4,8 +4,10 @@ library glush.state_machine;
 import "package:glush/src/core/grammar.dart";
 
 import "package:glush/src/core/patterns.dart";
+import "package:meta/meta.dart";
 
 // Action types for state machine
+@immutable
 sealed class StateAction {
   const StateAction();
 }
@@ -101,10 +103,48 @@ final class PredicateAction implements StateAction {
   final State nextState;
 
   @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PredicateAction &&
+          isAnd == other.isAnd &&
+          symbol == other.symbol &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => Object.hash(isAnd, symbol, nextState);
+
+  @override
   String toString() =>
       isAnd //
       ? "Predicate(&$symbol)"
       : "Predicate(!$symbol)";
+}
+
+/// Conjunction action for consuming intersection (A & B)
+final class ConjunctionAction implements StateAction {
+  const ConjunctionAction({
+    required this.leftSymbol,
+    required this.rightSymbol,
+    required this.nextState,
+  });
+
+  final PatternSymbol leftSymbol;
+  final PatternSymbol rightSymbol;
+  final State nextState;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConjunctionAction &&
+          leftSymbol == other.leftSymbol &&
+          rightSymbol == other.rightSymbol &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => Object.hash(leftSymbol, rightSymbol, nextState);
+
+  @override
+  String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
 
 /// State in the state machine
@@ -211,10 +251,25 @@ class StateMachine {
 
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
-      case Token() || Conj():
+      case Token():
         var nextState = _getOrCreateState(terminal);
         var action = TokenAction(terminal, nextState);
         state.actions.add(action);
+      case Conj():
+        if (terminal.singleToken()) {
+          var nextState = _getOrCreateState(terminal);
+          var action = TokenAction(terminal, nextState);
+          state.actions.add(action);
+        } else {
+          var nextState = _getOrCreateState(terminal);
+          // Complex conjunction: use sub-parse rendezvous
+          var action = ConjunctionAction(
+            leftSymbol: _extractSymbol(terminal.left),
+            rightSymbol: _extractSymbol(terminal.right),
+            nextState: nextState,
+          );
+          state.actions.add(action);
+        }
       case StartAnchor() || EofAnchor():
         var nextState = _getOrCreateState(terminal);
         var action = BoundaryAction(
@@ -278,6 +333,13 @@ class StateMachine {
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError("Unexpected pattern type in _connect: ${terminal.runtimeType}");
     }
+  }
+
+  PatternSymbol _extractSymbol(Pattern pattern) {
+    return switch (pattern) {
+      RuleCall(:var rule) => rule.symbolId!,
+      _ => throw UnsupportedError("Conjunction children must be rules or tokens: $pattern"),
+    };
   }
 
   void _buildPrecedenceMap(Pattern pattern, int? current, Map<Pattern, int?> map) {
@@ -458,6 +520,15 @@ class StateMachine {
                 color: "gray45",
               );
             }
+          case ConjunctionAction(:var leftSymbol, :var rightSymbol, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: "conj $leftSymbol & $rightSymbol",
+              style: "dashed",
+              color: "blue",
+            );
           case AcceptAction():
             _writeEdge(buffer, from: state, label: "accept");
         }
@@ -656,6 +727,8 @@ class StateMachine {
           targets.add(nextState);
         case PredicateAction(:var nextState):
           targets.addAll(_continuationTargets(nextState, hiddenStates));
+        case ConjunctionAction(:var nextState):
+          targets.add(nextState);
         case CallAction():
         case TailCallAction():
         case ReturnAction():

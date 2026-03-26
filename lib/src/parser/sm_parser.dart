@@ -700,6 +700,15 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           }
         }
         return 0;
+      case "con":
+        {
+          var leftCount = _countAlternatives(children.first, input, start, end, memo, inProgress);
+          if (leftCount == 0) {
+            return 0;
+          }
+          var rightCount = _countAlternatives(children.last, input, start, end, memo, inProgress);
+          return leftCount * rightCount;
+        }
       default:
         return 0;
     }
@@ -1077,10 +1086,40 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
           yield ParseDerivation(symbol, start, start, []);
         }
       case "con":
-        // Simplified check for conjunction
-        if (start + 1 == end) {
-          // This would need more logic to check both children match
-          yield ParseDerivation(symbol, start, end, []);
+        {
+          var leftList = _enumerateAlternatives(
+            bsr,
+            children.first,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ).toList();
+          if (leftList.isEmpty) {
+            return;
+          }
+
+          var rightList = _enumerateAlternatives(
+            bsr,
+            children.last,
+            input,
+            start,
+            end,
+            memo,
+            inProgress,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ).toList();
+          if (rightList.isEmpty) {
+            return;
+          }
+
+          for (var left in leftList) {
+            for (var right in rightList) {
+              yield ParseDerivation(symbol, start, end, [left, right]);
+            }
+          }
         }
     }
   }
@@ -1231,6 +1270,14 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "and":
       case "not":
         return [];
+      case "con":
+        // Conjunction A & B. Both A and B matched the same span.
+        // We evaluate both and return a list (similar to a sequence of length 2).
+        var results = <Object?>[];
+        for (var child in tree.children) {
+          results.add(_evaluateParseDerivation(child, input));
+        }
+        return results;
       default:
         // Try fallback to symbolRegistry if it exists
         var pattern = grammar.symbolRegistry[tree.symbol];
@@ -1377,6 +1424,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "and":
       case "not":
         return [];
+      case "con":
+        var results = <Object?>[];
+        for (var child in tree.children) {
+          results.add(_extractParseTreeMarks(child, input));
+        }
+        return results;
       case _:
         throw Error();
     }
@@ -1544,6 +1597,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       case "rca":
       case "rul":
       case "lab":
+      case "con":
         var out = <Mark>[];
         if (prefix == "lab") {
           out.add(LabelStartMark(suffix, tree.start));

@@ -134,15 +134,16 @@ void meta() {
         # like whitespace instead of becoming the next token stream.
         rule = $rule name:ident _ '=' _ body:choice _ ( ';' )?
 
-        choice = $choice left:choice _ '|' _ right:seq
-              | seq
+        choice = $choice     left:choice _               '|' _ right:seq
+               | $precChoice left:choice _ prec:number _ '|' _ right:seq
+               | $firstChoice          ((prec:number _)? '|' _)? body:seq
 
         seq = $seq left:seq _ &isContinuation right:prefix
             | prefix
 
         prefix = $and '&' atom:rep
-              | $not '!' atom:rep
-              | rep
+               | $not '!' atom:rep
+               | rep
 
         rep = $rep atom:primary kind:repKind
             | primary
@@ -151,15 +152,16 @@ void meta() {
                 | $starBang "*!" | $plusBang "+!"
                 | $question '?'
 
-        primary = $group '(' _ inner:choice _ ')'
-                | $label name:ident ':' atom:primary
-                | $mark '$' name:ident
-                | start
-                | eof
-                | $ref name:ident
-                | $lit literal
-                | $range charRange
-                | $any '.'
+        primary =
+            $group '(' _ inner:choice _ ')'
+          | $label name:ident ':' atom:primary
+          | $mark '$' name:ident
+          | start
+          | eof
+          | $ref name:ident
+          | $lit literal
+          | $range charRange
+          | $any '.'
 
         isContinuation = ident !(_ [=])
                        | literal
@@ -174,8 +176,9 @@ void meta() {
         ident = [A-Za-z$_] [A-Za-z$_0-9]*
         literal = ['] (!['] .)* ['] | ["] (!["] .)* ["]
         charRange = '[' (!']' .)* ']'
+        number = [0-9]+
 
-        _ = $ws (plain_ws | comment | newline)*
+        _ = $ws (plain_ws | comment | newline)* !plain_ws !comment !newline
         comment = '#' (!newline .)* (newline | eof)
         plain_ws = [ \t]+ ![ \t]
         newline = [\n\r]+ ![\n\r]
@@ -183,13 +186,26 @@ void meta() {
   ).compile(startRuleName: "full");
 
   var parser = SMParserMini(grammar);
-
   var evaluator = Evaluator<Object?>({
     "full": (ctx) => ctx<Object?>("file"),
     "rules": (ctx) => [...ctx<List<Object?>>("left"), ctx<Object?>("right")],
     "first": (ctx) => [ctx<Object?>("rule")],
     "rule": (ctx) => (ctx<String>("name"), ctx<Object?>("body")),
     "choice": (ctx) => ["|", ctx<Object?>("left"), ctx<Object?>("right")],
+    "precChoice": (ctx) => [
+      "|",
+      ctx<Object?>("left"),
+      [ctx<Object>("prec"), ctx<Object?>("right")],
+    ],
+    "firstChoice": (ctx) {
+      var body = ctx<Object>("body");
+      if (ctx.optional<Object>("prec") case var prec?) {
+        return [prec, body];
+      } else {
+        return body;
+      }
+    },
+
     "seq": (ctx) => ["seq", ctx<Object?>("left"), ctx<Object?>("right")],
     "conj": (ctx) => ["&", ctx<Object?>("left"), ctx<Object?>("right")],
     "and": (ctx) => ["&", ctx<Object?>("atom")],
@@ -212,25 +228,25 @@ void meta() {
   });
 
   const input = r"""
-abc = c | &d !(e*!)
-xyz = $test 'foo' [a-z]
-# hello there
-one = S 's' | 's' # wat
-# helo helo
+one = 5 | S 's' | 's'*! # wat
 """;
 
-  switch (parser.parse("${input.trim()}\n")) {
-    case ParseSuccess result:
-      var output = "Evaluated Meta Grammar Paths:\n";
-      var tree = result.result.rawMarks.evaluateStructure();
-      File("marks.txt")
-        ..createSync(recursive: true)
-        ..writeAsStringSync(result.result.rawMarks.toString());
-      var evaluated = evaluator.evaluate(tree);
-      output += "$evaluated\n";
-      File("meta_out.txt").writeAsStringSync(output);
-      print(output);
-      print("Output written to meta_out.txt");
+  switch (parser.parseAmbiguous("${input.trim()}\n")) {
+    case ParseAmbiguousForestSuccess result:
+      print(result.forest.allPaths().length);
+      for (var path in result.forest.allPaths()) {
+        print(path.evaluateStructure());
+        var output = "Evaluated Meta Grammar Paths:\n";
+        var tree = path.evaluateStructure();
+        File("marks.txt")
+          ..createSync(recursive: true)
+          ..writeAsStringSync(tree.toString());
+        var evaluated = evaluator.evaluate(tree);
+        output += "$evaluated\n";
+        File("meta_out.txt").writeAsStringSync(output);
+        print((evaluated as List<Object?>?)?.join("\n"));
+        print("Output written to meta_out.txt");
+      }
     case ParseError error:
       error.displayError(input);
     case _:

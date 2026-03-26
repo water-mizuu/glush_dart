@@ -1,2 +1,2 @@
 Evaluated Meta Grammar Paths:
-[(abc, [|, [ref, c], [seq, [&, [ref, d]], [!, [*!, [ref, e]]]]]), (xyz, [seq, [seq, $test, [lit, 'foo']], [range, a-z]]), (one, [|, [seq, [ref, S], [lit, 's']], [lit, 's']])]
+[(one, [|, [5, [seq, [ref, S], [lit, 's']]], [*!, [lit, 's']]])]

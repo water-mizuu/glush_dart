@@ -30,6 +30,21 @@ class EvaluationContext<T> {
     return evaluator.evaluate(matches.first) as R;
   }
 
+  /// Evaluates a child with the given [label].
+  ///
+  /// Throws if the label is not found in the current node.
+  R? optional<R extends Object>(String label) {
+    if (node is! ParseResult) {
+      throw StateError('Cannot access label "$label" on leaf node');
+    }
+    var matches = (node as ParseResult).get(label);
+    if (matches.isEmpty) {
+      return null;
+    }
+
+    return evaluator.evaluate(matches.first) as R;
+  }
+
   /// Evaluates the next node in the iterator.
   T next() => evaluator.evaluateChildren(it);
 
@@ -234,6 +249,21 @@ class StructuredEvaluator {
             stack.last.children.add((name, newNode));
           }
 
+        case ConjunctionMark(:var branches):
+          // ConjunctionMark contains parallel mark streams (List<GlushList<Mark>>).
+          // Evaluate each independently and hoist their children into the current frame.
+          // We only aggregate the span from the first branch to avoid duplication.
+          var first = true;
+          for (var branch in branches) {
+            var branchResult = evaluate(branch.toList());
+            for (var child in branchResult.children) {
+              stack.last.children.add(child);
+            }
+            if (first) {
+              stack.last.addToken(branchResult.span);
+              first = false;
+            }
+          }
         case StringMark(:var value):
           stack.last.addToken(value);
       }
@@ -295,6 +325,18 @@ class StructuredEvaluator {
             stack.last.children.add((name, newNode));
           }
 
+        case ConjunctionMark(:var branches):
+          var first = true;
+          for (var branch in branches) {
+            var branchResult = evaluateStrict(branch.toList());
+            for (var child in branchResult.children) {
+              stack.last.children.add(child);
+            }
+            if (first) {
+              stack.last.addToken(branchResult.span);
+              first = false;
+            }
+          }
         case StringMark(:var value):
           stack.last.addToken(value);
       }

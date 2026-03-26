@@ -11,6 +11,7 @@ abstract interface class GlushParser {
   bool get captureTokensAsMarks;
   GrammarInterface get grammar;
   List<Frame> get initialFrames;
+
   Step processToken(
     int? token,
     int currentPosition,

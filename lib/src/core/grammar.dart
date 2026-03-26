@@ -138,77 +138,90 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
   void _normalizePredicates() {
     for (int i = 0; i < rules.length; i++) {
-      _normalizePattern(rules[i].body());
+      var rule = rules[i];
+      rule.setBody(_normalizePattern(rule.body(), <Pattern>{}));
     }
   }
 
-  void _normalizePattern(Pattern pattern) {
-    // We use a set to avoid infinite recursion in graph
-    var seen = <Pattern>{};
-    var queue = <Pattern>[pattern];
-
-    while (queue.isNotEmpty) {
-      var patternNode = queue.removeAt(0);
-      if (seen.contains(patternNode)) {
-        continue;
-      }
-      seen.add(patternNode);
-
-      if (patternNode is And) {
-        var child = patternNode.pattern;
-        if (child is! RuleCall) {
-          var syntheticName = "pred\$${_syntheticRuleCounter++}";
-          var syntheticRule = Rule(syntheticName, () => child);
-          rules.add(syntheticRule);
-          patternNode.pattern = syntheticRule.call() as Pattern;
-          // The new RuleCall will be seen in the next iteration or via recursive discovery.
-          queue.add(patternNode.pattern);
-        }
-      } else if (patternNode is Not) {
-        var child = patternNode.pattern;
-        if (child is! RuleCall) {
-          var syntheticName = "pred\$${_syntheticRuleCounter++}";
-          var syntheticRule = Rule(syntheticName, () => child);
-          rules.add(syntheticRule);
-          patternNode.pattern = syntheticRule.call() as Pattern;
-          // The new RuleCall will be seen in the next iteration or via recursive discovery.
-          queue.add(patternNode.pattern);
-        }
-      }
-
-      // Traditional discovery of children to continue walk
-      switch (patternNode) {
-        case Seq seq:
-          queue.add(seq.left);
-          queue.add(seq.right);
-        case Alt alt:
-          queue.add(alt.left);
-          queue.add(alt.right);
-        case Conj conj:
-          queue.add(conj.left);
-          queue.add(conj.right);
-        case And and:
-          queue.add(and.pattern);
-        case Not not:
-          queue.add(not.pattern);
-        case Action<dynamic> action:
-          queue.add(action.child);
-        case Prec plp:
-          queue.add(plp.child);
-        case Opt opt:
-          queue.add(opt.child);
-        case Plus plus:
-          queue.add(plus.child);
-        case Star star:
-          queue.add(star.child);
-        case Label label:
-          queue.add(label.child);
-        case StartAnchor():
-        case EofAnchor():
-        default:
-          break;
-      }
+  Pattern _normalizePattern(Pattern pattern, Set<Pattern> seen) {
+    if (!seen.add(pattern)) {
+      return pattern;
     }
+
+    if (pattern is Rule) {
+      return _normalizePattern(pattern.call(), seen);
+    }
+
+    if (pattern is And) {
+      pattern.pattern = _normalizePattern(pattern.pattern, seen);
+      var child = pattern.pattern;
+      if (child is! RuleCall) {
+        var syntheticName = "pred\$${_syntheticRuleCounter++}";
+        var syntheticRule = Rule(syntheticName, () => child);
+        rules.add(syntheticRule);
+        pattern.pattern = syntheticRule.call();
+        // No need to recurse again as child was already normalized or is new
+      }
+      return pattern;
+    }
+
+    if (pattern is Not) {
+      pattern.pattern = _normalizePattern(pattern.pattern, seen);
+      var child = pattern.pattern;
+      if (child is! RuleCall) {
+        var syntheticName = "pred\$${_syntheticRuleCounter++}";
+        var syntheticRule = Rule(syntheticName, () => child);
+        rules.add(syntheticRule);
+        pattern.pattern = syntheticRule.call();
+      }
+      return pattern;
+    }
+
+    if (pattern is Conj) {
+      pattern.left = _normalizePattern(pattern.left, seen);
+      var left = pattern.left;
+      if (left is! RuleCall) {
+        var syntheticName = "conj\$${_syntheticRuleCounter++}";
+        var syntheticRule = Rule(syntheticName, () => left);
+        rules.add(syntheticRule);
+        pattern.left = syntheticRule.call();
+      }
+
+      pattern.right = _normalizePattern(pattern.right, seen);
+      var right = pattern.right;
+      if (right is! RuleCall) {
+        var syntheticName = "conj\$${_syntheticRuleCounter++}";
+        var syntheticRule = Rule(syntheticName, () => right);
+        rules.add(syntheticRule);
+        pattern.right = syntheticRule.call();
+      }
+      return pattern;
+    }
+
+    // Traditional discovery of children to continue walk
+    switch (pattern) {
+      case Seq seq:
+        seq.left = _normalizePattern(seq.left, seen);
+        seq.right = _normalizePattern(seq.right, seen);
+      case Alt alt:
+        alt.left = _normalizePattern(alt.left, seen);
+        alt.right = _normalizePattern(alt.right, seen);
+      case Action<dynamic> action:
+        action.child = _normalizePattern(action.child, seen);
+      case Prec plp:
+        plp.child = _normalizePattern(plp.child, seen);
+      case Opt opt:
+        opt.child = _normalizePattern(opt.child, seen);
+      case Plus plus:
+        plus.child = _normalizePattern(plus.child, seen);
+      case Star star:
+        star.child = _normalizePattern(star.child, seen);
+      case Label label:
+        label.child = _normalizePattern(label.child, seen);
+      default:
+        break;
+    }
+    return pattern;
   }
 
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {

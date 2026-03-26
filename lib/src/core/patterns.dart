@@ -11,6 +11,7 @@ sealed class Pattern {
   factory Pattern.char(String char) = Token.char;
   factory Pattern.start() = StartAnchor;
   factory Pattern.eof() = EofAnchor;
+  factory Pattern.any() = Token.any;
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
       return Eps();
@@ -289,6 +290,7 @@ class Token extends Pattern {
       choice = ExactToken(char.codeUnits.single);
   Token.charRange(String from, String to)
     : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
+  Token.any() : choice = const AnyToken();
   final TokenChoice choice;
 
   @override
@@ -446,8 +448,8 @@ final class EofAnchor extends Pattern {
 /// Alternation (choice between patterns)
 class Alt extends Pattern {
   Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
-  final Pattern left;
-  final Pattern right;
+  Pattern left;
+  Pattern right;
 
   @override
   Alt copy() => Alt(left, right);
@@ -459,7 +461,14 @@ class Alt extends Pattern {
   bool match(int? token) => left.match(token) || right.match(token);
 
   @override
-  Pattern invert() => left.invert() & right.invert();
+  Pattern invert() {
+    try {
+      return left.invert() & right.invert();
+    } on GrammarError catch (e) {
+      print(e);
+      return not();
+    }
+  }
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -497,11 +506,14 @@ class Alt extends Pattern {
 /// Sequence (patterns in order)
 class Seq extends Pattern {
   Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
-  final Pattern left;
-  final Pattern right;
+  Pattern left;
+  Pattern right;
 
   @override
   Seq copy() => Seq(left, right);
+
+  @override
+  Pattern invert() => not();
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -559,7 +571,7 @@ class Seq extends Pattern {
 /// This is modeled as a first-class node instead of rewriting to Alt(child, Eps).
 class Opt extends Pattern {
   Opt(Pattern child) : child = child.consume();
-  final Pattern child;
+  Pattern child;
 
   @override
   Opt copy() => Opt(child);
@@ -597,7 +609,7 @@ class Opt extends Pattern {
 /// Zero-or-more repetition
 class Star extends Pattern {
   Star(Pattern child) : child = child.consume();
-  final Pattern child;
+  Pattern child;
 
   @override
   Star copy() => Star(child);
@@ -642,7 +654,7 @@ class Star extends Pattern {
 /// One-or-more repetition
 class Plus extends Pattern {
   Plus(Pattern child) : child = child.consume();
-  final Pattern child;
+  Pattern child;
 
   @override
   Plus copy() => Plus(child);
@@ -686,36 +698,40 @@ class Plus extends Pattern {
 
 /// Conjunction (both patterns must match)
 class Conj extends Pattern {
-  Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume() {
-    if (!left.singleToken() || !right.singleToken()) {
-      throw GrammarError("only single token can be used in conjunctions");
-    }
-  }
-  final Pattern left;
-  final Pattern right;
+  Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
+
+  Pattern left;
+  Pattern right;
 
   @override
-  bool singleToken() => true;
+  bool singleToken() => left.singleToken() && right.singleToken();
 
   @override
   bool match(int? token) => left.match(token) && right.match(token);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(false);
-    return false;
+    var leftEmpty = left.calculateEmpty(emptyRules);
+    var rightEmpty = right.calculateEmpty(emptyRules);
+    var result = leftEmpty && rightEmpty;
+    setEmpty(result);
+    return result;
   }
 
   @override
-  bool isStatic() => false;
+  bool isStatic() => left.isStatic() && right.isStatic();
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
   @override
   Conj copy() => Conj(left, right);
+
+  @override
+  Pattern invert() => left.invert() | right.invert();
 
   @override
   void collectRules(Set<Rule> rules) {
@@ -735,6 +751,9 @@ class And extends Pattern {
 
   @override
   And copy() => And(pattern);
+
+  @override
+  Pattern invert() => Not(pattern);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -776,6 +795,9 @@ class Not extends Pattern {
   Not copy() => Not(pattern);
 
   @override
+  Pattern invert() => And(pattern);
+
+  @override
   bool calculateEmpty(Set<Rule> emptyRules) {
     pattern.calculateEmpty(emptyRules);
     setEmpty(false);
@@ -810,11 +832,13 @@ extension type RuleName(String symbol) {}
 /// Grammar rule
 class Rule extends Pattern {
   Rule(String name, this._code) : name = RuleName(name);
+
   final RuleName name;
   final Pattern Function() _code;
+  final List<RuleCall> calls = [];
+
   Pattern? _body;
   Pattern? guard;
-  final List<RuleCall> calls = [];
 
   RuleCall call({int? minPrecedenceLevel}) {
     var name = "${this.name}_${calls.length}";
@@ -826,6 +850,11 @@ class Rule extends Pattern {
   Pattern body() {
     _body ??= _code().consume();
     return _body!;
+  }
+
+  // ignore: use_setters_to_change_properties
+  void setBody(Pattern body) {
+    _body = body;
   }
 
   @override
@@ -845,6 +874,15 @@ class Rule extends Pattern {
 
   @override
   bool isStatic() => false;
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    if (rules.contains(this)) {
+      return;
+    }
+    rules.add(this);
+    body().collectRules(rules);
+  }
 
   @override
   String toString() => "<$name>";
@@ -892,7 +930,7 @@ class RuleCall extends Pattern {
 /// The callback receives (span, childResults) where childResults are the evaluated semantic values.
 class Action<T> extends Pattern {
   Action(this.child, this.callback);
-  final Pattern child;
+  Pattern child;
   final T Function(String span, List<dynamic> childResults) callback;
 
   @override
@@ -940,7 +978,7 @@ class Action<T> extends Pattern {
 class Prec extends Pattern {
   Prec(this.precedenceLevel, this.child);
   final int precedenceLevel;
-  final Pattern child;
+  Pattern child;
 
   @override
   Prec copy() => Prec(precedenceLevel, child.copy());
@@ -987,7 +1025,7 @@ class Label extends Pattern {
     _end = LabelEnd(name);
   }
   final String name;
-  final Pattern child;
+  Pattern child;
   late final LabelStart _start;
   late final LabelEnd _end;
 

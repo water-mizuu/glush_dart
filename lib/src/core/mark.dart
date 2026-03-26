@@ -1,6 +1,7 @@
 /// Mark class for tracking parse positions
 library glush.mark;
 
+import "package:glush/src/core/list.dart";
 import "package:meta/meta.dart";
 
 @immutable
@@ -99,6 +100,48 @@ class LabelEndMark implements Mark {
 
   @override
   String toString() => "LabelEnd($name, $position)";
+}
+
+/// A mark that holds parallel mark streams from a conjunction.
+///
+/// This allows structural recovery of sub-parse results from each branch
+/// of an intersection without duplicating tokens in the final evaluated span.
+final class ConjunctionMark implements Mark {
+  const ConjunctionMark(this.branches, this.position);
+
+  /// The parallel mark streams from each branch of the conjunction.
+  final List<GlushList<Mark>> branches;
+
+  final int position;
+
+  @override
+  List<Object> toList() => ["con", branches, position];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConjunctionMark &&
+          runtimeType == other.runtimeType &&
+          position == other.position &&
+          _listEquals(branches, other.branches);
+
+  @override
+  int get hashCode => Object.hash(Object.hashAll(branches), position);
+
+  @override
+  String toString() => "ConjunctionMark($branches, $position)";
+}
+
+bool _listEquals(List<Object?> left, List<Object?> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var i = 0; i < left.length; i++) {
+    if (left[i] != right[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 String _escapeDisplay(String value) {

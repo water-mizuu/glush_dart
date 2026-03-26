@@ -47,6 +47,7 @@ enum _TokenType {
   lbrace, // {
   rbrace, // }
   ampersand, // &
+  doubleAmpersand, // &&
   bang, // !
   eof, // \0
   lesser, // <
@@ -100,6 +101,17 @@ class _Tokenizer {
         continue;
       }
 
+      if (ch == "&") {
+        if (position + 1 < source.length && source[position + 1] == "&") {
+          _tokens.add(_Token(_TokenType.doubleAmpersand, "&&", line, column));
+          position += 2;
+          continue;
+        }
+        _tokens.add(_Token(_TokenType.ampersand, "&", line, column));
+        position++;
+        continue;
+      }
+
       // Single-character tokens
       var tokenMap = {
         "=": _TokenType.equals,
@@ -114,7 +126,6 @@ class _Tokenizer {
         "^": _TokenType.caret,
         "{": _TokenType.lbrace,
         "}": _TokenType.rbrace,
-        "&": _TokenType.ampersand,
         "!": _TokenType.bang,
         "<": _TokenType.lesser,
         ">": _TokenType.greater,
@@ -416,10 +427,10 @@ class GrammarFileParser {
   PatternExpr _parseSequence() {
     var startingMark = _tryParseMainMark();
 
-    var parts = [_parsePrefix()];
+    var parts = [_parseConjunction()];
 
     while (_isSequenceContinuation()) {
-      parts.add(_parsePrefix());
+      parts.add(_parseConjunction());
     }
 
     PatternExpr result = parts.length == 1 ? parts[0] : SequencePattern(parts);
@@ -442,18 +453,20 @@ class GrammarFileParser {
     return null;
   }
 
-  // /// Parse: expr & expr & expr
-  // PatternExpr _parseConjunction() {
-  //   final parts = [_parsePrefix()];
+  /// Parse: expr & expr & expr
+  PatternExpr _parseConjunction() {
+    var parts = [_parsePrefix()];
 
-  //   while (_peek().type == _TokenType.ampersand) {
-  //     _advance(); // consume &
-  //     parts.add(_parsePrefix());
-  //   }
+    while (_peek().type == _TokenType.doubleAmpersand) {
+      _advance(); // consume &
+      parts.add(_parsePrefix());
+    }
 
-  //   if (parts.length == 1) return parts[0];
-  //   return ConjunctionPattern(parts);
-  // }
+    if (parts.length == 1) {
+      return parts[0];
+    }
+    return ConjunctionPattern(parts);
+  }
 
   /// Parse prefix predicates: &expr, !expr
   PatternExpr _parsePrefix() {

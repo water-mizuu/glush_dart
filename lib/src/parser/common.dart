@@ -17,6 +17,9 @@ import "package:meta/meta.dart";
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 typedef PredicateKey = (PatternSymbol pattern, int startPosition);
 
+/// Key for tracking conjunction sub-parses by left/right patterns and start position.
+typedef ConjunctionKey = (PatternSymbol left, PatternSymbol right, int startPosition);
+
 /// Key for identifying a unique parsing context at a given position.
 /// (state, caller, minimumPrecedence, predicateStack)
 /// Used for deduplication and result grouping.
@@ -50,6 +53,11 @@ bool hasBalancedLabelMarks(Iterable<Mark> marks) {
           return false;
         }
         stack.removeLast();
+      case ConjunctionMark():
+        // Conjunction marks hold parallel branches that should be balanced
+        // independently. For the purposes of this top-level check, they are
+        // treated as atomic.
+        break;
       case NamedMark():
       case StringMark():
         break;
@@ -132,6 +140,9 @@ final class ParseState {
 
   /// Live predicate sub-parses keyed by `(pattern, startPosition)`.
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
+
+  /// Live conjunction sub-parses keyed by `(left, right, startPosition)`.
+  final Map<ConjunctionKey, ConjunctionTracker> conjunctionTrackers = {};
 
   /// Memoized call sites keyed by rule and precedence constraints.
   final Map<CallerCacheKey, Caller> callers = {};
@@ -290,6 +301,39 @@ class PredicateTracker {
   bool get canResolveFalse => !matched && activeFrames == 0;
 }
 
+/// Tracks one consuming conjunction sub-parse (intersection) for `(left, right, startPosition)`.
+///
+/// Both sides (A and B) are run independently from the same start position.
+/// When both find a match ending at the same position `j`, they rendezvous
+/// and resume the main parse at `j`.
+class ConjunctionTracker {
+  ConjunctionTracker({
+    required this.leftSymbol,
+    required this.rightSymbol,
+    required this.startPosition,
+  });
+  final PatternSymbol leftSymbol;
+  final PatternSymbol rightSymbol;
+  final int startPosition;
+
+  final Map<int, List<GlushList<Mark>>> leftCompletions = {};
+  final Map<int, List<GlushList<Mark>>> rightCompletions = {};
+  int activeFrames = 0;
+
+  final List<(ParseNodeKey? source, Context, State)> waiters = [];
+
+  void addPendingFrame() {
+    activeFrames++;
+  }
+
+  void removePendingFrame() {
+    assert(activeFrames > 0, "ConjunctionTracker underflow");
+    activeFrames--;
+  }
+
+  bool get isExhausted => activeFrames == 0;
+}
+
 // ---------------------------------------------------------------------------
 // Internal parsing machinery
 // ---------------------------------------------------------------------------
@@ -326,6 +370,32 @@ final class PredicateCallerKey extends CallerKey {
 
   @override
   int get hashCode => Object.hash(pattern, startPosition);
+}
+
+/// Caller key for a conjunction sub-parse branch.
+final class ConjunctionCallerKey extends CallerKey {
+  const ConjunctionCallerKey({
+    required this.left,
+    required this.right,
+    required this.startPosition,
+    required this.isLeft,
+  });
+
+  final PatternSymbol left;
+  final PatternSymbol right;
+  final int startPosition;
+  final bool isLeft;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ConjunctionCallerKey &&
+      left == other.left &&
+      right == other.right &&
+      startPosition == other.startPosition &&
+      isLeft == other.isLeft;
+
+  @override
+  int get hashCode => Object.hash(left, right, startPosition, isLeft);
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
@@ -573,6 +643,11 @@ class Step {
       parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
           ?.addPendingFrame();
     }
+
+    if (frame.context.caller case ConjunctionCallerKey caller) {
+      parseState.conjunctionTrackers[(caller.left, caller.right, caller.startPosition)]
+          ?.addPendingFrame();
+    }
   }
 
   /// Resolve a predicate sub-parse and wake any parked continuations.
@@ -638,6 +713,54 @@ class Step {
     }
   }
 
+  /// Resolve a conjunction match and wake up any waiters at the matching position.
+  void _finishConjunction(
+    ConjunctionTracker tracker,
+    int endPosition,
+    bool isLeft,
+    GlushList<Mark> marks,
+  ) {
+    if (isLeft) {
+      tracker.leftCompletions.putIfAbsent(endPosition, () => []).add(marks);
+      if (tracker.rightCompletions.containsKey(endPosition)) {
+        _resumeConjunctionWaiters(tracker, endPosition);
+      }
+    } else {
+      tracker.rightCompletions.putIfAbsent(endPosition, () => []).add(marks);
+      if (tracker.leftCompletions.containsKey(endPosition)) {
+        _resumeConjunctionWaiters(tracker, endPosition);
+      }
+    }
+  }
+
+  void _resumeConjunctionWaiters(ConjunctionTracker tracker, int endPosition) {
+    var leftOptions = tracker.leftCompletions[endPosition] ?? [];
+    var rightOptions = tracker.rightCompletions[endPosition] ?? [];
+
+    for (var (source, parentContext, nextState) in tracker.waiters) {
+      for (var l in leftOptions) {
+        for (var r in rightOptions) {
+          // Combine marks from both branches into a ConjunctionMark
+          var conMark = ConjunctionMark([l, r], endPosition);
+          var nextMarks = parentContext.marks.add(parseState.markCache, conMark);
+          var nextContext = parentContext.copyWith(pivot: endPosition, marks: nextMarks);
+
+          if (isSupportingAmbiguity && source != null) {
+            // Record the conjunction completion in the derivation path
+            var nextPath = parseState.derivationCache.push(parentContext.derivationPath, (
+              source,
+              "conj", // Special marker for conjunction completion
+              null,
+            ));
+            nextContext = nextContext.copyWith(derivationPath: nextPath);
+          }
+
+          requeue(Frame(nextContext)..nextStates.add(nextState));
+        }
+      }
+    }
+  }
+
   /// Resume a continuation that was parked behind a predicate.
   ///
   /// The frame is requeued at the original parent pivot so it can catch up
@@ -693,6 +816,60 @@ class Step {
           callStart: position,
           pivot: position,
           tokenHistory: frame.context.tokenHistory,
+        ),
+      );
+    }
+  }
+
+  /// Seed a conjunction sub-parse (both side A and side B).
+  void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
+    var leftStates = parseState.parser.stateMachine.ruleFirst[left] ?? [];
+    var rightStates = parseState.parser.stateMachine.ruleFirst[right] ?? [];
+
+    var leftCaller = ConjunctionCallerKey(
+      left: left,
+      right: right,
+      startPosition: position,
+      isLeft: true,
+    );
+    var rightCaller = ConjunctionCallerKey(
+      left: left,
+      right: right,
+      startPosition: position,
+      isLeft: false,
+    );
+
+    var subParseKey = (left, right, position);
+    var tracker = parseState.conjunctionTrackers[subParseKey];
+
+    // Side A
+    for (var s in leftStates) {
+      tracker?.addPendingFrame();
+      _enqueue(
+        s,
+        Context(
+          leftCaller,
+          const GlushList.empty(),
+          callStart: position,
+          pivot: position,
+          tokenHistory: frame.context.tokenHistory,
+          predicateStack: frame.context.predicateStack,
+        ),
+      );
+    }
+
+    // Side B
+    for (var s in rightStates) {
+      tracker?.addPendingFrame();
+      _enqueue(
+        s,
+        Context(
+          rightCaller,
+          const GlushList.empty(),
+          callStart: position,
+          pivot: position,
+          tokenHistory: frame.context.tokenHistory,
+          predicateStack: frame.context.predicateStack,
         ),
       );
     }
@@ -949,6 +1126,23 @@ class Step {
             _spawnPredicateSubparse(symbol, frame);
           }
 
+        case ConjunctionAction():
+          var left = action.leftSymbol;
+          var right = action.rightSymbol;
+          var key = (left, right, position);
+          var isFirst = !parseState.conjunctionTrackers.containsKey(key);
+          var tracker = parseState.conjunctionTrackers.putIfAbsent(
+            key,
+            () => ConjunctionTracker(leftSymbol: left, rightSymbol: right, startPosition: position),
+          );
+
+          // Park the continuation
+          tracker.waiters.add((source, frameContext, action.nextState));
+
+          if (isFirst) {
+            _spawnConjunctionSubparse(left, right, frame);
+          }
+
         case CallAction():
           CallerCacheKey key = (action.rule, position, action.minPrecedenceLevel);
           var isNewCaller = !parseState.callers.containsKey(key);
@@ -1069,8 +1263,16 @@ class Step {
               continue;
             }
 
-            // Success resolves the predicate immediately.
             _finishPredicate(tracker, true);
+            continue;
+          }
+
+          if (caller is ConjunctionCallerKey) {
+            var key = (caller.left, caller.right, caller.startPosition);
+            var tracker = parseState.conjunctionTrackers[key];
+            if (tracker != null) {
+              _finishConjunction(tracker, position, caller.isLeft, frame.marks);
+            }
             continue;
           }
 
