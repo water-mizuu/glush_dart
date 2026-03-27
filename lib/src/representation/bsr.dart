@@ -832,6 +832,14 @@ class SppfBuilder {
             ),
           );
         }
+      case "par":
+      case "pac":
+        {
+          // Parameter references and parameter calls are dispatch wrappers.
+          // The concrete rule-call structure is recorded separately in the BSR,
+          // so forest reconstruction can treat these as zero-width aliases.
+          valueStack.add([nodeCache.epsilon(start, task.pattern)]);
+        }
       case "rca":
         {
           var effectivePrec = int.tryParse(suffix) ?? task.minPrecedenceLevel;

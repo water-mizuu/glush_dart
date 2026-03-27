@@ -12,6 +12,9 @@ void main() {
   _runExample("Structured Higher-Order Grammar", _exampleStructuredHigherOrderGrammar);
   _runExample("Recursive Parameter Chain", _exampleRecursiveParameterChain);
   _runExample("Pattern Closure Pass-Through", _examplePatternClosurePassThrough);
+  _runExample("Ambiguous Data-Driven Choice", _exampleAmbiguousDataDrivenChoice);
+  _runExample("Framed Payload Dispatch", _exampleFramedPayloadDispatch);
+  _runExample("Configurable Record Catalog", _exampleConfigurableRecordCatalog);
 }
 
 void _runExample(String name, void Function() example) {
@@ -460,5 +463,273 @@ void _examplePatternClosurePassThrough() {
   print('Input "[bb]b": ${parser.recognize("[bb]b") ? "MATCH" : "FAIL"}');
   print('DSL "[ac]a": ${dslParser.recognize("[ac]a") ? "MATCH" : "FAIL"} (Expected FAIL)');
   print('Input "[ac]a": ${parser.recognize("[ac]a") ? "MATCH" : "FAIL"} (Expected FAIL)');
+  print("");
+}
+
+/// Example 10:
+/// Ambiguity driven by a data-passed rule choice.
+///
+/// This keeps the grammar data-driven while still producing two valid parse
+/// paths for the same input. The ambiguity comes from choosing between two
+/// rule arguments that both match the same text but attach different marks.
+void _exampleAmbiguousDataDrivenChoice() {
+  print("Example 10: Ambiguous Data-Driven Choice");
+  print("Goal: Pass a rule as data and keep both branches ambiguous.");
+
+  const grammarText = r"""
+    start = leftStart | rightStart
+    leftStart = branch(choice: left)
+    rightStart = branch(choice: right)
+
+    branch(choice) = choice
+    left = leftMark:'a'
+    right = rightMark:'a'
+  """;
+
+  var dslParser = grammarText.toSMParser();
+  var dslOutcome = dslParser.parseAmbiguous("a", captureTokensAsMarks: true);
+  print("DSL ambiguous outcome: ${dslOutcome.runtimeType}");
+  if (dslOutcome case ParseAmbiguousForestSuccess(:var forest)) {
+    print("DSL paths: ${forest.allPaths().length}");
+    for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
+      print(tree.toString());
+    }
+  }
+
+  late Rule start;
+  late Rule leftStart;
+  late Rule rightStart;
+  late Rule branch;
+  late Rule left;
+  late Rule right;
+
+  left = Rule("left", () => Label("leftMark", Pattern.char("a")));
+  right = Rule("right", () => Label("rightMark", Pattern.char("a")));
+  branch = Rule("branch", () => ParameterRefPattern("choice"));
+  leftStart = Rule("leftStart", () => branch(arguments: {"choice": CallArgumentValue.rule(left)}));
+  rightStart = Rule(
+    "rightStart",
+    () => branch(arguments: {"choice": CallArgumentValue.rule(right)}),
+  );
+  start = Rule("start", () => leftStart() | rightStart());
+
+  var fluentParser = SMParser(Grammar(() => start), captureTokensAsMarks: true);
+  var fluentOutcome = fluentParser.parseAmbiguous("a", captureTokensAsMarks: true);
+  print("Fluent ambiguous outcome: ${fluentOutcome.runtimeType}");
+  if (fluentOutcome case ParseAmbiguousForestSuccess(:var forest)) {
+    print("Fluent paths: ${forest.allPaths().length}");
+    for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
+      print(tree.toString());
+    }
+  }
+
+  print("");
+}
+
+/// Example 11:
+/// A rule call can be passed as a pattern parameter and invoked again by the
+/// callee, which lets the outer rule describe the framing while the inner rule
+/// describes the payload shape.
+void _exampleFramedPayloadDispatch() {
+  print("Example 11: Framed Payload Dispatch");
+  print("Goal: Pass a nested rule call as a pattern and call it again later.");
+
+  const dslGrammarText = r"""
+    start = v1 | v2
+
+    v1 =
+          render(
+            schema: framed(prefix: "<", suffix: ">"),
+            payload: pair(piece: atom),
+            trailer: bang
+          )
+
+    v2 =
+          render(
+            schema: framed(prefix: "{", suffix: "}"),
+            payload: triplet(piece: atom),
+            trailer: dot
+          )
+
+    render(schema, payload, trailer) = schema(body: payload) trailer
+    framed(prefix, suffix, body) = prefix body suffix
+    pair(piece) = piece piece
+    triplet(piece) = piece piece piece
+    bang = '!'
+    dot = '.'
+    atom = 'a' | 'b' | 'c'
+  """;
+  var dslParser = dslGrammarText.toSMParser();
+
+  late Rule start;
+  late Rule v1;
+  late Rule v2;
+  late Rule render;
+  late Rule framed;
+  late Rule pair;
+  late Rule triplet;
+  late Rule bang;
+  late Rule dot;
+  late Rule atom;
+
+  atom = Rule("atom", () => Pattern.char("a") | Pattern.char("b") | Pattern.char("c"));
+  bang = Rule("bang", () => Pattern.char("!"));
+  dot = Rule("dot", () => Pattern.char("."));
+
+  pair = Rule("pair", () => ParameterRefPattern("piece") >> ParameterRefPattern("piece"));
+  triplet = Rule(
+    "triplet",
+    () =>
+        ParameterRefPattern("piece") >>
+        ParameterRefPattern("piece") >>
+        ParameterRefPattern("piece"),
+  );
+
+  framed = Rule(
+    "framed",
+    () =>
+        ParameterRefPattern("prefix") >>
+        ParameterRefPattern("body") >>
+        ParameterRefPattern("suffix"),
+  );
+
+  render = Rule(
+    "render",
+    () =>
+        ParameterCallPattern(
+          "schema",
+          arguments: {"body": CallArgumentValue.reference("payload")},
+        ) >>
+        ParameterRefPattern("trailer"),
+  );
+
+  v1 = Rule(
+    "v1",
+    () => render(
+      arguments: {
+        "schema": CallArgumentValue.pattern(
+          framed(
+            arguments: {
+              "prefix": CallArgumentValue.literal("<"),
+              "suffix": CallArgumentValue.literal(">"),
+            },
+          ),
+        ),
+        "payload": CallArgumentValue.pattern(pair(arguments: {"piece": CallArgumentValue.rule(atom)})),
+        "trailer": CallArgumentValue.rule(bang),
+      },
+    ),
+  );
+
+  v2 = Rule(
+    "v2",
+    () => render(
+      arguments: {
+        "schema": CallArgumentValue.pattern(
+          framed(
+            arguments: {
+              "prefix": CallArgumentValue.literal("{"),
+              "suffix": CallArgumentValue.literal("}"),
+            },
+          ),
+        ),
+        "payload": CallArgumentValue.pattern(
+          triplet(arguments: {"piece": CallArgumentValue.rule(atom)}),
+        ),
+        "trailer": CallArgumentValue.rule(dot),
+      },
+    ),
+  );
+
+  start = Rule("start", () => v1() | v2());
+
+  var fluentParser = SMParser(Grammar(() => start));
+
+  print('DSL "<aa>!":   ${dslParser.recognize("<aa>!") ? "MATCH" : "FAIL"}');
+  print('Fluent "<aa>!": ${fluentParser.recognize("<aa>!") ? "MATCH" : "FAIL"}');
+  print('DSL "{bbb}.":   ${dslParser.recognize("{bbb}.") ? "MATCH" : "FAIL"}');
+  print('Fluent "{bbb}.": ${fluentParser.recognize("{bbb}.") ? "MATCH" : "FAIL"}');
+  print('DSL "<a>!":    ${dslParser.recognize("<a>!") ? "MATCH" : "FAIL"} (Expected FAIL)');
+  print('Fluent "{bb}!": ${fluentParser.recognize("{bb}!") ? "MATCH" : "FAIL"} (Expected FAIL)');
+  print("");
+}
+
+/// Example 12:
+/// A compact catalog-style example shows the same technique driving two
+/// different record layouts from direct higher-order branches.
+void _exampleConfigurableRecordCatalog() {
+  print("Example 12: Configurable Record Catalog");
+  print("Goal: Swap between record layouts with one nested payload rule call.");
+
+  const dslGrammarText = r"""
+    start = compact | verbose
+
+    compact = short(prefix: "<", suffix: ">", body: atom)
+    verbose = long(prefix: "{", suffix: "}", body: pair(piece: atom))
+
+    short(prefix, suffix, body) = prefix body suffix
+    long(prefix, suffix, body) = prefix body suffix
+    pair(piece) = piece piece
+    atom = 'x' | 'y'
+  """;
+  var dslParser = dslGrammarText.toSMParser();
+
+  late Rule start;
+  late Rule compact;
+  late Rule verbose;
+  late Rule short;
+  late Rule long;
+  late Rule pair;
+  late Rule atom;
+
+  atom = Rule("atom", () => Pattern.char("x") | Pattern.char("y"));
+  pair = Rule("pair", () => ParameterRefPattern("piece") >> ParameterRefPattern("piece"));
+  short = Rule(
+    "short",
+    () =>
+        ParameterRefPattern("prefix") >>
+        ParameterRefPattern("body") >>
+        ParameterRefPattern("suffix"),
+  );
+  long = Rule(
+    "long",
+    () =>
+        ParameterRefPattern("prefix") >>
+        ParameterRefPattern("body") >>
+        ParameterRefPattern("suffix"),
+  );
+  compact = Rule(
+    "compact",
+    () => short(
+      arguments: {
+        "prefix": CallArgumentValue.literal("<"),
+        "suffix": CallArgumentValue.literal(">"),
+        "body": CallArgumentValue.rule(atom),
+      },
+    ),
+  );
+  verbose = Rule(
+    "verbose",
+    () => long(
+      arguments: {
+        "prefix": CallArgumentValue.literal("{"),
+        "suffix": CallArgumentValue.literal("}"),
+        "body": CallArgumentValue.pattern(
+          pair(arguments: {"piece": CallArgumentValue.rule(atom)}),
+        ),
+      },
+    ),
+  );
+
+  start = Rule("start", () => compact() | verbose());
+
+  var parser = SMParser(Grammar(() => start));
+
+  print('DSL "<x>":   ${dslParser.recognize("<x>") ? "MATCH" : "FAIL"}');
+  print('Fluent "<x>": ${parser.recognize("<x>") ? "MATCH" : "FAIL"}');
+  print('DSL "{yy}":   ${dslParser.recognize("{yy}") ? "MATCH" : "FAIL"}');
+  print('Fluent "{yy}": ${parser.recognize("{yy}") ? "MATCH" : "FAIL"}');
+  print('DSL "{y}":    ${dslParser.recognize("{y}") ? "MATCH" : "FAIL"} (Expected FAIL)');
+  print('Fluent "<z>":  ${parser.recognize("<z>") ? "MATCH" : "FAIL"} (Expected FAIL)');
   print("");
 }

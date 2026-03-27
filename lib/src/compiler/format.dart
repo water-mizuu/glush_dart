@@ -30,6 +30,72 @@ sealed class CallArgumentValueNode {}
 
 sealed class PatternExpr implements CallArgumentValueNode {}
 
+/// Unary expression used in call arguments and guards.
+class ExpressionUnaryNode implements CallArgumentValueNode {
+  const ExpressionUnaryNode(this.operator, this.operand);
+  final ExpressionUnaryOperator operator;
+  final CallArgumentValueNode operand;
+
+  @override
+  String toString() => "${operator.symbol}$operand";
+}
+
+/// Binary expression used in call arguments and guards.
+class ExpressionBinaryNode implements CallArgumentValueNode {
+  const ExpressionBinaryNode(this.left, this.operator, this.right);
+  final CallArgumentValueNode left;
+  final ExpressionBinaryOperator operator;
+  final CallArgumentValueNode right;
+
+  @override
+  String toString() => "$left ${operator.symbol} $right";
+}
+
+class ExpressionGroupNode implements CallArgumentValueNode {
+  const ExpressionGroupNode(this.inner);
+  final CallArgumentValueNode inner;
+
+  @override
+  String toString() => "($inner)";
+}
+
+/// Postfix member access used in call arguments and guards.
+class ExpressionMemberNode implements CallArgumentValueNode {
+  const ExpressionMemberNode(this.target, this.member);
+  final CallArgumentValueNode target;
+  final String member;
+
+  @override
+  String toString() => "$target.$member";
+}
+
+enum ExpressionUnaryOperator {
+  logicalNot("!"),
+  negate("-");
+
+  const ExpressionUnaryOperator(this.symbol);
+  final String symbol;
+}
+
+enum ExpressionBinaryOperator {
+  add("+"),
+  subtract("-"),
+  multiply("*"),
+  divide("/"),
+  modulo("%"),
+  logicalAnd("&&"),
+  logicalOr("||"),
+  equals("=="),
+  notEquals("!="),
+  lessThan("<"),
+  lessOrEqual("<="),
+  greaterThan(">"),
+  greaterOrEqual(">=");
+
+  const ExpressionBinaryOperator(this.symbol);
+  final String symbol;
+}
+
 /// Literal token pattern (e.g., 'a', '+', 'hello')
 class LiteralPattern implements PatternExpr {
   // true for quoted strings, false for single char
@@ -277,7 +343,7 @@ class LabeledPattern implements PatternExpr {
 /// Guarded sequence prefix (e.g., `if (count > 2) expr`)
 class IfPattern implements PatternExpr {
   const IfPattern(this.guard, this.inner);
-  final GuardExprNode guard;
+  final CallArgumentValueNode guard;
   final PatternExpr inner;
 
   @override

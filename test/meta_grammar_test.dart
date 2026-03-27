@@ -226,12 +226,12 @@ void main() {
     test("self-parses: meta grammar can parse itself", () {
       // Note: The grammar must end with a newline for proper EOF handling
       // We validate parsing succeeds by checking the result type
-      var result = metaParser.parse("$metaGrammarString\n");
+      var result = metaParser.parse(metaGrammarString);
       expect(result, isA<ParseSuccess>());
     });
 
     test("self-parses: result contains valid parse structure", () {
-      var parseResult = metaParser.parse("$metaGrammarString\n");
+      var parseResult = metaParser.parse(metaGrammarString);
       expect(parseResult, isA<ParseSuccess>());
 
       if (parseResult is ParseSuccess) {

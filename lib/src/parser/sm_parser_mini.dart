@@ -1,6 +1,7 @@
 import "package:glush/glush.dart" show SMParser;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
+import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/common.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
@@ -40,17 +41,18 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// only on the State Machine execution plus marks bookkeeping.
   @override
   bool recognize(String input) {
-    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    return GlushProfiler.measure("parser.recognize", () {
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // If no frames remain, the parser cannot recover from this prefix.
-      if (parseState.frames.isEmpty) {
-        return false;
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        if (parseState.frames.isEmpty) {
+          return false;
+        }
       }
-    }
 
-    return parseState.finish().accept;
+      return parseState.finish().accept;
+    });
   }
 
   /// Standard parsing that returns the first valid result found.
@@ -59,24 +61,23 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// only on the State Machine execution plus marks bookkeeping.
   @override
   ParseOutcome parse(String input) {
-    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    return GlushProfiler.measure("parser.parse", () {
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // No active frames means the parse has already failed.
-      if (parseState.frames.isEmpty) {
-        return ParseError(parseState.position - 1);
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        if (parseState.frames.isEmpty) {
+          return ParseError(parseState.position - 1);
+        }
       }
-    }
 
-    var lastStep = parseState.finish();
-
-    // Only a final accepted step counts as a successful parse.
-    if (lastStep.accept) {
-      return ParseSuccess(ParserResult(lastStep.marks));
-    } else {
-      return ParseError(parseState.position);
-    }
+      var lastStep = parseState.finish();
+      if (lastStep.accept) {
+        return ParseSuccess(ParserResult(lastStep.marks));
+      } else {
+        return ParseError(parseState.position);
+      }
+    });
   }
 
   /// Parses ambiguous input and returns a forest of all possible results (marks).
@@ -85,28 +86,27 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// ambiguity from the State Machine's marks system only.
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
-    var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    var parseState = createParseState(
-      isSupportingAmbiguity: true,
-      captureTokensAsMarks: shouldCapture,
-    );
+    return GlushProfiler.measure("parser.parse_ambiguous", () {
+      var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
+      var parseState = createParseState(
+        isSupportingAmbiguity: true,
+        captureTokensAsMarks: shouldCapture,
+      );
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // No active frames means the parse has already failed.
-      if (parseState.frames.isEmpty) {
-        return ParseError(parseState.position - 1);
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        if (parseState.frames.isEmpty) {
+          return ParseError(parseState.position - 1);
+        }
       }
-    }
 
-    var lastStep = parseState.finish();
-
-    // Ambiguous mode merges all accepted mark branches into one result.
-    if (lastStep.accept) {
-      var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-      return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
-    } else {
-      return ParseError(parseState.position);
-    }
+      var lastStep = parseState.finish();
+      if (lastStep.accept) {
+        var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
+        return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
+      } else {
+        return ParseError(parseState.position);
+      }
+    });
   }
 }

@@ -37,6 +37,7 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/common.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/state_machine.dart";
@@ -232,17 +233,19 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// bookkeeping. Returns true iff the entire input is accepted.
   @override
   bool recognize(String input) {
-    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    return GlushProfiler.measure("parser.recognize", () {
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // If no frames remain, the parser cannot recover from this prefix.
-      if (parseState.frames.isEmpty) {
-        return false;
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        // If no frames remain, the parser cannot recover from this prefix.
+        if (parseState.frames.isEmpty) {
+          return false;
+        }
       }
-    }
 
-    return parseState.finish().accept;
+      return parseState.finish().accept;
+    });
   }
 
   /// Parse input and return a [ParseSuccess] or [ParseError].
@@ -257,23 +260,25 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseError] if parsing fails at some position
   @override
   ParseOutcome parse(String input) {
-    var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+    return GlushProfiler.measure("parser.parse", () {
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // No active frames means the parse has already failed.
-      if (parseState.frames.isEmpty) {
-        return ParseError(parseState.position - 1);
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        // No active frames means the parse has already failed.
+        if (parseState.frames.isEmpty) {
+          return ParseError(parseState.position - 1);
+        }
       }
-    }
 
-    var lastStep = parseState.finish();
-    // Only a final accepted step counts as a successful parse.
-    if (lastStep.accept) {
-      return ParseSuccess(ParserResult(lastStep.marks));
-    } else {
-      return ParseError(parseState.position);
-    }
+      var lastStep = parseState.finish();
+      // Only a final accepted step counts as a successful parse.
+      if (lastStep.accept) {
+        return ParseSuccess(ParserResult(lastStep.marks));
+      } else {
+        return ParseError(parseState.position);
+      }
+    });
   }
 
   /// Parse input and return all ambiguous derivation paths.
@@ -289,29 +294,31 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
-    var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
-    var parseState = createParseState(
-      isSupportingAmbiguity: true,
-      captureTokensAsMarks: shouldCapture,
-    );
+    return GlushProfiler.measure("parser.parse_ambiguous", () {
+      var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
+      var parseState = createParseState(
+        isSupportingAmbiguity: true,
+        captureTokensAsMarks: shouldCapture,
+      );
 
-    for (var codepoint in input.codeUnits) {
-      parseState.processToken(codepoint);
-      // No active frames means the parse has already failed.
-      if (parseState.frames.isEmpty) {
-        return ParseError(parseState.position - 1);
+      for (var codepoint in input.codeUnits) {
+        parseState.processToken(codepoint);
+        // No active frames means the parse has already failed.
+        if (parseState.frames.isEmpty) {
+          return ParseError(parseState.position - 1);
+        }
       }
-    }
 
-    var lastStep = parseState.finish();
+      var lastStep = parseState.finish();
 
-    // Ambiguous mode merges all accepted mark branches into one result.
-    if (lastStep.accept) {
-      var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-      return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
-    } else {
-      return ParseError(parseState.position);
-    }
+      // Ambiguous mode merges all accepted mark branches into one result.
+      if (lastStep.accept) {
+        var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
+        return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
+      } else {
+        return ParseError(parseState.position);
+      }
+    });
   }
 
   /// Parse with forest extraction enabled.
@@ -329,18 +336,20 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseWithForest(String input) {
-    var bsrOutcome = parseToBsr(input);
-    // The forest can only be built when the BSR pass succeeded.
-    if (bsrOutcome is BsrParseError) {
-      return ParseError(bsrOutcome.position);
-    }
+    return GlushProfiler.measure("parser.parse_with_forest", () {
+      var bsrOutcome = parseToBsr(input);
+      // The forest can only be built when the BSR pass succeeded.
+      if (bsrOutcome is BsrParseError) {
+        return ParseError(bsrOutcome.position);
+      }
 
-    var bsrSuccess = bsrOutcome as BsrParseSuccess;
-    var startSymbol = stateMachine.grammar.startSymbol;
-    var nodeCache = ForestNodeCache();
-    var root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeCache);
-    var forest = ParseForest(nodeCache, root);
-    return ParseForestSuccess(forest);
+      var bsrSuccess = bsrOutcome as BsrParseSuccess;
+      var startSymbol = stateMachine.grammar.startSymbol;
+      var nodeCache = ForestNodeCache();
+      var root = bsrSuccess.bsrSet.buildSppf(grammar, startSymbol, input, nodeCache);
+      var forest = ParseForest(nodeCache, root);
+      return ParseForestSuccess(forest);
+    });
   }
 
   /// Parse a stream of input chunks with forest extraction.
@@ -441,22 +450,24 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [BsrParseError] if parsing fails
   @override
   BsrParseOutcome parseToBsr(String input) {
-    var bsr = BsrSet();
-    var state = createParseStateWithBsr(bsr: bsr);
+    return GlushProfiler.measure("parser.parse_to_bsr", () {
+      var bsr = BsrSet();
+      var state = createParseStateWithBsr(bsr: bsr);
 
-    for (var codepoint in input.codeUnits) {
-      state.processToken(codepoint);
-      if (state.frames.isEmpty) {
-        return BsrParseError(state.position - 1);
+      for (var codepoint in input.codeUnits) {
+        state.processToken(codepoint);
+        if (state.frames.isEmpty) {
+          return BsrParseError(state.position - 1);
+        }
       }
-    }
 
-    state.finish();
-    if (state.accept) {
-      return BsrParseSuccess(bsr, state.marks);
-    } else {
-      return BsrParseError(state.position);
-    }
+      state.finish();
+      if (state.accept) {
+        return BsrParseSuccess(bsr, state.marks);
+      } else {
+        return BsrParseError(state.position);
+      }
+    });
   }
 
   /// Count all possible parse trees without building them
@@ -1315,9 +1326,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
                 .toList();
             var span = tree.getMatchedText(input);
             if (childResults case List(length: 1, :List<Object?> single)) {
-              return action.callback(span, single);
+              return normalizeSemanticValue(action.callback(span, single));
             }
-            return action.callback(span, childResults);
+            return normalizeSemanticValue(action.callback(span, childResults));
           }(),
           _ => tree.children.isNotEmpty ? _evaluateParseDerivation(tree.children[0], input) : null,
         };

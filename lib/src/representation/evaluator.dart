@@ -1,4 +1,6 @@
+import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/profiling.dart";
 
 /// Signature for an evaluation handler.
 typedef EvaluatorHandler<T> = T Function(EvaluationContext<T> ctx);
@@ -117,19 +119,21 @@ class Evaluator<T> {
 
   /// Evaluates a [ParseNode] and returns the result of type [T].
   T evaluate(ParseNode node) {
-    if (node is TokenResult) {
-      return translateToken(node);
-    }
-
-    if (node is ParseResult) {
-      if (node.children.isEmpty) {
+    return GlushProfiler.measure("evaluator.evaluate_node", () {
+      if (node is TokenResult) {
         return translateToken(node);
       }
-      var it = NodeIterator(node.children);
-      return evaluateChildren(it);
-    }
 
-    throw UnimplementedError("Unknown node type: ${node.runtimeType}");
+      if (node is ParseResult) {
+        if (node.children.isEmpty) {
+          return translateToken(node);
+        }
+        var it = NodeIterator(node.children);
+        return evaluateChildren(it);
+      }
+
+      throw UnimplementedError("Unknown node type: ${node.runtimeType}");
+    });
   }
 
   /// Shorthand for [evaluate].
@@ -168,11 +172,11 @@ class Evaluator<T> {
 
         var ctx = EvaluationContext(this, node, childIt);
 
-        return handler.call(ctx);
+        return normalizeSemanticValue(handler.call(ctx)) as T;
       }
 
       if (!it.hasNext) {
-        return evaluate(first.$2);
+        return normalizeSemanticValue(evaluate(first.$2)) as T;
       }
       current = it.next();
     }
@@ -272,50 +276,48 @@ class StructuredEvaluator {
   const StructuredEvaluator();
 
   ParseResult evaluate(List<Mark> marks) {
-    var stack = <_EvaluationFrame>[_EvaluationFrame("")];
+    return GlushProfiler.measure("evaluator.evaluate_marks", () {
+      var stack = <_EvaluationFrame>[_EvaluationFrame("")];
 
-    for (var mark in marks) {
-      switch (mark) {
-        case LabelStartMark(:var name):
-          stack.add(_EvaluationFrame(name));
-        case LabelEndMark(:var name, :var position):
-          _closeLabel(stack, name, position);
-        case NamedMark(:var name):
-          if (stack.last.children.isNotEmpty) {
-            var lastChild = stack.last.children.removeLast();
-            var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
-            stack.last.children.add((name, newNode));
-          } else {
-            // Legacy fallback: if no labeled children, wrap the text matched so far
-            var newNode = ParseResult([], stack.last.spanBuffer.toString());
-            stack.last.children.add((name, newNode));
-          }
+      for (var mark in marks) {
+        switch (mark) {
+          case LabelStartMark(:var name):
+            stack.add(_EvaluationFrame(name));
+          case LabelEndMark(:var name, :var position):
+            _closeLabel(stack, name, position);
+          case NamedMark(:var name):
+            if (stack.last.children.isNotEmpty) {
+              var lastChild = stack.last.children.removeLast();
+              var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
+              stack.last.children.add((name, newNode));
+            } else {
+              var newNode = ParseResult([], stack.last.spanBuffer.toString());
+              stack.last.children.add((name, newNode));
+            }
 
-        case ConjunctionMark(:var branches):
-          // ConjunctionMark contains parallel mark streams (List<GlushList<Mark>>).
-          // Evaluate each independently and hoist their children into the current frame.
-          // We only aggregate the span from the first branch to avoid duplication.
-          var first = true;
-          for (var branch in branches) {
-            var branchResult = evaluate(branch.toList());
-            for (var child in branchResult.children) {
-              stack.last.children.add(child);
+          case ConjunctionMark(:var branches):
+            var first = true;
+            for (var branch in branches) {
+              var branchResult = evaluate(branch.toList());
+              for (var child in branchResult.children) {
+                stack.last.children.add(child);
+              }
+              if (first) {
+                stack.last.addToken(branchResult.span);
+                first = false;
+              }
             }
-            if (first) {
-              stack.last.addToken(branchResult.span);
-              first = false;
-            }
-          }
-        case StringMark(:var value):
-          stack.last.addToken(value);
+          case StringMark(:var value):
+            stack.last.addToken(value);
+        }
       }
-    }
 
-    if (stack.length != 1) {
-      _closeRemainingLabels(stack);
-    }
+      if (stack.length != 1) {
+        _closeRemainingLabels(stack);
+      }
 
-    return stack.first.toResult();
+      return stack.first.toResult();
+    });
   }
 
   void _closeLabel(List<_EvaluationFrame> stack, String name, int position) {

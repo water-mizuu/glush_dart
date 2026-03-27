@@ -3,6 +3,7 @@ library glush.sppf;
 
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart" show PatternSymbol;
+import "package:glush/src/core/profiling.dart";
 import "package:meta/meta.dart";
 
 /// Base class for all forest nodes
@@ -542,7 +543,16 @@ class ParseForest {
 
   /// Lazily yields all parse trees contained in the forest.
   Iterable<ParseTree> extract() sync* {
-    yield* _extractTrees(root, {});
+    GlushProfiler.increment("forest.extract.calls");
+    var watch = GlushProfiler.enabled ? (Stopwatch()..start()) : null;
+    try {
+      yield* _extractTrees(root, {});
+    } finally {
+      watch?.stop();
+      if (watch != null) {
+        GlushProfiler.addMicros("forest.extract", watch.elapsedMicroseconds);
+      }
+    }
   }
 
   Iterable<ParseTree> _extractTrees(ForestNode node, Set<ForestNode> ancestors) sync* {

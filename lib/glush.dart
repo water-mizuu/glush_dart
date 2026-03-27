@@ -6,6 +6,7 @@ export "src/core/grammar.dart";
 export "src/core/list.dart";
 export "src/core/mark.dart";
 export "src/core/patterns.dart";
+export "src/core/profiling.dart";
 export "src/parser/common.dart";
 export "src/parser/interface.dart";
 export "src/parser/sm_parser.dart";

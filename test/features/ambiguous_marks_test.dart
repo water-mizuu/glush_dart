@@ -130,5 +130,33 @@ void main() {
       });
       expect(getLabel(treeAA.children, "a").length, equals(2));
     });
+
+    test("5. Data-driven choice stays ambiguous and preserves labels", () {
+      const grammarText = r"""
+        start = leftStart | rightStart
+        leftStart = branch(choice: left)
+        rightStart = branch(choice: right)
+
+        branch(choice) = choice
+        left = leftMark:'a'
+        right = rightMark:'a'
+      """;
+
+      var parser = grammarText.toSMParser();
+      var result = parser.parseAmbiguous("a", captureTokensAsMarks: true);
+
+      expect(result, isA<ParseAmbiguousForestSuccess>());
+      var forest = (result as ParseAmbiguousForestSuccess).forest;
+
+      var paths = forest.allPaths().toList();
+      expect(paths.length, equals(2));
+
+      var evaluator = const StructuredEvaluator();
+      var trees = paths.map((p) => evaluator.evaluate(p)).toList();
+
+      expect(trees.any((t) => hasLabel(t.children, "leftMark")), isTrue);
+      expect(trees.any((t) => hasLabel(t.children, "rightMark")), isTrue);
+      expect(trees.every((t) => t.span == "a"), isTrue);
+    });
   });
 }

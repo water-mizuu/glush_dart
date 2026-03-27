@@ -5,6 +5,7 @@ import "package:glush/src/compiler/format.dart";
 import "package:glush/src/compiler/parser.dart";
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/sm_parser.dart";
 
 /// Compiles a GrammarFile into an executable Grammar
@@ -21,31 +22,36 @@ class GrammarFileCompiler {
 
   /// Compile the grammar file into an executable Grammar
   Grammar compile({String? startRuleName}) {
-    // First pass: create rule stubs with builder functions
-    for (var ruleDef in grammarFile.rules) {
-      late Rule rule;
-      rule = Rule(ruleDef.name, () {
-        var previousOwner = _currentOwnerRule;
-        var previousParameters = _currentParameters;
-        _currentOwnerRule = rule;
-        _currentParameters = ruleDef.parameters;
-        try {
-          return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
-        } finally {
-          _currentOwnerRule = previousOwner;
-          _currentParameters = previousParameters;
-        }
-      });
-      _rules[ruleDef.name] = rule;
-    }
+    return GlushProfiler.measure("compiler.grammar_compile", () {
+      // First pass: create rule stubs with builder functions
+      for (var ruleDef in grammarFile.rules) {
+        late Rule rule;
+        rule = Rule(ruleDef.name, () {
+          var previousOwner = _currentOwnerRule;
+          var previousParameters = _currentParameters;
+          _currentOwnerRule = rule;
+          _currentParameters = ruleDef.parameters;
+          try {
+            return GlushProfiler.measure("compiler.compile_pattern", () {
+              return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
+            });
+          } finally {
+            _currentOwnerRule = previousOwner;
+            _currentParameters = previousParameters;
+          }
+        });
+        _rules[ruleDef.name] = rule;
+        GlushProfiler.increment("compiler.rules_compiled");
+      }
 
-    // Return grammar with the first rule as the start rule
-    if (grammarFile.rules.isEmpty) {
-      throw Exception("No rules defined in grammar");
-    }
+      // Return grammar with the first rule as the start rule
+      if (grammarFile.rules.isEmpty) {
+        throw Exception("No rules defined in grammar");
+      }
 
-    var startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
-    return Grammar(() => startRule);
+      var startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
+      return Grammar(() => startRule);
+    });
   }
 
   Pattern _token(CharRange range) {
@@ -82,7 +88,7 @@ class GrammarFileCompiler {
           rule.guardOwner = owner;
           return rule;
         });
-        guardedRule.guard = _compileGuardExpr(guard);
+        guardedRule.guard = GuardExpr.expression(_compileCallArgumentValue(guard));
         if (parameters.isEmpty) {
           return guardedRule();
         }
@@ -315,6 +321,20 @@ class GrammarFileCompiler {
       GuardBoolLiteralNode(:var value) => CallArgumentValue.literal(value),
       GuardNumberLiteralNode(:var value) => CallArgumentValue.literal(value),
       GuardStringLiteralNode(:var value) => CallArgumentValue.literal(value),
+      ExpressionGroupNode(:var inner) => _compileCallArgumentValue(inner),
+      ExpressionMemberNode(:var target, :var member) => CallArgumentValue.member(
+        _compileCallArgumentValue(target),
+        member,
+      ),
+      ExpressionUnaryNode(:var operator, :var operand) => CallArgumentValue.unary(
+        operator,
+        _compileCallArgumentValue(operand),
+      ),
+      ExpressionBinaryNode(:var left, :var operator, :var right) => CallArgumentValue.binary(
+        _compileCallArgumentValue(left),
+        operator,
+        _compileCallArgumentValue(right),
+      ),
       // A bare identifier means either "pass this rule object" or "look this
       // name up at runtime", depending on what exists in the rule table.
       GuardNameNode(:var name) =>
@@ -333,6 +353,13 @@ class GrammarFileCompiler {
       GuardStringLiteralNode(:var value) => Pattern.string(value),
       GuardNumberLiteralNode(:var value) => Pattern.string(value.toString()),
       GuardBoolLiteralNode(:var value) => Pattern.string(value.toString()),
+      ExpressionGroupNode(:var inner) => _compileFallbackArgumentPattern(inner),
+      ExpressionMemberNode() => throw Exception(
+        "Expression arguments require a parameterized rule",
+      ),
+      ExpressionUnaryNode() || ExpressionBinaryNode() => throw Exception(
+        "Expression arguments require a parameterized rule",
+      ),
       GuardNameNode(:var name) => switch (name) {
         "start" => Pattern.start(),
         "eof" => Pattern.eof(),
@@ -340,40 +367,6 @@ class GrammarFileCompiler {
       },
       GuardRuleNode() => Pattern.string("rule"),
       PatternExpr() => _compilePattern(value, const {}),
-    };
-  }
-
-  GuardExpr _compileGuardExpr(GuardExprNode expr) {
-    return switch (expr) {
-      // Guard expressions become runtime boolean evaluators, which lets the
-      // state machine reject a branch before it ever enters the guarded body.
-      GuardBoolLiteralNode(:var value) => GuardExpr.literal(value),
-      GuardValueExprNode(:var value) => GuardExpr.value(_compileGuardValue(value)),
-      GuardNotNode(:var child) => _compileGuardExpr(child).not(),
-      GuardAndNode(:var left, :var right) => _compileGuardExpr(left) & _compileGuardExpr(right),
-      GuardOrNode(:var left, :var right) => _compileGuardExpr(left) | _compileGuardExpr(right),
-      GuardComparisonNode(:var left, :var kind, :var right) => switch (kind) {
-        GuardComparisonKind.equals => _compileGuardValue(left).eq(_compileGuardValue(right)),
-        GuardComparisonKind.notEquals => _compileGuardValue(left).ne(_compileGuardValue(right)),
-        GuardComparisonKind.lessThan => _compileGuardValue(left).lt(_compileGuardValue(right)),
-        GuardComparisonKind.lessOrEqual => _compileGuardValue(left).lte(_compileGuardValue(right)),
-        GuardComparisonKind.greaterThan => _compileGuardValue(left).gt(_compileGuardValue(right)),
-        GuardComparisonKind.greaterOrEqual => _compileGuardValue(
-          left,
-        ).gte(_compileGuardValue(right)),
-      },
-    };
-  }
-
-  GuardValue _compileGuardValue(GuardValueNode value) {
-    return switch (value) {
-      // Guard values stay typed so comparisons can distinguish literals,
-      // runtime arguments, rule references, and the special `rule` symbol.
-      GuardBoolLiteralNode(:var value) => GuardValue.literal(value),
-      GuardNumberLiteralNode(:var value) => GuardValue.literal(value),
-      GuardStringLiteralNode(:var value) => GuardValue.literal(value),
-      GuardNameNode(:var name) => GuardValue.name(name),
-      GuardRuleNode() => GuardValue.rule(),
     };
   }
 

@@ -1,4 +1,4 @@
-// ignore_for_file: unreachable_from_main
+// ignore_for_file: strict_raw_type, unreachable_from_main
 
 import "dart:io";
 import "dart:math" show max;
@@ -295,10 +295,10 @@ void meta() {
     "name": (ctx) => ["name", ctx.span],
 
     /// helpers
-    "params.params": (ctx) => [...ctx<List<Object>>("left"), ctx<Object>("right")],
+    "params.params": (ctx) => [...ctx<List>("left"), ctx<Object>("right")],
     "params.param": (ctx) => [ctx<Object>("right")],
 
-    "args.args": (ctx) => [...ctx<List<Object>>("left"), ctx<Object>("right")],
+    "args.args": (ctx) => [...ctx<List>("left"), ctx<Object>("right")],
     "args.arg": (ctx) => [ctx<Object>("right")],
     "arg.namedArg": (ctx) => [ctx<Object>("name"), ctx<Object>("expr")],
     "arg.posArg": (ctx) => ctx<Object>("expr"),
@@ -353,7 +353,7 @@ void meta() {
         var tree = path.evaluateStructure();
         var evaluated = evaluator.evaluate(tree);
         output.writeln(evaluated);
-        print((evaluated as List<Object>?)?.join("\n"));
+        print((evaluated as List<Object?>?)?.join("\n"));
       }
 
       var outputFile = File("meta_out.txt");
@@ -392,10 +392,34 @@ void dataDriven() {
   }
 }
 
+void dataDriven2() {
+  var parser =
+      r"""
+      start = capture:"abc" check(capture.length) '!'
+      check(length) = if (length == 3) ''
+      """
+          .toSMParser();
+
+  for (var input in ["ab!", "abc!"]) {
+    var result = parser.parseAmbiguous(input);
+    print(result);
+    if (result case ParseAmbiguousForestSuccess result) {
+      print(result.forest.allPaths().map((v) => v.evaluateStructure()).toList());
+    }
+  }
+  // print(
+  //   (parser.parseWithForest("sss") as ParseAmbiguousForestSuccess).forest
+  //       .allPaths()
+  //       .map((v) => v.evaluateStructure())
+  //       .toList(),
+  // );
+}
+
 void main() async {
   // mathSimple();
   // ambiguous();
   // orderedChoice();
-  meta();
+  // meta();
   // dataDriven();
+  dataDriven2();
 }

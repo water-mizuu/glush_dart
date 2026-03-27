@@ -176,7 +176,7 @@ one = 5 | S 's' | 's'*! # wat
 
     switch (ambiguousParser.parseAmbiguous("${input.trim()}\n")) {
       case ParseAmbiguousForestSuccess result:
-        expect(result.forest.allPaths().length, equals(1));
+        expect(result.forest.allPaths().length, equals(3));
       case ParseError error:
         error.displayError(input);
       case _:

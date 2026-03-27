@@ -6,6 +6,7 @@ library glush.patterns;
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/compiler/format.dart";
 
 extension type const PatternSymbol(String symbol) {}
 
@@ -65,6 +66,9 @@ int _compareCallArgumentEntriesByKey(
 
 void _writeCanonicalValue(StringBuffer buffer, Object? value) {
   switch (value) {
+    case CallArgumentValue argument:
+      buffer.write("a");
+      _writeCanonicalString(buffer, argument.format());
     case null:
       buffer.write("n");
     case bool():
@@ -82,6 +86,14 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
     case Rule(:var name):
       buffer.write("r");
       _writeCanonicalString(buffer, name.symbol);
+    case PatternClosureValue(:var key):
+      buffer.write("c");
+      _writeCanonicalString(buffer, key);
+    case CaptureValue(:var startPosition, :var value):
+      buffer.write("cap");
+      buffer.write(startPosition);
+      buffer.write(":");
+      _writeCanonicalString(buffer, value);
     case ParameterCallPattern(:var name, :var argumentsKey):
       buffer.write("pa");
       _writeCanonicalString(buffer, name);
@@ -121,6 +133,19 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
   }
 }
 
+Object? normalizeSemanticValue(Object? value) {
+  return switch (value) {
+    CallArgumentValue argument => normalizeSemanticValue(argument.resolveData()),
+    PatternClosureValue closure => closure,
+    CaptureValue capture => capture,
+    List<dynamic> items => [for (var item in items) normalizeSemanticValue(item)],
+    Map<String, Object?> items => {
+      for (var entry in items.entries) entry.key: normalizeSemanticValue(entry.value),
+    },
+    _ => value,
+  };
+}
+
 String _formatCallArgument(Object? value) {
   // Formatting mirrors the semantic tags above so debug output and memoization
   // strings stay readable and deterministic.
@@ -129,6 +154,7 @@ String _formatCallArgument(Object? value) {
     bool() || num() => "$value",
     String() => '"${value.replaceAll(r"\", r"\\").replaceAll('"', r'\"')}"',
     Rule(:var name) => name.symbol,
+    CaptureValue(:var value) => value,
     ParameterCallPattern(:var name, :var argumentsKey) => "paramcall($name:${argumentsKey})",
     Pattern(:var symbolId) => symbolId?.symbol ?? value.toString(),
     _GuardLiteralValue(:var value) => _formatCallArgument(value),
@@ -186,11 +212,27 @@ sealed class CallArgumentValue {
   factory CallArgumentValue.reference(String name) = _CallArgumentReferenceValue;
   factory CallArgumentValue.rule(Rule rule) = _CallArgumentRuleValue;
   factory CallArgumentValue.pattern(Pattern pattern) = _CallArgumentPatternValue;
+  factory CallArgumentValue.callable(PatternClosureValue callable) = _CallArgumentCallableValue;
+  factory CallArgumentValue.unary(ExpressionUnaryOperator operator, CallArgumentValue operand) =
+      _CallArgumentUnaryValue;
+  factory CallArgumentValue.member(CallArgumentValue target, String member) =
+      _CallArgumentMemberValue;
+  factory CallArgumentValue.binary(
+    CallArgumentValue left,
+    ExpressionBinaryOperator operator,
+    CallArgumentValue right,
+  ) = _CallArgumentBinaryValue;
+  factory CallArgumentValue.arithmetic(
+    CallArgumentValue left,
+    ExpressionBinaryOperator operator,
+    CallArgumentValue right,
+  ) = _CallArgumentBinaryValue;
   factory CallArgumentValue.currentRule() = _CallArgumentCurrentRuleValue;
   factory CallArgumentValue.list(List<CallArgumentValue> values) = _CallArgumentListValue;
   factory CallArgumentValue.map(Map<String, CallArgumentValue> values) = _CallArgumentMapValue;
 
   Object? resolve(GuardEnvironment env);
+  Object? resolveData();
   String format();
 
   void collectRules(Set<Rule> rules);
@@ -214,6 +256,9 @@ final class _CallArgumentLiteralValue extends CallArgumentValue {
   Object? resolve(GuardEnvironment env) => value;
 
   @override
+  Object? resolveData() => value;
+
+  @override
   String format() => _formatCallArgument(value);
 
   @override
@@ -229,7 +274,10 @@ final class _CallArgumentReferenceValue extends CallArgumentValue {
   final String name;
 
   @override
-  Object? resolve(GuardEnvironment env) => env.resolve(name);
+  Object? resolve(GuardEnvironment env) => env.resolve(name) ?? this;
+
+  @override
+  Object? resolveData() => name;
 
   @override
   String format() => name;
@@ -248,6 +296,9 @@ final class _CallArgumentRuleValue extends CallArgumentValue {
 
   @override
   Object? resolve(GuardEnvironment env) => rule;
+
+  @override
+  Object? resolveData() => rule;
 
   @override
   String format() => rule.name.symbol;
@@ -270,6 +321,9 @@ final class _CallArgumentPatternValue extends CallArgumentValue {
   Object? resolve(GuardEnvironment env) => _resolvePatternValue(pattern, env);
 
   @override
+  Object? resolveData() => pattern;
+
+  @override
   String format() => pattern.toString();
 
   @override
@@ -282,8 +336,253 @@ final class _CallArgumentPatternValue extends CallArgumentValue {
       CallArgumentValue.pattern(transform(pattern));
 }
 
+final class _CallArgumentUnaryValue extends CallArgumentValue {
+  const _CallArgumentUnaryValue(this.operator, this.operand);
+
+  final ExpressionUnaryOperator operator;
+  final CallArgumentValue operand;
+
+  @override
+  Object? resolve(GuardEnvironment env) {
+    var value = _materializeResolvedValue(operand.resolve(env), env);
+    return switch (operator) {
+      ExpressionUnaryOperator.logicalNot => _requireBool(value, "logical not") ? false : true,
+      ExpressionUnaryOperator.negate => -_requireNum(value, "numeric negation"),
+    };
+  }
+
+  @override
+  Object? resolveData() => {"op": operator.symbol, "operand": operand.resolveData()};
+
+  @override
+  String format() => "${operator.symbol}${operand.format()}";
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    operand.collectRules(rules);
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.unary(operator, operand.transformPatterns(transform));
+}
+
+final class _CallArgumentMemberValue extends CallArgumentValue {
+  const _CallArgumentMemberValue(this.target, this.member);
+
+  final CallArgumentValue target;
+  final String member;
+
+  @override
+  Object? resolve(GuardEnvironment env) =>
+      _resolveMemberValue(_materializeResolvedValue(target.resolve(env), env), member);
+
+  @override
+  Object? resolveData() => {"target": target.resolveData(), "member": member};
+
+  @override
+  String format() => "${target.format()}.$member";
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    target.collectRules(rules);
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.member(target.transformPatterns(transform), member);
+}
+
+final class _CallArgumentBinaryValue extends CallArgumentValue {
+  const _CallArgumentBinaryValue(this.left, this.operator, this.right);
+
+  final CallArgumentValue left;
+  final ExpressionBinaryOperator operator;
+  final CallArgumentValue right;
+
+  @override
+  Object? resolve(GuardEnvironment env) {
+    var leftValue = _materializeResolvedValue(left.resolve(env), env);
+    if (operator == ExpressionBinaryOperator.logicalAnd) {
+      return _requireBool(leftValue, "logical and") &&
+          _requireBool(_materializeResolvedValue(right.resolve(env), env), "logical and");
+    }
+
+    return switch (operator) {
+      ExpressionBinaryOperator.add =>
+        _requireNum(leftValue, "addition") +
+            _requireNum(_materializeResolvedValue(right.resolve(env), env), "addition"),
+      ExpressionBinaryOperator.subtract =>
+        _requireNum(leftValue, "subtraction") -
+            _requireNum(_materializeResolvedValue(right.resolve(env), env), "subtraction"),
+      ExpressionBinaryOperator.multiply =>
+        _requireNum(leftValue, "multiplication") *
+            _requireNum(_materializeResolvedValue(right.resolve(env), env), "multiplication"),
+      ExpressionBinaryOperator.divide =>
+        _requireNum(leftValue, "division") /
+            _requireNum(_materializeResolvedValue(right.resolve(env), env), "division"),
+      ExpressionBinaryOperator.modulo =>
+        _requireNum(leftValue, "modulo") %
+            _requireNum(_materializeResolvedValue(right.resolve(env), env), "modulo"),
+      ExpressionBinaryOperator.logicalOr =>
+        _requireBool(leftValue, "logical or") ||
+            _requireBool(_materializeResolvedValue(right.resolve(env), env), "logical or"),
+      ExpressionBinaryOperator.equals => _guardValuesEqual(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+      ),
+      ExpressionBinaryOperator.notEquals => !_guardValuesEqual(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+      ),
+      ExpressionBinaryOperator.lessThan => _compareNumeric(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+        (a, b) => a < b,
+      ),
+      ExpressionBinaryOperator.lessOrEqual => _compareNumeric(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+        (a, b) => a <= b,
+      ),
+      ExpressionBinaryOperator.greaterThan => _compareNumeric(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+        (a, b) => a > b,
+      ),
+      ExpressionBinaryOperator.greaterOrEqual => _compareNumeric(
+        leftValue,
+        _materializeResolvedValue(right.resolve(env), env),
+        (a, b) => a >= b,
+      ),
+      ExpressionBinaryOperator.logicalAnd => throw StateError("unreachable"),
+    };
+  }
+
+  @override
+  Object? resolveData() => {
+    "op": operator.symbol,
+    "left": left.resolveData(),
+    "right": right.resolveData(),
+  };
+
+  @override
+  String format() => "(${left.format()} ${operator.symbol} ${right.format()})";
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    left.collectRules(rules);
+    right.collectRules(rules);
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.binary(
+        left.transformPatterns(transform),
+        operator,
+        right.transformPatterns(transform),
+      );
+}
+
+bool _requireBool(Object? value, String operation) {
+  if (value is bool) {
+    return value;
+  }
+  throw Exception("Expected boolean value for $operation");
+}
+
+num _requireNum(Object? value, String operation) {
+  if (value is num) {
+    return value;
+  }
+  throw Exception("Expected numeric value for $operation");
+}
+
+bool _compareNumeric(Object? left, Object? right, bool Function(num, num) compare) {
+  if (left is! num || right is! num) {
+    throw Exception("Expected numeric values for comparison");
+  }
+  return compare(left, right);
+}
+
+final class _CallArgumentCallableValue extends CallArgumentValue {
+  const _CallArgumentCallableValue(this.callable);
+
+  final PatternClosureValue callable;
+
+  @override
+  Object? resolve(GuardEnvironment env) => callable;
+
+  @override
+  Object? resolveData() => callable;
+
+  @override
+  String format() => callable.toString();
+
+  @override
+  void collectRules(Set<Rule> rules) {}
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
+}
+
+/// Captured callable pattern value.
+///
+/// This keeps the callable surface explicit when semantic actions need to
+/// return a higher-order parser value as ordinary data.
+final class PatternClosureValue {
+  const PatternClosureValue(this.body, this.environment);
+
+  final Pattern body;
+  final GuardEnvironment environment;
+
+  String get key => _patternClosureKey(body, environment);
+
+  PatternClosureValue apply(Map<String, Object?> arguments) {
+    if (arguments.isEmpty) {
+      return this;
+    }
+    return PatternClosureValue(body, environment.mergeWith(arguments));
+  }
+
+  Pattern materialize([GuardEnvironment? currentEnvironment]) {
+    var merged = currentEnvironment == null ? environment : environment.merge(currentEnvironment);
+    return _resolvePatternValue(body, merged);
+  }
+
+  @override
+  String toString() => "closure($key)";
+}
+
+String _patternClosureKey(Pattern body, GuardEnvironment environment) {
+  var buffer = StringBuffer();
+  _writeCanonicalString(buffer, body.toString());
+  buffer.write("|");
+  _writeCanonicalString(buffer, environment.rule.name.symbol);
+  buffer.write("|");
+  _writeCanonicalValue(buffer, environment.arguments);
+  buffer.write("|");
+  _writeCanonicalValue(buffer, environment.values);
+  return buffer.toString();
+}
+
 Pattern _resolvePatternValue(Pattern pattern, GuardEnvironment env) {
   return switch (pattern) {
+    ParameterRefPattern(:var name) => switch (env.resolve(name)) {
+      Rule rule => rule.call(),
+      RuleCall(:var name, :var rule, :var arguments, :var minPrecedenceLevel) => RuleCall(
+        name,
+        rule,
+        arguments: {
+          for (var entry in arguments.entries)
+            entry.key: _resolveCallArgumentValue(entry.value, env),
+        },
+        minPrecedenceLevel: minPrecedenceLevel,
+      ),
+      PatternClosureValue callable => callable.materialize(env),
+      Pattern pattern => pattern,
+      _ => pattern,
+    },
     RuleCall(:var name, :var rule, :var arguments, :var minPrecedenceLevel) => RuleCall(
       name,
       rule,
@@ -292,15 +591,38 @@ Pattern _resolvePatternValue(Pattern pattern, GuardEnvironment env) {
       },
       minPrecedenceLevel: minPrecedenceLevel,
     ),
-    ParameterCallPattern(:var name, :var arguments, :var minPrecedenceLevel) =>
-      ParameterCallPattern(
-        name,
+    ParameterCallPattern(:var name, :var arguments, :var minPrecedenceLevel) => switch (env.resolve(
+      name,
+    )) {
+      Rule rule => RuleCall(
+        rule.name.symbol,
+        rule,
         arguments: {
           for (var entry in arguments.entries)
             entry.key: _resolveCallArgumentValue(entry.value, env),
         },
         minPrecedenceLevel: minPrecedenceLevel,
       ),
+      RuleCall call => RuleCall(
+        call.name,
+        call.rule,
+        arguments: {
+          ...call.arguments,
+          for (var entry in arguments.entries)
+            entry.key: _resolveCallArgumentValue(entry.value, env),
+        },
+        minPrecedenceLevel: call.minPrecedenceLevel ?? minPrecedenceLevel,
+      ),
+      PatternClosureValue callable =>
+        callable
+            .apply({
+              for (var entry in arguments.entries)
+                entry.key: _resolveCallArgumentValue(entry.value, env).resolve(env),
+            })
+            .materialize(env),
+      Pattern pattern => pattern,
+      _ => pattern,
+    },
     Seq(:var left, :var right) => Seq(
       _resolvePatternValue(left, env),
       _resolvePatternValue(right, env),
@@ -335,6 +657,64 @@ CallArgumentValue _resolveCallArgumentValue(CallArgumentValue value, GuardEnviro
     _CallArgumentReferenceValue() ||
     _CallArgumentRuleValue() ||
     _CallArgumentCurrentRuleValue() => _callArgumentValueFromResolvedObject(value.resolve(env)),
+    _CallArgumentUnaryValue(:var operator, :var operand) => _callArgumentValueFromResolvedObject(
+      switch (operator) {
+        ExpressionUnaryOperator.logicalNot => !_requireBool(operand.resolve(env), "logical not"),
+        ExpressionUnaryOperator.negate => -_requireNum(operand.resolve(env), "numeric negation"),
+      },
+    ),
+    _CallArgumentBinaryValue(:var left, :var operator, :var right) =>
+      _callArgumentValueFromResolvedObject(switch (operator) {
+        ExpressionBinaryOperator.add =>
+          _requireNum(left.resolve(env), "addition") + _requireNum(right.resolve(env), "addition"),
+        ExpressionBinaryOperator.subtract =>
+          _requireNum(left.resolve(env), "subtraction") -
+              _requireNum(right.resolve(env), "subtraction"),
+        ExpressionBinaryOperator.multiply =>
+          _requireNum(left.resolve(env), "multiplication") *
+              _requireNum(right.resolve(env), "multiplication"),
+        ExpressionBinaryOperator.divide =>
+          _requireNum(left.resolve(env), "division") / _requireNum(right.resolve(env), "division"),
+        ExpressionBinaryOperator.modulo =>
+          _requireNum(left.resolve(env), "modulo") % _requireNum(right.resolve(env), "modulo"),
+        ExpressionBinaryOperator.logicalAnd =>
+          _requireBool(left.resolve(env), "logical and") &&
+              _requireBool(right.resolve(env), "logical and"),
+        ExpressionBinaryOperator.logicalOr =>
+          _requireBool(left.resolve(env), "logical or") ||
+              _requireBool(right.resolve(env), "logical or"),
+        ExpressionBinaryOperator.equals => _guardValuesEqual(left.resolve(env), right.resolve(env)),
+        ExpressionBinaryOperator.notEquals => !_guardValuesEqual(
+          left.resolve(env),
+          right.resolve(env),
+        ),
+        ExpressionBinaryOperator.lessThan => _compareNumeric(
+          left.resolve(env),
+          right.resolve(env),
+          (a, b) => a < b,
+        ),
+        ExpressionBinaryOperator.lessOrEqual => _compareNumeric(
+          left.resolve(env),
+          right.resolve(env),
+          (a, b) => a <= b,
+        ),
+        ExpressionBinaryOperator.greaterThan => _compareNumeric(
+          left.resolve(env),
+          right.resolve(env),
+          (a, b) => a > b,
+        ),
+        ExpressionBinaryOperator.greaterOrEqual => _compareNumeric(
+          left.resolve(env),
+          right.resolve(env),
+          (a, b) => a >= b,
+        ),
+      }),
+    _CallArgumentMemberValue(:var target, :var member) => _callArgumentValueFromResolvedObject(
+      _resolveMemberValue(target.resolve(env), member),
+    ),
+    _CallArgumentCallableValue(:var callable) => _callArgumentValueFromResolvedObject(
+      callable.materialize(env),
+    ),
     _CallArgumentPatternValue(:var pattern) => _callArgumentValueFromResolvedObject(
       _resolvePatternValue(pattern, env),
     ),
@@ -349,9 +729,11 @@ CallArgumentValue _resolveCallArgumentValue(CallArgumentValue value, GuardEnviro
 
 CallArgumentValue _callArgumentValueFromResolvedObject(Object? value) {
   return switch (value) {
+    CallArgumentValue argument => argument,
     null || bool() || num() || String() => CallArgumentValue.literal(value),
     Rule rule => CallArgumentValue.rule(rule),
     Pattern pattern => CallArgumentValue.pattern(pattern),
+    PatternClosureValue callable => CallArgumentValue.callable(callable),
     List<dynamic> items => CallArgumentValue.list(
       items.map(_callArgumentValueFromResolvedObject).toList(),
     ),
@@ -362,11 +744,69 @@ CallArgumentValue _callArgumentValueFromResolvedObject(Object? value) {
   };
 }
 
+Object? _materializeResolvedValue(Object? value, GuardEnvironment env) {
+  var seen = <Object>{};
+  while (value is CallArgumentValue) {
+    if (!seen.add(value)) {
+      throw UnresolvedCallArgumentReference();
+    }
+    value = value.resolve(env);
+  }
+  return value;
+}
+
+final class UnresolvedCallArgumentReference implements Exception {
+  const UnresolvedCallArgumentReference();
+}
+
+Object? _resolveMemberValue(Object? target, String member) {
+  return switch (target) {
+    CaptureValue() => switch (member) {
+      "length" => target.length,
+      "isEmpty" => target.isEmpty,
+      "isNotEmpty" => target.isNotEmpty,
+      "startPosition" => target.startPosition,
+      "endPosition" => target.endPosition,
+      "value" => target.value,
+      "text" => target.value,
+      _ => throw Exception("Unsupported capture member '$member'"),
+    },
+    String() => switch (member) {
+      "length" => target.length,
+      "isEmpty" => target.isEmpty,
+      "isNotEmpty" => target.isNotEmpty,
+      _ => throw Exception("Unsupported string member '$member'"),
+    },
+    List() => switch (member) {
+      "length" => target.length,
+      "isEmpty" => target.isEmpty,
+      "isNotEmpty" => target.isNotEmpty,
+      _ => throw Exception("Unsupported list member '$member'"),
+    },
+    Map() => switch (member) {
+      "length" => target.length,
+      "isEmpty" => target.isEmpty,
+      "isNotEmpty" => target.isNotEmpty,
+      _ => throw Exception("Unsupported map member '$member'"),
+    },
+    Iterable() => switch (member) {
+      "length" => target.length,
+      "isEmpty" => target.isEmpty,
+      "isNotEmpty" => target.isNotEmpty,
+      _ => throw Exception("Unsupported iterable member '$member'"),
+    },
+    _ => throw Exception("Unsupported member access '$member' on ${target.runtimeType}"),
+  };
+}
+
 final class _CallArgumentCurrentRuleValue extends CallArgumentValue {
   const _CallArgumentCurrentRuleValue();
 
   @override
   Object? resolve(GuardEnvironment env) => env.rule;
+
+  @override
+  Object? resolveData() => null;
 
   @override
   String format() => "rule";
@@ -393,6 +833,9 @@ final class _CallArgumentListValue extends CallArgumentValue {
     }
     return resolved;
   }
+
+  @override
+  Object? resolveData() => values.map((value) => value.resolveData()).toList();
 
   @override
   String format() {
@@ -430,6 +873,11 @@ final class _CallArgumentMapValue extends CallArgumentValue {
   }
 
   @override
+  Object? resolveData() => Map<String, Object?>.unmodifiable({
+    for (var entry in values.entries) entry.key: entry.value.resolveData(),
+  });
+
+  @override
   String format() {
     // Key order matters for memoization, so the formatted map is stable and
     // sorted rather than depending on insertion order.
@@ -451,6 +899,17 @@ final class _CallArgumentMapValue extends CallArgumentValue {
       });
 }
 
+GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment override) {
+  return GuardEnvironment(
+    rule: override.rule,
+    marks: override._marksForest,
+    arguments: {...base.arguments, ...override.arguments},
+    values: {...base.values, ...override.values},
+    captureResolver: override.captureResolver ?? base.captureResolver,
+    rulesByName: {...base.rulesByName, ...override.rulesByName},
+  );
+}
+
 /// Runtime environment exposed to data-driven guard expressions.
 final class GuardEnvironment {
   GuardEnvironment({
@@ -466,13 +925,13 @@ final class GuardEnvironment {
   final GlushList<Mark> _marksForest;
   final Map<String, Object?> arguments;
   final Map<String, Object?> values;
-  final ({int startPosition, String value})? Function(GlushList<Mark>, String)? captureResolver;
+  final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
 
   late final List<Mark> marks = List<Mark>.unmodifiable(_marksForest.toList());
-  final Map<String, ({int startPosition, String value})?> _captureCache = {};
+  final Map<String, CaptureValue?> _captureCache = {};
 
-  ({int startPosition, String value})? _resolveCapture(String name) {
+  CaptureValue? _resolveCapture(String name) {
     if (_captureCache.containsKey(name)) {
       return _captureCache[name];
     }
@@ -483,7 +942,27 @@ final class GuardEnvironment {
   }
 
   Object? resolve(String name) =>
-      values[name] ?? arguments[name] ?? _resolveCapture(name)?.value ?? rulesByName[name];
+      values[name] ??
+      arguments[name] ??
+      (name == "marks" ? marks : null) ??
+      _resolveCapture(name) ??
+      rulesByName[name];
+
+  GuardEnvironment mergeWith(Map<String, Object?> additions) {
+    if (additions.isEmpty) {
+      return this;
+    }
+    return GuardEnvironment(
+      rule: rule,
+      marks: _marksForest,
+      arguments: {...arguments, ...additions},
+      values: values,
+      captureResolver: captureResolver,
+      rulesByName: rulesByName,
+    );
+  }
+
+  GuardEnvironment merge(GuardEnvironment other) => _mergeGuardEnvironments(this, other);
 }
 
 sealed class GuardValue {
@@ -520,6 +999,7 @@ sealed class GuardExpr {
   // directly inside the state machine.
   factory GuardExpr.literal(bool value) = _GuardLiteralExpr;
   factory GuardExpr.value(GuardValue value) = GuardValueExpr;
+  factory GuardExpr.expression(CallArgumentValue value) = _GuardExpressionExpr;
 
   bool evaluate(GuardEnvironment env);
 
@@ -654,6 +1134,28 @@ final class GuardValueExpr extends GuardExpr {
   }
 }
 
+final class _GuardExpressionExpr extends GuardExpr {
+  const _GuardExpressionExpr(this.value);
+
+  final CallArgumentValue value;
+
+  @override
+  bool evaluate(GuardEnvironment env) {
+    Object? evaluated;
+    try {
+      evaluated = value.resolve(env);
+    } on UnresolvedCallArgumentReference {
+      // Speculative branches can reach a guard before its capture inputs are
+      // available. Treat that as a failed branch rather than aborting the parse.
+      return false;
+    }
+    if (evaluated is bool) {
+      return evaluated;
+    }
+    throw Exception("if guard must evaluate to a boolean");
+  }
+}
+
 int? _compareNumbers(Object? left, Object? right) {
   if (left is! num || right is! num) {
     return null;
@@ -664,6 +1166,15 @@ int? _compareNumbers(Object? left, Object? right) {
 bool _guardValuesEqual(Object? left, Object? right) {
   if (identical(left, right)) {
     return true;
+  }
+  if (left is CaptureValue && right is CaptureValue) {
+    return left.value == right.value;
+  }
+  if (left is CaptureValue && right is String) {
+    return left.value == right;
+  }
+  if (left is String && right is CaptureValue) {
+    return left == right.value;
   }
   if (left is num && right is num) {
     return left == right;
@@ -706,6 +1217,22 @@ bool _guardValuesEqual(Object? left, Object? right) {
     }
   }
   return left == right;
+}
+
+/// Resolved capture data from a labeled mark span.
+final class CaptureValue {
+  const CaptureValue(this.startPosition, this.endPosition, this.value);
+
+  final int startPosition;
+  final int endPosition;
+  final String value;
+
+  int get length => endPosition - startPosition;
+  bool get isEmpty => length == 0;
+  bool get isNotEmpty => !isEmpty;
+
+  @override
+  String toString() => value;
 }
 
 sealed class Pattern {
