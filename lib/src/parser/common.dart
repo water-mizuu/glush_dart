@@ -31,11 +31,28 @@ typedef ContextKey = (
   CallerKey caller,
   int? minimumPrecedence,
   GlushList<PredicateCallerKey> predicateStack,
-  GlushList<DerivationKey> derivationPath,
 );
 
-/// Key for rule call memoization (rule, start position, and precedence constraints).
-typedef CallerCacheKey = (Rule rule, int startPosition, int? minPrecedenceLevel);
+/// Key for rule call memoization (rule, start position, precedence constraints,
+/// and call arguments).
+typedef CallerCacheKey = (
+  Rule rule,
+  int startPosition,
+  int? minPrecedenceLevel,
+  String callArgumentsKey,
+);
+
+/// Key for memoizing a guard result within one parser step.
+typedef GuardCacheKey = (
+  Rule rule,
+  GuardExpr guard,
+  GlushList<Mark> marks,
+  String callArgumentsKey,
+  int position,
+  int? callStart,
+  int? minPrecedenceLevel,
+  int? precedenceLevel,
+);
 
 /// Represents a successful parse result at a specific state and context.
 typedef AcceptedContext = (State state, Context context);
@@ -117,7 +134,8 @@ final class ParseState {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
     this.bsr,
-  }) : frames = initialFrames;
+  }) : frames = initialFrames,
+       rulesByName = {for (var rule in parser.grammar.rules) rule.name.symbol: rule};
 
   /// The parser definition being executed.
   final GlushParser parser;
@@ -142,14 +160,23 @@ final class ParseState {
 
   final Map<NegationKey, NegationTracker> negationTrackers = {};
 
-  /// Memoized call sites keyed by rule and precedence constraints.
+  /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   final Map<CallerCacheKey, Caller> callers = {};
 
   /// Shared mark builder/cache used to keep mark lists persistent and cheap.
   final GlushListCache<Mark> markCache = GlushListCache<Mark>();
 
+  /// Shared predicate-stack cache used to keep predicate contexts persistent and cheap.
+  final GlushListCache<PredicateCallerKey> predicateCache = GlushListCache<PredicateCallerKey>();
+
+  /// Rules indexed by source name for guard expression evaluation.
+  final Map<String, Rule> rulesByName;
+
   /// Shared derivation builder/cache used only when ambiguity is enabled.
   final GlushListCache<DerivationKey> derivationCache = GlushListCache<DerivationKey>();
+
+  /// Shared label-capture cache keyed by persistent mark forests and capture name.
+  final Map<(GlushList<Mark>, String), ({int startPosition, String value})?> labelCaptureCache = {};
 
   /// Current zero-based input position for the next token to process.
   int position = 0;
@@ -214,7 +241,7 @@ final class ParseState {
 
 /// Holds the results of a basic parse() operation.
 class ParserResult {
-  ParserResult(this._rawMarks);
+  const ParserResult(this._rawMarks);
   final List<Mark> _rawMarks;
 
   List<Mark> get rawMarks => _rawMarks;
@@ -382,6 +409,90 @@ class NegationTracker {
   bool get isExhausted => activeFrames == 0;
 }
 
+final class _LabelCaptureFrame {
+  _LabelCaptureFrame(this.name, this.startPosition);
+
+  final String name;
+  final int startPosition;
+  final StringBuffer buffer = StringBuffer();
+}
+
+final class _LabelCaptureWalker {
+  _LabelCaptureWalker(this.target);
+
+  final String target;
+  ({int startPosition, String value})? best;
+
+  // This walker is a tiny explicit DFS over the persistent mark forest.
+  // It keeps the capture logic reusable without the hidden state that came
+  // from the earlier nested local closures.
+  void walk(GlushList<Mark> node, List<_LabelCaptureFrame> active) {
+    switch (node) {
+      case EmptyList<Mark>():
+        return;
+      case Push<Mark>(:var parent, :var data):
+        walk(parent, active);
+        visitMark(data, active);
+      case Concat<Mark>(:var left, :var right):
+        walk(left, active);
+        walk(right, active);
+      case BranchedList<Mark>(:var alternatives):
+        for (var branch in alternatives) {
+          walk(branch, [...active]);
+        }
+    }
+  }
+
+  void visitMark(Mark mark, List<_LabelCaptureFrame> active) {
+    switch (mark) {
+      case LabelStartMark(:var name, :var position):
+        // Only the requested label name starts a capture frame.
+        if (name == target) {
+          active.add(_LabelCaptureFrame(name, position));
+        }
+      case LabelEndMark(:var name):
+        if (name == target) {
+          for (var i = active.length - 1; i >= 0; i--) {
+            if (active[i].name == name) {
+              var frame = active.removeAt(i);
+              consider((startPosition: frame.startPosition, value: frame.buffer.toString()));
+              break;
+            }
+          }
+        }
+      case StringMark(:var value):
+        // Any token text seen while the frame is active becomes part of the
+        // captured span.
+        if (active.isNotEmpty) {
+          appendToActive(active, value);
+        }
+      case ConjunctionMark(:var branches):
+        // Ambiguous branches need isolated active stacks, otherwise captures
+        // from one derivation would leak into another.
+        for (var branch in branches) {
+          walk(branch, [...active]);
+        }
+      default:
+        break;
+    }
+  }
+
+  void appendToActive(List<_LabelCaptureFrame> active, String chunk) {
+    for (var frame in active) {
+      frame.buffer.write(chunk);
+    }
+  }
+
+  void consider(({int startPosition, String value})? candidate) {
+    if (candidate == null) {
+      return;
+    }
+    if (best == null || candidate.startPosition < best!.startPosition) {
+      best = candidate;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal parsing machinery
 // ---------------------------------------------------------------------------
@@ -448,11 +559,20 @@ final class ConjunctionCallerKey extends CallerKey {
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 final class Caller extends CallerKey {
-  Caller(this.rule, this.pattern, this.startPosition, this.minPrecedenceLevel);
+  Caller(
+    this.rule,
+    this.pattern,
+    this.startPosition,
+    this.minPrecedenceLevel,
+    this.callArgumentsKey,
+    Map<String, Object?> arguments,
+  ) : arguments = Map<String, Object?>.unmodifiable(arguments);
   final Rule rule;
   final Pattern pattern;
   final int startPosition;
   final int? minPrecedenceLevel;
+  final String callArgumentsKey;
+  final Map<String, Object?> arguments;
   final List<WaiterInfo> waiters = [];
   final List<Context> returns = [];
   final Set<(CallerKey?, State, int?, Context)> _waiterKeys = {};
@@ -466,10 +586,12 @@ final class Caller extends CallerKey {
           rule == other.rule &&
           pattern == other.pattern &&
           startPosition == other.startPosition &&
-          minPrecedenceLevel == other.minPrecedenceLevel;
+          minPrecedenceLevel == other.minPrecedenceLevel &&
+          callArgumentsKey == other.callArgumentsKey;
 
   @override
-  int get hashCode => Object.hash(rule, pattern, startPosition, minPrecedenceLevel);
+  int get hashCode =>
+      Object.hash(rule, pattern, startPosition, minPrecedenceLevel, callArgumentsKey);
 
   bool addWaiter(
     CallerKey? parent,
@@ -507,6 +629,7 @@ class Context {
   const Context(
     this.caller,
     this.marks, {
+    this.arguments = const <String, Object?>{},
     this.derivationPath = const GlushList.empty(),
     this.predicateStack = const GlushList.empty(),
     this.bsrRuleSymbol,
@@ -518,6 +641,7 @@ class Context {
   });
   final CallerKey caller;
   final GlushList<Mark> marks;
+  final Map<String, Object?> arguments;
   final GlushList<DerivationKey> derivationPath;
   final GlushList<PredicateCallerKey> predicateStack;
   final PatternSymbol? bsrRuleSymbol;
@@ -530,6 +654,7 @@ class Context {
   Context copyWith({
     CallerKey? caller,
     GlushList<Mark>? marks,
+    Map<String, Object?>? arguments,
     GlushList<DerivationKey>? derivationPath,
     GlushList<PredicateCallerKey>? predicateStack,
     PatternSymbol? bsrRuleSymbol,
@@ -542,6 +667,7 @@ class Context {
     return Context(
       caller ?? this.caller,
       marks ?? this.marks,
+      arguments: arguments ?? this.arguments,
       derivationPath: derivationPath ?? this.derivationPath,
       predicateStack: predicateStack ?? this.predicateStack,
       bsrRuleSymbol: bsrRuleSymbol ?? this.bsrRuleSymbol,
@@ -560,6 +686,7 @@ class Context {
     return Context(
       caller,
       nextMarks,
+      arguments: arguments,
       derivationPath: derivationPath,
       predicateStack: predicateStack,
       bsrRuleSymbol: bsrRuleSymbol,
@@ -578,6 +705,7 @@ class Context {
     return Context(
       nextCaller,
       marks,
+      arguments: arguments,
       derivationPath: derivationPath,
       predicateStack: predicateStack,
       bsrRuleSymbol: bsrRuleSymbol,
@@ -597,6 +725,7 @@ class Context {
     return Context(
       nextCaller,
       nextMarks,
+      arguments: arguments,
       derivationPath: derivationPath,
       predicateStack: predicateStack,
       bsrRuleSymbol: bsrRuleSymbol,
@@ -614,7 +743,7 @@ class Context {
       other is Context &&
           caller == other.caller &&
           marks == other.marks &&
-          derivationPath == other.derivationPath &&
+          arguments == other.arguments &&
           predicateStack == other.predicateStack &&
           callStart == other.callStart &&
           pivot == other.pivot &&
@@ -626,7 +755,7 @@ class Context {
   int get hashCode => Object.hash(
     caller,
     marks,
-    derivationPath,
+    arguments,
     predicateStack,
     callStart,
     pivot,
@@ -666,11 +795,13 @@ class Step {
   final List<Frame> nextFrames = [];
   final Map<ContextKey, List<GlushList<Mark>>> _nextFrameGroups = {};
   final Map<ContextKey, Set<GlushList<Mark>>> _activeContexts = {};
+  final Set<ContextKey> _activeContextKeys = {};
   final Queue<AcceptedContext> _currentWorkList = DoubleLinkedQueue();
   final Set<CallerKey> _returnedCallers = {};
   final Set<AcceptedContext> _acceptedContextSet = {};
   final List<AcceptedContext> acceptedContexts = [];
   final List<Frame> requeued = [];
+  final Map<GuardCacheKey, bool> _guardResultCache = {};
 
   /// Requeue work that targets a different pivot position.
   ///
@@ -849,10 +980,7 @@ class Step {
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
     }
     var newPredicateKey = PredicateCallerKey(symbol, position);
-    var nextStack = GlushListCache<PredicateCallerKey>().push(
-      frame.context.predicateStack,
-      newPredicateKey,
-    );
+    var nextStack = parseState.predicateCache.push(frame.context.predicateStack, newPredicateKey);
 
     for (var firstState in states) {
       _enqueue(
@@ -860,6 +988,7 @@ class Step {
         Context(
           newPredicateKey,
           const GlushList.empty(),
+          arguments: frame.context.arguments,
           predicateStack: nextStack,
           callStart: position,
           pivot: position,
@@ -898,6 +1027,7 @@ class Step {
         Context(
           leftCaller,
           const GlushList.empty(),
+          arguments: frame.context.arguments,
           callStart: position,
           pivot: position,
           tokenHistory: frame.context.tokenHistory,
@@ -914,6 +1044,7 @@ class Step {
         Context(
           rightCaller,
           const GlushList.empty(),
+          arguments: frame.context.arguments,
           callStart: position,
           pivot: position,
           tokenHistory: frame.context.tokenHistory,
@@ -939,6 +1070,7 @@ class Step {
         Context(
           newNegationKey,
           const GlushList.empty(),
+          arguments: frame.context.arguments,
           callStart: position,
           pivot: position,
           tokenHistory: frame.context.tokenHistory,
@@ -958,6 +1090,217 @@ class Step {
     return parseState.historyByPosition[framePos]?.unit;
   }
 
+  bool _ruleGuardPasses(
+    Rule rule,
+    Frame frame, {
+    required Map<String, Object?> arguments,
+    required String argumentsKey,
+  }) {
+    var guard = rule.guard;
+    if (guard == null) {
+      return true;
+    }
+
+    // Guard results are cached by rule, position, arguments, and mark forest so
+    // repeated branches do not re-evaluate the same boolean expression.
+    var subjectRule = rule.guardOwner ?? rule;
+    var cacheKey = (
+      subjectRule,
+      guard,
+      frame.context.marks,
+      argumentsKey,
+      position,
+      frame.context.callStart ?? position,
+      frame.context.minPrecedenceLevel,
+      frame.context.precedenceLevel,
+    );
+
+    if (_guardResultCache.containsKey(cacheKey)) {
+      return _guardResultCache[cacheKey]!;
+    }
+
+    var result = guard.evaluate(
+      _buildGuardEnvironment(rule: subjectRule, frame: frame, arguments: arguments),
+    );
+    _guardResultCache[cacheKey] = result;
+    return result;
+  }
+
+  GuardEnvironment _buildGuardEnvironment({
+    required Rule rule,
+    required Frame frame,
+    required Map<String, Object?> arguments,
+  }) {
+    // Guards only need a small semantic snapshot: the active rule, the parser
+    // position, caller arguments, and lazy access to marks/captures.
+    var values = <String, Object?>{
+      "rule": rule,
+      "ruleName": rule.name.symbol,
+      "position": position,
+      "callStart": frame.context.callStart ?? position,
+      "minPrecedenceLevel": frame.context.minPrecedenceLevel,
+      "precedenceLevel": frame.context.precedenceLevel,
+    };
+
+    return GuardEnvironment(
+      rule: rule,
+      marks: frame.context.marks,
+      arguments: arguments,
+      values: values,
+      captureResolver: _extractLabelCapture,
+      rulesByName: parseState.rulesByName,
+    );
+  }
+
+  ({int startPosition, String value})? _extractLabelCapture(GlushList<Mark> marks, String target) {
+    var cacheKey = (marks, target);
+    if (parseState.labelCaptureCache.containsKey(cacheKey)) {
+      return parseState.labelCaptureCache[cacheKey];
+    }
+
+    // If multiple branches can produce the same capture name, we keep the
+    // earliest capture as the canonical one for this forest.
+    var walker = _LabelCaptureWalker(target);
+    walker.walk(marks, []);
+    parseState.labelCaptureCache[cacheKey] = walker.best;
+    return walker.best;
+  }
+
+  ({Map<String, Object?> arguments, String key}) //
+  _resolveCallArguments(RuleCall call, Frame frame) {
+    if (call.arguments.isEmpty) {
+      return (arguments: const <String, Object?>{}, key: call.argumentsKey);
+    }
+
+    // Resolve arguments in the caller's environment so references can inherit
+    // values, rules, or captures from the surrounding parse context.
+    var callerRule = switch (frame.caller) {
+      Caller(:var rule) => rule,
+      _ => call.rule,
+    };
+    var callerArguments = frame.context.arguments;
+    var env = _buildGuardEnvironment(rule: callerRule, frame: frame, arguments: callerArguments);
+    return call.resolveArgumentsAndKey(env);
+  }
+
+  ({Map<String, Object?> arguments, String key}) //
+  _resolveParameterCallArguments(ParameterCallPattern pattern, Frame frame, Rule rule) {
+    var callerRule = switch (frame.caller) {
+      Caller(rule: var callerRule) => callerRule,
+      _ => rule,
+    };
+    var callerArguments = frame.context.arguments;
+    var env = _buildGuardEnvironment(rule: callerRule, frame: frame, arguments: callerArguments);
+    return pattern.resolveArgumentsAndKey(env);
+  }
+
+  void _seedRuleCall({
+    required Rule targetRule,
+    required Pattern callPattern,
+    required Map<String, Object?> callArguments,
+    required String callArgumentsKey,
+    required StateAction action,
+    required State returnState,
+    required int? minPrecedenceLevel,
+    required Frame frame,
+    required ParseNodeKey source,
+    required State currentState,
+  }) {
+    // Rule guards are checked before the callee is spawned, so failed guards
+    // never allocate a caller node or enter the callee state machine.
+    if (!_ruleGuardPasses(
+      targetRule,
+      frame,
+      arguments: callArguments,
+      argumentsKey: callArgumentsKey,
+    )) {
+      return;
+    }
+
+    CallerCacheKey key = (targetRule, position, minPrecedenceLevel, callArgumentsKey);
+    var isNewCaller = !parseState.callers.containsKey(key);
+    var caller = parseState.callers[key];
+    assert(
+      isNewCaller == (caller == null),
+      "Invariant violation in call seeding: caller cache containsKey/get mismatch.",
+    );
+    caller ??= parseState.callers[key] = Caller(
+      targetRule,
+      callPattern,
+      position,
+      minPrecedenceLevel,
+      callArgumentsKey,
+      callArguments,
+    );
+    var isNewWaiter = caller.addWaiter(
+      frame.caller,
+      returnState,
+      minPrecedenceLevel,
+      frame.context,
+      (currentState.id, position, frame.context.caller),
+    );
+    if (isNewCaller) {
+      var states = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!] ?? [];
+      for (var firstState in states) {
+        _enqueue(
+          firstState,
+          Context(
+            caller,
+            const GlushList.empty(),
+            arguments: callArguments,
+            predicateStack: frame.context.predicateStack,
+            bsrRuleSymbol: targetRule.symbolId,
+            callStart: position,
+            pivot: position,
+            tokenHistory: frame.context.tokenHistory,
+            minPrecedenceLevel: minPrecedenceLevel,
+          ),
+          source: source,
+          action: action,
+          callSite: (currentState.id, position, frame.context.caller),
+        );
+      }
+    } else if (isNewWaiter) {
+      for (var returnContext in caller.returns) {
+        _triggerReturn(
+          caller,
+          frame.caller,
+          returnState,
+          minPrecedenceLevel,
+          frame.context,
+          returnContext,
+          source: (currentState.id, position, caller),
+          action: action,
+          callSite: (currentState.id, position, frame.context.caller),
+        );
+      }
+    }
+  }
+
+  void _spawnParameterPredicateSubparse({
+    required String text,
+    required Frame frame,
+    required bool isAnd,
+  }) {
+    var entryState = parseState.parser.stateMachine.parameterPredicateEntry(text);
+    var syntheticSymbol = PatternSymbol("_param_${isAnd ? 'and' : 'not'}_$text");
+    var newPredicateKey = PredicateCallerKey(syntheticSymbol, position);
+    var nextStack = parseState.predicateCache.push(frame.context.predicateStack, newPredicateKey);
+
+    _enqueue(
+      entryState,
+      Context(
+        newPredicateKey,
+        const GlushList.empty(),
+        arguments: frame.context.arguments,
+        predicateStack: nextStack,
+        callStart: position,
+        pivot: position,
+        tokenHistory: frame.context.tokenHistory,
+      ),
+    );
+  }
+
   bool get accept => acceptedContexts.isNotEmpty;
 
   List<Mark> get marks {
@@ -965,7 +1308,7 @@ class Step {
     if (acceptedContexts.isEmpty) {
       return [];
     }
-    return acceptedContexts[0].$2.marks.toList().cast<Mark>();
+    return acceptedContexts[0].$2.marks.toList();
   }
 
   /// Enqueue an active parser configuration for this step.
@@ -1005,7 +1348,6 @@ class Step {
       nextContext.caller,
       nextContext.minPrecedenceLevel,
       nextContext.predicateStack,
-      nextContext.derivationPath,
     );
     // Forest mode tracks alternate derivation edges for equivalent contexts.
     if (isSupportingAmbiguity) {
@@ -1018,10 +1360,9 @@ class Step {
       }
     } else {
       // In non-forest mode, keep only the first equivalent context.
-      if (_activeContexts.containsKey(key)) {
+      if (!_activeContextKeys.add(key)) {
         return;
       }
-      _activeContexts[key] = {nextContext.marks};
     }
 
     var predicateKey = nextContext.predicateStack.lastOrNull;
@@ -1040,7 +1381,7 @@ class Step {
   /// Execute outgoing actions for one `(frame,state)` pair.
   ///
   /// Token-consuming actions are batched into `_nextFrameGroups` and finalized
-  /// together in [finalize], while zero-width actions are enqueued immediately.
+  /// together in [_finalize], while zero-width actions are enqueued immediately.
   /// This split avoids interleaving same-position closure with next-position work.
   void _process(Frame frame, State state) {
     var frameContext = frame.context;
@@ -1056,7 +1397,7 @@ class Step {
             var terminalSymbol = action.pattern.symbolId;
             var pattern = action.pattern;
             var shouldCapture =
-                captureTokensAsMarks || (pattern is Token && pattern.choice is! ExactToken);
+                captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
 
             if (terminalSymbol != null) {
               bsr?.addTerminal(terminalSymbol, position, position + 1, token);
@@ -1087,7 +1428,6 @@ class Step {
               callerOrRoot,
               frameContext.minPrecedenceLevel,
               frameContext.predicateStack,
-              frameContext.derivationPath,
             );
             _nextFrameGroups.putIfAbsent(nextKey, () => []).add(newMarks);
           }
@@ -1100,6 +1440,34 @@ class Step {
               source: source,
               action: action,
             );
+          }
+        case ParameterStringAction():
+          var token = _getTokenFor(frame);
+          if (token != null && token == action.codeUnit) {
+            var newMarks = frame.marks;
+            if (captureTokensAsMarks) {
+              newMarks = newMarks.add(
+                parseState.markCache,
+                StringMark(String.fromCharCode(action.codeUnit), position),
+              );
+            }
+
+            if (frame.context.bsrRuleSymbol != null && frame.context.callStart != null) {
+              bsr?.add(
+                frame.context.bsrRuleSymbol!,
+                frame.context.callStart!,
+                position,
+                position + 1,
+              );
+            }
+
+            var nextKey = (
+              action.nextState,
+              callerOrRoot,
+              frameContext.minPrecedenceLevel,
+              frameContext.predicateStack,
+            );
+            _nextFrameGroups.putIfAbsent(nextKey, () => []).add(newMarks);
           }
         case MarkAction():
           var mark = NamedMark(action.name, position);
@@ -1254,68 +1622,349 @@ class Step {
           }
 
         case CallAction():
-          CallerCacheKey key = (action.rule, position, action.minPrecedenceLevel);
-          var isNewCaller = !parseState.callers.containsKey(key);
-          var caller = parseState.callers[key];
-          assert(
-            isNewCaller == (caller == null),
-            "Invariant violation in CallAction: caller cache containsKey/get mismatch.",
+          Pattern callPattern = action.pattern;
+          var call = callPattern as RuleCall;
+          var resolvedCall = _resolveCallArguments(call, frame);
+          _seedRuleCall(
+            targetRule: action.rule,
+            callPattern: callPattern,
+            callArguments: resolvedCall.arguments,
+            callArgumentsKey: resolvedCall.key,
+            action: action,
+            returnState: action.returnState,
+            minPrecedenceLevel: action.minPrecedenceLevel,
+            frame: frame,
+            source: source,
+            currentState: state,
           );
-          // Create caller node if no memoized node exists for this key yet.
-          caller ??= parseState.callers[key] = Caller(
-            action.rule,
-            action.pattern,
-            position,
-            action.minPrecedenceLevel,
-          );
-          var isNewWaiter = caller.addWaiter(
-            frame.caller,
-            action.returnState,
-            action.minPrecedenceLevel,
-            frame.context,
-            (state.id, position, frame.context.caller),
-          );
-          // New caller needs initial rule-entry seeding.
-          if (isNewCaller) {
-            // First time this caller key appears: seed rule entry states.
-            var states = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
-            for (var firstState in states) {
+        case ParameterAction():
+          var arguments = frame.context.arguments;
+          if (!arguments.containsKey(action.name)) {
+            throw StateError("Missing argument '${action.name}' for parameter reference.");
+          }
+
+          var value = arguments[action.name];
+          switch (value) {
+            case String text:
+              // Strings are materialized as parser input so `body: "x"` is
+              // treated like literal grammar text rather than a semantic value.
+              if (text.isEmpty) {
+                _enqueue(
+                  action.nextState,
+                  frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                  source: source,
+                  action: action,
+                );
+                continue;
+              }
+              var entryState = parseState.parser.stateMachine.parameterStringEntry(
+                text,
+                action.nextState,
+              );
               _enqueue(
-                firstState,
-                Context(
-                  caller,
-                  const GlushList.empty(),
-                  predicateStack: frame.context.predicateStack,
-                  bsrRuleSymbol: action.rule.symbolId,
-                  callStart: position,
-                  pivot: position,
-                  tokenHistory: frame.context.tokenHistory,
-                  minPrecedenceLevel: action.minPrecedenceLevel,
-                ),
+                entryState,
+                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
                 source: source,
                 action: action,
-                callSite: (state.id, position, frame.context.caller),
               );
-            }
-            // Existing caller with a new waiter replays prior returns.
-          } else if (isNewWaiter) {
-            // Existing caller + new waiter => replay already-memoized returns.
-            // Caller already has completed returns; replay them to this waiter.
-            for (var returnContext in caller.returns) {
-              _triggerReturn(
-                caller,
-                frame.caller,
-                action.returnState,
-                action.minPrecedenceLevel,
-                frame.context,
-                returnContext,
-                source: (state.id, position, caller),
+              continue;
+            case RuleCall callValue:
+              var resolvedCall = _resolveCallArguments(callValue, frame);
+              _seedRuleCall(
+                targetRule: callValue.rule,
+                callPattern: callValue,
+                callArguments: resolvedCall.arguments,
+                callArgumentsKey: resolvedCall.key,
                 action: action,
-                callSite: (state.id, position, frame.context.caller),
+                returnState: action.nextState,
+                minPrecedenceLevel: callValue.minPrecedenceLevel,
+                frame: frame,
+                source: source,
+                currentState: state,
               );
-            }
+            case Rule rule:
+              _seedRuleCall(
+                targetRule: rule,
+                callPattern: rule,
+                callArguments: const {},
+                callArgumentsKey: "m0{}",
+                action: action,
+                returnState: action.nextState,
+                minPrecedenceLevel: null,
+                frame: frame,
+                source: source,
+                currentState: state,
+              );
+            case Eps():
+              _enqueue(
+                action.nextState,
+                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                source: source,
+                action: action,
+              );
+            case Pattern pattern when pattern.singleToken():
+              var token = _getTokenFor(frame);
+              if (token != null && pattern.match(token)) {
+                _enqueue(
+                  action.nextState,
+                  frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                  source: source,
+                  action: action,
+                );
+              }
+            case Pattern pattern:
+              throw UnsupportedError(
+                "Complex parser objects used as parameters are not supported yet: ${pattern.runtimeType}",
+              );
+            default:
+              throw UnsupportedError(
+                "Unsupported parameter value for ${action.name}: ${value.runtimeType}",
+              );
+          }
+        case ParameterCallAction():
+          var arguments = frame.context.arguments;
+          if (!arguments.containsKey(action.pattern.name)) {
+            throw StateError("Missing argument '${action.pattern.name}' for parameter reference.");
+          }
+
+          var value = arguments[action.pattern.name];
+          switch (value) {
+            case RuleCall callValue:
+              var mergedArguments = <String, CallArgumentValue>{
+                ...callValue.arguments,
+                ...action.pattern.arguments,
+              };
+              var syntheticCall = RuleCall(
+                callValue.name,
+                callValue.rule,
+                arguments: mergedArguments,
+                minPrecedenceLevel:
+                    callValue.minPrecedenceLevel ?? action.pattern.minPrecedenceLevel,
+              );
+              var resolvedCall = _resolveCallArguments(syntheticCall, frame);
+              _seedRuleCall(
+                targetRule: syntheticCall.rule,
+                callPattern: syntheticCall,
+                callArguments: resolvedCall.arguments,
+                callArgumentsKey: resolvedCall.key,
+                action: action,
+                returnState: action.nextState,
+                minPrecedenceLevel: syntheticCall.minPrecedenceLevel,
+                frame: frame,
+                source: source,
+                currentState: state,
+              );
+            case Rule rule:
+              var syntheticCall = RuleCall(
+                rule.name.symbol,
+                rule,
+                arguments: action.pattern.arguments,
+                minPrecedenceLevel: action.pattern.minPrecedenceLevel,
+              );
+              var resolvedCall = _resolveParameterCallArguments(action.pattern, frame, rule);
+              _seedRuleCall(
+                targetRule: rule,
+                callPattern: syntheticCall,
+                callArguments: resolvedCall.arguments,
+                callArgumentsKey: resolvedCall.key,
+                action: action,
+                returnState: action.nextState,
+                minPrecedenceLevel: action.pattern.minPrecedenceLevel,
+                frame: frame,
+                source: source,
+                currentState: state,
+              );
+            default:
+              throw UnsupportedError(
+                "Unsupported parameter call value for ${action.pattern.name}: ${value.runtimeType}",
+              );
+          }
+        case ParameterPredicateAction():
+          var arguments = frame.context.arguments;
+          if (!arguments.containsKey(action.name)) {
+            throw StateError("Missing argument '${action.name}' for parameter reference.");
+          }
+
+          var value = arguments[action.name];
+          switch (value) {
+            case String text:
+              // Parameter predicates reuse the same string materialization
+              // path, but they only resume the caller when AND/NOT semantics
+              // say the lookahead succeeded or failed.
+              if (text.isEmpty) {
+                if (action.isAnd) {
+                  _resumeLaggedPredicateContinuation(
+                    source: source,
+                    parentContext: frame.context,
+                    nextState: action.nextState,
+                    isAnd: action.isAnd,
+                    symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text"),
+                    branchKey: action,
+                  );
+                }
+                continue;
+              }
+              var predicateSymbol = PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text");
+              var subParseKey = (predicateSymbol, position);
+              var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+              var tracker = parseState.predicateTrackers.putIfAbsent(
+                subParseKey,
+                () => PredicateTracker(predicateSymbol, position, isAnd: action.isAnd),
+              );
+              assert(
+                tracker.isAnd == action.isAnd,
+                "Invariant violation in ParameterPredicateAction: mixed AND/NOT trackers share "
+                "the same parameter predicate key.",
+              );
+
+              if (tracker.matched) {
+                if (tracker.isAnd) {
+                  _resumeLaggedPredicateContinuation(
+                    source: source,
+                    parentContext: frame.context,
+                    nextState: action.nextState,
+                    isAnd: action.isAnd,
+                    symbol: predicateSymbol,
+                    branchKey: action,
+                  );
+                }
+              } else if (!isFirst && tracker.canResolveFalse) {
+                if (!tracker.isAnd) {
+                  _resumeLaggedPredicateContinuation(
+                    source: source,
+                    parentContext: frame.context,
+                    nextState: action.nextState,
+                    isAnd: action.isAnd,
+                    symbol: predicateSymbol,
+                    branchKey: action,
+                  );
+                }
+              } else {
+                tracker.waiters.add((source, frameContext, action.nextState));
+                var predicateKey = frameContext.predicateStack.lastOrNull;
+                if (predicateKey != null) {
+                  var parentTracker = parseState
+                      .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+                  parentTracker?.addPendingFrame();
+                }
+              }
+
+              if (isFirst && !tracker.matched) {
+                _spawnParameterPredicateSubparse(text: text, frame: frame, isAnd: action.isAnd);
+              }
+            case RuleCall callValue:
+              if (callValue.arguments.isNotEmpty) {
+                throw UnsupportedError(
+                  "Parameterized call objects are not supported in predicates yet: ${callValue.rule.name.symbol}",
+                );
+              }
+
+              var rule = callValue.rule;
+              var symbol = rule.symbolId;
+              if (symbol == null) {
+                throw StateError("Predicate rule must have a symbol id.");
+              }
+
+              var subParseKey = (symbol, position);
+              var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+              var tracker = parseState.predicateTrackers.putIfAbsent(
+                subParseKey,
+                () => PredicateTracker(symbol, position, isAnd: action.isAnd),
+              );
+              assert(
+                tracker.isAnd == action.isAnd,
+                "Invariant violation in ParameterPredicateAction: mixed AND/NOT trackers share "
+                "the same parameter predicate key.",
+              );
+
+              if (tracker.matched) {
+                if (tracker.isAnd) {
+                  _resumeLaggedPredicateContinuation(
+                    source: source,
+                    parentContext: frame.context,
+                    nextState: action.nextState,
+                    isAnd: action.isAnd,
+                    symbol: symbol,
+                    branchKey: action,
+                  );
+                }
+              } else if (!isFirst && tracker.canResolveFalse) {
+                if (!tracker.isAnd) {
+                  _resumeLaggedPredicateContinuation(
+                    source: source,
+                    parentContext: frame.context,
+                    nextState: action.nextState,
+                    isAnd: action.isAnd,
+                    symbol: symbol,
+                    branchKey: action,
+                  );
+                }
+              } else {
+                tracker.waiters.add((source, frameContext, action.nextState));
+                var predicateKey = frameContext.predicateStack.lastOrNull;
+                if (predicateKey != null) {
+                  var parentTracker = parseState
+                      .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+                  parentTracker?.addPendingFrame();
+                }
+              }
+
+              if (isFirst && !tracker.matched) {
+                _spawnPredicateSubparse(symbol, frame);
+              }
+            case Rule rule:
+              var symbol = rule.symbolId;
+              if (symbol == null) {
+                throw StateError("Predicate rule must have a symbol id.");
+              }
+              _spawnPredicateSubparse(symbol, frame);
+            case Eps():
+              if (action.isAnd) {
+                _resumeLaggedPredicateContinuation(
+                  source: source,
+                  parentContext: frame.context,
+                  nextState: action.nextState,
+                  isAnd: action.isAnd,
+                  symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
+                  branchKey: action,
+                );
+              }
+            case Pattern pattern when pattern.singleToken():
+              var token = _getTokenFor(frame);
+              var matches = token != null && pattern.match(token);
+              if (matches == action.isAnd) {
+                _resumeLaggedPredicateContinuation(
+                  source: source,
+                  parentContext: frame.context,
+                  nextState: action.nextState,
+                  isAnd: action.isAnd,
+                  symbol: PatternSymbol(
+                    "_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}",
+                  ),
+                  branchKey: action,
+                );
+              }
+            case Pattern pattern:
+              throw UnsupportedError(
+                "Complex parser objects used as parameter predicates are not supported yet: ${pattern.runtimeType}",
+              );
+            default:
+              throw UnsupportedError(
+                "Unsupported parameter value for ${action.name}: ${value.runtimeType}",
+              );
           }
         case TailCallAction():
+          // Tail calls still respect argument resolution and guards, but avoid
+          // allocating a fresh caller when the recursion can be looped.
+          var resolvedCall = _resolveCallArguments(action.pattern as RuleCall, frame);
+          if (!_ruleGuardPasses(
+            action.rule,
+            frame,
+            arguments: resolvedCall.arguments,
+            argumentsKey: resolvedCall.key,
+          )) {
+            continue;
+          }
           // Tail-call optimized recursion re-enters the rule without allocating
           // a fresh caller node. The enclosing return is unchanged, so the
           // current caller context can be reused as a simple loop back-edge.
@@ -1338,12 +1987,6 @@ class Step {
               action.precedenceLevel != null &&
               action.precedenceLevel! < frame.context.minPrecedenceLevel!) {
             // Returned precedence is below required minimum for this call-site.
-            continue;
-          }
-          // Enforce optional rule guard against current lookahead token.
-          if (_getTokenFor(frame) case var t?
-              when action.rule.guard != null && !action.rule.guard!.match(t)) {
-            // Guarded return fails against current lookahead token.
             continue;
           }
 
@@ -1491,6 +2134,7 @@ class Step {
     var nextContext = Context(
       parent ?? const RootCallerKey(),
       nextMarks,
+      arguments: parentContext.arguments,
       derivationPath: parentContext.derivationPath,
       predicateStack: parentContext.predicateStack,
       bsrRuleSymbol: parentContext.bsrRuleSymbol,
@@ -1517,7 +2161,7 @@ class Step {
   /// contexts with branched marks.
   void _finalize() {
     for (var MapEntry(:key, value: marksGroup) in _nextFrameGroups.entries) {
-      var (state, caller, minPrecedenceLevel, predicateStack, derivationPath) = key;
+      var (state, caller, minPrecedenceLevel, predicateStack) = key;
       var branchedMarks = parseState.markCache.branched(marksGroup);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
@@ -1526,7 +2170,7 @@ class Step {
         Context(
           caller,
           branchedMarks,
-          derivationPath: derivationPath,
+          arguments: caller is Caller ? caller.arguments : const <String, Object?>{},
           predicateStack: predicateStack,
           bsrRuleSymbol: caller is Caller ? caller.rule.symbolId! : null,
           callStart: callerStartPosition,

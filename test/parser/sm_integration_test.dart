@@ -54,7 +54,7 @@ void main() {
 
       var paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
-      expect(paths[0].join(), equals("addn+muln*n"));
+      expect(paths[0].join(), equals("expr.addn+expr.muln*n"));
     });
 
     test("Predicate Catch-up and Sub-parse", () {
@@ -112,7 +112,7 @@ void main() {
       var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(["start", "abc"]));
+      expect(finalStep.marks.toShortMarks(), equals(["S.start", "abc"]));
     });
 
     test("Manual NOT predicate catch-up preserves marks", () {
@@ -132,7 +132,7 @@ void main() {
       var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(["start", "ac"]));
+      expect(finalStep.marks.toShortMarks(), equals(["S.start", "ac"]));
     });
 
     test("Context Deduplication fixes explosion", () {

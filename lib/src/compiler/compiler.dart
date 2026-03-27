@@ -12,13 +12,29 @@ class GrammarFileCompiler {
   GrammarFileCompiler(this.grammarFile);
   final GrammarFile grammarFile;
   late final Map<String, Rule> _rules = {};
+  late final Map<String, RuleDefinition> _definitions = {
+    for (var rule in grammarFile.rules) rule.name: rule,
+  };
+  final Map<IfPattern, Rule> _guardedRules = {};
+  Rule? _currentOwnerRule;
+  List<String> _currentParameters = const [];
 
   /// Compile the grammar file into an executable Grammar
   Grammar compile({String? startRuleName}) {
     // First pass: create rule stubs with builder functions
     for (var ruleDef in grammarFile.rules) {
-      var rule = Rule(ruleDef.name, () {
-        return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
+      late Rule rule;
+      rule = Rule(ruleDef.name, () {
+        var previousOwner = _currentOwnerRule;
+        var previousParameters = _currentParameters;
+        _currentOwnerRule = rule;
+        _currentParameters = ruleDef.parameters;
+        try {
+          return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
+        } finally {
+          _currentOwnerRule = previousOwner;
+          _currentParameters = previousParameters;
+        }
       });
       _rules[ruleDef.name] = rule;
     }
@@ -43,6 +59,37 @@ class GrammarFileCompiler {
   /// Compile a pattern expression into a Pattern
   Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
     switch (expr) {
+      // `if (...)` is lowered into a synthetic guarded rule so the compiler
+      // keeps the parser logic in the state machine instead of inventing a
+      // separate semantic side channel.
+      case IfPattern(:var guard, :var inner):
+        var owner = _currentOwnerRule;
+        var parameters = _currentParameters;
+        var guardedRule = _guardedRules.putIfAbsent(expr, () {
+          var syntheticName = "_if\$${_guardedRules.length}";
+          var rule = Rule(syntheticName, () {
+            var previousOwner = _currentOwnerRule;
+            var previousParameters = _currentParameters;
+            _currentOwnerRule = owner;
+            _currentParameters = parameters;
+            try {
+              return _compilePattern(inner, precedenceLevels);
+            } finally {
+              _currentOwnerRule = previousOwner;
+              _currentParameters = previousParameters;
+            }
+          });
+          rule.guardOwner = owner;
+          return rule;
+        });
+        guardedRule.guard = _compileGuardExpr(guard);
+        if (parameters.isEmpty) {
+          return guardedRule();
+        }
+        return guardedRule.call(
+          arguments: {for (var name in parameters) name: CallArgumentValue.reference(name)},
+        );
+
       case AnyPattern():
         return Token(const AnyToken());
 
@@ -76,11 +123,35 @@ class GrammarFileCompiler {
         return Marker(name);
 
       case RuleRefPattern():
+        // A bare reference to one of the current rule's parameters must stay as
+        // a parameter lookup, not a global rule call, so call-site data can
+        // flow into the body without losing its source.
+        if (_currentParameters.contains(expr.ruleName)) {
+          if (expr.arguments.isNotEmpty) {
+            return ParameterCallPattern(
+              expr.ruleName,
+              arguments: _compileParameterCallArguments(expr),
+              minPrecedenceLevel: expr.precedenceConstraint,
+            );
+          }
+          return ParameterRefPattern(expr.ruleName);
+        }
         var rule = _rules[expr.ruleName];
         if (rule == null) {
           throw Exception("Undefined rule: ${expr.ruleName}");
         }
-        return rule(minPrecedenceLevel: expr.precedenceConstraint);
+        var ruleDef = _definitions[expr.ruleName];
+        if (expr.arguments.isNotEmpty && (ruleDef?.parameters.isEmpty ?? true)) {
+          Pattern result = rule.call(minPrecedenceLevel: expr.precedenceConstraint);
+          for (var argument in expr.arguments) {
+            result = result >> _compileFallbackArgumentPattern(argument.value);
+          }
+          return result;
+        }
+        return rule.call(
+          arguments: _compileCallArguments(expr, ruleDef?.parameters ?? const []),
+          minPrecedenceLevel: expr.precedenceConstraint,
+        );
 
       case SequencePattern():
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
@@ -130,14 +201,27 @@ class GrammarFileCompiler {
       case StarPattern():
         return Star(_compilePattern(expr.pattern, precedenceLevels));
 
+      case StarBangPattern():
+        return Star(_compilePattern(expr.pattern, precedenceLevels)) >>
+            Not(_compilePattern(expr.pattern, precedenceLevels));
+
       case PlusPattern():
         return Plus(_compilePattern(expr.pattern, precedenceLevels));
+
+      case PlusBangPattern():
+        return Plus(_compilePattern(expr.pattern, precedenceLevels)) >>
+            Not(_compilePattern(expr.pattern, precedenceLevels));
 
       case GroupPattern():
         return _compilePattern(expr.inner, precedenceLevels);
 
       case LabeledPattern(:var label, :var inner):
         return Label(label, _compilePattern(inner, precedenceLevels));
+
+      case MainMarkPattern(:var name, :var inner):
+        var compiled = _compilePattern(inner, precedenceLevels);
+        var ruleName = _currentOwnerRule?.name;
+        return Label(ruleName == null ? name : "$ruleName.$name", compiled);
 
       case ActionExpr():
         throw Exception("ActionExpr cannot be compiled as a pattern");
@@ -186,6 +270,125 @@ class GrammarFileCompiler {
           _ => throw Exception("Unsupported backslash literal: \\$char"),
         };
     }
+  }
+
+  Map<String, CallArgumentValue> _compileCallArguments(
+    RuleRefPattern expr,
+    List<String> parameters,
+  ) {
+    if (expr.arguments.isEmpty) {
+      return const {};
+    }
+
+    if (parameters.isEmpty) {
+      throw Exception("Rule ${expr.ruleName} does not declare parameters");
+    }
+
+    var compiled = <String, CallArgumentValue>{};
+    var positionalIndex = 0;
+
+    for (var argument in expr.arguments) {
+      var name = argument.name;
+      if (name != null) {
+        if (!parameters.contains(name)) {
+          throw Exception("Unknown parameter '$name' for rule ${expr.ruleName}");
+        }
+        // Named arguments are normalized into the callee's declared parameter
+        // names so the runtime can resolve them in a stable order.
+        compiled[name] = _compileCallArgumentValue(argument.value);
+        continue;
+      }
+
+      if (positionalIndex >= parameters.length) {
+        throw Exception("Too many arguments for rule ${expr.ruleName}");
+      }
+      compiled[parameters[positionalIndex++]] = _compileCallArgumentValue(argument.value);
+    }
+
+    return compiled;
+  }
+
+  CallArgumentValue _compileCallArgumentValue(CallArgumentValueNode value) {
+    return switch (value) {
+      // Literal values remain typed as data here; whether they become parser
+      // material or guard data is decided later by the consuming rule.
+      GuardBoolLiteralNode(:var value) => CallArgumentValue.literal(value),
+      GuardNumberLiteralNode(:var value) => CallArgumentValue.literal(value),
+      GuardStringLiteralNode(:var value) => CallArgumentValue.literal(value),
+      // A bare identifier means either "pass this rule object" or "look this
+      // name up at runtime", depending on what exists in the rule table.
+      GuardNameNode(:var name) =>
+        _rules[name] != null
+            ? CallArgumentValue.rule(_rules[name]!)
+            : CallArgumentValue.reference(name),
+      GuardRuleNode() => CallArgumentValue.currentRule(),
+      PatternExpr() => CallArgumentValue.pattern(_compilePattern(value, const {})),
+    };
+  }
+
+  Pattern _compileFallbackArgumentPattern(CallArgumentValueNode value) {
+    return switch (value) {
+      // This fallback preserves the old "inline parser" behavior for rules
+      // that do not declare parameters of their own.
+      GuardStringLiteralNode(:var value) => Pattern.string(value),
+      GuardNumberLiteralNode(:var value) => Pattern.string(value.toString()),
+      GuardBoolLiteralNode(:var value) => Pattern.string(value.toString()),
+      GuardNameNode(:var name) => switch (name) {
+        "start" => Pattern.start(),
+        "eof" => Pattern.eof(),
+        _ => _rules[name]?.call() ?? Pattern.string(name),
+      },
+      GuardRuleNode() => Pattern.string("rule"),
+      PatternExpr() => _compilePattern(value, const {}),
+    };
+  }
+
+  GuardExpr _compileGuardExpr(GuardExprNode expr) {
+    return switch (expr) {
+      // Guard expressions become runtime boolean evaluators, which lets the
+      // state machine reject a branch before it ever enters the guarded body.
+      GuardBoolLiteralNode(:var value) => GuardExpr.literal(value),
+      GuardValueExprNode(:var value) => GuardExpr.value(_compileGuardValue(value)),
+      GuardNotNode(:var child) => _compileGuardExpr(child).not(),
+      GuardAndNode(:var left, :var right) => _compileGuardExpr(left) & _compileGuardExpr(right),
+      GuardOrNode(:var left, :var right) => _compileGuardExpr(left) | _compileGuardExpr(right),
+      GuardComparisonNode(:var left, :var kind, :var right) => switch (kind) {
+        GuardComparisonKind.equals => _compileGuardValue(left).eq(_compileGuardValue(right)),
+        GuardComparisonKind.notEquals => _compileGuardValue(left).ne(_compileGuardValue(right)),
+        GuardComparisonKind.lessThan => _compileGuardValue(left).lt(_compileGuardValue(right)),
+        GuardComparisonKind.lessOrEqual => _compileGuardValue(left).lte(_compileGuardValue(right)),
+        GuardComparisonKind.greaterThan => _compileGuardValue(left).gt(_compileGuardValue(right)),
+        GuardComparisonKind.greaterOrEqual => _compileGuardValue(
+          left,
+        ).gte(_compileGuardValue(right)),
+      },
+    };
+  }
+
+  GuardValue _compileGuardValue(GuardValueNode value) {
+    return switch (value) {
+      // Guard values stay typed so comparisons can distinguish literals,
+      // runtime arguments, rule references, and the special `rule` symbol.
+      GuardBoolLiteralNode(:var value) => GuardValue.literal(value),
+      GuardNumberLiteralNode(:var value) => GuardValue.literal(value),
+      GuardStringLiteralNode(:var value) => GuardValue.literal(value),
+      GuardNameNode(:var name) => GuardValue.name(name),
+      GuardRuleNode() => GuardValue.rule(),
+    };
+  }
+
+  Map<String, CallArgumentValue> _compileParameterCallArguments(RuleRefPattern expr) {
+    var compiled = <String, CallArgumentValue>{};
+    for (var argument in expr.arguments) {
+      var name = argument.name;
+      if (name == null) {
+        throw Exception(
+          "Positional arguments are not supported when invoking a parameter: ${expr.ruleName}",
+        );
+      }
+      compiled[name] = _compileCallArgumentValue(argument.value);
+    }
+    return compiled;
   }
 }
 

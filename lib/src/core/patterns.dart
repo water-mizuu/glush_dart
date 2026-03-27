@@ -1,9 +1,712 @@
+// ignore_for_file: avoid_positional_boolean_parameters, use_to_and_as_if_applicable
+
 /// Pattern system for grammar definition
 library glush.patterns;
 
 import "package:glush/src/core/errors.dart";
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 
 extension type const PatternSymbol(String symbol) {}
+
+String _callArgumentSourceKey(Map<String, CallArgumentValue> arguments) {
+  // The source key is a canonical description of the call arguments so the
+  // caller cache can treat differently ordered named arguments as identical.
+  var entries = arguments.entries.toList()..sort(_compareCallArgumentEntriesByKey);
+  var buffer = StringBuffer();
+  buffer.write("m");
+  buffer.write(entries.length);
+  buffer.write("{");
+  for (var i = 0; i < entries.length; i++) {
+    if (i != 0) {
+      buffer.write(",");
+    }
+    var entry = entries[i];
+    _writeCanonicalString(buffer, entry.key);
+    buffer.write("=");
+    buffer.write(entry.value.format());
+  }
+  buffer.write("}");
+  return buffer.toString();
+}
+
+List<String> _sortedArgumentNames(
+  Iterable<String> fixedArguments,
+  Iterable<String> dynamicArguments,
+) {
+  var names = <String>{...fixedArguments, ...dynamicArguments}.toList()..sort();
+  return List<String>.unmodifiable(names);
+}
+
+void _writeCanonicalString(StringBuffer buffer, String value) {
+  buffer
+    ..write("s")
+    ..write(value.length)
+    ..write(":")
+    ..write(value);
+}
+
+void _writeCanonicalEntry(StringBuffer buffer, String key, Object? value) {
+  _writeCanonicalString(buffer, key);
+  buffer.write("=");
+  _writeCanonicalValue(buffer, value);
+}
+
+int _compareMapEntriesByKey(MapEntry<String, Object?> left, MapEntry<String, Object?> right) {
+  return left.key.compareTo(right.key);
+}
+
+int _compareCallArgumentEntriesByKey(
+  MapEntry<String, CallArgumentValue> left,
+  MapEntry<String, CallArgumentValue> right,
+) {
+  return left.key.compareTo(right.key);
+}
+
+void _writeCanonicalValue(StringBuffer buffer, Object? value) {
+  switch (value) {
+    case null:
+      buffer.write("n");
+    case bool():
+      buffer.write(value ? "b1" : "b0");
+    case int():
+      buffer
+        ..write("i")
+        ..write(value);
+    case double():
+      buffer
+        ..write("d")
+        ..write(value.toString());
+    case String():
+      _writeCanonicalString(buffer, value);
+    case Rule(:var name):
+      buffer.write("r");
+      _writeCanonicalString(buffer, name.symbol);
+    case ParameterCallPattern(:var name, :var argumentsKey):
+      buffer.write("pa");
+      _writeCanonicalString(buffer, name);
+      _writeCanonicalString(buffer, argumentsKey);
+    case Pattern(:var symbolId):
+      buffer.write("p");
+      _writeCanonicalString(buffer, symbolId?.symbol ?? value.runtimeType.toString());
+    case List<dynamic> items:
+      buffer
+        ..write("l")
+        ..write(items.length)
+        ..write("[");
+      for (var i = 0; i < items.length; i++) {
+        if (i != 0) {
+          buffer.write(",");
+        }
+        _writeCanonicalValue(buffer, items[i]);
+      }
+      buffer.write("]");
+    case Map<String, Object?> items:
+      var entries = items.entries.toList()..sort(_compareMapEntriesByKey);
+      buffer
+        ..write("m")
+        ..write(entries.length)
+        ..write("{");
+      for (var i = 0; i < entries.length; i++) {
+        if (i != 0) {
+          buffer.write(",");
+        }
+        var entry = entries[i];
+        _writeCanonicalEntry(buffer, entry.key, entry.value);
+      }
+      buffer.write("}");
+    default:
+      buffer.write("o");
+      _writeCanonicalString(buffer, value.toString());
+  }
+}
+
+String _formatCallArgument(Object? value) {
+  // Formatting mirrors the semantic tags above so debug output and memoization
+  // strings stay readable and deterministic.
+  return switch (value) {
+    null => "null",
+    bool() || num() => "$value",
+    String() => '"${value.replaceAll(r"\", r"\\").replaceAll('"', r'\"')}"',
+    Rule(:var name) => name.symbol,
+    ParameterCallPattern(:var name, :var argumentsKey) => "paramcall($name:${argumentsKey})",
+    Pattern(:var symbolId) => symbolId?.symbol ?? value.toString(),
+    _GuardLiteralValue(:var value) => _formatCallArgument(value),
+    _GuardArgumentValue(:var name) => name,
+    _GuardNameValue(:var name) => name,
+    _GuardRuleValue() => "rule",
+    List<dynamic> items => _formatObjectList(items),
+    Map<String, Object?> items => _formatObjectMap(items),
+    _ => value.toString(),
+  };
+}
+
+String _formatObjectList(List<dynamic> items) {
+  // Lists are formatted recursively because nested call arguments can carry
+  // structured parser data, not just scalars.
+  var buffer = StringBuffer();
+  buffer.write("[");
+  for (var i = 0; i < items.length; i++) {
+    if (i != 0) {
+      buffer.write(", ");
+    }
+    buffer.write(_formatCallArgument(items[i]));
+  }
+  buffer.write("]");
+  return buffer.toString();
+}
+
+String _formatObjectMap(Map<String, Object?> items) {
+  // Maps are also formatted recursively, but with stable key ordering so the
+  // output does not depend on insertion order.
+  var entries = items.entries.toList()..sort(_compareMapEntriesByKey);
+  var buffer = StringBuffer();
+  buffer.write("{");
+  for (var i = 0; i < entries.length; i++) {
+    if (i != 0) {
+      buffer.write(", ");
+    }
+    var entry = entries[i];
+    buffer
+      ..write(_formatCallArgument(entry.key))
+      ..write(": ")
+      ..write(_formatCallArgument(entry.value));
+  }
+  buffer.write("}");
+  return buffer.toString();
+}
+
+sealed class CallArgumentValue {
+  const CallArgumentValue();
+
+  // Call arguments are stored in a tagged sealed hierarchy so the compiler
+  // and runtime can tell literals, parser objects, and capture references apart
+  // without falling back to `Object?` everywhere.
+  factory CallArgumentValue.literal(Object? value) = _CallArgumentLiteralValue;
+  factory CallArgumentValue.reference(String name) = _CallArgumentReferenceValue;
+  factory CallArgumentValue.rule(Rule rule) = _CallArgumentRuleValue;
+  factory CallArgumentValue.pattern(Pattern pattern) = _CallArgumentPatternValue;
+  factory CallArgumentValue.currentRule() = _CallArgumentCurrentRuleValue;
+  factory CallArgumentValue.list(List<CallArgumentValue> values) = _CallArgumentListValue;
+  factory CallArgumentValue.map(Map<String, CallArgumentValue> values) = _CallArgumentMapValue;
+
+  Object? resolve(GuardEnvironment env);
+  String format();
+
+  void collectRules(Set<Rule> rules);
+
+  /// Rewrite any nested pattern values before the argument is resolved.
+  ///
+  /// This lets the grammar builder hoist higher-order pattern values into
+  /// synthetic callable rules while preserving the rest of the argument tree.
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform);
+
+  @override
+  String toString() => format();
+}
+
+final class _CallArgumentLiteralValue extends CallArgumentValue {
+  const _CallArgumentLiteralValue(this.value);
+
+  final Object? value;
+
+  @override
+  Object? resolve(GuardEnvironment env) => value;
+
+  @override
+  String format() => _formatCallArgument(value);
+
+  @override
+  void collectRules(Set<Rule> rules) {}
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
+}
+
+final class _CallArgumentReferenceValue extends CallArgumentValue {
+  const _CallArgumentReferenceValue(this.name);
+
+  final String name;
+
+  @override
+  Object? resolve(GuardEnvironment env) => env.resolve(name);
+
+  @override
+  String format() => name;
+
+  @override
+  void collectRules(Set<Rule> rules) {}
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
+}
+
+final class _CallArgumentRuleValue extends CallArgumentValue {
+  const _CallArgumentRuleValue(this.rule);
+
+  final Rule rule;
+
+  @override
+  Object? resolve(GuardEnvironment env) => rule;
+
+  @override
+  String format() => rule.name.symbol;
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    rules.add(rule);
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
+}
+
+final class _CallArgumentPatternValue extends CallArgumentValue {
+  const _CallArgumentPatternValue(this.pattern);
+
+  final Pattern pattern;
+
+  @override
+  Object? resolve(GuardEnvironment env) => _resolvePatternValue(pattern, env);
+
+  @override
+  String format() => pattern.toString();
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    pattern.collectRules(rules);
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.pattern(transform(pattern));
+}
+
+Pattern _resolvePatternValue(Pattern pattern, GuardEnvironment env) {
+  return switch (pattern) {
+    RuleCall(:var name, :var rule, :var arguments, :var minPrecedenceLevel) => RuleCall(
+      name,
+      rule,
+      arguments: {
+        for (var entry in arguments.entries) entry.key: _resolveCallArgumentValue(entry.value, env),
+      },
+      minPrecedenceLevel: minPrecedenceLevel,
+    ),
+    ParameterCallPattern(:var name, :var arguments, :var minPrecedenceLevel) =>
+      ParameterCallPattern(
+        name,
+        arguments: {
+          for (var entry in arguments.entries)
+            entry.key: _resolveCallArgumentValue(entry.value, env),
+        },
+        minPrecedenceLevel: minPrecedenceLevel,
+      ),
+    Seq(:var left, :var right) => Seq(
+      _resolvePatternValue(left, env),
+      _resolvePatternValue(right, env),
+    ),
+    Alt(:var left, :var right) => Alt(
+      _resolvePatternValue(left, env),
+      _resolvePatternValue(right, env),
+    ),
+    Conj(:var left, :var right) => Conj(
+      _resolvePatternValue(left, env),
+      _resolvePatternValue(right, env),
+    ),
+    And(:var pattern) => And(_resolvePatternValue(pattern, env)),
+    Not(:var pattern) => Not(_resolvePatternValue(pattern, env)),
+    Neg(:var pattern) => Neg(_resolvePatternValue(pattern, env)),
+    Action(:var child, :var callback) => Action(_resolvePatternValue(child, env), callback),
+    Prec(:var child, :var precedenceLevel) => Prec(
+      precedenceLevel,
+      _resolvePatternValue(child, env),
+    ),
+    Opt(:var child) => Opt(_resolvePatternValue(child, env)),
+    Plus(:var child) => Plus(_resolvePatternValue(child, env)),
+    Star(:var child) => Star(_resolvePatternValue(child, env)),
+    Label(:var name, :var child) => Label(name, _resolvePatternValue(child, env)),
+    _ => pattern,
+  };
+}
+
+CallArgumentValue _resolveCallArgumentValue(CallArgumentValue value, GuardEnvironment env) {
+  return switch (value) {
+    _CallArgumentLiteralValue() ||
+    _CallArgumentReferenceValue() ||
+    _CallArgumentRuleValue() ||
+    _CallArgumentCurrentRuleValue() => _callArgumentValueFromResolvedObject(value.resolve(env)),
+    _CallArgumentPatternValue(:var pattern) => _callArgumentValueFromResolvedObject(
+      _resolvePatternValue(pattern, env),
+    ),
+    _CallArgumentListValue(:var values) => CallArgumentValue.list(
+      values.map((entry) => _resolveCallArgumentValue(entry, env)).toList(),
+    ),
+    _CallArgumentMapValue(:var values) => CallArgumentValue.map({
+      for (var entry in values.entries) entry.key: _resolveCallArgumentValue(entry.value, env),
+    }),
+  };
+}
+
+CallArgumentValue _callArgumentValueFromResolvedObject(Object? value) {
+  return switch (value) {
+    null || bool() || num() || String() => CallArgumentValue.literal(value),
+    Rule rule => CallArgumentValue.rule(rule),
+    Pattern pattern => CallArgumentValue.pattern(pattern),
+    List<dynamic> items => CallArgumentValue.list(
+      items.map(_callArgumentValueFromResolvedObject).toList(),
+    ),
+    Map<String, Object?> items => CallArgumentValue.map({
+      for (var entry in items.entries) entry.key: _callArgumentValueFromResolvedObject(entry.value),
+    }),
+    _ => CallArgumentValue.literal(value),
+  };
+}
+
+final class _CallArgumentCurrentRuleValue extends CallArgumentValue {
+  const _CallArgumentCurrentRuleValue();
+
+  @override
+  Object? resolve(GuardEnvironment env) => env.rule;
+
+  @override
+  String format() => "rule";
+
+  @override
+  void collectRules(Set<Rule> rules) {}
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
+}
+
+final class _CallArgumentListValue extends CallArgumentValue {
+  const _CallArgumentListValue(this.values);
+
+  final List<CallArgumentValue> values;
+
+  @override
+  Object? resolve(GuardEnvironment env) {
+    // Lists resolve element-by-element so nested references and rules can be
+    // carried through as structured argument data.
+    var resolved = <Object?>[];
+    for (var value in values) {
+      resolved.add(value.resolve(env));
+    }
+    return resolved;
+  }
+
+  @override
+  String format() {
+    // The string form stays deterministic so memoization keys remain stable.
+    var parts = values.map((v) => v.format());
+    return "[${parts.join(', ')}]";
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    for (var value in values) {
+      value.collectRules(rules);
+    }
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.list(values.map((value) => value.transformPatterns(transform)).toList());
+}
+
+final class _CallArgumentMapValue extends CallArgumentValue {
+  const _CallArgumentMapValue(this.values);
+
+  final Map<String, CallArgumentValue> values;
+
+  @override
+  Object? resolve(GuardEnvironment env) {
+    // Maps resolve key-by-key so nested values stay readable to the guard
+    // environment while preserving the original structure.
+    var resolved = <String, Object?>{};
+    for (var entry in values.entries) {
+      resolved[entry.key] = entry.value.resolve(env);
+    }
+    return Map<String, Object?>.unmodifiable(resolved);
+  }
+
+  @override
+  String format() {
+    // Key order matters for memoization, so the formatted map is stable and
+    // sorted rather than depending on insertion order.
+    var parts = values.entries.map((e) => "${e.key}: ${e.value.format()}");
+    return "{${parts.join(', ')}}";
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    for (var value in values.values) {
+      value.collectRules(rules);
+    }
+  }
+
+  @override
+  CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
+      CallArgumentValue.map({
+        for (var entry in values.entries) entry.key: entry.value.transformPatterns(transform),
+      });
+}
+
+/// Runtime environment exposed to data-driven guard expressions.
+final class GuardEnvironment {
+  GuardEnvironment({
+    required this.rule,
+    GlushList<Mark> marks = const GlushList<Mark>.empty(),
+    this.arguments = const <String, Object?>{},
+    this.values = const <String, Object?>{},
+    this.captureResolver,
+    this.rulesByName = const <String, Rule>{},
+  }) : _marksForest = marks;
+
+  final Rule rule;
+  final GlushList<Mark> _marksForest;
+  final Map<String, Object?> arguments;
+  final Map<String, Object?> values;
+  final ({int startPosition, String value})? Function(GlushList<Mark>, String)? captureResolver;
+  final Map<String, Rule> rulesByName;
+
+  late final List<Mark> marks = List<Mark>.unmodifiable(_marksForest.toList());
+  final Map<String, ({int startPosition, String value})?> _captureCache = {};
+
+  ({int startPosition, String value})? _resolveCapture(String name) {
+    if (_captureCache.containsKey(name)) {
+      return _captureCache[name];
+    }
+
+    var capture = captureResolver?.call(_marksForest, name);
+    _captureCache[name] = capture;
+    return capture;
+  }
+
+  Object? resolve(String name) =>
+      values[name] ?? arguments[name] ?? _resolveCapture(name)?.value ?? rulesByName[name];
+}
+
+sealed class GuardValue {
+  const GuardValue();
+
+  // Guard values are typed separately from call arguments so expression
+  // evaluation can tell runtime data, rule references, and the special `rule`
+  // symbol apart.
+  factory GuardValue.literal(Object? value) = _GuardLiteralValue;
+  factory GuardValue.argument(String name) = _GuardArgumentValue;
+  factory GuardValue.name(String name) = _GuardNameValue;
+  factory GuardValue.rule() = _GuardRuleValue;
+
+  Object? evaluate(GuardEnvironment env);
+
+  GuardExpr eq(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.eq);
+  GuardExpr ne(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.ne);
+  GuardExpr gt(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.gt);
+  GuardExpr gte(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.gte);
+  GuardExpr lt(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.lt);
+  GuardExpr lte(Object? other) =>
+      _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.lte);
+}
+
+sealed class GuardExpr {
+  const GuardExpr();
+
+  // Guard expressions are a tiny boolean AST that the runtime can evaluate
+  // directly inside the state machine.
+  factory GuardExpr.literal(bool value) = _GuardLiteralExpr;
+  factory GuardExpr.value(GuardValue value) = GuardValueExpr;
+
+  bool evaluate(GuardEnvironment env);
+
+  GuardExpr and(GuardExpr other) => GuardAnd(this, other);
+  GuardExpr or(GuardExpr other) => GuardOr(this, other);
+  GuardExpr not() => GuardNot(this);
+
+  GuardExpr operator &(GuardExpr other) => and(other);
+  GuardExpr operator |(GuardExpr other) => or(other);
+  GuardExpr operator ~() => not();
+}
+
+GuardValue _coerceGuardValue(Object? value) {
+  return value is GuardValue ? value : GuardValue.literal(value);
+}
+
+final class _GuardLiteralValue extends GuardValue {
+  const _GuardLiteralValue(this.value);
+
+  final Object? value;
+
+  @override
+  Object? evaluate(GuardEnvironment env) => value;
+}
+
+final class _GuardArgumentValue extends GuardValue {
+  const _GuardArgumentValue(this.name);
+
+  final String name;
+
+  @override
+  Object? evaluate(GuardEnvironment env) => env.resolve(name);
+}
+
+final class _GuardNameValue extends GuardValue {
+  const _GuardNameValue(this.name);
+
+  final String name;
+
+  @override
+  Object? evaluate(GuardEnvironment env) {
+    if (name == "rule") {
+      return env.rule;
+    }
+    return env.resolve(name);
+  }
+}
+
+final class _GuardRuleValue extends GuardValue {
+  const _GuardRuleValue();
+
+  @override
+  Object? evaluate(GuardEnvironment env) => env.rule;
+}
+
+final class _GuardLiteralExpr extends GuardExpr {
+  const _GuardLiteralExpr(this.value);
+
+  final bool value;
+
+  @override
+  bool evaluate(GuardEnvironment env) => value;
+}
+
+enum _GuardComparisonKind { eq, ne, gt, gte, lt, lte }
+
+final class _GuardComparison extends GuardExpr {
+  const _GuardComparison(this.left, this.right, this.kind);
+
+  final GuardValue left;
+  final GuardValue right;
+  final _GuardComparisonKind kind;
+
+  @override
+  bool evaluate(GuardEnvironment env) {
+    var leftValue = left.evaluate(env);
+    var rightValue = right.evaluate(env);
+    var comparison = _compareNumbers(leftValue, rightValue);
+    return switch (kind) {
+      _GuardComparisonKind.eq => _guardValuesEqual(leftValue, rightValue),
+      _GuardComparisonKind.ne => !_guardValuesEqual(leftValue, rightValue),
+      _GuardComparisonKind.gt => comparison != null && comparison > 0,
+      _GuardComparisonKind.gte => comparison != null && comparison >= 0,
+      _GuardComparisonKind.lt => comparison != null && comparison < 0,
+      _GuardComparisonKind.lte => comparison != null && comparison <= 0,
+    };
+  }
+}
+
+final class GuardAnd extends GuardExpr {
+  const GuardAnd(this.left, this.right);
+
+  final GuardExpr left;
+  final GuardExpr right;
+
+  @override
+  bool evaluate(GuardEnvironment env) => left.evaluate(env) && right.evaluate(env);
+}
+
+final class GuardOr extends GuardExpr {
+  const GuardOr(this.left, this.right);
+
+  final GuardExpr left;
+  final GuardExpr right;
+
+  @override
+  bool evaluate(GuardEnvironment env) => left.evaluate(env) || right.evaluate(env);
+}
+
+final class GuardNot extends GuardExpr {
+  const GuardNot(this.child);
+
+  final GuardExpr child;
+
+  @override
+  bool evaluate(GuardEnvironment env) => !child.evaluate(env);
+}
+
+final class GuardValueExpr extends GuardExpr {
+  const GuardValueExpr(this.value);
+
+  final GuardValue value;
+
+  @override
+  bool evaluate(GuardEnvironment env) {
+    var evaluated = value.evaluate(env);
+    return switch (evaluated) {
+      bool value => value,
+      null => false,
+      _ => true,
+    };
+  }
+}
+
+int? _compareNumbers(Object? left, Object? right) {
+  if (left is! num || right is! num) {
+    return null;
+  }
+  return left.compareTo(right);
+}
+
+bool _guardValuesEqual(Object? left, Object? right) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left is num && right is num) {
+    return left == right;
+  }
+  if (left is String && right is String) {
+    return left == right;
+  }
+  if (left is bool && right is bool) {
+    return left == right;
+  }
+  if (left is Map && right is Map) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var entry in left.entries) {
+      if (!right.containsKey(entry.key)) {
+        return false;
+      }
+      if (!_guardValuesEqual(entry.value, right[entry.key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (left is Iterable && right is Iterable) {
+    var leftIterator = left.iterator;
+    var rightIterator = right.iterator;
+    while (true) {
+      var leftHasNext = leftIterator.moveNext();
+      var rightHasNext = rightIterator.moveNext();
+      if (leftHasNext != rightHasNext) {
+        return false;
+      }
+      if (!leftHasNext) {
+        return true;
+      }
+      if (!_guardValuesEqual(leftIterator.current, rightIterator.current)) {
+        return false;
+      }
+    }
+  }
+  return left == right;
+}
 
 sealed class Pattern {
   Pattern();
@@ -73,7 +776,6 @@ sealed class Pattern {
   }
 
   /// Set the empty flag (computed by grammar)
-  // ignore: avoid_positional_boolean_parameters
   void setEmpty(bool value) {
     _isEmpty = value;
     _isEmptyComputed = true;
@@ -132,11 +834,8 @@ sealed class Pattern {
   }
 
   /// Repetition operators
-  // ignore: use_to_and_as_if_applicable
   Pattern plus() => Plus(this);
-  // ignore: use_to_and_as_if_applicable
   Pattern star() => Star(this);
-  // ignore: use_to_and_as_if_applicable
   Pattern opt() => Opt(this);
 
   /// This discriminates the type of the pattern from the symbol
@@ -156,6 +855,8 @@ sealed class Pattern {
       Neg() => "neg",
       Rule() => "rul",
       RuleCall() => "rca",
+      ParameterRefPattern() => "par",
+      ParameterCallPattern() => "pac",
       Action() => "act",
       Prec() => "pre",
       Opt() => "opt",
@@ -188,6 +889,9 @@ sealed class Pattern {
       Neg() => "",
       Rule() => "",
       RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
+      ParameterRefPattern(:var name) => name,
+      ParameterCallPattern(:var name, minPrecedenceLevel: var prec) =>
+        "$name${prec == null ? "" : prec.toString()}",
       Action() => "",
       Prec(precedenceLevel: var prec) => "$prec",
       Opt() => "",
@@ -204,31 +908,29 @@ sealed class Pattern {
   /// Positive lookahead predicate (AND) - succeeds if pattern matches at current position
   /// without consuming input. Allows lookahead without consumption.
   /// Example: &token('a') >> token('a') matches 'a' only when 'a' is present
-  // ignore: use_to_and_as_if_applicable
   And and() => And(this);
 
   /// Negative lookahead predicate (NOT) - succeeds if pattern does NOT match at current position
   /// without consuming input. Prevents matching when pattern would succeed.
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
-  // ignore: use_to_and_as_if_applicable
   Not not() => Not(this);
 
   /// Span-level negation (NEG) - matches if pattern does NOT match the EXACT span (i,j).
   /// Consumes input.
   /// Example: ident & neg(keyword) matches an identifier that is not a keyword.
-  // ignore: use_to_and_as_if_applicable
   Neg neg() => Neg(this);
 }
 
 /// Sealed class hierarchy for token choice — replaces the former dynamic field.
 sealed class TokenChoice {
-  const TokenChoice();
+  const TokenChoice(this.capturesAsMark);
+  final bool capturesAsMark;
   bool matches(int? value);
 }
 
 /// Matches any token (wildcard)
 final class AnyToken extends TokenChoice {
-  const AnyToken();
+  const AnyToken() : super(true);
 
   @override
   bool matches(int? value) => value != null;
@@ -239,7 +941,7 @@ final class AnyToken extends TokenChoice {
 
 /// Matches an exact code-point value
 final class ExactToken extends TokenChoice {
-  const ExactToken(this.value);
+  const ExactToken(this.value) : super(false);
   final int value;
 
   @override
@@ -251,7 +953,7 @@ final class ExactToken extends TokenChoice {
 
 /// Matches a code-point within an inclusive range
 final class RangeToken extends TokenChoice {
-  const RangeToken(this.start, this.end);
+  const RangeToken(this.start, this.end) : super(true);
   final int start;
   final int end;
 
@@ -264,7 +966,7 @@ final class RangeToken extends TokenChoice {
 
 /// Matches a code-point <= bound
 final class LessToken extends TokenChoice {
-  const LessToken(this.bound);
+  const LessToken(this.bound) : super(true);
   final int bound;
 
   @override
@@ -276,7 +978,7 @@ final class LessToken extends TokenChoice {
 
 /// Matches a code-point >= bound
 final class GreaterToken extends TokenChoice {
-  const GreaterToken(this.bound);
+  const GreaterToken(this.bound) : super(true);
   final int bound;
 
   @override
@@ -306,6 +1008,8 @@ class Token extends Pattern {
 
   @override
   bool match(int? token) => choice.matches(token);
+
+  bool get capturesAsMark => choice.capturesAsMark;
 
   @override
   Pattern invert() {
@@ -893,13 +1597,22 @@ class Rule extends Pattern {
   final List<RuleCall> calls = [];
 
   Pattern? _body;
-  Pattern? guard;
+  GuardExpr? guard;
+  Rule? guardOwner;
 
-  RuleCall call({int? minPrecedenceLevel}) {
+  RuleCall call({Map<String, CallArgumentValue> arguments = const {}, int? minPrecedenceLevel}) {
     var name = "${this.name}_${calls.length}";
-    var call = RuleCall(name, this, minPrecedenceLevel: minPrecedenceLevel);
+    var call = RuleCall(name, this, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
     calls.add(call);
     return call;
+  }
+
+  /// Attach a guard that must evaluate to true before the rule body is entered.
+  ///
+  /// Guards are enforced by the state machine, alongside precedence filtering.
+  Rule guardedBy(GuardExpr guard) {
+    this.guard = guard;
+    return this;
   }
 
   Pattern body() {
@@ -919,7 +1632,13 @@ class Rule extends Pattern {
   }
 
   @override
-  Rule copy() => Rule(name.symbol, _code);
+  Rule copy() {
+    var copy = Rule(name.symbol, _code);
+    copy.guard = guard;
+    copy.guardOwner = guardOwner;
+    copy._body = _body;
+    return copy;
+  }
 
   @override
   Set<Pattern> firstSet() => {this};
@@ -945,9 +1664,19 @@ class Rule extends Pattern {
 
 /// Call to a rule with optional precedence constraint
 class RuleCall extends Pattern {
-  RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
+  RuleCall(
+    this.name,
+    this.rule, {
+    Map<String, CallArgumentValue> arguments = const {},
+    this.minPrecedenceLevel,
+  }) : arguments = Map<String, CallArgumentValue>.unmodifiable(arguments),
+       argumentsKey = _callArgumentSourceKey(arguments),
+       _argumentNames = _sortedArgumentNames(arguments.keys, const []);
   final String name;
   final Rule rule;
+  final Map<String, CallArgumentValue> arguments;
+  final String argumentsKey;
+  final List<String> _argumentNames;
 
   /// Minimum precedence level filter. If set, only alternatives in the rule
   /// with precedenceLevel >= minPrecedenceLevel will match.
@@ -955,7 +1684,35 @@ class RuleCall extends Pattern {
   final int? minPrecedenceLevel;
 
   @override
-  RuleCall copy() => RuleCall(name, rule, minPrecedenceLevel: minPrecedenceLevel);
+  RuleCall copy() =>
+      RuleCall(name, rule, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
+
+  ({Map<String, Object?> arguments, String key}) resolveArgumentsAndKey(GuardEnvironment env) {
+    // Resolve the typed call-argument model once at the call boundary, then
+    // hand the state machine a plain resolved map and a memoization key.
+    // Arguments are resolved once at the call boundary so the runtime sees a
+    // plain map and a stable memoization key.
+    var resolved = <String, Object?>{};
+    var buffer = StringBuffer();
+    buffer
+      ..write("m")
+      ..write(_argumentNames.length)
+      ..write("{");
+
+    for (var i = 0; i < _argumentNames.length; i++) {
+      if (i != 0) {
+        buffer.write(",");
+      }
+
+      var name = _argumentNames[i];
+      var value = arguments[name]!.resolve(env);
+      resolved[name] = value;
+      _writeCanonicalEntry(buffer, name, value);
+    }
+
+    buffer.write("}");
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: buffer.toString());
+  }
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -974,11 +1731,141 @@ class RuleCall extends Pattern {
   @override
   void collectRules(Set<Rule> rules) {
     rules.add(rule);
+    for (var arg in arguments.values) {
+      arg.collectRules(rules);
+    }
     // Don't call rule.body() here to avoid circular initialization issues
   }
 
   @override
-  String toString() => minPrecedenceLevel != null ? "<$name^$minPrecedenceLevel>" : "<$name>";
+  String toString() {
+    var parts = <String>[];
+    parts.addAll(
+      arguments.entries.map(
+        (entry) => "${_formatCallArgument(entry.key)}: ${entry.value.format()}",
+      ),
+    );
+    var args = parts.isEmpty ? "" : "(${parts.join(', ')})";
+    var prec = minPrecedenceLevel != null ? "^$minPrecedenceLevel" : "";
+    return "<$name$args$prec>";
+  }
+}
+
+/// Reference to a rule parameter used in a rule body.
+///
+/// This is resolved at runtime from the current caller's argument map so rule
+/// bodies can treat parameters as first-class parser values.
+class ParameterRefPattern extends Pattern {
+  ParameterRefPattern(this.name);
+
+  final String name;
+
+  @override
+  ParameterRefPattern copy() => ParameterRefPattern(name);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    // A parameter reference is runtime-dependent; keep it conservative.
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => false;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  void collectRules(Set<Rule> rules) {}
+
+  @override
+  String toString() => "param($name)";
+}
+
+/// Invocation of a rule parameter with call arguments.
+///
+/// This is used when a grammar body needs to call a parameterized rule value
+/// as `content(piece: atom)` instead of just reading `content`.
+class ParameterCallPattern extends Pattern {
+  ParameterCallPattern(
+    this.name, {
+    Map<String, CallArgumentValue> arguments = const {},
+    this.minPrecedenceLevel,
+  }) : arguments = Map<String, CallArgumentValue>.unmodifiable(arguments),
+       argumentsKey = _callArgumentSourceKey(arguments),
+       _argumentNames = _sortedArgumentNames(arguments.keys, const []);
+
+  final String name;
+  final Map<String, CallArgumentValue> arguments;
+  final String argumentsKey;
+  final List<String> _argumentNames;
+  final int? minPrecedenceLevel;
+
+  @override
+  ParameterCallPattern copy() =>
+      ParameterCallPattern(name, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
+
+  ({Map<String, Object?> arguments, String key}) resolveArgumentsAndKey(GuardEnvironment env) {
+    var resolved = <String, Object?>{};
+    var buffer = StringBuffer();
+    buffer
+      ..write("m")
+      ..write(_argumentNames.length)
+      ..write("{");
+
+    for (var i = 0; i < _argumentNames.length; i++) {
+      if (i != 0) {
+        buffer.write(",");
+      }
+
+      var name = _argumentNames[i];
+      var value = arguments[name]!.resolve(env);
+      resolved[name] = value;
+      _writeCanonicalEntry(buffer, name, value);
+    }
+
+    buffer.write("}");
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: buffer.toString());
+  }
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => false;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    for (var arg in arguments.values) {
+      arg.collectRules(rules);
+    }
+  }
+
+  @override
+  String toString() {
+    var parts = <String>[];
+    parts.addAll(
+      arguments.entries.map(
+        (entry) => "${_formatCallArgument(entry.key)}: ${entry.value.format()}",
+      ),
+    );
+    var args = parts.isEmpty ? "" : "(${parts.join(', ')})";
+    var prec = minPrecedenceLevel != null ? "^$minPrecedenceLevel" : "";
+    return "param($name$args$prec)";
+  }
 }
 
 /// Semantic action pattern - executes a callback when child pattern matches.

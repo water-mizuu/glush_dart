@@ -34,6 +34,21 @@ final class BoundaryAction implements StateAction {
   final State nextState;
 }
 
+String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
+  var description = call.toString();
+  if (description.startsWith("<") && description.endsWith(">")) {
+    description = description.substring(1, description.length - 1);
+  }
+  var prec = minPrecedenceLevel ?? call.minPrecedenceLevel;
+  if (prec == null) {
+    return description;
+  }
+  if (description.contains("^")) {
+    return description;
+  }
+  return "$description^$prec";
+}
+
 final class LabelStartAction implements StateAction {
   const LabelStartAction(this.name, this.pattern, this.nextState);
   final String name;
@@ -48,6 +63,50 @@ final class LabelEndAction implements StateAction {
   final State nextState;
 }
 
+final class ParameterAction implements StateAction {
+  const ParameterAction(this.name, this.pattern, this.nextState);
+  final String name;
+  final Pattern pattern;
+  final State nextState;
+
+  @override
+  String toString() => "Parameter($name)";
+}
+
+final class ParameterCallAction implements StateAction {
+  const ParameterCallAction(this.pattern, this.nextState);
+
+  final ParameterCallPattern pattern;
+  final State nextState;
+
+  @override
+  String toString() => "ParameterCall($pattern)";
+}
+
+final class ParameterStringAction implements StateAction {
+  const ParameterStringAction(this.codeUnit, this.nextState);
+  final int codeUnit;
+  final State nextState;
+
+  @override
+  String toString() => "ParameterString(${String.fromCharCode(codeUnit)})";
+}
+
+final class ParameterPredicateAction implements StateAction {
+  const ParameterPredicateAction({
+    required this.isAnd,
+    required this.name,
+    required this.nextState,
+  });
+
+  final bool isAnd;
+  final String name;
+  final State nextState;
+
+  @override
+  String toString() => isAnd ? "ParameterPredicate(&$name)" : "ParameterPredicate(!$name)";
+}
+
 final class CallAction implements StateAction {
   const CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel]);
   final Rule rule;
@@ -56,9 +115,13 @@ final class CallAction implements StateAction {
   final int? minPrecedenceLevel;
 
   @override
-  String toString() => minPrecedenceLevel != null
-      ? "CallAction(${rule.name}^$minPrecedenceLevel)"
-      : "CallAction(${rule.name})";
+  String toString() => switch (pattern) {
+    RuleCall() => "CallAction(${_describeRuleCall(pattern as RuleCall, minPrecedenceLevel)})",
+    _ =>
+      minPrecedenceLevel != null
+          ? "CallAction(${rule.name}^$minPrecedenceLevel)"
+          : "CallAction(${rule.name})",
+  };
 }
 
 final class TailCallAction implements StateAction {
@@ -68,9 +131,13 @@ final class TailCallAction implements StateAction {
   final int? minPrecedenceLevel;
 
   @override
-  String toString() => minPrecedenceLevel != null
-      ? "TailCallAction(${rule.name}^$minPrecedenceLevel)"
-      : "TailCallAction(${rule.name})";
+  String toString() => switch (pattern) {
+    RuleCall() => "TailCallAction(${_describeRuleCall(pattern as RuleCall, minPrecedenceLevel)})",
+    _ =>
+      minPrecedenceLevel != null
+          ? "TailCallAction(${rule.name}^$minPrecedenceLevel)"
+          : "TailCallAction(${rule.name})",
+  };
 }
 
 final class ReturnAction implements StateAction {
@@ -149,10 +216,7 @@ final class ConjunctionAction implements StateAction {
 
 /// Negation action for consuming complement (¬A)
 final class NegationAction implements StateAction {
-  const NegationAction({
-    required this.symbol,
-    required this.nextState,
-  });
+  const NegationAction({required this.symbol, required this.nextState});
 
   final PatternSymbol symbol;
   final State nextState;
@@ -253,6 +317,9 @@ class StateMachine {
   final Map<PatternSymbol, List<State>> ruleFirst = {};
   List<State>? _cachedStates;
   late final List<State> _initialStates;
+  final Map<(String, State), State> _parameterStringChains = {};
+  final Map<String, State> _parameterPredicateChains = {};
+  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps());
 
   final Map<Object, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
@@ -266,10 +333,62 @@ class StateMachine {
   }
 
   State _getOrCreateState(Object pattern) {
-    return _stateMapping.putIfAbsent(pattern, () => State(_stateMapping.length));
+    var state = _stateMapping[pattern];
+    if (state != null) {
+      return state;
+    }
+    var created = State(_stateMapping.length);
+    _stateMapping[pattern] = created;
+    _cachedStates = null;
+    return created;
   }
 
   State get startState => _stateMapping[":init"]!;
+
+  State parameterStringEntry(String text, State nextState) {
+    if (text.isEmpty) {
+      return nextState;
+    }
+
+    // Strings are expanded into a cached state chain so repeated parameter
+    // values reuse the same runtime structure instead of rebuilding it.
+    return _parameterStringChains.putIfAbsent((text, nextState), () {
+      var tail = nextState;
+      for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+        var state = _getOrCreateState(("param-string", text, i, nextState));
+        if (state.actions.isEmpty) {
+          state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
+        }
+        tail = state;
+      }
+      return tail;
+    });
+  }
+
+  State parameterPredicateEntry(String text) {
+    // Predicates use the same cached chain idea, but end in a synthetic
+    // return state so lookahead can resume the caller if the predicate matches.
+    return _parameterPredicateChains.putIfAbsent(text, () {
+      var terminal = _getOrCreateState(("param-predicate-end", text));
+      if (terminal.actions.isEmpty) {
+        terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
+      }
+
+      if (text.isEmpty) {
+        return terminal;
+      }
+
+      var tail = terminal;
+      for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+        var state = _getOrCreateState(("param-predicate", text, i));
+        if (state.actions.isEmpty) {
+          state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
+        }
+        tail = state;
+      }
+      return tail;
+    });
+  }
 
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
@@ -307,24 +426,37 @@ class StateMachine {
       case And():
         // Positive lookahead: create predicate action
         var nextState = _getOrCreateState(terminal);
-        var action = PredicateAction(
-          isAnd: true,
-          symbol: switch (terminal.pattern) {
-            RuleCall(:var rule) => rule.symbolId!,
-            _ => throw UnsupportedError("Invalid pattern type for predicate action"),
-          },
-          nextState: nextState,
-        );
-        state.actions.add(action);
+        switch (terminal.pattern) {
+          case RuleCall(:var rule):
+            state.actions.add(
+              PredicateAction(isAnd: true, symbol: rule.symbolId!, nextState: nextState),
+            );
+          case ParameterRefPattern(:var name):
+            // Parameter lookahead is resolved from the current caller
+            // arguments, which lets `&param` inspect dynamic parser data.
+            state.actions.add(
+              ParameterPredicateAction(isAnd: true, name: name, nextState: nextState),
+            );
+          default:
+            throw UnsupportedError("Invalid pattern type for predicate action");
+        }
       case Not():
         // Negative lookahead: create predicate action
         var nextState = _getOrCreateState(terminal);
-        var action = PredicateAction(
-          isAnd: false,
-          symbol: (terminal.pattern as RuleCall).rule.symbolId!,
-          nextState: nextState,
-        );
-        state.actions.add(action);
+        switch (terminal.pattern) {
+          case RuleCall(:var rule):
+            state.actions.add(
+              PredicateAction(isAnd: false, symbol: rule.symbolId!, nextState: nextState),
+            );
+          case ParameterRefPattern(:var name):
+            // Negative parameter predicates use the same runtime resolution
+            // path, but only resume when the value does *not* match.
+            state.actions.add(
+              ParameterPredicateAction(isAnd: false, name: name, nextState: nextState),
+            );
+          default:
+            throw UnsupportedError("Invalid pattern type for predicate action");
+        }
       case Neg():
         // Span-level negation: create negation action
         var nextState = _getOrCreateState(terminal);
@@ -356,6 +488,16 @@ class StateMachine {
         var nextState = _getOrCreateState(terminal);
         var labelEndAction = LabelEndAction(terminal.name, terminal, nextState);
         state.actions.add(labelEndAction);
+      case ParameterRefPattern():
+        var nextState = _getOrCreateState(terminal);
+        // A parameter reference in body position becomes a runtime action so
+        // the state machine can substitute the caller's value at match time.
+        var action = ParameterAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
+      case ParameterCallPattern():
+        var nextState = _getOrCreateState(terminal);
+        var action = ParameterCallAction(terminal, nextState);
+        state.actions.add(action);
       case Eps():
         // Epsilon doesn't create transitions
         break;
@@ -486,6 +628,25 @@ class StateMachine {
             _writeEdge(buffer, from: state, to: nextState, label: "label+ $name");
           case LabelEndAction(:var name, :var nextState):
             _writeEdge(buffer, from: state, to: nextState, label: "label- $name");
+          case ParameterStringAction(:var codeUnit, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: "param '${String.fromCharCode(codeUnit)}'",
+              style: "dashed",
+              color: "slategray4",
+            );
+          case ParameterPredicateAction(:var isAnd, :var name, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: '${isAnd ? 'AND' : 'NOT'} param $name',
+              style: "dashed",
+              color: isAnd ? "seagreen4" : "firebrick3",
+              constraint: false,
+            );
           case PredicateAction(:var isAnd, :var symbol, :var nextState):
             var cluster = predicateClustersByRule[grammar.symbolRegistry[symbol]];
             for (var entry in ruleFirst[symbol] ?? const <State>[]) {
@@ -517,25 +678,21 @@ class StateMachine {
             }
           case TailCallAction(:var rule):
             for (var entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
-              _writeEdge(
-                buffer,
-                from: state,
-                to: entry,
-                label: "tail ${rule.name.symbol}",
-                style: "dotted",
-              );
+              var label = "tail ${rule.name.symbol}";
+              if (action.pattern case RuleCall()) {
+                label = "tail ${_describeRuleCall(action.pattern as RuleCall)}";
+              }
+              _writeEdge(buffer, from: state, to: entry, label: label, style: "dotted");
             }
           case CallAction(:var rule, :var minPrecedenceLevel):
             for (var entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
-              _writeEdge(
-                buffer,
-                from: state,
-                to: entry,
-                label: minPrecedenceLevel == null
-                    ? "call ${rule.name.symbol}"
-                    : "call ${rule.name.symbol}^$minPrecedenceLevel",
-                style: "bold",
-              );
+              var label = minPrecedenceLevel == null
+                  ? "call ${rule.name.symbol}"
+                  : "call ${rule.name.symbol}^$minPrecedenceLevel";
+              if (action.pattern case RuleCall()) {
+                label = "call ${_describeRuleCall(action.pattern as RuleCall, minPrecedenceLevel)}";
+              }
+              _writeEdge(buffer, from: state, to: entry, label: label, style: "bold");
             }
           case ReturnAction(:var rule, :var precedenceLevel):
             for (var target in callTargets[rule] ?? const <State>{}) {
@@ -567,6 +724,24 @@ class StateMachine {
               label: "neg ${_symbolName(symbol)}",
               style: "dashed",
               color: "orange",
+            );
+          case ParameterAction(:var name, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: "param $name",
+              style: "dashed",
+              color: "gray45",
+            );
+          case ParameterCallAction(:var pattern, :var nextState):
+            _writeEdge(
+              buffer,
+              from: state,
+              to: nextState,
+              label: "paramcall ${pattern.toString()}",
+              style: "dashed",
+              color: "slategray4",
             );
           case AcceptAction():
             _writeEdge(buffer, from: state, label: "accept");
@@ -605,12 +780,11 @@ class StateMachine {
       EofAnchor() => "eof",
       Marker(:var name) => "mark $name",
       Conj() => "conj",
-      RuleCall(:var rule, :var minPrecedenceLevel) =>
-        minPrecedenceLevel == null
-            ? "call ${rule.name.symbol}"
-            : "call ${rule.name.symbol}^$minPrecedenceLevel",
+      RuleCall() => _describeRuleCall(pattern),
       LabelStart(:var name) => "label+ $name",
       LabelEnd(:var name) => "label- $name",
+      ParameterRefPattern(:var name) => "param $name",
+      ParameterCallPattern(:var name) => "paramcall $name",
       And(:var pattern) => "& ${_patternSummary(pattern)}",
       Not(:var pattern) => "! ${_patternSummary(pattern)}",
       Neg(:var pattern) => "¬ ${_patternSummary(pattern)}",
@@ -621,6 +795,8 @@ class StateMachine {
   String _patternSummary(Pattern pattern) {
     return switch (pattern) {
       RuleCall(:var rule) => rule.name.symbol,
+      ParameterRefPattern(:var name) => name,
+      ParameterCallPattern(:var name) => name,
       _ => pattern.toString(),
     };
   }
@@ -765,6 +941,12 @@ class StateMachine {
           targets.add(nextState);
         case LabelEndAction(:var nextState):
           targets.add(nextState);
+        case ParameterStringAction(:var nextState):
+          targets.add(nextState);
+        case ParameterCallAction(:var nextState):
+          targets.add(nextState);
+        case ParameterPredicateAction(:var nextState):
+          targets.add(nextState);
         case PredicateAction(:var nextState):
           targets.addAll(_continuationTargets(nextState, hiddenStates));
         case ConjunctionAction(:var nextState):
@@ -773,6 +955,7 @@ class StateMachine {
           targets.add(nextState);
         case CallAction():
         case TailCallAction():
+        case ParameterAction():
         case ReturnAction():
         case AcceptAction():
           break;
@@ -810,6 +993,8 @@ class StateMachine {
         _collectPatterns(child, patterns);
       case Rule():
       case RuleCall():
+      case ParameterRefPattern():
+      case ParameterCallPattern():
       case Token():
       case Marker():
       case StartAnchor():
@@ -865,7 +1050,10 @@ class StateMachine {
     var last = _stripTransparent(recursiveParts.last);
     // Only direct right-tail self calls qualify.
     // Left recursion and precedence-constrained calls are intentionally excluded.
-    if (last is! RuleCall || !identical(last.rule, rule) || last.minPrecedenceLevel != null) {
+    if (last is! RuleCall ||
+        !identical(last.rule, rule) ||
+        last.minPrecedenceLevel != null ||
+        last.arguments.isNotEmpty) {
       return const <RuleCall>{};
     }
 
@@ -955,6 +1143,8 @@ class StateMachine {
       LabelEnd() ||
       Rule() ||
       RuleCall() => true,
+      ParameterRefPattern() => false,
+      ParameterCallPattern() => false,
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),

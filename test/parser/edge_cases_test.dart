@@ -633,6 +633,44 @@ void main() {
     );
   });
 
+  group("Edge Cases - Markers and Repetition", () {
+    testBoth(
+      "Marker in star body repeats for every iteration",
+      Grammar(() {
+        return Rule("start", () => (Marker("item") >> Token.char("a")).star());
+      }),
+      (parser) {
+        var outcome = parser.parse("aaa");
+        var marks = getMarks(outcome);
+        expect(marks, equals(["item", "item", "item"]));
+      },
+    );
+
+    testBoth(
+      "Marker in plus body repeats for every iteration",
+      Grammar(() {
+        return Rule("start", () => (Marker("item") >> Token.char("a")).plus());
+      }),
+      (parser) {
+        var outcome = parser.parse("aa");
+        var marks = getMarks(outcome);
+        expect(marks, equals(["item", "item"]));
+      },
+    );
+
+    testBoth(
+      "Marker before a star node fires once",
+      Grammar(() {
+        return Rule("start", () => Marker("wrap") >> Token.char("a").star());
+      }),
+      (parser) {
+        var outcome = parser.parse("aaa");
+        var marks = getMarks(outcome);
+        expect(marks, equals(["wrap"]));
+      },
+    );
+  });
+
   group("Edge Cases - Predicate Interactions", () {
     testBoth(
       "NOT predicate on recursive rule",

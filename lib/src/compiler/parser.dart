@@ -37,8 +37,12 @@ enum _TokenType {
   equals, // =
   semicolon, // ;
   pipe, // |
+  doublePipe, // ||
+  comma, // ,
   star, // *
   plus, // +
+  starBang, // *!
+  plusBang, // +!
   question, // ?
   lparen, // (
   rparen, // )
@@ -49,6 +53,11 @@ enum _TokenType {
   ampersand, // &
   doubleAmpersand, // &&
   bang, // !
+  equalEqual, // ==
+  bangEqual, // !=
+  lesserEqual, // <=
+  greaterEqual, // >=
+  minus, // -
   eof, // \0
   lesser, // <
   greater, // >
@@ -101,36 +110,57 @@ class _Tokenizer {
         continue;
       }
 
-      if (ch == "&") {
-        if (position + 1 < source.length && source[position + 1] == "&") {
-          _tokens.add(_Token(_TokenType.doubleAmpersand, "&&", line, column));
+      if (ch == "|") {
+        if (position + 1 < source.length && source[position + 1] == "|") {
+          _tokens.add(_Token(_TokenType.doublePipe, "||", line, column));
           position += 2;
           continue;
         }
-        _tokens.add(_Token(_TokenType.ampersand, "&", line, column));
-        position++;
-        continue;
+      }
+
+      if (position + 1 < source.length) {
+        var next = source[position + 1];
+        var twoChar = "$ch$next";
+        var twoCharType = switch (twoChar) {
+          "==" => _TokenType.equalEqual,
+          "!=" => _TokenType.bangEqual,
+          "<=" => _TokenType.lesserEqual,
+          ">=" => _TokenType.greaterEqual,
+          "&&" => _TokenType.doubleAmpersand,
+          "*!" => _TokenType.starBang,
+          "+!" => _TokenType.plusBang,
+          _ => null,
+        };
+        if (twoCharType != null) {
+          _tokens.add(_Token(twoCharType, twoChar, line, column));
+          position += 2;
+          column += 2;
+          continue;
+        }
       }
 
       // Single-character tokens
       var tokenMap = {
         "=": _TokenType.equals,
         ";": _TokenType.semicolon,
+        ",": _TokenType.comma,
         "|": _TokenType.pipe,
         "*": _TokenType.star,
         "+": _TokenType.plus,
         "?": _TokenType.question,
+        "&": _TokenType.ampersand,
         "(": _TokenType.lparen,
         ")": _TokenType.rparen,
-        r"$": _TokenType.dollar,
         "^": _TokenType.caret,
         "{": _TokenType.lbrace,
         "}": _TokenType.rbrace,
+        r"$": _TokenType.dollar,
         "!": _TokenType.bang,
         "<": _TokenType.lesser,
         ">": _TokenType.greater,
         ".": _TokenType.dot,
         ":": _TokenType.colon,
+        "-": _TokenType.minus,
       };
 
       if (tokenMap.containsKey(ch)) {
@@ -302,7 +332,7 @@ class GrammarFileParser {
       }
 
       throw GrammarFileParseError(
-        "Expected a rule definition",
+        "Expected a rule definition, got $token",
         line: token.line,
         column: token.column,
       );
@@ -321,6 +351,11 @@ class GrammarFileParser {
     }
 
     var ruleName = _advance().value;
+    var parameters = <String>[];
+
+    if (_peek().type == _TokenType.lparen) {
+      parameters = _parseParameterList();
+    }
 
     if (_peek().type != _TokenType.equals) {
       throw GrammarFileParseError(
@@ -342,8 +377,52 @@ class GrammarFileParser {
     return RuleDefinition(
       name: ruleName,
       pattern: pattern,
+      parameters: parameters,
       precedenceLevels: lastParsedPrecedenceLevels,
     );
+  }
+
+  List<String> _parseParameterList() {
+    _advance(); // consume (
+    var parameters = <String>[];
+
+    if (_peek().type == _TokenType.rparen) {
+      _advance();
+      return parameters;
+    }
+
+    while (true) {
+      if (_peek().type != _TokenType.identifier) {
+        throw GrammarFileParseError(
+          "Expected parameter name",
+          line: _peek().line,
+          column: _peek().column,
+        );
+      }
+      parameters.add(_advance().value);
+
+      if (_peek().type == _TokenType.comma) {
+        _advance();
+        if (_peek().type == _TokenType.rparen) {
+          _advance();
+          break;
+        }
+        continue;
+      }
+
+      if (_peek().type == _TokenType.rparen) {
+        _advance();
+        break;
+      }
+
+      throw GrammarFileParseError(
+        'Expected "," or ")" after parameter name',
+        line: _peek().line,
+        column: _peek().column,
+      );
+    }
+
+    return parameters;
   }
 
   PatternExpr _parsePattern() {
@@ -425,6 +504,7 @@ class GrammarFileParser {
 
   /// Parse: expr expr expr
   PatternExpr _parseSequence() {
+    var guard = _tryParseGuardPrefix();
     var startingMark = _tryParseMainMark();
 
     var parts = [_parseConjunction()];
@@ -435,10 +515,144 @@ class GrammarFileParser {
 
     PatternExpr result = parts.length == 1 ? parts[0] : SequencePattern(parts);
     if (startingMark != null) {
-      result = LabeledPattern(startingMark.name, result);
+      result = MainMarkPattern(startingMark.name, result);
+    }
+
+    if (guard != null) {
+      result = IfPattern(guard, result);
     }
 
     return result;
+  }
+
+  GuardExprNode? _tryParseGuardPrefix() {
+    if (_peek().type != _TokenType.identifier || _peek().value != "if") {
+      return null;
+    }
+    if (tokenIndex + 1 >= _tokens.length || _tokens[tokenIndex + 1].type != _TokenType.lparen) {
+      return null;
+    }
+
+    _advance(); // consume if
+    _advance(); // consume (
+    var guard = _parseGuardExpression();
+    if (_peek().type != _TokenType.rparen) {
+      throw GrammarFileParseError(
+        'Expected ")" after if guard',
+        line: _peek().line,
+        column: _peek().column,
+      );
+    }
+    _advance(); // consume )
+    return guard;
+  }
+
+  GuardExprNode _parseGuardExpression() => _parseGuardOr();
+
+  GuardExprNode _parseGuardOr() {
+    var expr = _parseGuardAnd();
+    while (_peek().type == _TokenType.doublePipe) {
+      _advance();
+      expr = GuardOrNode(expr, _parseGuardAnd());
+    }
+    return expr;
+  }
+
+  GuardExprNode _parseGuardAnd() {
+    var expr = _parseGuardUnary();
+    while (_peek().type == _TokenType.doubleAmpersand) {
+      _advance();
+      expr = GuardAndNode(expr, _parseGuardUnary());
+    }
+    return expr;
+  }
+
+  GuardExprNode _parseGuardUnary() {
+    if (_peek().type == _TokenType.bang) {
+      _advance();
+      return GuardNotNode(_parseGuardUnary());
+    }
+
+    if (_peek().type == _TokenType.lparen) {
+      _advance();
+      var expr = _parseGuardExpression();
+      if (_peek().type != _TokenType.rparen) {
+        throw GrammarFileParseError('Expected ")"', line: _peek().line, column: _peek().column);
+      }
+      _advance();
+      return expr;
+    }
+
+    return _parseGuardComparisonOrValue();
+  }
+
+  GuardExprNode _parseGuardComparisonOrValue() {
+    var left = _parseGuardValue();
+    var type = _peek().type;
+    var kind = switch (type) {
+      _TokenType.equalEqual => GuardComparisonKind.equals,
+      _TokenType.bangEqual => GuardComparisonKind.notEquals,
+      _TokenType.lesser => GuardComparisonKind.lessThan,
+      _TokenType.lesserEqual => GuardComparisonKind.lessOrEqual,
+      _TokenType.greater => GuardComparisonKind.greaterThan,
+      _TokenType.greaterEqual => GuardComparisonKind.greaterOrEqual,
+      _ => null,
+    };
+
+    if (kind != null) {
+      _advance();
+      var right = _parseGuardValue();
+      return GuardComparisonNode(left, kind, right);
+    }
+
+    return GuardValueExprNode(left);
+  }
+
+  GuardValueNode _parseGuardValue() {
+    var type = _peek().type;
+
+    if (type == _TokenType.literal) {
+      var literal = _advance().value;
+      return GuardStringLiteralNode(literal);
+    }
+
+    if (type == _TokenType.identifier) {
+      var id = _advance().value;
+
+      if (id == "true" || id == "false") {
+        return GuardBoolLiteralNode(id == "true");
+      }
+
+      var number = num.tryParse(id);
+      if (number != null) {
+        return GuardNumberLiteralNode(number);
+      }
+
+      if (id == "rule") {
+        return const GuardRuleNode();
+      }
+
+      return GuardNameNode(id);
+    }
+
+    if (type == _TokenType.minus) {
+      _advance();
+      var value = _parseGuardValue();
+      if (value case GuardNumberLiteralNode(:var value)) {
+        return GuardNumberLiteralNode(-value);
+      }
+      throw GrammarFileParseError(
+        "Expected number after '-'",
+        line: _peek().line,
+        column: _peek().column,
+      );
+    }
+
+    throw GrammarFileParseError(
+      "Unexpected token in if guard: ${_peek().value}",
+      line: _peek().line,
+      column: _peek().column,
+    );
   }
 
   MarkerPattern? _tryParseMainMark() {
@@ -501,6 +715,9 @@ class GrammarFileParser {
       if (nextIndex < _tokens.length && _tokens[nextIndex].type == _TokenType.equals) {
         return false; // This is now a new rule.
       }
+      if (_isRuleDeclarationAhead()) {
+        return false;
+      }
     }
 
     if (type == _TokenType.dollar) {
@@ -531,6 +748,12 @@ class GrammarFileParser {
       } else if (type == _TokenType.plus) {
         _advance();
         pattern = PlusPattern(pattern);
+      } else if (type == _TokenType.starBang) {
+        _advance();
+        pattern = StarBangPattern(pattern);
+      } else if (type == _TokenType.plusBang) {
+        _advance();
+        pattern = PlusBangPattern(pattern);
       } else if (type == _TokenType.question) {
         _advance();
         pattern = RepetitionPattern(pattern, RepetitionKind.optional);
@@ -600,7 +823,18 @@ class GrammarFileParser {
       }
 
       var ruleName = id;
+      var arguments = <CallArgumentNode>[];
       int? precedenceConstraint;
+
+      if (_peek().type == _TokenType.lparen) {
+        var callStartIndex = tokenIndex;
+        try {
+          arguments = _parseCallArgumentList();
+        } on GrammarFileParseError {
+          tokenIndex = callStartIndex;
+          arguments = const [];
+        }
+      }
 
       // Optional precedence constraint like expr^2
       if (_peek().type == _TokenType.caret) {
@@ -614,7 +848,11 @@ class GrammarFileParser {
         }
       }
 
-      return RuleRefPattern(ruleName, precedenceConstraint: precedenceConstraint);
+      return RuleRefPattern(
+        ruleName,
+        arguments: arguments,
+        precedenceConstraint: precedenceConstraint,
+      );
     }
 
     if (type == _TokenType.lesser) {
@@ -660,6 +898,83 @@ class GrammarFileParser {
       line: _peek().line,
       column: _peek().column,
     );
+  }
+
+  List<CallArgumentNode> _parseCallArgumentList() {
+    _advance(); // consume (
+    var arguments = <CallArgumentNode>[];
+
+    if (_peek().type == _TokenType.rparen) {
+      _advance();
+      return arguments;
+    }
+
+    while (true) {
+      String? name;
+      if (_peek().type == _TokenType.identifier &&
+          tokenIndex + 1 < _tokens.length &&
+          _tokens[tokenIndex + 1].type == _TokenType.colon) {
+        name = _advance().value;
+        _advance(); // consume :
+      }
+
+      var value = _parseCallArgumentValue();
+      arguments.add(CallArgumentNode(value, name: name));
+
+      if (_peek().type == _TokenType.comma) {
+        _advance();
+        if (_peek().type == _TokenType.rparen) {
+          _advance();
+          break;
+        }
+        continue;
+      }
+
+      if (_peek().type == _TokenType.rparen) {
+        _advance();
+        break;
+      }
+
+      throw GrammarFileParseError(
+        'Expected "," or ")" after call argument',
+        line: _peek().line,
+        column: _peek().column,
+      );
+    }
+
+    return arguments;
+  }
+
+  CallArgumentValueNode _parseCallArgumentValue() {
+    if (_isPatternCallArgumentStart()) {
+      return _parsePattern();
+    }
+    return _parseGuardValue();
+  }
+
+  bool _isPatternCallArgumentStart() {
+    var type = _peek().type;
+    if (type == _TokenType.charRange ||
+        type == _TokenType.backslashLiteral ||
+        type == _TokenType.dollar ||
+        type == _TokenType.caret ||
+        type == _TokenType.lparen ||
+        type == _TokenType.ampersand ||
+        type == _TokenType.bang ||
+        type == _TokenType.dot ||
+        type == _TokenType.lesser ||
+        type == _TokenType.greater) {
+      return true;
+    }
+
+    if (type == _TokenType.identifier && tokenIndex + 1 < _tokens.length) {
+      var nextType = _tokens[tokenIndex + 1].type;
+      return nextType == _TokenType.lparen ||
+          nextType == _TokenType.colon ||
+          nextType == _TokenType.caret;
+    }
+
+    return false;
   }
 
   List<CharRange> _parseCharRanges(String rangeStr, {required int line, required int column}) {
@@ -732,4 +1047,40 @@ class GrammarFileParser {
   }
 
   bool _isAtEnd() => _peek().type == _TokenType.eof;
+
+  bool _isRuleDeclarationAhead() {
+    if (_peek().type != _TokenType.identifier) {
+      return false;
+    }
+
+    var nextIndex = tokenIndex + 1;
+    if (nextIndex >= _tokens.length) {
+      return false;
+    }
+
+    if (_tokens[nextIndex].type == _TokenType.equals) {
+      return true;
+    }
+
+    if (_tokens[nextIndex].type != _TokenType.lparen) {
+      return false;
+    }
+
+    var depth = 1;
+    for (var i = nextIndex + 1; i < _tokens.length; i++) {
+      switch (_tokens[i].type) {
+        case _TokenType.lparen:
+          depth++;
+        case _TokenType.rparen:
+          depth--;
+          if (depth == 0) {
+            var afterParen = i + 1;
+            return afterParen < _tokens.length && _tokens[afterParen].type == _TokenType.equals;
+          }
+        case _:
+          break;
+      }
+    }
+    return false;
+  }
 }

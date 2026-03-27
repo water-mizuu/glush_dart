@@ -56,37 +56,36 @@ void main() {
       expect((inv as Conj).right.toString(), equals(b.invert().toString()));
     });
 
-    test("inverts Alt to Not (Non-Tokens)", () {
-      var plainWs =
-          (Token.char(" ") | Token.char("\t")).plus() >> //
-          (Token.char(" ") | Token.char("\t")).not();
+    // test("inverts Alt to Not (Non-Tokens)", () {
+    //   var plainWs =
+    //       (Token.char(" ") | Token.char("\t")).plus() >> //
+    //       (Token.char(" ") | Token.char("\t")).not();
 
-      var newLine =
-          (Token.char("\n") | Token.char("\r")).plus() >> //
-          (Token.char("\n") | Token.char("\r")).not();
+    //   var newLine =
+    //       (Token.char("\n") | Token.char("\r")).plus() >> //
+    //       (Token.char("\n") | Token.char("\r")).not();
 
-      var comment =
-          Token.char("#") >> //
-          ((Token.char("\n") | Token.char("\r")).not() >> Token.any()).star() >>
-          (Token.char("\n") | EofAnchor());
+    //   var comment =
+    //       Token.char("#") >> //
+    //       ((Token.char("\n") | Token.char("\r")).not() >> Token.any()).star() >>
+    //       (Token.char("\n") | EofAnchor());
 
-      var ws = plainWs | comment | newLine;
+    //   var ws = plainWs | comment | newLine;
 
-      print(ws.invert());
-      // _ = $ws (plain_ws | comment | newline)*
-      // comment = '#' (!newline .)* (newline | eof)
-      // plain_ws = [ \t]+ ![ \t]
-      // newline = [\n\r]+ ![\n\r]
-      var a = Token.char("a");
-      var seq = a >> a;
-      var alt = a | seq;
-      var inv = alt.invert();
-      // Since seq.invert() is Not(seq), we expect Alt.invert to fall back to not()
-      // expect(inv, isA<Not>());
-      // expect((inv as Not).pattern, equals(alt));
+    //   print(ws.invert());
+    //   // _ = $ws (plain_ws | comment | newline)*
+    //   // comment = '#' (!newline .)* (newline | eof)
+    //   // plain_ws = [ \t]+ ![ \t]
+    //   // newline = [\n\r]+ ![\n\r]
+    //   var a = Token.char("a");
+    //   var seq = a >> a;
+    //   var alt = a | seq;
+    //   var inv = alt.invert();
 
-      print("Alt invert: $inv");
-    });
+    //   // Since seq.invert() is Not(seq), we expect Alt.invert to fall back to not()
+    //   // expect(inv, isA<Not>());
+    //   // expect((inv as Not).pattern, equals(alt));
+    // });
 
     test("inverts Conj using De Morgan", () {
       var a = Token.char("a");

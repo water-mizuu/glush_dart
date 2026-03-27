@@ -702,14 +702,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return 0;
       case "neg":
         {
-          var childCount = _countDerivations(
-            children.single,
-            input,
-            start,
-            end,
-            memo,
-            inProgress,
-          );
+          var childCount = _countDerivations(children.single, input, start, end, memo, inProgress);
           return childCount == 0 ? 1 : 0;
         }
       case "con":
@@ -1606,7 +1599,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         return const <Mark>[];
       case "tok":
         var pattern = grammar.symbolRegistry[tree.symbol];
-        if (captureTokensAsMarks || pattern is Token && pattern.choice is! ExactToken) {
+        if (captureTokensAsMarks || pattern is Token && pattern.capturesAsMark) {
           return [StringMark(tree.getMatchedText(input), tree.start)];
         }
         return const <Mark>[];

@@ -45,6 +45,35 @@ class EvaluationContext<T> {
     return evaluator.evaluate(matches.first) as R;
   }
 
+  /// Evaluates all children with the given [label] and returns them as a list.
+  ///
+  /// Searches the current subtree in document order and returns every match.
+  /// Returns an empty list if the label does not exist anywhere below the
+  /// current node.
+  List<R> all<R>(String label) {
+    if (node is! ParseResult) {
+      return <R>[];
+    }
+
+    var results = <R>[];
+
+    void visit(ParseNode current) {
+      if (current is! ParseResult) {
+        return;
+      }
+
+      for (var (childLabel, childNode) in current.children) {
+        if (childLabel == label) {
+          results.add(evaluator.evaluate(childNode) as R);
+        }
+        visit(childNode);
+      }
+    }
+
+    visit(node);
+    return results;
+  }
+
   /// Evaluates the next node in the iterator.
   T next() => evaluator.evaluateChildren(it);
 
@@ -71,6 +100,20 @@ class Evaluator<T> {
 
   /// Map of label names to their corresponding handlers.
   final Map<String, EvaluatorHandler<T>> handlers;
+
+  EvaluatorHandler<T>? _resolveHandler(String label) {
+    var handler = handlers[label];
+    if (handler != null) {
+      return handler;
+    }
+
+    var dotIndex = label.lastIndexOf(".");
+    if (dotIndex != -1 && dotIndex < label.length - 1) {
+      return handlers[label.substring(dotIndex + 1)];
+    }
+
+    return null;
+  }
 
   /// Evaluates a [ParseNode] and returns the result of type [T].
   T evaluate(ParseNode node) {
@@ -111,10 +154,9 @@ class Evaluator<T> {
       // Walk forward until we find the first sibling with a registered handler.
       // This lets structural wrappers or ignored siblings appear before the
       // semantic node we actually want to interpret.
-      if (handlers.containsKey(label)) {
-        var childIt = node is ParseResult
-            ? NodeIterator(node.children) //
-            : NodeIterator(const []);
+      var handler = _resolveHandler(label);
+      if (handler != null) {
+        var childIt = node is ParseResult ? NodeIterator(node.children) : NodeIterator(const []);
 
         // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
         while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
@@ -126,7 +168,7 @@ class Evaluator<T> {
 
         var ctx = EvaluationContext(this, node, childIt);
 
-        return handlers[label]!.call(ctx);
+        return handler.call(ctx);
       }
 
       if (!it.hasNext) {

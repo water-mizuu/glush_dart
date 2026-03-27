@@ -34,6 +34,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
   late final RuleCall startCall;
   Map<Pattern, List<Pattern>>? transitions;
   sm.StateMachine? _stateMachine;
+  final Map<(Pattern, String), Rule> _hoistedPatternRules = {};
 
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
@@ -70,6 +71,7 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     rules.addAll(discoveredRules);
     _normalizePredicates();
+    _normalizeHigherOrderPatterns();
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
@@ -109,6 +111,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         StartAnchor() ||
         EofAnchor() ||
         Eps() ||
+        ParameterRefPattern() ||
+        ParameterCallPattern() ||
         LabelStart() ||
         LabelEnd() => [],
         Neg(:var pattern) => [pattern.symbolId!],
@@ -144,6 +148,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     }
   }
 
+  void _normalizeHigherOrderPatterns() {
+    for (int i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      rule.setBody(_normalizePattern(rule.body(), <Pattern>{}));
+    }
+  }
+
   Pattern _normalizePattern(Pattern pattern, Set<Pattern> seen) {
     if (!seen.add(pattern)) {
       return pattern;
@@ -151,6 +162,19 @@ class Grammar with _GrammarMixin implements GrammarInterface {
 
     if (pattern is Rule) {
       return _normalizePattern(pattern.call(), seen);
+    }
+
+    if (pattern is RuleCall) {
+      var normalizedArguments = _normalizeCallArguments(pattern.arguments, seen);
+      if (!identical(normalizedArguments, pattern.arguments)) {
+        pattern = RuleCall(
+          pattern.name,
+          pattern.rule,
+          arguments: normalizedArguments,
+          minPrecedenceLevel: pattern.minPrecedenceLevel,
+        );
+      }
+      return pattern;
     }
 
     if (pattern is And) {
@@ -211,6 +235,18 @@ class Grammar with _GrammarMixin implements GrammarInterface {
       return pattern;
     }
 
+    if (pattern is ParameterCallPattern) {
+      var normalizedArguments = _normalizeCallArguments(pattern.arguments, seen);
+      if (!identical(normalizedArguments, pattern.arguments)) {
+        return ParameterCallPattern(
+          pattern.name,
+          arguments: normalizedArguments,
+          minPrecedenceLevel: pattern.minPrecedenceLevel,
+        );
+      }
+      return pattern;
+    }
+
     // Traditional discovery of children to continue walk
     switch (pattern) {
       case Seq seq:
@@ -235,6 +271,110 @@ class Grammar with _GrammarMixin implements GrammarInterface {
         break;
     }
     return pattern;
+  }
+
+  Map<String, CallArgumentValue> _normalizeCallArguments(
+    Map<String, CallArgumentValue> arguments,
+    Set<Pattern> seen,
+  ) {
+    var normalized = <String, CallArgumentValue>{};
+    var changed = false;
+    for (var entry in arguments.entries) {
+      var value = _normalizeCallArgumentValue(entry.value, seen);
+      normalized[entry.key] = value;
+      if (!identical(value, entry.value)) {
+        changed = true;
+      }
+    }
+    return changed ? Map<String, CallArgumentValue>.unmodifiable(normalized) : arguments;
+  }
+
+  CallArgumentValue _normalizeCallArgumentValue(CallArgumentValue value, Set<Pattern> seen) {
+    return value.transformPatterns((pattern) => _normalizeCallablePattern(pattern, seen));
+  }
+
+  Pattern _normalizeCallablePattern(Pattern pattern, Set<Pattern> seen) {
+    var normalized = _normalizePattern(pattern.copy(), seen);
+    if (normalized is Rule || normalized is RuleCall) {
+      return normalized;
+    }
+    if (normalized is Eps || normalized.singleToken()) {
+      return normalized;
+    }
+    return _hoistedPatternRule(normalized, seen);
+  }
+
+  Pattern _hoistedPatternRule(Pattern pattern, Set<Pattern> seen) {
+    var parameterNames = <String>{};
+    _collectParameterNames(pattern, parameterNames);
+    var sortedNames = parameterNames.toList()..sort();
+    var key = (pattern, sortedNames.join(","));
+    var rule = _hoistedPatternRules.putIfAbsent(key, () {
+      var syntheticName = "_hoist\$${_hoistedPatternRules.length}";
+      var syntheticRule = Rule(syntheticName, () => pattern);
+      rules.add(syntheticRule);
+      return syntheticRule;
+    });
+    if (sortedNames.isEmpty) {
+      return rule.call();
+    }
+    return rule.call(
+      arguments: {for (var name in sortedNames) name: CallArgumentValue.reference(name)},
+    );
+  }
+
+  void _collectParameterNames(Pattern pattern, Set<String> names) {
+    switch (pattern) {
+      case ParameterRefPattern(:var name):
+        names.add(name);
+      case ParameterCallPattern(:var name, :var arguments):
+        names.add(name);
+        for (var argument in arguments.values) {
+          _collectParameterNamesFromArgumentValue(argument, names);
+        }
+      case RuleCall(:var arguments):
+        for (var argument in arguments.values) {
+          _collectParameterNamesFromArgumentValue(argument, names);
+        }
+      case Seq(:var left, :var right):
+        _collectParameterNames(left, names);
+        _collectParameterNames(right, names);
+      case Alt(:var left, :var right):
+        _collectParameterNames(left, names);
+        _collectParameterNames(right, names);
+      case Conj(:var left, :var right):
+        _collectParameterNames(left, names);
+        _collectParameterNames(right, names);
+      case And(:var pattern):
+        _collectParameterNames(pattern, names);
+      case Not(:var pattern):
+        _collectParameterNames(pattern, names);
+      case Neg(:var pattern):
+        _collectParameterNames(pattern, names);
+      case Opt(:var child):
+        _collectParameterNames(child, names);
+      case Plus(:var child):
+        _collectParameterNames(child, names);
+      case Star(:var child):
+        _collectParameterNames(child, names);
+      case Label(:var child):
+        _collectParameterNames(child, names);
+      case Action(:var child):
+        _collectParameterNames(child, names);
+      case Prec(:var child):
+        _collectParameterNames(child, names);
+      case Rule():
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _collectParameterNamesFromArgumentValue(CallArgumentValue value, Set<String> names) {
+    value.transformPatterns((pattern) {
+      _collectParameterNames(pattern, names);
+      return pattern;
+    });
   }
 
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
@@ -276,6 +416,8 @@ class Grammar with _GrammarMixin implements GrammarInterface {
           StartAnchor() ||
           EofAnchor() ||
           Eps() ||
+          ParameterRefPattern() ||
+          ParameterCallPattern() ||
           Rule() ||
           RuleCall() ||
           LabelStart() ||
@@ -488,6 +630,8 @@ class GrammarAdapter implements GrammarInterface {
         StartAnchor() ||
         EofAnchor() ||
         Eps() ||
+        ParameterRefPattern() ||
+        ParameterCallPattern() ||
         LabelStart() ||
         LabelEnd() => [],
         //
@@ -556,6 +700,8 @@ class GrammarAdapter implements GrammarInterface {
           StartAnchor() ||
           EofAnchor() ||
           Eps() ||
+          ParameterRefPattern() ||
+          ParameterCallPattern() ||
           Rule() ||
           RuleCall() ||
           LabelStart() ||

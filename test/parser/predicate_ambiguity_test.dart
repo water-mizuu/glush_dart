@@ -21,7 +21,6 @@ void main() {
 
     // We expect only ONE result, because the predicate ambiguity should be collapsed.
     // If we get TWO results, it means the predicate leaked its ambiguity.
-    print("Marks: ${success.forest.toList()}");
     expect(success.forest.toList().length, equals(1));
   });
 
@@ -177,7 +176,7 @@ one = 5 | S 's' | 's'*! # wat
 
     switch (ambiguousParser.parseAmbiguous("${input.trim()}\n")) {
       case ParseAmbiguousForestSuccess result:
-        print(result.forest.allPaths().length);
+        expect(result.forest.allPaths().length, equals(1));
       case ParseError error:
         error.displayError(input);
       case _:
@@ -185,7 +184,7 @@ one = 5 | S 's' | 's'*! # wat
     }
     switch (unambiguousParser.parseAmbiguous("${input.trim()}\n")) {
       case ParseAmbiguousForestSuccess result:
-        print(result.forest.allPaths().length);
+        expect(result.forest.allPaths().length, equals(1));
       case ParseError error:
         error.displayError(input);
       case _:

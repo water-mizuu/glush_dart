@@ -28,6 +28,34 @@ void main() {
       expect(value, equals(("alpha", "beta")));
     });
 
+    test("all collects repeated labels as a list", () {
+      var evaluator = Evaluator<Object?>({
+        "items": (ctx) => ctx.all<String>("item"),
+        "item": (ctx) => ctx.span,
+      });
+
+      var tree = ParseResult([
+        (
+          "items",
+          ParseResult([
+            ("item", ParseResult([], "a")),
+            ("item", ParseResult([], "a")),
+            ("item", ParseResult([], "a")),
+          ], "aaa"),
+        ),
+      ], "aaa");
+
+      expect(evaluator.evaluate(tree), equals(["a", "a", "a"]));
+    });
+
+    test("all returns an empty list when the label is absent", () {
+      var evaluator = Evaluator<Object?>({"items": (ctx) => ctx.all<String>("item")});
+
+      var tree = ParseResult([("items", ParseResult([], ""))], "");
+
+      expect(evaluator.evaluate(tree), equals(<String>[]));
+    });
+
     test("extractParseTreeRawMarks includes label and named marks", () {
       var parser =
           r"""
@@ -42,17 +70,17 @@ void main() {
       var tree = (forestOutcome as ParseForestSuccess).forest.extract().first;
 
       var marks = parser.extractParseTreeRawMarks(tree, "abc");
-      expect(marks.any((m) => m is LabelStartMark && m.name == "full"), isTrue);
-      expect(marks.any((m) => m is LabelEndMark && m.name == "full"), isTrue);
-      expect(marks.any((m) => m is LabelStartMark && m.name == "item"), isTrue);
-      expect(marks.any((m) => m is LabelEndMark && m.name == "item"), isTrue);
+      expect(marks.any((m) => m is LabelStartMark && m.name == "start.full"), isTrue);
+      expect(marks.any((m) => m is LabelEndMark && m.name == "start.full"), isTrue);
+      expect(marks.any((m) => m is LabelStartMark && m.name == "item.item"), isTrue);
+      expect(marks.any((m) => m is LabelEndMark && m.name == "item.item"), isTrue);
       expect(marks.any((m) => m is LabelStartMark && m.name == "file"), isTrue);
       expect(marks.any((m) => m is LabelEndMark && m.name == "file"), isTrue);
       expect(marks.any((m) => m is LabelStartMark && m.name == "left"), isTrue);
       expect(marks.any((m) => m is LabelEndMark && m.name == "left"), isTrue);
 
       var fileEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == "file");
-      var itemEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == "item");
+      var itemEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == "item.item");
       var leftEnd = marks.whereType<LabelEndMark>().firstWhere((m) => m.name == "left");
 
       expect(fileEnd.position, equals(0));

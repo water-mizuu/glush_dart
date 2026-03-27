@@ -10,6 +10,7 @@ import "package:meta/meta.dart";
 /// without flattening them into a single list. It uses a tree-like composition
 /// pattern where results can be combined, branched, and ultimately converted
 /// to a flat list when needed.
+@immutable
 sealed class GlushList<T> {
   const GlushList();
   const factory GlushList.empty() = EmptyList<T>._;
@@ -36,6 +37,12 @@ sealed class GlushList<T> {
     forEach((e) => last = e);
     return last;
   }
+
+  @override
+  bool operator ==(Object other);
+
+  @override
+  int get hashCode;
 }
 
 /// Caches shared [GlushList] nodes to form a persistent forest.
@@ -114,11 +121,21 @@ class EmptyList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => true;
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is EmptyList<T>;
+
+  @override
+  int get hashCode => _hashCode;
+
+  static final int _hashCode = Object.hash(EmptyList, 0);
 }
 
 class BranchedList<T> extends GlushList<T> {
-  const BranchedList._(this.alternatives);
+  BranchedList._(this.alternatives)
+    : _hashCode = Object.hash(BranchedList, Object.hashAll(alternatives));
   final List<GlushList<T>> alternatives;
+  final int _hashCode;
 
   @override
   void forEach(void Function(T) callback) {
@@ -129,12 +146,23 @@ class BranchedList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => alternatives.every((a) => a.isEmpty);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BranchedList<T> &&
+          _hashCode == other._hashCode &&
+          _listEquals(alternatives, other.alternatives);
+
+  @override
+  int get hashCode => _hashCode;
 }
 
 class Push<T> extends GlushList<T> {
-  const Push._(this.parent, this.data);
+  Push._(this.parent, this.data) : _hashCode = Object.hash(Push, parent, data);
   final GlushList<T> parent;
   final T data;
+  final int _hashCode;
 
   @override
   void forEach(void Function(T) callback) {
@@ -144,12 +172,24 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Push<T> &&
+          _hashCode == other._hashCode &&
+          parent == other.parent &&
+          data == other.data;
+
+  @override
+  int get hashCode => _hashCode;
 }
 
 class Concat<T> extends GlushList<T> {
-  const Concat._(this.left, this.right);
+  Concat._(this.left, this.right) : _hashCode = Object.hash(Concat, left, right);
   final GlushList<T> left;
   final GlushList<T> right;
+  final int _hashCode;
 
   @override
   void forEach(void Function(T) callback) {
@@ -159,6 +199,17 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Concat<T> &&
+          _hashCode == other._hashCode &&
+          left == other.left &&
+          right == other.right;
+
+  @override
+  int get hashCode => _hashCode;
 }
 
 extension GlushListVisualizer<T> on GlushList<T> {

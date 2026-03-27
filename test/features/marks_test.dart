@@ -49,6 +49,28 @@ void main() {
       expect(tree["pass"].first.span, equals("secret"));
     });
 
+    test("Leading dollar labels are namespaced by their rule", () {
+      var parser =
+          r'''
+        start = choice;
+        choice = $prec "a"
+               | $first "b";
+      '''
+              .toSMParser(captureTokensAsMarks: true);
+
+      var evaluator = const StructuredEvaluator();
+
+      var firstOutcome = parser.parse("a");
+      expect(firstOutcome, isA<ParseSuccess>());
+      var firstTree = evaluator.evaluate((firstOutcome as ParseSuccess).result.rawMarks);
+      expect(firstTree["choice.prec"].first.span, equals("a"));
+
+      var secondOutcome = parser.parse("b");
+      expect(secondOutcome, isA<ParseSuccess>());
+      var secondTree = evaluator.evaluate((secondOutcome as ParseSuccess).result.rawMarks);
+      expect(secondTree["choice.first"].first.span, equals("b"));
+    });
+
     test("Nested labels", () {
       var parser =
           '''

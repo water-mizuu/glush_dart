@@ -76,7 +76,7 @@ void main() {
 
       var forest = (result as ParseAmbiguousForestSuccess).forest;
       var marksConcat = forest.allPaths().single.toStringList().join(" ");
-      expect(marksConcat, contains("OPT"));
+      expect(marksConcat, contains("S.OPT"));
       expect(marksConcat, contains("END"));
     });
 
@@ -104,7 +104,8 @@ void main() {
 
       var forest = (result as ParseAmbiguousForestSuccess).forest;
       var marks = forest.allPaths().first.toMarkStrings();
-      expect(marks.where((m) => m == "M").length, equals(2));
+      expect(marks, contains("S.M"));
+      expect(marks, contains("M"));
     });
 
     test("8. Dangling Else (Precedence)", () {

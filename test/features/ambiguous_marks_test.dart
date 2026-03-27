@@ -84,7 +84,7 @@ void main() {
 
       // One tree should have 'elseStmt' in the outer 'ifStmt'
       var hasOuterElse = trees.any((t) {
-        var ifStmts = getLabel(t.children, "ifStmt");
+        var ifStmts = getLabel(t.children, "S.ifStmt");
         return ifStmts.isNotEmpty &&
             ifStmts.first is ParseResult &&
             hasLabel((ifStmts.first as ParseResult).children, "elseStmt");
@@ -92,7 +92,7 @@ void main() {
 
       // The other should have it in the nested 'thenStmt' -> 'ifStmt'
       var hasInnerElse = trees.any((t) {
-        var outerIf = getLabel(t.children, "ifStmt").firstOrNull as ParseResult?;
+        var outerIf = getLabel(t.children, "S.ifStmt").firstOrNull as ParseResult?;
         if (outerIf == null) {
           return false;
         }
@@ -100,7 +100,7 @@ void main() {
         if (thenS == null) {
           return false;
         }
-        var innerIfStmts = getLabel(thenS.children, "ifStmt");
+        var innerIfStmts = getLabel(thenS.children, "S.ifStmt");
         return innerIfStmts.isNotEmpty &&
             innerIfStmts.first is ParseResult &&
             hasLabel((innerIfStmts.first as ParseResult).children, "elseStmt");
