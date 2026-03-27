@@ -43,6 +43,7 @@ void main() {
       var parser = SMParser(grammar);
       expect(_tailCallActionCount(parser), equals(0));
       expect(parser.recognize("s+" * 40 + "s"), isTrue);
+      expect(parser.parseAmbiguous("s+" * 40 + "s"), isA<ParseAmbiguousForestSuccess>());
     });
 
     test("does not kick in when the recursive step may fail to make progress", () {
@@ -80,6 +81,7 @@ void main() {
       expect(_tailCallActionCount(parser), greaterThan(0));
 
       expect(parser.recognize("s+" * 20 + "s"), isTrue);
+      expect(parser.parseAmbiguous("s+" * 20 + "s"), isA<ParseAmbiguousForestSuccess>());
     });
 
     test("kicks in for right-tail recursion followed by dead epsilon suffix", () {

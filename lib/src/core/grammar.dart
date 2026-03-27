@@ -21,7 +21,7 @@ sealed class GrammarInterface {
   bool isEmpty();
 }
 
-class Grammar with _GrammarMixin implements GrammarInterface {
+class Grammar implements GrammarInterface {
   Grammar(GrammarBuilder builder) {
     var result = builder();
     finalize(result.call());
@@ -309,12 +309,13 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     _collectParameterNames(pattern, parameterNames);
     var sortedNames = parameterNames.toList()..sort();
     var key = (pattern, sortedNames.join(","));
-    var rule = _hoistedPatternRules.putIfAbsent(key, () {
+    var rule = _hoistedPatternRules[key];
+    if (rule == null) {
       var syntheticName = "_hoist\$${_hoistedPatternRules.length}";
       var syntheticRule = Rule(syntheticName, () => pattern);
       rules.add(syntheticRule);
-      return syntheticRule;
-    });
+      rule = _hoistedPatternRules[key] = syntheticRule;
+    }
     if (sortedNames.isEmpty) {
       return rule.call();
     }
@@ -556,13 +557,6 @@ class Grammar with _GrammarMixin implements GrammarInterface {
     transitions![startCall] ??= [];
     transitions![startCall]!.add(successMarker);
   }
-}
-
-/// Mixin for Grammar interface
-mixin _GrammarMixin {
-  RuleCall get startCall;
-  List<Rule> get rules;
-  bool isEmpty();
 }
 
 // Extension for Range syntax

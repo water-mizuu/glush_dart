@@ -2,8 +2,6 @@ import "dart:math" as math;
 
 import "package:glush/glush.dart";
 
-typedef Runner = void Function();
-
 void main() {
   _profileDataDrivenParameters();
   _profileDataDrivenRules();
@@ -59,7 +57,11 @@ void _profileForestEvaluator() {
 
   _printHeader("forest_evaluator");
   var parser = _measure("compile", 50, () => grammarText.toSMParser());
-  var forestOutcome = _measure("parseWithForest_once", 120, () => parser.parseWithForest("alpha:beta"));
+  var forestOutcome = _measure(
+    "parseWithForest_once",
+    120,
+    () => parser.parseWithForest("alpha:beta"),
+  );
   var forest = (forestOutcome as ParseForestSuccess).forest;
   var tree = forest.extract().first;
   var evaluator = Evaluator<Object?>({
@@ -69,7 +71,11 @@ void _profileForestEvaluator() {
     "ws": (ctx) => ctx.span,
   });
   _measure("forest.extract.first", 120, () => forest.extract().first);
-  _measure("evaluateParseTreeWith", 200, () => parser.evaluateParseTreeWith(tree, "alpha:beta", evaluator));
+  _measure(
+    "evaluateParseTreeWith",
+    200,
+    () => parser.evaluateParseTreeWith(tree, "alpha:beta", evaluator),
+  );
 
   const callableGrammarText = r"""
     start = outer:outer

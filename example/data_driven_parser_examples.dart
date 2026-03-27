@@ -492,7 +492,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   if (dslOutcome case ParseAmbiguousForestSuccess(:var forest)) {
     print("DSL paths: ${forest.allPaths().length}");
     for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
-      print(tree.toString());
+      print(tree);
     }
   }
 
@@ -519,7 +519,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   if (fluentOutcome case ParseAmbiguousForestSuccess(:var forest)) {
     print("Fluent paths: ${forest.allPaths().length}");
     for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
-      print(tree.toString());
+      print(tree);
     }
   }
 
@@ -615,7 +615,9 @@ void _exampleFramedPayloadDispatch() {
             },
           ),
         ),
-        "payload": CallArgumentValue.pattern(pair(arguments: {"piece": CallArgumentValue.rule(atom)})),
+        "payload": CallArgumentValue.pattern(
+          pair(arguments: {"piece": CallArgumentValue.rule(atom)}),
+        ),
         "trailer": CallArgumentValue.rule(bang),
       },
     ),
@@ -714,9 +716,7 @@ void _exampleConfigurableRecordCatalog() {
       arguments: {
         "prefix": CallArgumentValue.literal("{"),
         "suffix": CallArgumentValue.literal("}"),
-        "body": CallArgumentValue.pattern(
-          pair(arguments: {"piece": CallArgumentValue.rule(atom)}),
-        ),
+        "body": CallArgumentValue.pattern(pair(arguments: {"piece": CallArgumentValue.rule(atom)})),
       },
     ),
   );

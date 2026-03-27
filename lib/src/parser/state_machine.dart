@@ -2,7 +2,6 @@
 library glush.state_machine;
 
 import "package:glush/src/core/grammar.dart";
-
 import "package:glush/src/core/patterns.dart";
 import "package:meta/meta.dart";
 
@@ -173,12 +172,15 @@ final class PredicateAction implements StateAction {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PredicateAction &&
+          hashCode == other.hashCode &&
           isAnd == other.isAnd &&
           symbol == other.symbol &&
           nextState == other.nextState;
 
+  static final Expando<int> _hashes = Expando();
+
   @override
-  int get hashCode => Object.hash(isAnd, symbol, nextState);
+  int get hashCode => _hashes[this] ??= Object.hash(isAnd, symbol, nextState);
 
   @override
   String toString() =>
@@ -203,12 +205,15 @@ final class ConjunctionAction implements StateAction {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ConjunctionAction &&
+          hashCode == other.hashCode &&
           leftSymbol == other.leftSymbol &&
           rightSymbol == other.rightSymbol &&
           nextState == other.nextState;
 
+  static final Expando<int> _hashes = Expando();
+
   @override
-  int get hashCode => Object.hash(leftSymbol, rightSymbol, nextState);
+  int get hashCode => _hashes[this] ??= Object.hash(leftSymbol, rightSymbol, nextState);
 
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
@@ -224,10 +229,15 @@ final class NegationAction implements StateAction {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is NegationAction && symbol == other.symbol && nextState == other.nextState;
+      other is NegationAction &&
+          hashCode == other.hashCode &&
+          symbol == other.symbol &&
+          nextState == other.nextState;
+
+  static final Expando<int> _hashes = Expando();
 
   @override
-  int get hashCode => Object.hash(symbol, nextState);
+  int get hashCode => _hashes[this] ??= Object.hash(symbol, nextState);
 
   @override
   String toString() => "Neg($symbol)";
@@ -350,44 +360,48 @@ class StateMachine {
       return nextState;
     }
 
-    // Strings are expanded into a cached state chain so repeated parameter
-    // values reuse the same runtime structure instead of rebuilding it.
-    return _parameterStringChains.putIfAbsent((text, nextState), () {
-      var tail = nextState;
-      for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-        var state = _getOrCreateState(("param-string", text, i, nextState));
-        if (state.actions.isEmpty) {
-          state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
-        }
-        tail = state;
+    var key = (text, nextState);
+    if (_parameterStringChains[key] case var state?) {
+      return state;
+    }
+
+    var tail = nextState;
+    for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+      var state = _getOrCreateState(("param-string", text, i, nextState));
+      if (state.actions.isEmpty) {
+        state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
-      return tail;
-    });
+      tail = state;
+    }
+    return _parameterStringChains[key] = tail;
   }
 
   State parameterPredicateEntry(String text) {
     // Predicates use the same cached chain idea, but end in a synthetic
     // return state so lookahead can resume the caller if the predicate matches.
-    return _parameterPredicateChains.putIfAbsent(text, () {
-      var terminal = _getOrCreateState(("param-predicate-end", text));
-      if (terminal.actions.isEmpty) {
-        terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
-      }
 
-      if (text.isEmpty) {
-        return terminal;
-      }
+    if (_parameterPredicateChains[text] case var state?) {
+      return state;
+    }
 
-      var tail = terminal;
-      for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-        var state = _getOrCreateState(("param-predicate", text, i));
-        if (state.actions.isEmpty) {
-          state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
-        }
-        tail = state;
+    var terminal = _getOrCreateState(("param-predicate-end", text));
+    if (terminal.actions.isEmpty) {
+      terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
+    }
+
+    if (text.isEmpty) {
+      return terminal;
+    }
+
+    var tail = terminal;
+    for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+      var state = _getOrCreateState(("param-predicate", text, i));
+      if (state.actions.isEmpty) {
+        state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
-      return tail;
-    });
+      tail = state;
+    }
+    return _parameterPredicateChains[text] = tail;
   }
 
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
@@ -575,7 +589,7 @@ class StateMachine {
     for (var state in sortedStates) {
       for (var action in state.actions) {
         if (action case CallAction(:var rule, :var returnState)) {
-          callTargets.putIfAbsent(rule, () => <State>{}).add(returnState);
+          (callTargets[rule] ??= {}).add(returnState);
         }
       }
     }
@@ -739,7 +753,7 @@ class StateMachine {
               buffer,
               from: state,
               to: nextState,
-              label: "paramcall ${pattern.toString()}",
+              label: "paramcall $pattern",
               style: "dashed",
               color: "slategray4",
             );

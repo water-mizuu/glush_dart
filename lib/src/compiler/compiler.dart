@@ -71,7 +71,8 @@ class GrammarFileCompiler {
       case IfPattern(:var guard, :var inner):
         var owner = _currentOwnerRule;
         var parameters = _currentParameters;
-        var guardedRule = _guardedRules.putIfAbsent(expr, () {
+        var guardedRule = _guardedRules[expr];
+        if (guardedRule == null) {
           var syntheticName = "_if\$${_guardedRules.length}";
           var rule = Rule(syntheticName, () {
             var previousOwner = _currentOwnerRule;
@@ -86,8 +87,8 @@ class GrammarFileCompiler {
             }
           });
           rule.guardOwner = owner;
-          return rule;
-        });
+          guardedRule = _guardedRules[expr] = rule;
+        }
         guardedRule.guard = GuardExpr.expression(_compileCallArgumentValue(guard));
         if (parameters.isEmpty) {
           return guardedRule();

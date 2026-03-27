@@ -27,12 +27,12 @@ void main() {
     });
 
     test("captures expose span length in guards", () {
-      const grammarText = r'''
+      const grammarText = r"""
         start = capture:repeat(3) check(capture.length, capture.startPosition)
         repeat(n) = if (n > 1) repeat(n - 1) 's'
                  | if (n == 1) 's'
         check(length, start) = if (length == 3 && start == 0) ''
-      ''';
+      """;
 
       var parser = grammarText.toSMParser();
       expect(parser.recognize("sss"), isTrue);
@@ -40,7 +40,7 @@ void main() {
     });
 
     test("recursive capture references can be passed into later call arguments", () {
-      const grammarText = r'''
+      const grammarText = r"""
         start = capture:times(3, 's') check(capture, 3) '!'
 
         times(n, char) = _times(n, char)
@@ -49,7 +49,7 @@ void main() {
                        | if (n <= 0) ''
 
         check(value, n) = if (value.length == n) ''
-      ''';
+      """;
 
       var parser = grammarText.toSMParser();
       expect(parser.recognize("sss!"), isTrue);

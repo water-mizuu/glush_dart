@@ -121,12 +121,15 @@ final class ConjunctionMark implements Mark {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ConjunctionMark &&
+          hashCode == other.hashCode &&
           runtimeType == other.runtimeType &&
           position == other.position &&
           _listEquals(branches, other.branches);
 
+  static final Expando<int> _hashes = Expando();
+
   @override
-  int get hashCode => Object.hash(Object.hashAll(branches), position);
+  int get hashCode => _hashes[this] ??= Object.hash(Object.hashAll(branches), position);
 
   @override
   String toString() => "ConjunctionMark($branches, $position)";

@@ -1,5 +1,6 @@
 // ignore_for_file: strict_raw_type, unreachable_from_main
 
+import "dart:developer";
 import "dart:io";
 import "dart:math" show max;
 import "package:glush/glush.dart";
@@ -395,17 +396,19 @@ void dataDriven() {
 void dataDriven2() {
   var parser =
       r"""
-      start = capture:"abc" check(capture.length) '!'
-      check(length) = if (length == 3) ''
+      start = capture:"abc" check(capture)
+      check(capture) = if (capture.length == 3) ''
       """
           .toSMParser();
 
-  for (var input in ["ab!", "abc!"]) {
+  for (var input in ["ab", "abc"]) {
+    Timeline.startSync("Parsing Phase $input");
     var result = parser.parseAmbiguous(input);
     print(result);
     if (result case ParseAmbiguousForestSuccess result) {
       print(result.forest.allPaths().map((v) => v.evaluateStructure()).toList());
     }
+    Timeline.finishSync();
   }
   // print(
   //   (parser.parseWithForest("sss") as ParseAmbiguousForestSuccess).forest
@@ -416,10 +419,10 @@ void dataDriven2() {
 }
 
 void main() async {
-  // mathSimple();
-  // ambiguous();
-  // orderedChoice();
-  // meta();
-  // dataDriven();
+  mathSimple();
+  ambiguous();
+  orderedChoice();
+  meta();
+  dataDriven();
   dataDriven2();
 }

@@ -10,6 +10,7 @@ analyzer:
     pattern_never_matches_value_type: error
     invalid_annotation_target: ignore
     avoid_multiple_declarations_per_line: ignore
+    parameter_assignments: ignore
 linter:
   rules:
     always_declare_return_types: true

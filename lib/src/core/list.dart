@@ -15,9 +15,34 @@ sealed class GlushList<T> {
   const GlushList();
   const factory GlushList.empty() = EmptyList<T>._;
 
-  GlushList<T> add(GlushListCache<T> cache, T data) => cache.push(this, data);
+  /// Creates a branched list representing multiple parsing alternatives.
+  static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
+    if (alternatives.isEmpty) {
+      return const EmptyList._();
+    }
+    if (alternatives.length == 1) {
+      return alternatives[0];
+    }
 
-  GlushList<T> addList(GlushListCache<T> cache, GlushList<T> list) => cache.concat(this, list);
+    return BranchedList<T>._(List.unmodifiable(alternatives));
+  }
+
+  /// Creates a GlushList from a standard Dart list.
+  static GlushList<T> fromList<T>(List<T> values) {
+    GlushList<T> list = const GlushList.empty();
+    for (var value in values) {
+      list = list.add(value);
+    }
+    return list;
+  }
+
+  GlushList<T> add(T data) => Push<T>._(this, data);
+
+  GlushList<T> addList(GlushList<T> list) => switch ((this, list)) {
+    (EmptyList(), var r) => r,
+    (var l, EmptyList()) => l,
+    _ => Concat<T>._(this, list),
+  };
 
   List<T> toList() {
     var result = <T>[];
@@ -43,65 +68,6 @@ sealed class GlushList<T> {
 
   @override
   int get hashCode;
-}
-
-/// Caches shared [GlushList] nodes to form a persistent forest.
-class GlushListCache<T> {
-  final Map<Object, GlushList<T>> _cache = {};
-
-  GlushList<T> branched(List<GlushList<T>> alternatives) {
-    if (alternatives.isEmpty) {
-      return const EmptyList._();
-    }
-    if (alternatives.length == 1) {
-      return alternatives[0];
-    }
-
-    var key = _BranchedKey(List<Object?>.unmodifiable(alternatives));
-    return _cache.putIfAbsent(key, () => BranchedList<T>._(List.unmodifiable(alternatives)));
-  }
-
-  GlushList<T> fromList(List<T> values) {
-    GlushList<T> list = const GlushList.empty();
-    for (var value in values) {
-      list = push(list, value);
-    }
-    return list;
-  }
-
-  GlushList<T> push(GlushList<T> parent, T data) {
-    var key = ("push", parent, data);
-    return _cache.putIfAbsent(key, () => Push<T>._(parent, data));
-  }
-
-  GlushList<T> concat(GlushList<T> left, GlushList<T> right) {
-    if (left is EmptyList<T>) {
-      return right;
-    }
-    if (right is EmptyList<T>) {
-      return left;
-    }
-    var key = ("concat", left, right);
-    return _cache.putIfAbsent(key, () => Concat<T>._(left, right));
-  }
-
-  void clear() => _cache.clear();
-}
-
-@immutable
-class _BranchedKey {
-  const _BranchedKey(this.elements);
-  final List<Object?> elements;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _BranchedKey &&
-          elements.length == other.elements.length &&
-          _listEquals(elements, other.elements);
-
-  @override
-  int get hashCode => Object.hashAll(elements);
 }
 
 bool _listEquals(List<Object?> left, List<Object?> right) {
@@ -133,9 +99,16 @@ class EmptyList<T> extends GlushList<T> {
 
 class BranchedList<T> extends GlushList<T> {
   BranchedList._(this.alternatives)
-    : _hashCode = Object.hash(BranchedList, Object.hashAll(alternatives));
+    : _isEmpty = alternatives.every((a) => a.isEmpty),
+      _hashCode = Object.hash(BranchedList, Object.hashAll(alternatives));
+
   final List<GlushList<T>> alternatives;
   final int _hashCode;
+
+  final bool _isEmpty;
+
+  @override
+  bool get isEmpty => _isEmpty;
 
   @override
   void forEach(void Function(T) callback) {
@@ -143,9 +116,6 @@ class BranchedList<T> extends GlushList<T> {
       alt.forEach(callback);
     }
   }
-
-  @override
-  bool get isEmpty => alternatives.every((a) => a.isEmpty);
 
   @override
   bool operator ==(Object other) =>
@@ -159,10 +129,15 @@ class BranchedList<T> extends GlushList<T> {
 }
 
 class Push<T> extends GlushList<T> {
-  Push._(this.parent, this.data) : _hashCode = Object.hash(Push, parent, data);
+  Push._(this.parent, this.data) : _lastOrNull = data, _hashCode = Object.hash(Push, parent, data);
   final GlushList<T> parent;
   final T data;
   final int _hashCode;
+
+  final T? _lastOrNull;
+
+  @override
+  T? get lastOrNull => _lastOrNull;
 
   @override
   void forEach(void Function(T) callback) {
@@ -213,8 +188,6 @@ class Concat<T> extends GlushList<T> {
 }
 
 extension GlushListVisualizer<T> on GlushList<T> {
-  static const int maxPaths = 10000;
-
   Iterable<List<T>> allPaths() {
     return _collect(this, {});
   }

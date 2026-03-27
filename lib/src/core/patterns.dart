@@ -3,10 +3,10 @@
 /// Pattern system for grammar definition
 library glush.patterns;
 
+import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/compiler/format.dart";
 
 extension type const PatternSymbol(String symbol) {}
 
@@ -155,7 +155,7 @@ String _formatCallArgument(Object? value) {
     String() => '"${value.replaceAll(r"\", r"\\").replaceAll('"', r'\"')}"',
     Rule(:var name) => name.symbol,
     CaptureValue(:var value) => value,
-    ParameterCallPattern(:var name, :var argumentsKey) => "paramcall($name:${argumentsKey})",
+    ParameterCallPattern(:var name, :var argumentsKey) => "paramcall($name:$argumentsKey)",
     Pattern(:var symbolId) => symbolId?.symbol ?? value.toString(),
     _GuardLiteralValue(:var value) => _formatCallArgument(value),
     _GuardArgumentValue(:var name) => name,
@@ -346,7 +346,7 @@ final class _CallArgumentUnaryValue extends CallArgumentValue {
   Object? resolve(GuardEnvironment env) {
     var value = _materializeResolvedValue(operand.resolve(env), env);
     return switch (operator) {
-      ExpressionUnaryOperator.logicalNot => _requireBool(value, "logical not") ? false : true,
+      ExpressionUnaryOperator.logicalNot => !_requireBool(value, "logical not"),
       ExpressionUnaryOperator.negate => -_requireNum(value, "numeric negation"),
     };
   }
@@ -562,7 +562,7 @@ String _patternClosureKey(Pattern body, GuardEnvironment environment) {
   buffer.write("|");
   _writeCanonicalValue(buffer, environment.arguments);
   buffer.write("|");
-  _writeCanonicalValue(buffer, environment.values);
+  _writeCanonicalString(buffer, environment.valuesKey);
   return buffer.toString();
 }
 
@@ -748,7 +748,7 @@ Object? _materializeResolvedValue(Object? value, GuardEnvironment env) {
   var seen = <Object>{};
   while (value is CallArgumentValue) {
     if (!seen.add(value)) {
-      throw UnresolvedCallArgumentReference();
+      throw const UnresolvedCallArgumentReference();
     }
     value = value.resolve(env);
   }
@@ -905,6 +905,8 @@ GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment
     marks: override._marksForest,
     arguments: {...base.arguments, ...override.arguments},
     values: {...base.values, ...override.values},
+    valuesKey: "${base.valuesKey}|${override.valuesKey}",
+    valueResolver: override.valueResolver ?? base.valueResolver,
     captureResolver: override.captureResolver ?? base.captureResolver,
     rulesByName: {...base.rulesByName, ...override.rulesByName},
   );
@@ -917,14 +919,19 @@ final class GuardEnvironment {
     GlushList<Mark> marks = const GlushList<Mark>.empty(),
     this.arguments = const <String, Object?>{},
     this.values = const <String, Object?>{},
+    String? valuesKey,
+    this.valueResolver,
     this.captureResolver,
     this.rulesByName = const <String, Rule>{},
-  }) : _marksForest = marks;
+  }) : _marksForest = marks,
+       valuesKey = valuesKey ?? _formatObjectMap(values);
 
   final Rule rule;
   final GlushList<Mark> _marksForest;
   final Map<String, Object?> arguments;
   final Map<String, Object?> values;
+  final String valuesKey;
+  final Object? Function(String name)? valueResolver;
   final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
 
@@ -943,6 +950,7 @@ final class GuardEnvironment {
 
   Object? resolve(String name) =>
       values[name] ??
+      valueResolver?.call(name) ??
       arguments[name] ??
       (name == "marks" ? marks : null) ??
       _resolveCapture(name) ??
@@ -957,6 +965,8 @@ final class GuardEnvironment {
       marks: _marksForest,
       arguments: {...arguments, ...additions},
       values: values,
+      valuesKey: valuesKey,
+      valueResolver: valueResolver,
       captureResolver: captureResolver,
       rulesByName: rulesByName,
     );

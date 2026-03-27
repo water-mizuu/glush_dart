@@ -1,5 +1,5 @@
-import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 
 /// Signature for an evaluation handler.
@@ -257,7 +257,7 @@ class ParseResult extends ParseNode {
     if (_childrenByLabel == null) {
       var grouped = <String, List<ParseNode>>{};
       for (var (String key, ParseNode node) in children) {
-        grouped.putIfAbsent(key, () => []).add(node);
+        (grouped[key] ??= []).add(node);
       }
       _childrenByLabel = grouped.map(
         (key, value) => MapEntry(key, List<ParseNode>.unmodifiable(value)),

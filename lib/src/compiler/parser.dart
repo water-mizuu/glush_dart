@@ -657,7 +657,7 @@ class GrammarFileParser {
       if (tokenIndex + 1 >= _tokens.length ||
           _tokens[tokenIndex + 1].type != _TokenType.identifier) {
         throw GrammarFileParseError(
-          "Expected member name after \".\"",
+          'Expected member name after "."',
           line: dot.line,
           column: dot.column,
         );

@@ -103,7 +103,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       var lastStep = parseState.finish();
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-        return ParseAmbiguousForestSuccess(parseState.markCache.branched(results));
+        return ParseAmbiguousForestSuccess(GlushList.branched(results));
       } else {
         return ParseError(parseState.position);
       }
