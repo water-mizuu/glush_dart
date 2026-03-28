@@ -107,12 +107,14 @@ class LabelEndMark implements Mark {
 /// This allows structural recovery of sub-parse results from each branch
 /// of an intersection without duplicating tokens in the final evaluated span.
 final class ConjunctionMark implements Mark {
-  const ConjunctionMark(this.branches, this.position);
+  ConjunctionMark(this.branches, this.position)
+    : _hash = Object.hash(ConjunctionMark, Object.hashAll(branches), position);
 
   /// The parallel mark streams from each branch of the conjunction.
   final List<GlushList<Mark>> branches;
 
   final int position;
+  final int _hash;
 
   @override
   List<Object> toList() => ["con", branches, position];
@@ -121,15 +123,12 @@ final class ConjunctionMark implements Mark {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ConjunctionMark &&
-          hashCode == other.hashCode &&
           runtimeType == other.runtimeType &&
           position == other.position &&
           _listEquals(branches, other.branches);
 
-  static final Expando<int> _hashes = Expando();
-
   @override
-  int get hashCode => _hashes[this] ??= Object.hash(Object.hashAll(branches), position);
+  int get hashCode => _hash;
 
   @override
   String toString() => "ConjunctionMark($branches, $position)";

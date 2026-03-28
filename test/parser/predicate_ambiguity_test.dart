@@ -1,8 +1,6 @@
 import "package:glush/glush.dart";
 import "package:test/test.dart";
 
-import "../../bin/glush.dart";
-
 void main() {
   test("Predicates do not multiply branches for ambiguous sub-patterns", () {
     var grammar = Grammar(() {

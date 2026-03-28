@@ -57,10 +57,10 @@ const metaGrammarString = r"""
         charRange = '[' (!']' .)* ']'
         number = [0-9]+
 
-        _ = $ws (plain_ws | comment | newline)* !plain_ws !comment !newline
+        _ = $ws (plain_ws | comment | newline)*!
         comment = '#' (!newline .)* (newline | eof)
-        plain_ws = [ \t]+ ![ \t]
-        newline = [\n\r]+ ![\n\r]
+        plain_ws = [ \t]+!
+        newline = [\n\r]+!
       """;
 
 T measure<T>(String label, int n, T Function() fn) {
@@ -95,5 +95,11 @@ void main() {
     return SMParserMini(g);
   });
   measure("metaParser.parse(simple)", 50, () => grammar.parse("rule = 'a'\n"));
-  measure("metaParser.parse(self)", 5, () => print(grammar.parse(metaGrammarString)));
+  measure("metaParser.parse(self)", 10, () {
+    var result = grammar.parse(metaGrammarString);
+    if (result is! ParseSuccess && result is! ParseAmbiguousForestSuccess) {
+      throw Exception("Parse failed: $result");
+    }
+    return result;
+  });
 }

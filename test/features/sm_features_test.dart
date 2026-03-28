@@ -44,9 +44,9 @@ void main() {
     });
 
     test("3. Regex Operators with Ambiguity", () {
-      var parser = r"S = $LIST ('a' | 'a')*".toSMParser();
+      var parser = r"S = $v ($a 'a' | $b 'a')*".toSMParser();
 
-      var result = parser.parseAmbiguous("aaa");
+      var result = parser.parseAmbiguous("aa");
       expect(result, isA<ParseAmbiguousForestSuccess>());
 
       var forest = (result as ParseAmbiguousForestSuccess).forest;

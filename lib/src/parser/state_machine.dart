@@ -12,25 +12,63 @@ sealed class StateAction {
 }
 
 final class MarkAction implements StateAction {
-  const MarkAction(this.name, this.pattern, this.nextState);
+  MarkAction(this.name, this.pattern, this.nextState)
+    : _hash = Object.hash(MarkAction, name, pattern, nextState);
   final String name;
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MarkAction &&
+          name == other.name &&
+          pattern == other.pattern &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 }
 
 final class TokenAction implements StateAction {
-  const TokenAction(this.pattern, this.nextState);
+  TokenAction(this.pattern, this.nextState) : _hash = Object.hash(TokenAction, pattern, nextState);
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TokenAction && pattern == other.pattern && nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
+
+  @override
+  String toString() => "Token($pattern)";
 }
 
 enum BoundaryKind { start, eof }
 
 final class BoundaryAction implements StateAction {
-  const BoundaryAction(this.kind, this.pattern, this.nextState);
+  BoundaryAction(this.kind, this.pattern, this.nextState)
+    : _hash = Object.hash(BoundaryAction, kind, pattern, nextState);
   final BoundaryKind kind;
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BoundaryAction &&
+          kind == other.kind &&
+          pattern == other.pattern &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 }
 
 String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
@@ -49,34 +87,83 @@ String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
 }
 
 final class LabelStartAction implements StateAction {
-  const LabelStartAction(this.name, this.pattern, this.nextState);
+  LabelStartAction(this.name, this.pattern, this.nextState)
+    : _hash = Object.hash(LabelStartAction, name, pattern, nextState);
   final String name;
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelStartAction &&
+          name == other.name &&
+          pattern == other.pattern &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 }
 
 final class LabelEndAction implements StateAction {
-  const LabelEndAction(this.name, this.pattern, this.nextState);
+  LabelEndAction(this.name, this.pattern, this.nextState)
+    : _hash = Object.hash(LabelEndAction, name, pattern, nextState);
   final String name;
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelEndAction &&
+          name == other.name &&
+          pattern == other.pattern &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 }
 
 final class ParameterAction implements StateAction {
-  const ParameterAction(this.name, this.pattern, this.nextState);
+  ParameterAction(this.name, this.pattern, this.nextState)
+    : _hash = Object.hash(ParameterAction, name, pattern, nextState);
   final String name;
   final Pattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ParameterAction &&
+          name == other.name &&
+          pattern == other.pattern &&
+          nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 
   @override
   String toString() => "Parameter($name)";
 }
 
 final class ParameterCallAction implements StateAction {
-  const ParameterCallAction(this.pattern, this.nextState);
+  ParameterCallAction(this.pattern, this.nextState)
+    : _hash = Object.hash(ParameterCallAction, pattern, nextState);
 
   final ParameterCallPattern pattern;
   final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ParameterCallAction && pattern == other.pattern && nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
 
   @override
   String toString() => "ParameterCall($pattern)";
@@ -107,11 +194,25 @@ final class ParameterPredicateAction implements StateAction {
 }
 
 final class CallAction implements StateAction {
-  const CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel]);
+  CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel])
+    : _hash = Object.hash(CallAction, rule, pattern, returnState, minPrecedenceLevel);
   final Rule rule;
   final Pattern pattern;
   final State returnState;
   final int? minPrecedenceLevel;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallAction &&
+          rule == other.rule &&
+          pattern == other.pattern &&
+          returnState == other.returnState &&
+          minPrecedenceLevel == other.minPrecedenceLevel;
+
+  @override
+  int get hashCode => _hash;
 
   @override
   String toString() => switch (pattern) {
@@ -124,10 +225,23 @@ final class CallAction implements StateAction {
 }
 
 final class TailCallAction implements StateAction {
-  const TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel]);
+  TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel])
+    : _hash = Object.hash(TailCallAction, rule, pattern, minPrecedenceLevel);
   final Rule rule;
   final Pattern pattern;
   final int? minPrecedenceLevel;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TailCallAction &&
+          rule == other.rule &&
+          pattern == other.pattern &&
+          minPrecedenceLevel == other.minPrecedenceLevel;
+
+  @override
+  int get hashCode => _hash;
 
   @override
   String toString() => switch (pattern) {
@@ -140,10 +254,23 @@ final class TailCallAction implements StateAction {
 }
 
 final class ReturnAction implements StateAction {
-  const ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel]);
+  ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel])
+    : _hash = Object.hash(ReturnAction, rule, lastPattern, precedenceLevel);
   final Rule rule;
   final Pattern lastPattern;
   final int? precedenceLevel;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReturnAction &&
+          rule == other.rule &&
+          lastPattern == other.lastPattern &&
+          precedenceLevel == other.precedenceLevel;
+
+  @override
+  int get hashCode => _hash;
 
   @override
   String toString() => precedenceLevel != null
@@ -158,7 +285,9 @@ final class AcceptAction implements StateAction {
 /// Predicate action for lookahead assertions (AND/NOT predicates)
 /// Does not consume input - purely a condition check
 final class PredicateAction implements StateAction {
-  const PredicateAction({required this.isAnd, required this.symbol, required this.nextState});
+  PredicateAction({required this.isAnd, required this.symbol, required this.nextState})
+    : _hash = Object.hash(PredicateAction, isAnd, symbol, nextState);
+
   // Marker type: true for AND (&), false for NOT (!)
   final bool isAnd;
 
@@ -168,19 +297,18 @@ final class PredicateAction implements StateAction {
   // Next state after successful predicate check
   final State nextState;
 
+  final int _hash;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is PredicateAction &&
-          hashCode == other.hashCode &&
           isAnd == other.isAnd &&
           symbol == other.symbol &&
           nextState == other.nextState;
 
-  static final Expando<int> _hashes = Expando();
-
   @override
-  int get hashCode => _hashes[this] ??= Object.hash(isAnd, symbol, nextState);
+  int get hashCode => _hash;
 
   @override
   String toString() =>
@@ -191,29 +319,24 @@ final class PredicateAction implements StateAction {
 
 /// Conjunction action for consuming intersection (A & B)
 final class ConjunctionAction implements StateAction {
-  const ConjunctionAction({
-    required this.leftSymbol,
-    required this.rightSymbol,
-    required this.nextState,
-  });
+  ConjunctionAction({required this.leftSymbol, required this.rightSymbol, required this.nextState})
+    : _hash = Object.hash(ConjunctionAction, leftSymbol, rightSymbol, nextState);
 
   final PatternSymbol leftSymbol;
   final PatternSymbol rightSymbol;
   final State nextState;
+  final int _hash;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ConjunctionAction &&
-          hashCode == other.hashCode &&
           leftSymbol == other.leftSymbol &&
           rightSymbol == other.rightSymbol &&
           nextState == other.nextState;
 
-  static final Expando<int> _hashes = Expando();
-
   @override
-  int get hashCode => _hashes[this] ??= Object.hash(leftSymbol, rightSymbol, nextState);
+  int get hashCode => _hash;
 
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
@@ -221,23 +344,20 @@ final class ConjunctionAction implements StateAction {
 
 /// Negation action for consuming complement (¬A)
 final class NegationAction implements StateAction {
-  const NegationAction({required this.symbol, required this.nextState});
+  NegationAction({required this.symbol, required this.nextState})
+    : _hash = Object.hash(NegationAction, symbol, nextState);
 
   final PatternSymbol symbol;
   final State nextState;
+  final int _hash;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is NegationAction &&
-          hashCode == other.hashCode &&
-          symbol == other.symbol &&
-          nextState == other.nextState;
-
-  static final Expando<int> _hashes = Expando();
+      other is NegationAction && symbol == other.symbol && nextState == other.nextState;
 
   @override
-  int get hashCode => _hashes[this] ??= Object.hash(symbol, nextState);
+  int get hashCode => _hash;
 
   @override
   String toString() => "Neg($symbol)";
@@ -311,7 +431,8 @@ class StateMachine {
       // Mark states before returns
       for (var lastState in rule.body().lastSet()) {
         var state = _getOrCreateState(lastState);
-        state.actions.add(ReturnAction(rule, lastState, precMap[lastState]));
+        var action = ReturnAction(rule, lastState, precMap[lastState]);
+        state.actions.add(action);
       }
       if (rule.body().empty()) {
         firstState.actions.add(ReturnAction(rule, Eps()));
@@ -427,11 +548,8 @@ class StateMachine {
         }
       case StartAnchor() || EofAnchor():
         var nextState = _getOrCreateState(terminal);
-        var action = BoundaryAction(
-          terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof,
-          terminal,
-          nextState,
-        );
+        var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
+        var action = BoundaryAction(kind, terminal, nextState);
         state.actions.add(action);
       case Marker():
         var nextState = _getOrCreateState(terminal);
@@ -479,33 +597,28 @@ class StateMachine {
           nextState: nextState,
         );
         state.actions.add(action);
-      case RuleCall(:var rule):
+      case RuleCall():
         var minPrecedenceLevel = terminal.minPrecedenceLevel;
-        // Compile a direct tail self-call as a loop instead of a real GSS call.
-        // This is only safe when the compiler has already proven that the call
-        // sits at the far right edge of the recursive branch and the prefix
-        // before it always consumes input.
         if (currentRule != null &&
             minPrecedenceLevel == null &&
             (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
-          state.actions.add(TailCallAction(rule, terminal, minPrecedenceLevel));
+          var action = TailCallAction(terminal.rule, terminal, minPrecedenceLevel);
+          state.actions.add(action);
         } else {
           var returnState = _getOrCreateState(terminal);
-          var callAction = CallAction(rule, terminal, returnState, minPrecedenceLevel);
-          state.actions.add(callAction);
+          var action = CallAction(terminal.rule, terminal, returnState, minPrecedenceLevel);
+          state.actions.add(action);
         }
       case LabelStart():
         var nextState = _getOrCreateState(terminal);
-        var labelStartAction = LabelStartAction(terminal.name, terminal, nextState);
-        state.actions.add(labelStartAction);
+        var action = LabelStartAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
       case LabelEnd():
         var nextState = _getOrCreateState(terminal);
-        var labelEndAction = LabelEndAction(terminal.name, terminal, nextState);
-        state.actions.add(labelEndAction);
+        var action = LabelEndAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
       case ParameterRefPattern():
         var nextState = _getOrCreateState(terminal);
-        // A parameter reference in body position becomes a runtime action so
-        // the state machine can substitute the caller's value at match time.
         var action = ParameterAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case ParameterCallPattern():

@@ -1,6 +1,7 @@
 import "package:glush/glush.dart" show SMParser;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/common.dart";
 import "package:glush/src/parser/interface.dart";
@@ -17,7 +18,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
     : stateMachine = StateMachine(grammar);
 
   SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
-  static const Context _initialContext = Context(RootCallerKey(), GlushList.empty());
+  static const Context _initialContext = Context(RootCallerKey(), GlushList<Mark>.empty());
 
   @override
   final StateMachine stateMachine;

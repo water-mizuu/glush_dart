@@ -24,12 +24,28 @@ sealed class GlushList<T> {
       return alternatives[0];
     }
 
-    return BranchedList<T>._(List.unmodifiable(alternatives));
+    var flattened = <GlushList<T>>[];
+    for (var alt in alternatives) {
+      if (alt is BranchedList<T>) {
+        flattened.addAll(alt.alternatives);
+      } else if (alt is! EmptyList<T>) {
+        flattened.add(alt);
+      }
+    }
+
+    if (flattened.isEmpty) {
+      return const EmptyList._();
+    }
+    if (flattened.length == 1) {
+      return flattened.first;
+    }
+
+    return BranchedList<T>._(List.unmodifiable(flattened));
   }
 
   /// Creates a GlushList from a standard Dart list.
   static GlushList<T> fromList<T>(List<T> values) {
-    GlushList<T> list = const GlushList.empty();
+    GlushList<T> list = GlushList<T>.empty();
     for (var value in values) {
       list = list.add(value);
     }
@@ -216,10 +232,42 @@ extension GlushListVisualizer<T> on GlushList<T> {
         return;
       case Push<T>():
         var result = <List<T>>[];
-        for (var path in _collect(node.parent, memo)) {
-          var added = [...path, node.data];
-          yield added;
-          result.add(added);
+        var parentPaths = _collect(node.parent, memo);
+        var data = node.data;
+
+        if (data is ConjunctionMark) {
+          // A ConjunctionMark contains nested GlushLists. We need to find all
+          // combinations of paths from each branch.
+          var branchPaths = data.branches.map((b) => (b as GlushList).allPaths().toList()).toList();
+
+          // Compute Cartesian product of paths from all branches
+          Iterable<List<List<Mark>>> product(int index) sync* {
+            if (index == branchPaths.length) {
+              yield [];
+              return;
+            }
+            for (var path in branchPaths[index]) {
+              for (var rest in product(index + 1)) {
+                yield [path.cast<Mark>(), ...rest];
+              }
+            }
+          }
+
+          for (var pPath in parentPaths) {
+            for (var bPaths in product(0)) {
+              var substituted =
+                  ConjunctionMark(bPaths.map(GlushList.fromList).toList(), data.position) as T;
+              var added = [...pPath, substituted];
+              yield added;
+              result.add(added);
+            }
+          }
+        } else {
+          for (var path in parentPaths) {
+            var added = [...path, data];
+            yield added;
+            result.add(added);
+          }
         }
         memo[node] = result;
         return;

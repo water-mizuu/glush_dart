@@ -7,6 +7,7 @@ import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/profiling.dart";
 
 extension type const PatternSymbol(String symbol) {}
 
@@ -562,7 +563,7 @@ String _patternClosureKey(Pattern body, GuardEnvironment environment) {
   buffer.write("|");
   _writeCanonicalValue(buffer, environment.arguments);
   buffer.write("|");
-  _writeCanonicalString(buffer, environment.valuesKey);
+  _writeCanonicalValue(buffer, environment.valuesKey);
   return buffer.toString();
 }
 
@@ -905,7 +906,7 @@ GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment
     marks: override._marksForest,
     arguments: {...base.arguments, ...override.arguments},
     values: {...base.values, ...override.values},
-    valuesKey: "${base.valuesKey}|${override.valuesKey}",
+    valuesKey: (base.valuesKey, override.valuesKey),
     valueResolver: override.valueResolver ?? base.valueResolver,
     captureResolver: override.captureResolver ?? base.captureResolver,
     rulesByName: {...base.rulesByName, ...override.rulesByName},
@@ -919,7 +920,7 @@ final class GuardEnvironment {
     GlushList<Mark> marks = const GlushList<Mark>.empty(),
     this.arguments = const <String, Object?>{},
     this.values = const <String, Object?>{},
-    String? valuesKey,
+    Object? valuesKey,
     this.valueResolver,
     this.captureResolver,
     this.rulesByName = const <String, Rule>{},
@@ -930,7 +931,7 @@ final class GuardEnvironment {
   final GlushList<Mark> _marksForest;
   final Map<String, Object?> arguments;
   final Map<String, Object?> values;
-  final String valuesKey;
+  final Object valuesKey;
   final Object? Function(String name)? valueResolver;
   final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
@@ -2153,7 +2154,10 @@ class Rule extends Pattern {
   }
 
   Pattern body() {
-    _body ??= _code().consume();
+    if (_body == null) {
+      _body = _code().consume();
+      GlushProfiler.increment("parser.rule_body.created");
+    }
     return _body!;
   }
 
@@ -2224,12 +2228,41 @@ class RuleCall extends Pattern {
   RuleCall copy() =>
       RuleCall(name, rule, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
-  ({Map<String, Object?> arguments, String key}) resolveArgumentsAndKey(GuardEnvironment env) {
+  ({Map<String, Object?> arguments, Object key}) resolveArgumentsAndKey(GuardEnvironment env) {
     // Resolve the typed call-argument model once at the call boundary, then
     // hand the state machine a plain resolved map and a memoization key.
     // Arguments are resolved once at the call boundary so the runtime sees a
     // plain map and a stable memoization key.
     var resolved = <String, Object?>{};
+    var resolvedValues = <Object?>[];
+
+    for (var i = 0; i < _argumentNames.length; i++) {
+      var name = _argumentNames[i];
+      var value = arguments[name]!.resolve(env);
+      resolved[name] = value;
+      resolvedValues.add(value);
+    }
+
+    var key = switch (resolvedValues.length) {
+      0 => argumentsKey,
+      1 => (resolvedValues[0],),
+      2 => (resolvedValues[0], resolvedValues[1]),
+      3 => (resolvedValues[0], resolvedValues[1], resolvedValues[2]),
+      4 => (resolvedValues[0], resolvedValues[1], resolvedValues[2], resolvedValues[3]),
+      5 => (
+        resolvedValues[0],
+        resolvedValues[1],
+        resolvedValues[2],
+        resolvedValues[3],
+        resolvedValues[4],
+      ),
+      _ => _buildDynamicStringKey(resolvedValues),
+    };
+
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
+  }
+
+  String _buildDynamicStringKey(List<Object?> resolvedValues) {
     var buffer = StringBuffer();
     buffer
       ..write("m")
@@ -2240,15 +2273,11 @@ class RuleCall extends Pattern {
       if (i != 0) {
         buffer.write(",");
       }
-
-      var name = _argumentNames[i];
-      var value = arguments[name]!.resolve(env);
-      resolved[name] = value;
-      _writeCanonicalEntry(buffer, name, value);
+      _writeCanonicalEntry(buffer, _argumentNames[i], resolvedValues[i]);
     }
 
     buffer.write("}");
-    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: buffer.toString());
+    return buffer.toString();
   }
 
   @override
@@ -2346,8 +2375,37 @@ class ParameterCallPattern extends Pattern {
   ParameterCallPattern copy() =>
       ParameterCallPattern(name, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
-  ({Map<String, Object?> arguments, String key}) resolveArgumentsAndKey(GuardEnvironment env) {
+  ({Map<String, Object?> arguments, Object key}) resolveArgumentsAndKey(GuardEnvironment env) {
     var resolved = <String, Object?>{};
+    var resolvedValues = <Object?>[];
+
+    for (var i = 0; i < _argumentNames.length; i++) {
+      var name = _argumentNames[i];
+      var value = arguments[name]!.resolve(env);
+      resolved[name] = value;
+      resolvedValues.add(value);
+    }
+
+    var key = switch (resolvedValues.length) {
+      0 => argumentsKey,
+      1 => (resolvedValues[0],),
+      2 => (resolvedValues[0], resolvedValues[1]),
+      3 => (resolvedValues[0], resolvedValues[1], resolvedValues[2]),
+      4 => (resolvedValues[0], resolvedValues[1], resolvedValues[2], resolvedValues[3]),
+      5 => (
+        resolvedValues[0],
+        resolvedValues[1],
+        resolvedValues[2],
+        resolvedValues[3],
+        resolvedValues[4],
+      ),
+      _ => _buildDynamicStringKey(resolvedValues),
+    };
+
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
+  }
+
+  String _buildDynamicStringKey(List<Object?> resolvedValues) {
     var buffer = StringBuffer();
     buffer
       ..write("m")
@@ -2358,15 +2416,11 @@ class ParameterCallPattern extends Pattern {
       if (i != 0) {
         buffer.write(",");
       }
-
-      var name = _argumentNames[i];
-      var value = arguments[name]!.resolve(env);
-      resolved[name] = value;
-      _writeCanonicalEntry(buffer, name, value);
+      _writeCanonicalEntry(buffer, _argumentNames[i], resolvedValues[i]);
     }
 
     buffer.write("}");
-    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: buffer.toString());
+    return buffer.toString();
   }
 
   @override

@@ -1,45 +1,9 @@
 // ignore_for_file: strict_raw_type, unreachable_from_main
 
+import "dart:convert";
 import "dart:developer";
 import "dart:io";
-import "dart:math" show max;
 import "package:glush/glush.dart";
-
-extension ShowErrors on ParseError {
-  void displayError(String input) {
-    List<String> inputRows = input.replaceAll("\r", "").split("\n");
-
-    /// Surely the string we're trying to parse is not empty.
-    if (inputRows.isEmpty) {
-      throw StateError("Huh?");
-    }
-
-    int row = input.substring(0, position).split("\n").length;
-    int column =
-        input //
-            .substring(0, position)
-            .split("\n")
-            .last
-            .codeUnits
-            .length +
-        1;
-    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
-
-    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
-
-    print("Parse error at: ($row:$column)");
-    print(
-      displayedRows
-          .map(
-            (v) =>
-                " ${(v.$1 + 1).toString().padLeft(longest)} | "
-                "${v.$2}",
-          )
-          .join("\n"),
-    );
-    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
-  }
-}
 
 extension on Pattern {
   Pattern operator /(Pattern other) => Alt(this, Seq(not(), other));
@@ -121,8 +85,7 @@ void orderedChoice() {
 }
 
 void meta() {
-  var grammar = GrammarFileCompiler(
-    GrammarFileParser(r"""
+  const grammarString = r"""
         # ==========================
         #   Full Meta Grammar
         # ==========================
@@ -164,7 +127,7 @@ void meta() {
                 | $mark '$' name:ident
                 | $start "start"
                 | $end "eof"
-                | $call name:ident ('(' _ args:args? _ ')')?
+                | $call name:ident ('(' _ args:args? _ ')')? ( '^' prec:number )?
                 | $lit literal
                 | $range charRange
                 | $any '.'
@@ -227,7 +190,10 @@ void meta() {
         comment = '#' (!newline .)* (newline | eof)
         plain_ws = [ \t]+!
         newline = [\n\r]+!
-      """).parse(),
+      """;
+
+  var grammar = GrammarFileCompiler(
+    GrammarFileParser(grammarString).parse(),
   ).compile(startRuleName: "full");
 
   var parser = SMParserMini(grammar);
@@ -285,7 +251,7 @@ void meta() {
 
     /// primary
     "primary.group": (ctx) => ctx<Object>("inner"),
-    "primary.label": (ctx) => (ctx<String>("name"), ctx<Object>("body")),
+    "primary.label": (ctx) => [ctx<String>("name"), ctx<Object>("atom")],
     "primary.mark": (ctx) => '\$${ctx<String>('name')}',
     "primary.start": (ctx) => ["start"],
     "primary.end": (ctx) => ["end"],
@@ -337,30 +303,33 @@ void meta() {
     "ws": (ctx) => "WS: ${ctx.span}",
   });
 
-  const input = r"""
-    one(a, b) =
-      5 | S 's' && 'b' "a\"b"
-        | 's'*! # wat
-    two = 's' one(5, 2 + 3 <= 4)""";
+  // const input = r"""
+  //   one(a, b) =
+  //     5 | S 's' && 'b' "a\"b"
+  //       | 's'*! # wat
+  //   two = 's' one(5, 2 + 3 <= 4)""";
 
-  var result = parser.parseAmbiguous(input.trim());
+  var result = parser.parseAmbiguous(grammarString);
   print(result);
 
   switch (result) {
     case ParseAmbiguousForestSuccess result:
-      print(result.forest.allPaths().length);
       var output = StringBuffer()..writeln("Evaluated Meta Grammar Paths:");
-      for (var path in result.forest.allPaths()) {
+      for (var path in result.forest.allPaths().take(1)) {
         var tree = path.evaluateStructure();
         var evaluated = evaluator.evaluate(tree);
         output.writeln(evaluated);
-        print((evaluated as List<Object?>?)?.join("\n"));
+        File("test.txt")
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            const JsonEncoder.withIndent("  ").convert(evaluated as List<Object?>?),
+          );
       }
 
       var outputFile = File("meta_out.txt");
       outputFile.writeAsStringSync(output.toString());
     case ParseError error:
-      error.displayError(input);
+      error.displayError(grammarString);
     case _:
       throw Error();
   }
@@ -381,7 +350,7 @@ void dataDriven() {
       """
           .toSMParser();
 
-  for (var input in ["<book>Hello</book>", "<book>Hello</author></book>"]) {
+  for (var input in ["<book>Hello</book>", "<book>Hello</author>"]) {
     switch (parser.parseAmbiguous(input)) {
       case ParseAmbiguousForestSuccess result:
         print("$input -> dataDriven ok: ${result.forest.allPaths().length}");
@@ -419,10 +388,10 @@ void dataDriven2() {
 }
 
 void main() async {
-  mathSimple();
-  ambiguous();
-  orderedChoice();
+  // mathSimple();
+  // ambiguous();
+  // orderedChoice();
   meta();
   dataDriven();
-  dataDriven2();
+  // dataDriven2();
 }
