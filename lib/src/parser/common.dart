@@ -103,30 +103,72 @@ typedef NegationKey = (PatternSymbol pattern, int startPosition);
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
 typedef ConjunctionKey = (PatternSymbol left, PatternSymbol right, int startPosition);
 
-/// Key for identifying a unique parsing context at a given position.
+/// Metadata for identifying a unique parsing context at a given position.
 /// (state, caller, minimumPrecedence, predicateStack, capturesKey)
 /// Used for deduplication and result grouping.
-/// Represents a successful parse result at a specific state and context.
 typedef AcceptedContext = (State state, Context context);
 
 /// Identifies a parser continuation point by state, position, and caller context.
 typedef ParseNodeKey = (int stateId, int position, CallerKey? caller);
 
+/// Helper for grouping context-equivalent frames during token transitions.
+final class _ContextGroup {
+  _ContextGroup({
+    required this.state,
+    required this.caller,
+    required this.minPrecedenceLevel,
+    required this.predicateStack,
+    required this.captures,
+  });
+  final State state;
+  final CallerKey caller;
+  final int? minPrecedenceLevel;
+  final GlushList<PredicateCallerKey> predicateStack;
+  final CaptureBindings captures;
+  final List<GlushList<Mark>> marks = [];
+  final List<GlushList<DerivationKey>> derivationPaths = [];
+}
+
 /// Immutable key representing a parser context identified by state, caller, precedence, and predicate stack.
 @immutable
-final class _ContextKey {
-  _ContextKey(this.state, this.caller, this.minimumPrecedence, this.predicateStack)
-    : _hash = Object.hash(_ContextKey, state, caller, minimumPrecedence, predicateStack);
+abstract final class _ContextKey {
+  static Object create(
+    State state,
+    CallerKey caller,
+    int? minimumPrecedence,
+    GlushList<PredicateCallerKey> predicateStack,
+    CaptureBindings captures,
+  ) {
+    if (predicateStack.isEmpty && captures.isEmpty) {
+      // Bit-pack: CallerUID (31) | StateID (24) | MinPrec (8)
+      // Use 32-bit shift for caller to avoid overlap with 24-bit state ID.
+      return (caller.uid << 32) | (state.id << 8) | (minimumPrecedence ?? 0xFF);
+    }
+    return _ComplexContextKey(state, caller, minimumPrecedence, predicateStack, captures);
+  }
+}
+
+@immutable
+final class _ComplexContextKey {
+  _ComplexContextKey(this.state, this.caller, this.minimumPrecedence, this.predicateStack, this.captures)
+    : _hash = Object.hash(_ComplexContextKey, state, caller, minimumPrecedence, predicateStack, captures);
 
   final State state;
   final CallerKey caller;
   final int? minimumPrecedence;
   final GlushList<PredicateCallerKey> predicateStack;
+  final CaptureBindings captures;
   final int _hash;
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is _ContextKey && _hash == other._hash;
+      identical(this, other) ||
+      other is _ComplexContextKey &&
+          state == other.state &&
+          caller == other.caller &&
+          minimumPrecedence == other.minimumPrecedence &&
+          predicateStack == other.predicateStack &&
+          captures == other.captures;
 
   @override
   int get hashCode => _hash;
@@ -173,8 +215,25 @@ final class _GuardCacheKey {
 
 /// Cache key for memoizing rule call sites based on rule, precedence, and arguments.
 @immutable
-final class _CallerCacheKey {
-  _CallerCacheKey(this.rule, this.startPosition, this.minPrecedenceLevel, this.callArgumentsKey)
+abstract final class _CallerCacheKey {
+  static Object create(
+    Rule rule,
+    int startPosition,
+    int? minPrecedenceLevel,
+    CallArgumentsKey callArgumentsKey,
+  ) {
+    if (callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty) {
+      // Bit-pack: StartPos (31) | RuleUID (24) | MinPrec (8)
+      // Use 32-bit shift for position to avoid overlap with 24-bit rule ID.
+      return (startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF);
+    }
+    return _ComplexCallerCacheKey(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
+  }
+}
+
+@immutable
+final class _ComplexCallerCacheKey {
+  _ComplexCallerCacheKey(this.rule, this.startPosition, this.minPrecedenceLevel, this.callArgumentsKey)
     : _hash = Object.hash(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
 
   final Rule rule;
@@ -186,7 +245,7 @@ final class _CallerCacheKey {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is _CallerCacheKey &&
+      other is _ComplexCallerCacheKey &&
           _hash == other._hash &&
           rule == other.rule &&
           startPosition == other.startPosition &&
@@ -272,9 +331,13 @@ final class ParseError implements ParseOutcome, Exception {
 }
 
 final class NegationCallerKey implements CallerKey {
-  const NegationCallerKey(this.pattern, this.startPosition);
+  NegationCallerKey(this.pattern, this.startPosition)
+    : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
   final PatternSymbol pattern;
   final int startPosition;
+
+  @override
+  final int uid;
 
   @override
   bool operator ==(Object other) =>
@@ -378,13 +441,14 @@ final class ParseState {
   /// Live predicate sub-parses keyed by `(pattern, startPosition)`.
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
 
-  /// Live conjunction sub-parses keyed by `(left, right, startPosition)`.
+  /// Shared conjunction sub-parses keyed by `(left, right, startPosition)`.
   final Map<ConjunctionKey, ConjunctionTracker> conjunctionTrackers = {};
 
   final Map<NegationKey, NegationTracker> negationTrackers = {};
 
   /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
-  final Map<_CallerCacheKey, Caller> _callers = {};
+  /// Keys can be `int` (packed) or [_ComplexCallerCacheKey].
+  final Map<Object, Caller> _callers = {};
 
   /// Rules indexed by source name for guard expression evaluation.
   final Map<String, Rule> rulesByName;
@@ -397,6 +461,9 @@ final class ParseState {
 
   /// Active frames carried forward to the next `processToken` call.
   List<Frame> frames;
+
+  /// Counter for assigning unique IDs to Caller nodes created during this parse.
+  int _callerCounter = 1;
 
   /// Last step produced by the parser, used for final accept/match results.
   Step? _lastStep;
@@ -791,11 +858,15 @@ final class CaptureBindings {
 @immutable
 sealed class CallerKey {
   const CallerKey();
+  int get uid;
 }
 
 /// Represents the root call context (top-level parse, not a rule call).
 final class RootCallerKey extends CallerKey {
   const RootCallerKey();
+
+  @override
+  int get uid => 0;
 
   @override
   int get hashCode => 0;
@@ -806,10 +877,14 @@ final class RootCallerKey extends CallerKey {
 
 /// Caller key for a lookahead predicate sub-parse.
 final class PredicateCallerKey extends CallerKey {
-  const PredicateCallerKey(this.pattern, this.startPosition);
+  PredicateCallerKey(this.pattern, this.startPosition)
+    : uid = -((pattern.hashCode.abs() << 24) | (startPosition & 0xFFFFFF));
 
   final PatternSymbol pattern;
   final int startPosition;
+
+  @override
+  final int uid;
 
   @override
   bool operator ==(Object other) =>
@@ -823,17 +898,20 @@ final class PredicateCallerKey extends CallerKey {
 
 /// Caller key for a conjunction sub-parse branch.
 final class ConjunctionCallerKey extends CallerKey {
-  const ConjunctionCallerKey({
+  ConjunctionCallerKey({
     required this.left,
     required this.right,
     required this.startPosition,
     required this.isLeft,
-  });
+  }) : uid = -((left.hashCode.abs() << 16) | (right.hashCode.abs() << 8) | (startPosition & 0xFF));
 
   final PatternSymbol left;
   final PatternSymbol right;
   final int startPosition;
   final bool isLeft;
+
+  @override
+  final int uid;
 
   @override
   bool operator ==(Object other) =>
@@ -856,6 +934,7 @@ final class Caller extends CallerKey {
     this.minPrecedenceLevel,
     this.callArgumentsKey,
     Map<String, Object?> arguments,
+    this.uid,
   ) : arguments = Map<String, Object?>.unmodifiable(arguments);
   final Rule rule;
   final Pattern pattern;
@@ -863,6 +942,10 @@ final class Caller extends CallerKey {
   final int? minPrecedenceLevel;
   final CallArgumentsKey callArgumentsKey;
   final Map<String, Object?> arguments;
+
+  @override
+  final int uid;
+
   final List<WaiterInfo> waiters = [];
   final Map<_ReturnKey, Context> _returns = {};
   final Set<_WaiterKey> _waiterKeys = {};
@@ -1106,11 +1189,20 @@ class Step {
   final bool isSupportingAmbiguity;
   final bool captureTokensAsMarks;
   final List<Frame> nextFrames = [];
-  final Map<_ContextKey, ({List<GlushList<Mark>> marks, CaptureBindings captures})>
-  _nextFrameGroups = {};
-  final Map<_ContextKey, Context> _currentFrameGroups = {};
-  final Set<_ContextKey> _activeContextKeys = {};
-  final Queue<_ContextKey> _workQueue = DoubleLinkedQueue();
+
+  /// Batched next-position frames grouped by context metadata.
+  /// Keys can be `int` (packed) or [_ComplexContextKey].
+  final Map<Object, _ContextGroup> _nextFrameGroups = {};
+
+  /// Batched current-position frames grouped by context metadata.
+  /// Keys can be `int` (packed) or [_ComplexContextKey].
+  final Map<Object, Context> _currentFrameGroups = {};
+
+  /// Deduplication set for non-forest mode.
+  /// Keys can be `int` (packed) or [_ComplexContextKey].
+  final Set<Object> _activeContextKeys = {};
+
+  final Queue<(Object, State)> _workQueue = DoubleLinkedQueue();
   final Set<CallerKey> _returnedCallers = {};
   final Set<AcceptedContext> _acceptedContextSet = {};
   final List<AcceptedContext> acceptedContexts = [];
@@ -1427,11 +1519,11 @@ class Step {
     );
 
     if (_guardResultCache.containsKey(cacheKey)) {
-      GlushProfiler.increment("parser.guard.cache_hits");
+      GlushProfiler.incrementHit("parser.guard.cache");
       return _guardResultCache[cacheKey]!;
     }
 
-    GlushProfiler.increment("parser.guard.cache_misses");
+    GlushProfiler.incrementMiss("parser.guard.cache");
     var result = GlushProfiler.measure("parser.guard.evaluate", () {
       return guard.evaluate(
         _buildGuardEnvironment(rule: subjectRule, frame: frame, arguments: arguments),
@@ -1480,10 +1572,10 @@ class Step {
   CaptureValue? _extractLabelCapture(GlushList<Mark> marks, String target) {
     var cacheKey = (marks, target);
     if (parseState.labelCaptureCache.containsKey(cacheKey)) {
-      GlushProfiler.increment("parser.capture.cache_hits");
+      GlushProfiler.incrementHit("parser.capture.cache");
       return parseState.labelCaptureCache[cacheKey];
     }
-    GlushProfiler.increment("parser.capture.cache_misses");
+    GlushProfiler.incrementMiss("parser.capture.cache");
 
     // If multiple branches can produce the same capture name, we keep the
     // earliest capture as the canonical one for this forest.
@@ -1574,11 +1666,11 @@ class Step {
       return;
     }
 
-    var key = _CallerCacheKey(targetRule, position, minPrecedenceLevel, callArgumentsKey);
+    var key = _CallerCacheKey.create(targetRule, position, minPrecedenceLevel, callArgumentsKey);
     var caller = parseState._callers[key];
-    var isNewCaller = caller == null;
-    GlushProfiler.increment(isNewCaller ? "parser.callers.created" : "parser.callers.reused");
+    bool isNewCaller = caller == null;
     if (isNewCaller) {
+      GlushProfiler.incrementMiss("parser.callers.cache");
       caller = parseState._callers[key] = Caller(
         targetRule,
         callPattern,
@@ -1586,8 +1678,11 @@ class Step {
         minPrecedenceLevel,
         callArgumentsKey,
         callArguments,
+        parseState._callerCounter++,
       );
       GlushProfiler.increment("parser.callers.cache_assign");
+    } else {
+      GlushProfiler.incrementHit("parser.callers.cache");
     }
     var isNewWaiter = caller.addWaiter(returnState, minPrecedenceLevel, frame.context, (
       currentState.id,
@@ -1696,11 +1791,13 @@ class Step {
       return;
     }
 
-    var key = _ContextKey(
+    // Deduplicate closure branches by merging equivalent contexts.
+    var key = _ContextKey.create(
       state,
       nextContext.caller,
       nextContext.minPrecedenceLevel,
       nextContext.predicateStack,
+      nextContext.captures,
     );
     // Forest mode tracks alternate derivation edges for equivalent contexts.
     if (isSupportingAmbiguity) {
@@ -1749,7 +1846,7 @@ class Step {
     }
 
     _currentFrameGroups[key] = nextContext;
-    _workQueue.add(key);
+    _workQueue.add((key, state));
   }
 
   /// Execute outgoing actions for one `(frame,state)` pair.
@@ -1794,17 +1891,30 @@ class Step {
 
             // Batched until finalize() so token-consuming transitions advance
             // together from this position to the next pivot.
-            var nextKey = _ContextKey(
+            var nextKey = _ContextKey.create(
               action.nextState,
               callerOrRoot,
               frameContext.minPrecedenceLevel,
               frameContext.predicateStack,
+              frameContext.captures,
             );
-            var nextGroup = _nextFrameGroups[nextKey] ??= (
-              marks: <GlushList<Mark>>[],
-              captures: frameContext.captures,
-            );
+            var nextGroup = _nextFrameGroups[nextKey];
+            if (nextGroup != null) {
+              GlushProfiler.incrementHit("parser.context.dedup");
+            } else {
+              GlushProfiler.incrementMiss("parser.context.dedup");
+              nextGroup = _nextFrameGroups[nextKey] = _ContextGroup(
+                state: action.nextState,
+                caller: callerOrRoot,
+                minPrecedenceLevel: frameContext.minPrecedenceLevel,
+                predicateStack: frameContext.predicateStack,
+                captures: frameContext.captures,
+              );
+            }
             nextGroup.marks.add(newMarks);
+            if (isSupportingAmbiguity) {
+              nextGroup.derivationPaths.add(frameContext.derivationPath);
+            }
           }
         case BoundaryAction():
           var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
@@ -1833,17 +1943,31 @@ class Step {
               );
             }
 
-            var nextKey = _ContextKey(
+            var nextKey = _ContextKey.create(
               action.nextState,
               callerOrRoot,
               frameContext.minPrecedenceLevel,
               frameContext.predicateStack,
+              frameContext.captures,
             );
 
-            (_nextFrameGroups[nextKey] ??= (
-              marks: <GlushList<Mark>>[],
-              captures: frameContext.captures,
-            )).marks.add(newMarks);
+            var nextGroup = _nextFrameGroups[nextKey];
+            if (nextGroup != null) {
+              GlushProfiler.incrementHit("parser.context.dedup");
+            } else {
+              GlushProfiler.incrementMiss("parser.context.dedup");
+              nextGroup = _nextFrameGroups[nextKey] = _ContextGroup(
+                state: action.nextState,
+                caller: callerOrRoot,
+                minPrecedenceLevel: frameContext.minPrecedenceLevel,
+                predicateStack: frameContext.predicateStack,
+                captures: frameContext.captures,
+              );
+            }
+            nextGroup.marks.add(newMarks);
+            if (isSupportingAmbiguity) {
+              nextGroup.derivationPaths.add(frameContext.derivationPath);
+            }
           }
         case MarkAction():
           var mark = NamedMark(action.name, position);
@@ -2508,14 +2632,10 @@ class Step {
     }
     // Fast paths for the common case where one/both mark streams are empty.
     // This avoids building branched wrappers for right-recursive call returns.
-    GlushList<Mark> nextMarks;
-    if (parentContext.marks.isEmpty) {
-      nextMarks = returnContext.marks;
-    } else if (returnContext.marks.isEmpty) {
-      nextMarks = parentContext.marks;
-    } else {
-      nextMarks = GlushList.branched([parentContext.marks]).addList(returnContext.marks);
-    }
+    // Continous mark streams must be concatenated, not branched.
+    // Branching is for alternative derivations (same span), while rule returns
+    // represent a sequence (prefix + call result).
+    var nextMarks = parentContext.marks.addList(returnContext.marks);
 
     CaptureBindings mergedCaptures;
     if (parentContext.captures.isEmpty) {
@@ -2535,7 +2655,7 @@ class Step {
           ? parentContext._arguments
           : parentContext.arguments,
       captures: mergedCaptures,
-      derivationPath: parentContext.derivationPath,
+      derivationPath: parentContext.derivationPath.addList(returnContext.derivationPath),
       predicateStack: parentContext.predicateStack,
       bsrRuleSymbol: parentContext.bsrRuleSymbol,
       callStart: parentContext.callStart,
@@ -2560,20 +2680,25 @@ class Step {
   /// Grouping here preserves deterministic ordering and merges equivalent
   /// contexts with branched marks.
   void _finalize() {
-    for (var MapEntry(:key, :value) in _nextFrameGroups.entries) {
-      var state = key.state;
-      var caller = key.caller;
-      var minPrecedenceLevel = key.minimumPrecedence;
-      var predicateStack = key.predicateStack;
-      var branchedMarks = GlushList.branched(value.marks);
+    for (var MapEntry(:value) in _nextFrameGroups.entries) {
+      var state = value.state;
+      var caller = value.caller;
+      var minPrecedenceLevel = value.minPrecedenceLevel;
+      var predicateStack = value.predicateStack;
+      var branchedMarks = GlushList.branched<Mark>(value.marks);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
+      var branchedDerivations = isSupportingAmbiguity
+          ? GlushList.branched<DerivationKey>(value.derivationPaths)
+          : value.derivationPaths.firstOrNull ?? const GlushList.empty();
+
       var nextFrame = Frame(
         Context(
           caller,
           branchedMarks,
           captures: value.captures,
+          derivationPath: branchedDerivations,
           predicateStack: predicateStack,
           bsrRuleSymbol: caller is Caller ? caller.rule.symbolId! : null,
           callStart: callerStartPosition,
@@ -2608,14 +2733,13 @@ class Step {
       _enqueue(state, frame.context);
     }
     while (_workQueue.isNotEmpty) {
-      var key = _workQueue.removeFirst();
+      var (key, state) = _workQueue.removeFirst();
       var context = _currentFrameGroups.remove(key);
       if (context == null) {
         // This can happen if the queue outlived its accompanying context group
         // during complex transitions or duplicates in the work queue.
         continue;
       }
-      var state = key.state;
       if (!frame.replay) {
         if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
           // Contract note:

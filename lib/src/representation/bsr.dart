@@ -42,6 +42,10 @@ class BsrSet {
   final Map<(PatternSymbol, int start, int end), Set<int>> _pivots = {};
   final Map<(PatternSymbol, int start, int end), int> _terminals = {};
 
+  // Secondary indexes for fast range queries
+  final Map<(PatternSymbol, int start), Set<int>> _endsBySymbolStart = {};
+  final Map<(PatternSymbol, int start), Set<int>> _terminalEndsBySymbolStart = {};
+
   /// Add a rule-completion entry.
   void add(PatternSymbol patternSymbol, int start, int pivot, int end) {
     assert(
@@ -50,6 +54,7 @@ class BsrSet {
       "got ($start, $pivot, $end).",
     );
     _pivots.putIfAbsent((patternSymbol, start, end), Set.new).add(pivot);
+    _endsBySymbolStart.putIfAbsent((patternSymbol, start), Set.new).add(end);
   }
 
   /// Record the exact token matched by a terminal symbol.
@@ -67,6 +72,7 @@ class BsrSet {
       "for $symbol at [$start, $end).",
     );
     _terminals[key] = token;
+    _terminalEndsBySymbolStart.putIfAbsent((symbol, start), Set.new).add(end);
   }
 
   /// Total number of recorded rule-completion entries.
@@ -91,6 +97,16 @@ class BsrSet {
 
   int? tokenFor(PatternSymbol symbol, int start, int end) {
     return _terminals[(symbol, start, end)];
+  }
+
+  /// Returns all end positions for a given symbol and start position.
+  Iterable<int> endsFor(PatternSymbol symbol, int start) {
+    return _endsBySymbolStart[(symbol, start)] ?? const [];
+  }
+
+  /// Returns all terminal end positions for a given symbol and start position.
+  Iterable<int> terminalEndsFor(PatternSymbol symbol, int start) {
+    return _terminalEndsBySymbolStart[(symbol, start)] ?? const [];
   }
 
   /// Build an SPPF rooted at [startSymbol] over the full input.
@@ -290,27 +306,6 @@ class _ContConjRight extends _Task {
   const _ContConjRight(this.startTask, this.leftNodes);
   final _ContConjLeft startTask;
   final List<ForestNode> leftNodes;
-}
-
-class _AscendingIntIterator implements Iterator<int> {
-  _AscendingIntIterator(int startInclusive, this._endInclusive) : _cursor = startInclusive - 1;
-  int _cursor;
-  final int _endInclusive;
-  int _current = 0;
-
-  @override
-  int get current => _current;
-
-  @override
-  bool moveNext() {
-    var next = _cursor + 1;
-    if (next > _endInclusive) {
-      return false;
-    }
-    _cursor = next;
-    _current = next;
-    return true;
-  }
 }
 
 class SppfBuilder {
@@ -756,7 +751,17 @@ class SppfBuilder {
         }
       case "sta":
         {
-          var mids = _AscendingIntIterator(start + 1, end);
+          var child = getChildrenOf(task.pattern).single;
+          var split = _splitSymbol(child);
+          Iterable<int> mids;
+          if (split != null && split.$1 == "tok") {
+            mids = bsr.terminalEndsFor(child, start);
+          } else {
+            // For general sub-patterns, we check if the child matched a span
+            // starting at 'start'.
+            mids = bsr.endsFor(child, start);
+          }
+
           var loop = _ContRepLoop(
             task.currentRule,
             task.pattern,
@@ -764,7 +769,7 @@ class SppfBuilder {
             end,
             task.ruleStart,
             task.minPrecedenceLevel,
-            mids,
+            mids.where((m) => m <= end).iterator,
           );
           taskStack.add(loop);
           if (start == end) {
@@ -773,7 +778,15 @@ class SppfBuilder {
         }
       case "plu":
         {
-          var mids = _AscendingIntIterator(start + 1, end);
+          var child = getChildrenOf(task.pattern).single;
+          var split = _splitSymbol(child);
+          Iterable<int> mids;
+          if (split != null && split.$1 == "tok") {
+            mids = bsr.terminalEndsFor(child, start);
+          } else {
+            mids = bsr.endsFor(child, start);
+          }
+
           var loop = _ContRepLoop(
             task.currentRule,
             task.pattern,
@@ -781,7 +794,7 @@ class SppfBuilder {
             end,
             task.ruleStart,
             task.minPrecedenceLevel,
-            mids,
+            mids.where((m) => m <= end).iterator,
           );
           taskStack.add(loop);
           taskStack.add(_ContRepBase(loop));

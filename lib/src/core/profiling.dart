@@ -49,6 +49,16 @@ final class GlushProfiler {
     _counters[key] = (_counters[key] ?? 0) + delta;
   }
 
+  static void incrementHit(String key) {
+    increment("$key.hit");
+    increment("$key.total");
+  }
+
+  static void incrementMiss(String key) {
+    increment("$key.miss");
+    increment("$key.total");
+  }
+
   static void addMicros(String key, int micros) {
     if (!enabled) {
       return;

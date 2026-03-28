@@ -25,10 +25,15 @@ sealed class GlushList<T> {
     }
 
     var flattened = <GlushList<T>>[];
+    var seen = <GlushList<T>>{};
     for (var alt in alternatives) {
       if (alt is BranchedList<T>) {
-        flattened.addAll(alt.alternatives);
-      } else if (alt is! EmptyList<T>) {
+        for (var sub in alt.alternatives) {
+          if (sub is! EmptyList<T> && seen.add(sub)) {
+            flattened.add(sub);
+          }
+        }
+      } else if (alt is! EmptyList<T> && seen.add(alt)) {
         flattened.add(alt);
       }
     }
@@ -202,39 +207,19 @@ extension GlushListVisualizer<T> on GlushList<T> {
     return _collect(this, {});
   }
 
-  Iterable<List<T>> _collect(GlushList<T> node, Map<GlushList<T>, List<List<T>>> memo) sync* {
-    if (memo.containsKey(node)) {
-      yield* memo[node]!;
-      return;
-    }
-
+  Iterable<List<T>> _collect(GlushList<T> node, Set<GlushList<T>> visiting) sync* {
     switch (node) {
       case EmptyList<T>():
         yield const [];
-        memo[node] = const [[]];
-        return;
       case BranchedList<T>():
-        var result = <List<T>>[];
         for (var alt in node.alternatives) {
-          var branches = _collect(alt, memo);
-          for (var branch in branches) {
-            yield branch;
-          }
-          result.addAll(branches);
+          yield* _collect(alt, visiting);
         }
-        memo[node] = result;
-        return;
       case Push<T>():
-        var result = <List<T>>[];
-        var parentPaths = _collect(node.parent, memo);
         var data = node.data;
-
         if (data is ConjunctionMark) {
-          // A ConjunctionMark contains nested GlushLists. We need to find all
-          // combinations of paths from each branch.
           var branchPaths = data.branches.map((b) => (b as GlushList).allPaths().toList()).toList();
 
-          // Compute Cartesian product of paths from all branches
           Iterable<List<List<Mark>>> product(int index) sync* {
             if (index == branchPaths.length) {
               yield [];
@@ -247,38 +232,26 @@ extension GlushListVisualizer<T> on GlushList<T> {
             }
           }
 
-          for (var pPath in parentPaths) {
-            for (var bPaths in product(0)) {
+          var productResults = product(0).toList();
+          for (var pPath in _collect(node.parent, visiting)) {
+            for (var bPaths in productResults) {
               var substituted =
                   ConjunctionMark(bPaths.map(GlushList.fromList).toList(), data.position) as T;
-              var added = [...pPath, substituted];
-              yield added;
-              result.add(added);
+              yield [...pPath, substituted];
             }
           }
         } else {
-          for (var path in parentPaths) {
-            var added = [...path, data];
-            yield added;
-            result.add(added);
+          for (var pPath in _collect(node.parent, visiting)) {
+            yield [...pPath, data];
           }
         }
-        memo[node] = result;
-        return;
       case Concat<T>():
-        var result = <List<T>>[];
-        var leftPaths = _collect(node.left, memo);
-        var rightPaths = _collect(node.right, memo);
-        for (var l in leftPaths) {
-          for (var r in rightPaths) {
-            var branches = [...l, ...r];
-
-            yield branches;
-            result.add(branches);
+        // Concat is rare but we handle it lazily
+        for (var l in _collect(node.left, visiting)) {
+          for (var r in _collect(node.right, visiting)) {
+            yield [...l, ...r];
           }
         }
-        memo[node] = result;
-        return;
     }
   }
 

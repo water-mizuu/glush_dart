@@ -2233,11 +2233,17 @@ extension type RuleName(String symbol) {}
 
 /// Grammar rule
 class Rule extends Pattern {
-  Rule(String name, this._code) : name = RuleName(name);
-
+  Rule(String name, this._code) : name = RuleName(name), uid = _uidCounter++;
+ 
+  static int _uidCounter = 1;
+ 
   final RuleName name;
   final Pattern Function() _code;
   final List<RuleCall> calls = [];
+ 
+  /// Unique serial ID assigned during Rule creation.
+  /// Used for fast integer-packed cache keys.
+  final int uid;
 
   Pattern? _body;
   GuardExpr? guard;
