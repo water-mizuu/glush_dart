@@ -5,6 +5,80 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:meta/meta.dart";
 
+/// Key for identifying states in the state machine.
+@immutable
+sealed class StateKey {
+  const StateKey();
+}
+
+final class InitStateKey extends StateKey {
+  const InitStateKey();
+
+  @override
+  bool operator ==(Object other) => other is InitStateKey;
+
+  @override
+  int get hashCode => (InitStateKey).hashCode;
+
+  @override
+  String toString() => ":init";
+}
+
+final class PatternStateKey extends StateKey {
+  const PatternStateKey(this.pattern);
+  final Pattern pattern;
+
+  @override
+  bool operator ==(Object other) => other is PatternStateKey && other.pattern == pattern;
+
+  @override
+  int get hashCode => pattern.hashCode;
+
+  @override
+  String toString() => pattern.toString();
+}
+
+final class ParamStringStateKey extends StateKey {
+  const ParamStringStateKey(this.text, this.index, this.nextState);
+  final String text;
+  final int index;
+  final State nextState;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ParamStringStateKey &&
+      other.text == text &&
+      other.index == index &&
+      other.nextState == nextState;
+
+  @override
+  int get hashCode => Object.hash(text, index, nextState);
+}
+
+final class ParamPredicateStateKey extends StateKey {
+  const ParamPredicateStateKey(this.text, this.index);
+  final String text;
+  final int index;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ParamPredicateStateKey && other.text == text && other.index == index;
+
+  @override
+  int get hashCode => Object.hash(text, index);
+}
+
+final class ParamPredicateEndStateKey extends StateKey {
+  const ParamPredicateEndStateKey(this.text);
+  final String text;
+
+  @override
+  bool operator ==(Object other) => other is ParamPredicateEndStateKey && other.text == text;
+
+  @override
+  int get hashCode => text.hashCode;
+}
+
 // Action types for state machine
 @immutable
 sealed class StateAction {
@@ -389,11 +463,11 @@ final class _PredicateCluster {
 /// The compiled state machine
 class StateMachine {
   StateMachine(this.grammar) {
-    var initState = _getOrCreateState(":init");
+    var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
 
     // Mark the state after start call as accepting
-    var startState = _getOrCreateState(grammar.startCall);
+    var startState = _getOrCreateState(PatternStateKey(grammar.startCall));
     startState.actions.add(const AcceptAction());
 
     if (grammar.isEmpty()) {
@@ -410,7 +484,7 @@ class StateMachine {
       );
       rules.add(rule.symbolId!);
 
-      var firstState = _getOrCreateState(rule);
+      var firstState = _getOrCreateState(PatternStateKey(rule));
       ruleFirst[rule.symbolId!] = [firstState];
       _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
 
@@ -425,12 +499,12 @@ class StateMachine {
 
       // Connect each pair
       rule.body().eachPair((a, b) {
-        _connect(_getOrCreateState(a), b, currentRule: rule);
+        _connect(_getOrCreateState(PatternStateKey(a)), b, currentRule: rule);
       });
 
       // Mark states before returns
       for (var lastState in rule.body().lastSet()) {
-        var state = _getOrCreateState(lastState);
+        var state = _getOrCreateState(PatternStateKey(lastState));
         var action = ReturnAction(rule, lastState, precMap[lastState]);
         state.actions.add(action);
       }
@@ -452,29 +526,29 @@ class StateMachine {
   final Map<String, State> _parameterPredicateChains = {};
   final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps());
 
-  final Map<Object, State> _stateMapping = {};
+  final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
 
   /// Initialize state structure for imported state machines
   /// (exposed for ImportedStateMachine)
-  void initializeImported(List<State> initialStates, Map<Object, State> stateMapping) {
+  void initializeImported(List<State> initialStates, Map<StateKey, State> stateMapping) {
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
   }
 
-  State _getOrCreateState(Object pattern) {
-    var state = _stateMapping[pattern];
+  State _getOrCreateState(StateKey key) {
+    var state = _stateMapping[key];
     if (state != null) {
       return state;
     }
     var created = State(_stateMapping.length);
-    _stateMapping[pattern] = created;
+    _stateMapping[key] = created;
     _cachedStates = null;
     return created;
   }
 
-  State get startState => _stateMapping[":init"]!;
+  State get startState => _stateMapping[const InitStateKey()]!;
 
   State parameterStringEntry(String text, State nextState) {
     if (text.isEmpty) {
@@ -488,7 +562,7 @@ class StateMachine {
 
     var tail = nextState;
     for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(("param-string", text, i, nextState));
+      var state = _getOrCreateState(ParamStringStateKey(text, i, nextState));
       if (state.actions.isEmpty) {
         state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
@@ -505,7 +579,7 @@ class StateMachine {
       return state;
     }
 
-    var terminal = _getOrCreateState(("param-predicate-end", text));
+    var terminal = _getOrCreateState(ParamPredicateEndStateKey(text));
     if (terminal.actions.isEmpty) {
       terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
     }
@@ -516,7 +590,7 @@ class StateMachine {
 
     var tail = terminal;
     for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(("param-predicate", text, i));
+      var state = _getOrCreateState(ParamPredicateStateKey(text, i));
       if (state.actions.isEmpty) {
         state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
@@ -528,16 +602,16 @@ class StateMachine {
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = TokenAction(terminal, nextState);
         state.actions.add(action);
       case Conj():
         if (terminal.singleToken()) {
-          var nextState = _getOrCreateState(terminal);
+          var nextState = _getOrCreateState(PatternStateKey(terminal));
           var action = TokenAction(terminal, nextState);
           state.actions.add(action);
         } else {
-          var nextState = _getOrCreateState(terminal);
+          var nextState = _getOrCreateState(PatternStateKey(terminal));
           // Complex conjunction: use sub-parse rendezvous
           var action = ConjunctionAction(
             leftSymbol: _extractSymbol(terminal.left),
@@ -547,17 +621,17 @@ class StateMachine {
           state.actions.add(action);
         }
       case StartAnchor() || EofAnchor():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
         var action = BoundaryAction(kind, terminal, nextState);
         state.actions.add(action);
       case Marker():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = MarkAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case And():
         // Positive lookahead: create predicate action
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         switch (terminal.pattern) {
           case RuleCall(:var rule):
             state.actions.add(
@@ -574,7 +648,7 @@ class StateMachine {
         }
       case Not():
         // Negative lookahead: create predicate action
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         switch (terminal.pattern) {
           case RuleCall(:var rule):
             state.actions.add(
@@ -591,7 +665,7 @@ class StateMachine {
         }
       case Neg():
         // Span-level negation: create negation action
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = NegationAction(
           symbol: (terminal.pattern as RuleCall).rule.symbolId!,
           nextState: nextState,
@@ -605,24 +679,24 @@ class StateMachine {
           var action = TailCallAction(terminal.rule, terminal, minPrecedenceLevel);
           state.actions.add(action);
         } else {
-          var returnState = _getOrCreateState(terminal);
+          var returnState = _getOrCreateState(PatternStateKey(terminal));
           var action = CallAction(terminal.rule, terminal, returnState, minPrecedenceLevel);
           state.actions.add(action);
         }
       case LabelStart():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelStartAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case LabelEnd():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelEndAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case ParameterRefPattern():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = ParameterAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case ParameterCallPattern():
-        var nextState = _getOrCreateState(terminal);
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = ParameterCallAction(terminal, nextState);
         state.actions.add(action);
       case Eps():
@@ -885,9 +959,11 @@ class StateMachine {
       if (identical(entry.value, state)) {
         var key = entry.key;
         return switch (key) {
-          ":init" => "init",
-          Pattern pattern => pattern.toString(),
-          _ => key.toString(),
+          InitStateKey() => "init",
+          PatternStateKey(:var pattern) => pattern.toString(),
+          ParamPredicateEndStateKey(:var text) => "param-predicate-end($text)",
+          ParamPredicateStateKey(:var text, :var index) => "param-predicate($text:$index)",
+          ParamStringStateKey(:var text, :var index) => "param-string($text:$index)",
         };
       }
     }
@@ -990,10 +1066,10 @@ class StateMachine {
 
     for (var entry in _stateMapping.entries) {
       var key = entry.key;
-      if (key is! Rule) {
+      if (key is! PatternStateKey || key.pattern is! Rule) {
         continue;
       }
-      var rule = key;
+      var rule = key.pattern as Rule;
       if (!rule.name.symbol.startsWith(r"pred$")) {
         continue;
       }
@@ -1008,7 +1084,7 @@ class StateMachine {
       var clusterStates = <State>[];
       var seenStates = <State>{};
       for (var pattern in patterns) {
-        var state = _stateMapping[pattern];
+        var state = _stateMapping[PatternStateKey(pattern)];
         if (state != null && seenStates.add(state)) {
           clusterStates.add(state);
         }

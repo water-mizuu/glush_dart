@@ -8,6 +8,107 @@ import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:meta/meta.dart";
+
+@immutable
+sealed class CallArgumentsKey {
+  const CallArgumentsKey();
+}
+
+final class StringCallArgumentsKey extends CallArgumentsKey {
+  const StringCallArgumentsKey(this.key);
+  final String key;
+
+  @override
+  bool operator ==(Object other) => other is StringCallArgumentsKey && other.key == key;
+
+  @override
+  int get hashCode => key.hashCode;
+
+  @override
+  String toString() => key;
+}
+
+final class EmptyCallArgumentsKey extends CallArgumentsKey {
+  const EmptyCallArgumentsKey();
+
+  @override
+  bool operator ==(Object other) => other is EmptyCallArgumentsKey;
+
+  @override
+  int get hashCode => (EmptyCallArgumentsKey).hashCode;
+
+  @override
+  String toString() => "";
+}
+
+final class GuardValuesKey extends CallArgumentsKey {
+  const GuardValuesKey({
+    required this.captureSignature,
+    required this.ruleName,
+    required this.position,
+    required this.callStart,
+    required this.minPrecedenceLevel,
+    required this.precedenceLevel,
+  });
+
+  final String captureSignature;
+  final String ruleName;
+  final int position;
+  final int callStart;
+  final int? minPrecedenceLevel;
+  final int? precedenceLevel;
+
+  @override
+  bool operator ==(Object other) =>
+      other is GuardValuesKey &&
+      other.captureSignature == captureSignature &&
+      other.ruleName == ruleName &&
+      other.position == position &&
+      other.callStart == callStart &&
+      other.minPrecedenceLevel == minPrecedenceLevel &&
+      other.precedenceLevel == precedenceLevel;
+
+  @override
+  int get hashCode => Object.hash(
+    captureSignature,
+    ruleName,
+    position,
+    callStart,
+    minPrecedenceLevel,
+    precedenceLevel,
+  );
+}
+
+final class CompositeCallArgumentsKey extends CallArgumentsKey {
+  const CompositeCallArgumentsKey(this.values);
+  final List<Object?> values;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CompositeCallArgumentsKey &&
+      other.values.length == values.length &&
+      Iterable<int>.generate(values.length).every((i) => other.values[i] == values[i]);
+
+  @override
+  int get hashCode => Object.hashAll(values);
+
+  @override
+  String toString() => values.join(",");
+}
+
+final class MergedCallArgumentsKey extends CallArgumentsKey {
+  const MergedCallArgumentsKey(this.left, this.right);
+  final CallArgumentsKey? left;
+  final CallArgumentsKey? right;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MergedCallArgumentsKey && other.left == left && other.right == right;
+
+  @override
+  int get hashCode => Object.hash(left, right);
+}
 
 extension type const PatternSymbol(String symbol) {}
 
@@ -906,7 +1007,7 @@ GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment
     marks: override._marksForest,
     arguments: {...base.arguments, ...override.arguments},
     values: {...base.values, ...override.values},
-    valuesKey: (base.valuesKey, override.valuesKey),
+    valuesKey: MergedCallArgumentsKey(base.valuesKey, override.valuesKey),
     valueResolver: override.valueResolver ?? base.valueResolver,
     captureResolver: override.captureResolver ?? base.captureResolver,
     rulesByName: {...base.rulesByName, ...override.rulesByName},
@@ -920,18 +1021,22 @@ final class GuardEnvironment {
     GlushList<Mark> marks = const GlushList<Mark>.empty(),
     this.arguments = const <String, Object?>{},
     this.values = const <String, Object?>{},
-    Object? valuesKey,
+    CallArgumentsKey? valuesKey,
     this.valueResolver,
     this.captureResolver,
     this.rulesByName = const <String, Rule>{},
   }) : _marksForest = marks,
-       valuesKey = valuesKey ?? _formatObjectMap(values);
+       valuesKey =
+           valuesKey ??
+           (values.isEmpty
+               ? const EmptyCallArgumentsKey()
+               : StringCallArgumentsKey(_formatObjectMap(values)));
 
   final Rule rule;
   final GlushList<Mark> _marksForest;
   final Map<String, Object?> arguments;
   final Map<String, Object?> values;
-  final Object valuesKey;
+  final CallArgumentsKey valuesKey;
   final Object? Function(String name)? valueResolver;
   final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
@@ -2228,7 +2333,9 @@ class RuleCall extends Pattern {
   RuleCall copy() =>
       RuleCall(name, rule, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
-  ({Map<String, Object?> arguments, Object key}) resolveArgumentsAndKey(GuardEnvironment env) {
+  ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
+    GuardEnvironment env,
+  ) {
     // Resolve the typed call-argument model once at the call boundary, then
     // hand the state machine a plain resolved map and a memoization key.
     // Arguments are resolved once at the call boundary so the runtime sees a
@@ -2244,40 +2351,11 @@ class RuleCall extends Pattern {
     }
 
     var key = switch (resolvedValues.length) {
-      0 => argumentsKey,
-      1 => (resolvedValues[0],),
-      2 => (resolvedValues[0], resolvedValues[1]),
-      3 => (resolvedValues[0], resolvedValues[1], resolvedValues[2]),
-      4 => (resolvedValues[0], resolvedValues[1], resolvedValues[2], resolvedValues[3]),
-      5 => (
-        resolvedValues[0],
-        resolvedValues[1],
-        resolvedValues[2],
-        resolvedValues[3],
-        resolvedValues[4],
-      ),
-      _ => _buildDynamicStringKey(resolvedValues),
+      0 => StringCallArgumentsKey(argumentsKey),
+      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
     };
 
     return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
-  }
-
-  String _buildDynamicStringKey(List<Object?> resolvedValues) {
-    var buffer = StringBuffer();
-    buffer
-      ..write("m")
-      ..write(_argumentNames.length)
-      ..write("{");
-
-    for (var i = 0; i < _argumentNames.length; i++) {
-      if (i != 0) {
-        buffer.write(",");
-      }
-      _writeCanonicalEntry(buffer, _argumentNames[i], resolvedValues[i]);
-    }
-
-    buffer.write("}");
-    return buffer.toString();
   }
 
   @override
@@ -2375,7 +2453,9 @@ class ParameterCallPattern extends Pattern {
   ParameterCallPattern copy() =>
       ParameterCallPattern(name, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
-  ({Map<String, Object?> arguments, Object key}) resolveArgumentsAndKey(GuardEnvironment env) {
+  ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
+    GuardEnvironment env,
+  ) {
     var resolved = <String, Object?>{};
     var resolvedValues = <Object?>[];
 
@@ -2387,40 +2467,11 @@ class ParameterCallPattern extends Pattern {
     }
 
     var key = switch (resolvedValues.length) {
-      0 => argumentsKey,
-      1 => (resolvedValues[0],),
-      2 => (resolvedValues[0], resolvedValues[1]),
-      3 => (resolvedValues[0], resolvedValues[1], resolvedValues[2]),
-      4 => (resolvedValues[0], resolvedValues[1], resolvedValues[2], resolvedValues[3]),
-      5 => (
-        resolvedValues[0],
-        resolvedValues[1],
-        resolvedValues[2],
-        resolvedValues[3],
-        resolvedValues[4],
-      ),
-      _ => _buildDynamicStringKey(resolvedValues),
+      0 => StringCallArgumentsKey(argumentsKey),
+      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
     };
 
     return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
-  }
-
-  String _buildDynamicStringKey(List<Object?> resolvedValues) {
-    var buffer = StringBuffer();
-    buffer
-      ..write("m")
-      ..write(_argumentNames.length)
-      ..write("{");
-
-    for (var i = 0; i < _argumentNames.length; i++) {
-      if (i != 0) {
-        buffer.write(",");
-      }
-      _writeCanonicalEntry(buffer, _argumentNames[i], resolvedValues[i]);
-    }
-
-    buffer.write("}");
-    return buffer.toString();
   }
 
   @override

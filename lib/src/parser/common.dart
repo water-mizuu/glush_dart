@@ -17,6 +17,83 @@ import "package:meta/meta.dart";
 // Type aliases for complex record types used as keys and internal state
 // ---------------------------------------------------------------------------
 
+@immutable
+sealed class BranchKey {
+  const BranchKey();
+}
+
+final class ActionBranchKey extends BranchKey {
+  const ActionBranchKey(this.action);
+  final StateAction action;
+
+  @override
+  bool operator ==(Object other) => other is ActionBranchKey && other.action == action;
+
+  @override
+  int get hashCode => action.hashCode;
+
+  @override
+  String toString() => action.toString();
+}
+
+final class StateBranchKey extends BranchKey {
+  const StateBranchKey(this.state);
+  final State state;
+
+  @override
+  bool operator ==(Object other) => other is StateBranchKey && other.state == state;
+
+  @override
+  int get hashCode => state.hashCode;
+
+  @override
+  String toString() => state.toString();
+}
+
+final class PredicateBranchKey extends BranchKey {
+  const PredicateBranchKey({required this.isAnd, required this.symbol, required this.nextState});
+  final bool isAnd;
+  final PatternSymbol symbol;
+  final State nextState;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PredicateBranchKey &&
+      other.isAnd == isAnd &&
+      other.symbol == symbol &&
+      other.nextState == nextState;
+
+  @override
+  int get hashCode => Object.hash(isAnd, symbol, nextState);
+}
+
+final class ConjunctionBranchKey extends BranchKey {
+  const ConjunctionBranchKey();
+
+  @override
+  bool operator ==(Object other) => other is ConjunctionBranchKey;
+
+  @override
+  int get hashCode => (ConjunctionBranchKey).hashCode;
+
+  @override
+  String toString() => "conj";
+}
+
+final class StringBranchKey extends BranchKey {
+  const StringBranchKey(this.key);
+  final String key;
+
+  @override
+  bool operator ==(Object other) => other is StringBranchKey && other.key == key;
+
+  @override
+  int get hashCode => key.hashCode;
+
+  @override
+  String toString() => key;
+}
+
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 typedef PredicateKey = (PatternSymbol pattern, int startPosition);
 
@@ -80,7 +157,7 @@ final class _GuardCacheKey {
   final Rule rule;
   final GuardExpr guard;
   final GlushList<Mark> marks;
-  final Object callArgumentsKey;
+  final CallArgumentsKey callArgumentsKey;
   final int position;
   final int? callStart;
   final int? precedenceLevel;
@@ -103,7 +180,7 @@ final class _CallerCacheKey {
   final Rule rule;
   final int startPosition;
   final int? minPrecedenceLevel;
-  final Object callArgumentsKey;
+  final CallArgumentsKey callArgumentsKey;
   final int _hash;
 
   @override
@@ -784,7 +861,7 @@ final class Caller extends CallerKey {
   final Pattern pattern;
   final int startPosition;
   final int? minPrecedenceLevel;
-  final Object callArgumentsKey;
+  final CallArgumentsKey callArgumentsKey;
   final Map<String, Object?> arguments;
   final List<WaiterInfo> waiters = [];
   final Map<_ReturnKey, Context> _returns = {};
@@ -1170,7 +1247,7 @@ class Step {
         // Record the conjunction completion in the derivation path
         var nextPath = parentContext.derivationPath.add((
           source,
-          "conj", // Special marker for conjunction completion
+          const ConjunctionBranchKey(), // Special marker for conjunction completion
           null,
         ));
         nextContext = nextContext.copyWith(derivationPath: nextPath);
@@ -1191,12 +1268,13 @@ class Step {
     required State nextState,
     required bool isAnd,
     required PatternSymbol symbol,
-    Object? branchKey,
+    BranchKey? branchKey,
   }) {
     var nextContext = parentContext;
     if (isSupportingAmbiguity && source != null) {
       var nextBranchKey =
-          branchKey ?? PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState);
+          branchKey ??
+          ActionBranchKey(PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState));
       var nextPath = parentContext.derivationPath.add((source, nextBranchKey, null));
       nextContext = parentContext.copyWith(derivationPath: nextPath);
     }
@@ -1253,7 +1331,7 @@ class Step {
     );
 
     var subParseKey = (left, right, position);
-    parseState.conjunctionTrackers[subParseKey]; // Touch to ensure it exists if called from Action
+    parseState.conjunctionTrackers[subParseKey]!; // Touch to ensure it exists if called from Action
 
     // Side A
     for (var s in leftStates) {
@@ -1328,7 +1406,7 @@ class Step {
     Rule rule,
     Frame frame, {
     required Map<String, Object?> arguments,
-    required Object argumentsKey,
+    required CallArgumentsKey argumentsKey,
   }) {
     var guard = rule.guard;
     if (guard == null) {
@@ -1385,13 +1463,13 @@ class Step {
       marks: frame.context.marks,
       arguments: arguments,
       values: values,
-      valuesKey: (
-        frame.context.captures.signature,
-        rule.name.symbol,
-        position,
-        frame.context.callStart ?? position,
-        frame.context.minPrecedenceLevel,
-        frame.context.precedenceLevel,
+      valuesKey: GuardValuesKey(
+        captureSignature: frame.context.captures.signature,
+        ruleName: rule.name.symbol,
+        position: position,
+        callStart: frame.context.callStart ?? position,
+        minPrecedenceLevel: frame.context.minPrecedenceLevel,
+        precedenceLevel: frame.context.precedenceLevel,
       ),
       valueResolver: frame.context.captures.isEmpty ? null : (name) => frame.context.captures[name],
       captureResolver: _extractLabelCapture,
@@ -1438,9 +1516,12 @@ class Step {
     return buffer.toString();
   }
 
-  ({Map<String, Object?> arguments, Object key}) _resolveCallArguments(RuleCall call, Frame frame) {
+  ({Map<String, Object?> arguments, CallArgumentsKey key}) _resolveCallArguments(
+    RuleCall call,
+    Frame frame,
+  ) {
     if (call.arguments.isEmpty) {
-      return (arguments: const <String, Object?>{}, key: call.argumentsKey);
+      return (arguments: const <String, Object?>{}, key: StringCallArgumentsKey(call.argumentsKey));
     }
 
     // Resolve arguments in the caller's environment so references can inherit
@@ -1454,7 +1535,7 @@ class Step {
     return call.resolveArgumentsAndKey(env);
   }
 
-  ({Map<String, Object?> arguments, Object key})? _resolveParameterCallArguments(
+  ({Map<String, Object?> arguments, CallArgumentsKey key})? _resolveParameterCallArguments(
     ParameterCallPattern pattern,
     Frame frame,
     Rule rule,
@@ -1472,7 +1553,7 @@ class Step {
     required Rule targetRule,
     required Pattern callPattern,
     required Map<String, Object?> callArguments,
-    required Object callArgumentsKey,
+    required CallArgumentsKey callArgumentsKey,
     required StateAction action,
     required State returnState,
     required int? minPrecedenceLevel,
@@ -1594,13 +1675,14 @@ class Step {
     Context context, {
     ParseNodeKey? source,
     StateAction? action,
-    Object? branchKey,
+    BranchKey? branchKey,
     ParseNodeKey? callSite,
   }) {
     GlushProfiler.increment("parser.enqueue.calls");
     var nextContext = context;
     if (isSupportingAmbiguity && source != null) {
-      var nextBranchKey = branchKey ?? action ?? state;
+      var nextBranchKey =
+          branchKey ?? (action != null ? ActionBranchKey(action) : StateBranchKey(state));
       var nextPath = context.derivationPath.add((source, nextBranchKey, callSite));
       nextContext = context.copyWith(derivationPath: nextPath);
     }
@@ -1820,7 +1902,7 @@ class Step {
                 nextState: action.nextState,
                 isAnd: action.isAnd,
                 symbol: action.symbol,
-                branchKey: action,
+                branchKey: ActionBranchKey(action),
               );
             }
             // The predicate is already known to have failed.
@@ -1832,7 +1914,7 @@ class Step {
                 nextState: action.nextState,
                 isAnd: action.isAnd,
                 symbol: action.symbol,
-                branchKey: action,
+                branchKey: ActionBranchKey(action),
               );
             }
           } else {
@@ -1904,7 +1986,7 @@ class Step {
                 nextState: action.nextState,
                 isAnd: true,
                 symbol: action.symbol,
-                branchKey: action,
+                branchKey: ActionBranchKey(action),
               );
             } else if (!tracker.hasWaiterAt(targetJ)) {
               tracker.addWaiter(targetJ, (frameContext, action.nextState));
@@ -1986,7 +2068,7 @@ class Step {
                 targetRule: rule,
                 callPattern: rule,
                 callArguments: const {},
-                callArgumentsKey: "m0{}",
+                callArgumentsKey: const EmptyCallArgumentsKey(),
                 action: action,
                 returnState: action.nextState,
                 minPrecedenceLevel: null,
@@ -2101,7 +2183,7 @@ class Step {
                     nextState: action.nextState,
                     isAnd: action.isAnd,
                     symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text"),
-                    branchKey: action,
+                    branchKey: ActionBranchKey(action),
                   );
                 }
                 continue;
@@ -2128,7 +2210,7 @@ class Step {
                     nextState: action.nextState,
                     isAnd: action.isAnd,
                     symbol: predicateSymbol,
-                    branchKey: action,
+                    branchKey: ActionBranchKey(action),
                   );
                 }
               } else if (!isFirst && tracker.canResolveFalse) {
@@ -2139,7 +2221,7 @@ class Step {
                     nextState: action.nextState,
                     isAnd: action.isAnd,
                     symbol: predicateSymbol,
-                    branchKey: action,
+                    branchKey: ActionBranchKey(action),
                   );
                 }
               } else {
@@ -2192,7 +2274,7 @@ class Step {
                     nextState: action.nextState,
                     isAnd: action.isAnd,
                     symbol: symbol,
-                    branchKey: action,
+                    branchKey: ActionBranchKey(action),
                   );
                 }
               } else if (!isFirst && tracker.canResolveFalse) {
@@ -2203,7 +2285,7 @@ class Step {
                     nextState: action.nextState,
                     isAnd: action.isAnd,
                     symbol: symbol,
-                    branchKey: action,
+                    branchKey: ActionBranchKey(action),
                   );
                 }
               } else {
@@ -2233,7 +2315,7 @@ class Step {
                   nextState: action.nextState,
                   isAnd: action.isAnd,
                   symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
-                  branchKey: action,
+                  branchKey: ActionBranchKey(action),
                 );
               }
             case Pattern pattern when pattern.singleToken():
@@ -2248,7 +2330,7 @@ class Step {
                   symbol: PatternSymbol(
                     "_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}",
                   ),
-                  branchKey: action,
+                  branchKey: ActionBranchKey(action),
                 );
               }
             case Pattern pattern:

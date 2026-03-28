@@ -205,3 +205,22 @@ extension MarkListExtension on List<Mark> {
     return result;
   }
 }
+
+@immutable
+sealed class MarkTree {
+  const MarkTree();
+}
+
+final class LeafMarkTree extends MarkTree {
+  const LeafMarkTree(this.mark);
+  final Mark mark;
+}
+
+final class BranchMarkTree extends MarkTree {
+  BranchMarkTree(List<MarkTree> children) : children = List<MarkTree>.unmodifiable(children);
+  final List<MarkTree> children;
+}
+
+final class EmptyMarkTree extends MarkTree {
+  const EmptyMarkTree();
+}

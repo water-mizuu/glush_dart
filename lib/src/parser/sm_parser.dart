@@ -1316,10 +1316,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
 
         return switch (pattern) {
-          Token() => tree.getMatchedText(input),
-          Marker(:var name) => NamedMark(name, tree.start),
-          Eps() => "",
-          Neg() => [],
           Action<dynamic> action => () {
             var childResults = tree.children
                 .map((c) => _evaluateParseDerivation(c, input))
@@ -1344,7 +1340,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// annotations in the order they were parsed.
   List<String> extractParseTreeMarks(ParseTree tree, String input) {
     ParseDerivation derivation = parseTreeToDerivation(tree, input);
-    Object? extracted = _extractParseTreeMarks(derivation, input);
+    MarkTree extracted = _extractParseTreeMarks(derivation, input);
     List<Mark> marks = _flattenParseTreeMarks(extracted);
 
     return _aggregateMarks(marks);
@@ -1392,78 +1388,67 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Recursively walks a tree of marks (from [_extractParseTreeMarks]) and
   /// flattens it into a single list in parse order. Handles Mark objects
   /// and lists of marks.
-  List<Mark> _flattenParseTreeMarks(Object? marks) {
-    if (marks is StringMark) {
-      return [marks];
-    }
-    if (marks is NamedMark) {
-      return [marks];
-    }
-    if (marks is List<Object?>) {
-      return marks.expand((v) => _flattenParseTreeMarks(v)).toList();
-    }
-    return [];
+  List<Mark> _flattenParseTreeMarks(MarkTree marks) {
+    return switch (marks) {
+      LeafMarkTree(:var mark) => [mark],
+      BranchMarkTree(:var children) =>
+        children.expand((child) => _flattenParseTreeMarks(child)).toList(),
+      EmptyMarkTree() => [],
+    };
   }
 
   /// Extract semantic marks from a parse derivation (nested lists of marks).
   ///
   /// Like [_evaluateParseDerivation], but returns Mark objects instead of values.
   /// Used by [extractParseTreeMarks] to collect all marks in parse order.
-  Object? _extractParseTreeMarks(ParseDerivation tree, String input) {
+  MarkTree _extractParseTreeMarks(ParseDerivation tree, String input) {
     var symbol = tree.symbol.symbol;
     var split = symbol.split(":");
     if (split.length < 3) {
       // Fallback for symbols that don't follow the prefix:id:suffix format
-      return null;
+      return const EmptyMarkTree();
     }
 
     var [prefix, _, suffix] = split;
     switch (prefix) {
       case "eps":
-        return "";
       case "bos":
-        return "";
       case "eof":
-        return "";
+        return const EmptyMarkTree();
       case "tok":
-        return StringMark(tree.getMatchedText(input), tree.start);
+        return LeafMarkTree(StringMark(tree.getMatchedText(input), tree.start));
       case "mar":
-        return NamedMark(suffix, tree.start);
+        return LeafMarkTree(NamedMark(suffix, tree.start));
       case "las":
-        return LabelStartMark(suffix, tree.start);
+        return LeafMarkTree(LabelStartMark(suffix, tree.start));
       case "lae":
-        return LabelEndMark(suffix, tree.start);
+        return LeafMarkTree(LabelEndMark(suffix, tree.start));
       case "rca":
       case "rul":
       case "lab":
+      case "opt":
+      case "pre":
         if (tree.children.isNotEmpty) {
           return _extractParseTreeMarks(tree.children[0], input);
         }
-        return null;
-      case "alt":
-      case "opt":
-      case "act":
-      case "pre":
+        return const EmptyMarkTree();
       case "seq":
-      case "plu":
       case "sta":
-        var results = <Object?>[];
-        for (var child in tree.children) {
-          results.add(_extractParseTreeMarks(child, input));
+      case "plu":
+      case "con":
+        return BranchMarkTree(tree.children.map((c) => _extractParseTreeMarks(c, input)).toList());
+      case "alt":
+        // For alternatives, we pick the branch that matched (there should only be one in a derivation)
+        if (tree.children.isNotEmpty) {
+          return _extractParseTreeMarks(tree.children[0], input);
         }
-        return results;
+        return const EmptyMarkTree();
       case "and":
       case "not":
       case "neg":
-        return [];
-      case "con":
-        var results = <Object?>[];
-        for (var child in tree.children) {
-          results.add(_extractParseTreeMarks(child, input));
-        }
-        return results;
-      case _:
-        throw Error();
+        return const EmptyMarkTree();
+      default:
+        return const EmptyMarkTree();
     }
   }
 

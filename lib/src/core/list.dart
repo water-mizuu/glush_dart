@@ -78,12 +78,6 @@ sealed class GlushList<T> {
     forEach((e) => last = e);
     return last;
   }
-
-  @override
-  bool operator ==(Object other);
-
-  @override
-  int get hashCode;
 }
 
 bool _listEquals(List<Object?> left, List<Object?> right) {
