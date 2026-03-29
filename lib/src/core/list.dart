@@ -17,13 +17,6 @@ sealed class GlushList<T> {
 
   /// Creates a branched list representing multiple parsing alternatives.
   static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
-    if (alternatives.isEmpty) {
-      return const EmptyList._();
-    }
-    if (alternatives.length == 1) {
-      return alternatives[0];
-    }
-
     var flattened = <GlushList<T>>[];
     var seen = <GlushList<T>>{};
     for (var alt in alternatives) {
@@ -39,7 +32,7 @@ sealed class GlushList<T> {
     }
 
     if (flattened.isEmpty) {
-      return const EmptyList._();
+      return EmptyList<T>._();
     }
     if (flattened.length == 1) {
       return flattened.first;

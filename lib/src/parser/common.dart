@@ -131,8 +131,8 @@ final class _ContextGroup {
 
 /// Immutable key representing a parser context identified by state, caller, precedence, and predicate stack.
 @immutable
-abstract final class _ContextKey {
-  static Object create(
+sealed class _ContextKey {
+  static _ContextKey create(
     State state,
     CallerKey caller,
     int? minimumPrecedence,
@@ -142,16 +142,42 @@ abstract final class _ContextKey {
     if (predicateStack.isEmpty && captures.isEmpty) {
       // Bit-pack: CallerUID (31) | StateID (24) | MinPrec (8)
       // Use 32-bit shift for caller to avoid overlap with 24-bit state ID.
-      return (caller.uid << 32) | (state.id << 8) | (minimumPrecedence ?? 0xFF);
+      return _IntContextKey((caller.uid << 32) | (state.id << 8) | (minimumPrecedence ?? 0xFF));
     }
     return _ComplexContextKey(state, caller, minimumPrecedence, predicateStack, captures);
   }
 }
 
+final class _IntContextKey implements _ContextKey {
+  _IntContextKey(this.value) : _hash = Object.hash(_IntContextKey, value);
+
+  final int value;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is _IntContextKey && value == other.value;
+
+  @override
+  int get hashCode => _hash;
+}
+
 @immutable
-final class _ComplexContextKey {
-  _ComplexContextKey(this.state, this.caller, this.minimumPrecedence, this.predicateStack, this.captures)
-    : _hash = Object.hash(_ComplexContextKey, state, caller, minimumPrecedence, predicateStack, captures);
+final class _ComplexContextKey implements _ContextKey {
+  _ComplexContextKey(
+    this.state,
+    this.caller,
+    this.minimumPrecedence,
+    this.predicateStack,
+    this.captures,
+  ) : _hash = Object.hash(
+        _ComplexContextKey,
+        state,
+        caller,
+        minimumPrecedence,
+        predicateStack,
+        captures,
+      );
 
   final State state;
   final CallerKey caller;
@@ -215,8 +241,8 @@ final class _GuardCacheKey {
 
 /// Cache key for memoizing rule call sites based on rule, precedence, and arguments.
 @immutable
-abstract final class _CallerCacheKey {
-  static Object create(
+sealed class _CallerCacheKey {
+  static _CallerCacheKey create(
     Rule rule,
     int startPosition,
     int? minPrecedenceLevel,
@@ -225,16 +251,35 @@ abstract final class _CallerCacheKey {
     if (callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty) {
       // Bit-pack: StartPos (31) | RuleUID (24) | MinPrec (8)
       // Use 32-bit shift for position to avoid overlap with 24-bit rule ID.
-      return (startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF);
+      return _IntCallerCacheKey(
+        (startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF),
+      );
     }
     return _ComplexCallerCacheKey(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
   }
 }
 
+final class _IntCallerCacheKey implements _CallerCacheKey {
+  _IntCallerCacheKey(this.value) : _hash = Object.hash(_IntCallerCacheKey, value);
+  final int value;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is _IntCallerCacheKey && value == other.value;
+
+  @override
+  int get hashCode => _hash;
+}
+
 @immutable
-final class _ComplexCallerCacheKey {
-  _ComplexCallerCacheKey(this.rule, this.startPosition, this.minPrecedenceLevel, this.callArgumentsKey)
-    : _hash = Object.hash(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
+final class _ComplexCallerCacheKey implements _CallerCacheKey {
+  _ComplexCallerCacheKey(
+    this.rule,
+    this.startPosition,
+    this.minPrecedenceLevel,
+    this.callArgumentsKey,
+  ) : _hash = Object.hash(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
 
   final Rule rule;
   final int startPosition;
@@ -373,42 +418,6 @@ final class ParseForestSuccess implements ParseOutcome {
   String toString() => "ParseForestSuccess(forest=$forest)";
 }
 
-extension ShowErrors on ParseError {
-  void displayError(String input) {
-    List<String> inputRows = input.replaceAll("\r", "").split("\n");
-
-    /// Surely the string we're trying to parse is not empty.
-    if (inputRows.isEmpty) {
-      throw StateError("Huh?");
-    }
-
-    int row = input.substring(0, position).split("\n").length;
-    int column =
-        input //
-            .substring(0, position)
-            .split("\n")
-            .last
-            .codeUnits
-            .length +
-        1;
-    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
-
-    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
-
-    print("Parse error at: ($row:$column)");
-    print(
-      displayedRows
-          .map(
-            (v) =>
-                " ${(v.$1 + 1).toString().padLeft(longest)} | "
-                "${v.$2}",
-          )
-          .join("\n"),
-    );
-    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
-  }
-}
-
 /// Stateful cursor for manual state-machine parsing.
 ///
 /// This standardizes the low-level token processing API by carrying the frame
@@ -448,7 +457,7 @@ final class ParseState {
 
   /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   /// Keys can be `int` (packed) or [_ComplexCallerCacheKey].
-  final Map<Object, Caller> _callers = {};
+  final Map<_CallerCacheKey, Caller> _callers = {};
 
   /// Rules indexed by source name for guard expression evaluation.
   final Map<String, Rule> rulesByName;
@@ -650,8 +659,16 @@ class NegationTracker {
   /// Set of end positions j that the sub-parse A matched.
   final Set<int> matchedPositions = <int>{};
 
+  /// Every input position that the sub-parse had live frames at.
+  /// Used to enumerate candidate spans for unconstrained negation.
+  final Set<int> visitedPositions = <int>{};
+
   /// Map of end positions j to waiters that should resume if A does NOT match j.
   final Map<int, List<(Context, State)>> waiters = {};
+
+  /// Waiters with no specific target j — fire at every visited position
+  /// that A did NOT match.
+  final List<(Context, State)> unconstrainedWaiters = [];
 
   /// Add a waiter for a specific end position.
   void addWaiter(int endPosition, (Context, State) waiter) {
@@ -859,6 +876,8 @@ final class CaptureBindings {
 sealed class CallerKey {
   const CallerKey();
   int get uid;
+
+  int? get startPosition;
 }
 
 /// Represents the root call context (top-level parse, not a rule call).
@@ -867,6 +886,9 @@ final class RootCallerKey extends CallerKey {
 
   @override
   int get uid => 0;
+
+  @override
+  int get startPosition => 0;
 
   @override
   int get hashCode => 0;
@@ -880,8 +902,10 @@ final class PredicateCallerKey extends CallerKey {
   PredicateCallerKey(this.pattern, this.startPosition)
     : uid = -((pattern.hashCode.abs() << 24) | (startPosition & 0xFFFFFF));
 
-  final PatternSymbol pattern;
+  @override
   final int startPosition;
+
+  final PatternSymbol pattern;
 
   @override
   final int uid;
@@ -905,9 +929,11 @@ final class ConjunctionCallerKey extends CallerKey {
     required this.isLeft,
   }) : uid = -((left.hashCode.abs() << 16) | (right.hashCode.abs() << 8) | (startPosition & 0xFF));
 
+  @override
+  final int startPosition;
+
   final PatternSymbol left;
   final PatternSymbol right;
-  final int startPosition;
   final bool isLeft;
 
   @override
@@ -936,12 +962,15 @@ final class Caller extends CallerKey {
     Map<String, Object?> arguments,
     this.uid,
   ) : arguments = Map<String, Object?>.unmodifiable(arguments);
+
   final Rule rule;
   final Pattern pattern;
-  final int startPosition;
   final int? minPrecedenceLevel;
   final CallArgumentsKey callArgumentsKey;
   final Map<String, Object?> arguments;
+
+  @override
+  final int startPosition;
 
   @override
   final int uid;
@@ -1018,8 +1047,8 @@ class Context {
     this.marks, {
     Map<String, Object?>? arguments,
     this.captures = const CaptureBindings.empty(),
-    this.derivationPath = const GlushList.empty(),
-    this.predicateStack = const GlushList.empty(),
+    this.derivationPath = const GlushList<DerivationKey>.empty(),
+    this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
     this.bsrRuleSymbol,
     this.callStart,
     this.pivot,
@@ -1192,17 +1221,17 @@ class Step {
 
   /// Batched next-position frames grouped by context metadata.
   /// Keys can be `int` (packed) or [_ComplexContextKey].
-  final Map<Object, _ContextGroup> _nextFrameGroups = {};
+  final Map<_ContextKey, _ContextGroup> _nextFrameGroups = {};
 
   /// Batched current-position frames grouped by context metadata.
   /// Keys can be `int` (packed) or [_ComplexContextKey].
-  final Map<Object, Context> _currentFrameGroups = {};
+  final Map<_ContextKey, Context> _currentFrameGroups = {};
 
   /// Deduplication set for non-forest mode.
   /// Keys can be `int` (packed) or [_ComplexContextKey].
-  final Set<Object> _activeContextKeys = {};
+  final Set<_ContextKey> _activeContextKeys = {};
 
-  final Queue<(Object, State)> _workQueue = DoubleLinkedQueue();
+  final Queue<(_ContextKey, State)> _workQueue = DoubleLinkedQueue();
   final Set<CallerKey> _returnedCallers = {};
   final Set<AcceptedContext> _acceptedContextSet = {};
   final List<AcceptedContext> acceptedContexts = [];
@@ -1393,7 +1422,7 @@ class Step {
         firstState,
         Context(
           newPredicateKey,
-          const GlushList.empty(),
+          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           predicateStack: nextStack,
@@ -1431,7 +1460,7 @@ class Step {
         s,
         Context(
           leftCaller,
-          const GlushList.empty(),
+          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           callStart: position,
@@ -1447,7 +1476,7 @@ class Step {
         s,
         Context(
           rightCaller,
-          const GlushList.empty(),
+          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           callStart: position,
@@ -1473,7 +1502,7 @@ class Step {
         firstState,
         Context(
           newNegationKey,
-          const GlushList.empty(),
+          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           callStart: position,
@@ -1696,7 +1725,7 @@ class Step {
           firstState,
           Context(
             caller,
-            const GlushList.empty(),
+            const GlushList<Mark>.empty(),
             captures: frame.context.captures,
             predicateStack: frame.context.predicateStack,
             bsrRuleSymbol: targetRule.symbolId,
@@ -1740,7 +1769,7 @@ class Step {
       entryState,
       Context(
         newPredicateKey,
-        const GlushList.empty(),
+        const GlushList<Mark>.empty(),
         arguments: frame.context.arguments,
         captures: frame.context.captures,
         predicateStack: nextStack,
@@ -1828,21 +1857,11 @@ class Step {
     }
     GlushProfiler.increment("parser.enqueue.accepted");
 
-    var predicateKey = nextContext.predicateStack.lastOrNull;
-    // Predicate-owned frames keep the tracker alive until they are processed.
-    if (predicateKey != null) {
-      var tracker =
-          parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-      if (tracker != null) {
-        tracker.addPendingFrame();
-      }
+    if (nextContext.predicateStack.lastOrNull case var pk?) {
+      parseState.predicateTrackers[(pk.pattern, pk.startPosition)]?.addPendingFrame();
     }
-
-    if (nextContext.caller case ConjunctionCallerKey caller) {
-      // Conjunction frames also keep the tracker alive.
-      var tracker =
-          parseState.conjunctionTrackers[(caller.left, caller.right, caller.startPosition)];
-      tracker?.addPendingFrame();
+    if (nextContext.caller case ConjunctionCallerKey con) {
+      parseState.conjunctionTrackers[(con.left, con.right, con.startPosition)]?.addPendingFrame();
     }
 
     _currentFrameGroups[key] = nextContext;
@@ -1921,7 +1940,7 @@ class Step {
           if (isMatch) {
             _enqueue(
               action.nextState,
-              frameContext.withCallerAndMarks(callerOrRoot, frame.marks),
+              frameContext.withMarks(frame.marks),
               source: source,
               action: action,
             );
@@ -2048,10 +2067,9 @@ class Step {
 
             var predicateKey = frameContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
-              var parentTracker =
-                  parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
               // The parent cannot settle until this child branch completes.
-              parentTracker?.addPendingFrame();
+              parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
+                  ?.addPendingFrame();
             }
           }
           // Spawn the sub-parse only the first time this predicate is seen here.
@@ -2116,9 +2134,18 @@ class Step {
               tracker.addWaiter(targetJ, (frameContext, action.nextState));
             }
           } else {
-            // Unconstrained negation: This is a design-time warning/error in spec,
-            // but for now we just ignore it or log it.
-            // In a better implementation, we might try to match ALL possible j.
+            // Unconstrained negation: resume at every position the sub-parse
+            // visited where A did NOT match [startPosition, j).
+            if (tracker.isExhausted) {
+              // Sub-parse already done — fire immediately.
+              for (var j in tracker.visitedPositions) {
+                if (!tracker.matchedPositions.contains(j)) {
+                  requeue(Frame(frameContext.copyWith(pivot: j))..nextStates.add(action.nextState));
+                }
+              }
+            } else {
+              tracker.unconstrainedWaiters.add((frameContext, action.nextState));
+            }
           }
 
           if (isFirst) {
@@ -2681,23 +2708,29 @@ class Step {
   /// contexts with branched marks.
   void _finalize() {
     for (var MapEntry(:value) in _nextFrameGroups.entries) {
-      var state = value.state;
-      var caller = value.caller;
-      var minPrecedenceLevel = value.minPrecedenceLevel;
-      var predicateStack = value.predicateStack;
-      var branchedMarks = GlushList.branched<Mark>(value.marks);
+      var _ContextGroup(
+        :state,
+        :caller,
+        :minPrecedenceLevel,
+        :predicateStack,
+        :derivationPaths,
+        :marks,
+        :captures,
+      ) = value;
+
+      var branchedMarks = GlushList.branched<Mark>(marks);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
       var branchedDerivations = isSupportingAmbiguity
-          ? GlushList.branched<DerivationKey>(value.derivationPaths)
-          : value.derivationPaths.firstOrNull ?? const GlushList.empty();
+          ? GlushList.branched<DerivationKey>(derivationPaths)
+          : derivationPaths.firstOrNull ?? const GlushList<DerivationKey>.empty();
 
       var nextFrame = Frame(
         Context(
           caller,
           branchedMarks,
-          captures: value.captures,
+          captures: captures,
           derivationPath: branchedDerivations,
           predicateStack: predicateStack,
           bsrRuleSymbol: caller is Caller ? caller.rule.symbolId! : null,
@@ -2754,14 +2787,19 @@ class Step {
             tracker.removePendingFrame();
           }
         }
-        if (context.caller case ConjunctionCallerKey caller) {
+        if (context.caller case ConjunctionCallerKey c) {
           // Decrement pending frame counter for the conjunction sub-parse.
-          var tracker =
-              parseState.conjunctionTrackers[(caller.left, caller.right, caller.startPosition)];
-
+          var tracker = parseState.conjunctionTrackers[(c.left, c.right, c.startPosition)];
           if (tracker != null && tracker.activeFrames > 0) {
             tracker.removePendingFrame();
           }
+        }
+
+        if (frame.context.caller case NegationCallerKey caller) {
+          parseState
+              .negationTrackers[(caller.pattern, caller.startPosition)] //
+              ?.visitedPositions
+              .add(position);
         }
       }
       _process(Frame(context, replay: frame.replay), state);
@@ -2875,6 +2913,18 @@ abstract base class GlushParserBase implements GlushParser {
         // Keep the tracker in place so later candidate positions can resolve
         // immediately without respawning the child sub-parse.
         tracker.waiters.clear();
+
+        // Unconstrained waiters: resume at every visited position A didn't match.
+        if (tracker.unconstrainedWaiters.isNotEmpty) {
+          for (var j in tracker.visitedPositions) {
+            if (!tracker.matchedPositions.contains(j)) {
+              for (var (context, nextState) in tracker.unconstrainedWaiters) {
+                workQueue.addFrame(j, Frame(context.copyWith(pivot: j))..nextStates.add(nextState));
+              }
+            }
+          }
+          tracker.unconstrainedWaiters.clear();
+        }
       }
     }
   }
@@ -2967,16 +3017,11 @@ abstract base class GlushParserBase implements GlushParser {
       for (var frame in positionFrames) {
         if (!frame.replay) {
           // Replay frames are bookkeeping-only, so they skip predicate counters.
-          if (frame.context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+          if (frame.context.predicateStack.lastOrNull case PredicateCallerKey pk) {
             // Contract note mirrors processFrame():
             // tracker can be absent after cleanup of an exhausted predicate.
             // Dequeued predicate-owned frame consumes one pending work unit.
-            var tracker =
-                parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
-            if (tracker != null) {
-              // Frame left the queue and is about to be processed at this position.
-              tracker.removePendingFrame();
-            }
+            parseState.predicateTrackers[(pk.pattern, pk.startPosition)]?.removePendingFrame();
           }
           if (frame.context.caller case ConjunctionCallerKey caller) {
             // Decrement pending frame counter for the conjunction sub-parse.
@@ -2986,6 +3031,11 @@ abstract base class GlushParserBase implements GlushParser {
             if (tracker != null && tracker.activeFrames > 0) {
               tracker.removePendingFrame();
             }
+          }
+
+          if (frame.context.caller case NegationCallerKey caller) {
+            parseState.negationTrackers[(caller.pattern, caller.startPosition)]?.visitedPositions
+                .add(position);
           }
         }
         currentStep.processFrame(frame);
@@ -3045,5 +3095,41 @@ final class _PositionWorkQueue {
 
   void addFrame(int position, Frame frame) {
     (_framesByPosition[position] ??= []).add(frame);
+  }
+}
+
+extension ShowErrors on ParseError {
+  void displayError(String input) {
+    List<String> inputRows = input.replaceAll("\r", "").split("\n");
+
+    /// Surely the string we're trying to parse is not empty.
+    if (inputRows.isEmpty) {
+      throw StateError("Huh?");
+    }
+
+    int row = input.substring(0, position).split("\n").length;
+    int column =
+        input //
+            .substring(0, position)
+            .split("\n")
+            .last
+            .codeUnits
+            .length +
+        1;
+    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
+
+    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
+
+    print("Parse error at: ($row:$column)");
+    print(
+      displayedRows
+          .map(
+            (v) =>
+                " ${(v.$1 + 1).toString().padLeft(longest)} | "
+                "${v.$2}",
+          )
+          .join("\n"),
+    );
+    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
   }
 }
