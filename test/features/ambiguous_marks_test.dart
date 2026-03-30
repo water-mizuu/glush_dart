@@ -20,8 +20,8 @@ void main() {
       var parser = "S = a:([a-z]) | b:([a-z])".toSMParser();
       var result = parser.parseAmbiguous("z", captureTokensAsMarks: true);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var forest = (result as ParseAmbiguousSuccess).forest;
 
       var paths = forest.allPaths().toList();
       expect(paths.length, equals(2));
@@ -40,8 +40,8 @@ void main() {
       var parser = 'S = a:("a" "b") | "a" b:("b")'.toSMParser();
       var result = parser.parseAmbiguous("ab", captureTokensAsMarks: true);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var forest = (result as ParseAmbiguousSuccess).forest;
 
       var paths = forest.allPaths().toList();
       expect(paths.length, equals(2));
@@ -69,8 +69,8 @@ void main() {
       const input = "if if a else a";
       var result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var forest = (result as ParseAmbiguousSuccess).forest;
       var paths = forest.allPaths().toList();
 
       var evaluator = const StructuredEvaluator();
@@ -116,10 +116,10 @@ void main() {
       var parser = "S = (a:([a-z]) | b:([a-z]))+".toSMParser();
 
       var result1 = parser.parseAmbiguous("a", captureTokensAsMarks: true);
-      expect((result1 as ParseAmbiguousForestSuccess).forest.allPaths().length, equals(2));
+      expect((result1 as ParseAmbiguousSuccess).forest.allPaths().length, equals(2));
 
       var result2 = parser.parseAmbiguous("aa", captureTokensAsMarks: true);
-      expect((result2 as ParseAmbiguousForestSuccess).forest.allPaths().length, equals(4));
+      expect((result2 as ParseAmbiguousSuccess).forest.allPaths().length, equals(4));
 
       var forest2 = result2.forest;
       var paths = forest2.allPaths().toList();
@@ -145,8 +145,8 @@ void main() {
       var parser = grammarText.toSMParser();
       var result = parser.parseAmbiguous("a", captureTokensAsMarks: true);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var forest = (result as ParseAmbiguousSuccess).forest;
 
       var paths = forest.allPaths().toList();
       expect(paths.length, equals(2));

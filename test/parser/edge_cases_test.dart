@@ -147,9 +147,9 @@ void main() {
       }),
       (parser) {
         var outcome = parser.parseAmbiguous("abc", captureTokensAsMarks: true);
-        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+        expect(outcome, isA<ParseAmbiguousSuccess>());
 
-        var forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        var forest = (outcome as ParseAmbiguousSuccess).forest;
         var paths = forest.allPaths().toList();
         expect(paths, hasLength(1));
 
@@ -170,9 +170,9 @@ void main() {
       }),
       (parser) {
         var outcome = parser.parseAmbiguous("ac", captureTokensAsMarks: true);
-        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+        expect(outcome, isA<ParseAmbiguousSuccess>());
 
-        var forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        var forest = (outcome as ParseAmbiguousSuccess).forest;
         var paths = forest.allPaths().toList();
         expect(paths, hasLength(1));
 
@@ -190,9 +190,9 @@ void main() {
       }),
       (parser) {
         var outcome = parser.parseAmbiguous("a", captureTokensAsMarks: true);
-        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+        expect(outcome, isA<ParseAmbiguousSuccess>());
 
-        var forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        var forest = (outcome as ParseAmbiguousSuccess).forest;
         var paths = forest.allPaths().toList();
         expect(paths, hasLength(1));
 
@@ -211,9 +211,9 @@ void main() {
       }),
       (parser) {
         var outcome = parser.parseAmbiguous("ab", captureTokensAsMarks: true);
-        expect(outcome, isA<ParseAmbiguousForestSuccess>());
+        expect(outcome, isA<ParseAmbiguousSuccess>());
 
-        var forest = (outcome as ParseAmbiguousForestSuccess).forest;
+        var forest = (outcome as ParseAmbiguousSuccess).forest;
         var paths = forest.allPaths().toList();
         expect(paths, hasLength(2));
 
@@ -378,8 +378,8 @@ void main() {
       (parser) {
         if (parser is SMParserMini) {
           var result = parser.parseAmbiguous("a+a+a");
-          expect(result, isA<ParseAmbiguousForestSuccess>());
-          if (result is ParseAmbiguousForestSuccess) {
+          expect(result, isA<ParseAmbiguousSuccess>());
+          if (result is ParseAmbiguousSuccess) {
             expect(result.forest.allPaths().length, equals(1));
             var marks = result.forest.allPaths().first.toStringList();
             expect(marks.where((m) => m == "left").length, equals(2));
@@ -390,8 +390,8 @@ void main() {
           expect(parser.recognize("a+a+a"), isTrue);
           // Full SMParser parseAmbiguous returns merged marks, not paths
           var result = parser.parseAmbiguous("a+a+a");
-          expect(result, isA<ParseAmbiguousForestSuccess>());
-          if (result is ParseAmbiguousForestSuccess) {
+          expect(result, isA<ParseAmbiguousSuccess>());
+          if (result is ParseAmbiguousSuccess) {
             var marks = result.forest.toList().map((m) => (m as NamedMark).name).toList();
             expect(marks.where((m) => m == "left").length, equals(2));
             expect(marks.where((m) => m == "mid").length, equals(2));

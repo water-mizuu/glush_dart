@@ -95,21 +95,111 @@ final class StringBranchKey extends BranchKey {
 }
 
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
-typedef PredicateKey = (PatternSymbol pattern, int startPosition);
+@immutable
+class PredicateKey {
+  const PredicateKey(this.pattern, this.startPosition);
+  final PatternSymbol pattern;
+  final int startPosition;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PredicateKey && pattern == other.pattern && startPosition == other.startPosition;
+
+  @override
+  int get hashCode => Object.hash(pattern, startPosition);
+
+  @override
+  String toString() => "pred($pattern @ $startPosition)";
+}
+
+/// Key for tracking one structural derivation edge in ambiguous mode.
+@immutable
+class DerivationKey {
+  const DerivationKey(this.source, this.branchKey, this.callSite);
+  final ParseNodeKey? source;
+  final BranchKey branchKey;
+  final ParseNodeKey? callSite;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DerivationKey &&
+      source == other.source &&
+      branchKey == other.branchKey &&
+      callSite == other.callSite;
+
+  @override
+  int get hashCode => Object.hash(source, branchKey, callSite);
+}
 
 /// Partner-end rendezvous for negations
-typedef NegationKey = (PatternSymbol pattern, int startPosition);
+@immutable
+class NegationKey {
+  const NegationKey(this.pattern, this.startPosition);
+  final PatternSymbol pattern;
+  final int startPosition;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NegationKey && pattern == other.pattern && startPosition == other.startPosition;
+
+  @override
+  int get hashCode => Object.hash(pattern, startPosition);
+}
 
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
-typedef ConjunctionKey = (PatternSymbol left, PatternSymbol right, int startPosition);
+@immutable
+class ConjunctionKey {
+  const ConjunctionKey(this.left, this.right, this.startPosition);
+  final PatternSymbol left;
+  final PatternSymbol right;
+  final int startPosition;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ConjunctionKey &&
+      left == other.left &&
+      right == other.right &&
+      startPosition == other.startPosition;
+
+  @override
+  int get hashCode => Object.hash(left, right, startPosition);
+}
 
 /// Metadata for identifying a unique parsing context at a given position.
 /// (state, caller, minimumPrecedence, predicateStack, capturesKey)
 /// Used for deduplication and result grouping.
-typedef AcceptedContext = (State state, Context context);
+@immutable
+class AcceptedContext {
+  const AcceptedContext(this.state, this.context);
+  final State state;
+  final Context context;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AcceptedContext && state == other.state && context == other.context;
+
+  @override
+  int get hashCode => Object.hash(state, context);
+}
 
 /// Identifies a parser continuation point by state, position, and caller context.
-typedef ParseNodeKey = (int stateId, int position, CallerKey? caller);
+@immutable
+class ParseNodeKey {
+  const ParseNodeKey(this.stateId, this.position, this.caller);
+  final int stateId;
+  final int position;
+  final CallerKey? caller;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ParseNodeKey &&
+      stateId == other.stateId &&
+      position == other.position &&
+      caller == other.caller;
+
+  @override
+  int get hashCode => Object.hash(stateId, position, caller);
+}
 
 /// Helper for grouping context-equivalent frames during token transitions.
 final class _ContextGroup {
@@ -120,6 +210,7 @@ final class _ContextGroup {
     required this.predicateStack,
     required this.captures,
   });
+
   final State state;
   final CallerKey caller;
   final int? minPrecedenceLevel;
@@ -360,11 +451,16 @@ final class _ReturnKey {
 }
 
 // ---------------------------------------------------------------------------
-// Parse result types â€” sealed hierarchy replaces dynamic return values
+// Parse result types sealed hierarchy replaces dynamic return values
 // ---------------------------------------------------------------------------
 
 /// Sealed result type returned by parser.parse().
-sealed class ParseOutcome {}
+sealed class ParseOutcome {
+  ParseError? error();
+  ParseSuccess? success();
+  ParseAmbiguousSuccess? ambiguousSuccess();
+  ParseForestSuccess? forestSuccess();
+}
 
 /// Returned when parsing fails.
 final class ParseError implements ParseOutcome, Exception {
@@ -373,50 +469,75 @@ final class ParseError implements ParseOutcome, Exception {
 
   @override
   String toString() => "ParseError at position $position";
-}
-
-final class NegationCallerKey implements CallerKey {
-  NegationCallerKey(this.pattern, this.startPosition)
-    : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
-  final PatternSymbol pattern;
-  @override
-  final int startPosition;
 
   @override
-  final int uid;
+  ParseError error() => this;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NegationCallerKey &&
-          pattern == other.pattern &&
-          startPosition == other.startPosition;
+  ParseSuccess? success() => null;
 
   @override
-  int get hashCode => Object.hash(pattern, startPosition);
+  ParseAmbiguousSuccess? ambiguousSuccess() => null;
 
   @override
-  String toString() => "neg($pattern @ $startPosition)";
+  ParseForestSuccess? forestSuccess() => null;
 }
 
 /// Returned when parsing succeeds (marks-based parse).
 final class ParseSuccess implements ParseOutcome {
   const ParseSuccess(this.result);
   final ParserResult result;
+
+  @override
+  ParseError? error() => null;
+
+  @override
+  ParseSuccess success() => this;
+
+  @override
+  ParseAmbiguousSuccess? ambiguousSuccess() => null;
+
+  @override
+  ParseForestSuccess? forestSuccess() => null;
 }
 
 /// Returned when parsing succeeds with an ambiguous forest.
-final class ParseAmbiguousForestSuccess implements ParseOutcome {
-  const ParseAmbiguousForestSuccess(this.forest);
+final class ParseAmbiguousSuccess implements ParseOutcome {
+  const ParseAmbiguousSuccess(this.forest);
   final GlushList<Mark> forest;
+
+  @override
+  ParseError? error() => null;
+
+  @override
+  ParseSuccess? success() => null;
+
+  @override
+  ParseAmbiguousSuccess ambiguousSuccess() => this;
+
+  @override
+  ParseForestSuccess? forestSuccess() => null;
 }
 
 /// Returned when parsing succeeds with a full parse forest.
 final class ParseForestSuccess implements ParseOutcome {
   const ParseForestSuccess(this.forest);
   final ParseForest forest;
+
   @override
   String toString() => "ParseForestSuccess(forest=$forest)";
+
+  @override
+  ParseError? error() => null;
+
+  @override
+  ParseSuccess? success() => null;
+
+  @override
+  ParseAmbiguousSuccess? ambiguousSuccess() => null;
+
+  @override
+  ParseForestSuccess forestSuccess() => this;
 }
 
 /// Stateful cursor for manual state-machine parsing.
@@ -1040,6 +1161,31 @@ final class Caller extends CallerKey {
   }
 }
 
+/// Represents a negation caller key, used to track negation calls in the parse tree.
+final class NegationCallerKey implements CallerKey {
+  NegationCallerKey(this.pattern, this.startPosition)
+    : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
+  final PatternSymbol pattern;
+  @override
+  final int startPosition;
+
+  @override
+  final int uid;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NegationCallerKey &&
+          pattern == other.pattern &&
+          startPosition == other.startPosition;
+
+  @override
+  int get hashCode => Object.hash(pattern, startPosition);
+
+  @override
+  String toString() => "neg($pattern @ $startPosition)";
+}
+
 /// Context for parsing (tracks marks, callers, and BSR call-start position).
 @immutable
 class Context {
@@ -1255,8 +1401,8 @@ class Step {
         "Invariant violation in requeue: predicate stack lookup implies non-empty stack.",
       );
       // A requeued predicate frame is still live work for that tracker.
-      parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
-          ?.addPendingFrame();
+      var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+      parseState.predicateTrackers[key]?.addPendingFrame();
     }
 
     if (frame.context.caller case ConjunctionCallerKey caller) {
@@ -1280,8 +1426,8 @@ class Step {
       for (var (source, parentContext, nextState) in tracker.waiters) {
         var predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
-          var parentTracker =
-              parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+          var parentTracker = parseState.predicateTrackers[key];
           if (parentTracker != null) {
             // This child branch is no longer pending in the parent predicate.
             parentTracker.removePendingFrame();
@@ -1305,8 +1451,8 @@ class Step {
       for (var (source, parentContext, nextState) in tracker.waiters) {
         var predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
-          var parentTracker =
-              parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+          var parentTracker = parseState.predicateTrackers[key];
           if (parentTracker != null) {
             // This child branch is no longer pending in the parent predicate.
             parentTracker.removePendingFrame();
@@ -1367,11 +1513,13 @@ class Step {
 
       if (isSupportingAmbiguity && source != null) {
         // Record the conjunction completion in the derivation path
-        var nextPath = parentContext.derivationPath.add((
-          source,
-          const ConjunctionBranchKey(), // Special marker for conjunction completion
-          null,
-        ));
+        var nextPath = parentContext.derivationPath.add(
+          DerivationKey(
+            source,
+            const ConjunctionBranchKey(), // Special marker for conjunction completion
+            null,
+          ),
+        );
         nextContext = nextContext.copyWith(derivationPath: nextPath);
       }
 
@@ -1397,7 +1545,7 @@ class Step {
       var nextBranchKey =
           branchKey ??
           ActionBranchKey(PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState));
-      var nextPath = parentContext.derivationPath.add((source, nextBranchKey, null));
+      var nextPath = parentContext.derivationPath.add(DerivationKey(source, nextBranchKey, null));
       nextContext = parentContext.copyWith(derivationPath: nextPath);
     }
 
@@ -1714,11 +1862,12 @@ class Step {
     } else {
       GlushProfiler.incrementHit("parser.callers.cache");
     }
-    var isNewWaiter = caller.addWaiter(returnState, minPrecedenceLevel, frame.context, (
-      currentState.id,
-      position,
-      frame.context.caller,
-    ));
+    var isNewWaiter = caller.addWaiter(
+      returnState,
+      minPrecedenceLevel,
+      frame.context,
+      ParseNodeKey(currentState.id, position, frame.context.caller),
+    );
     if (isNewCaller) {
       var states = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!] ?? [];
       for (var firstState in states) {
@@ -1736,7 +1885,7 @@ class Step {
           ),
           source: source,
           action: action,
-          callSite: (currentState.id, position, frame.context.caller),
+          callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     } else if (isNewWaiter) {
@@ -1748,9 +1897,9 @@ class Step {
           minPrecedenceLevel,
           frame.context,
           returnContext,
-          source: (currentState.id, position, caller),
+          source: ParseNodeKey(currentState.id, position, caller),
           action: action,
-          callSite: (currentState.id, position, frame.context.caller),
+          callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     }
@@ -1787,7 +1936,7 @@ class Step {
     if (acceptedContexts.isEmpty) {
       return [];
     }
-    return acceptedContexts[0].$2.marks.toList();
+    return acceptedContexts[0].context.marks.toList();
   }
 
   /// Enqueue an active parser configuration for this step.
@@ -1808,7 +1957,7 @@ class Step {
     if (isSupportingAmbiguity && source != null) {
       var nextBranchKey =
           branchKey ?? (action != null ? ActionBranchKey(action) : StateBranchKey(state));
-      var nextPath = context.derivationPath.add((source, nextBranchKey, callSite));
+      var nextPath = context.derivationPath.add(DerivationKey(source, nextBranchKey, callSite));
       nextContext = context.copyWith(derivationPath: nextPath);
     }
 
@@ -1859,7 +2008,8 @@ class Step {
     GlushProfiler.increment("parser.enqueue.accepted");
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
-      parseState.predicateTrackers[(pk.pattern, pk.startPosition)]?.addPendingFrame();
+      var key = PredicateKey(pk.pattern, pk.startPosition);
+      parseState.predicateTrackers[key]?.addPendingFrame();
     }
     if (nextContext.caller case ConjunctionCallerKey con) {
       parseState.conjunctionTrackers[(con.left, con.right, con.startPosition)]?.addPendingFrame();
@@ -1877,7 +2027,7 @@ class Step {
   void _process(Frame frame, State state) {
     var frameContext = frame.context;
     for (var action in state.actions) {
-      var source = (state.id, position, frameContext.caller);
+      var source = ParseNodeKey(state.id, position, frameContext.caller);
       var callerOrRoot = frame.caller ?? const RootCallerKey();
       switch (action) {
         case TokenAction():
@@ -2015,7 +2165,7 @@ class Step {
           );
         case PredicateAction():
           var symbol = action.symbol;
-          var subParseKey = (symbol, position);
+          var subParseKey = PredicateKey(symbol, position);
           var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
           var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
             symbol,
@@ -2069,19 +2219,19 @@ class Step {
             var predicateKey = frameContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
               // The parent cannot settle until this child branch completes.
-              parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)]
-                  ?.addPendingFrame();
+              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+
+              parseState.predicateTrackers[key]?.addPendingFrame();
             }
           }
           // Spawn the sub-parse only the first time this predicate is seen here.
           if (isFirst && !tracker.matched) {
             _spawnPredicateSubparse(symbol, frame);
           }
-
         case ConjunctionAction():
           var left = action.leftSymbol;
           var right = action.rightSymbol;
-          var key = (left, right, position);
+          var key = ConjunctionKey(left, right, position);
           var isFirst = !parseState.conjunctionTrackers.containsKey(key);
           var tracker = parseState.conjunctionTrackers[key] ??= ConjunctionTracker(
             leftSymbol: left,
@@ -2109,10 +2259,9 @@ class Step {
           if (isFirst) {
             _spawnConjunctionSubparse(left, right, frame);
           }
-
         case NegationAction():
           var symbol = action.symbol;
-          var key = (symbol, position);
+          var key = NegationKey(symbol, position);
           var isFirst = !parseState.negationTrackers.containsKey(key);
           var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
 
@@ -2152,7 +2301,6 @@ class Step {
           if (isFirst) {
             _spawnNegationSubparse(symbol, frame);
           }
-
         case CallAction():
           Pattern callPattern = action.pattern;
           var call = callPattern as RuleCall;
@@ -2201,6 +2349,18 @@ class Step {
                 action: action,
               );
               continue;
+            case CaptureValue captureValue:
+              print(captureValue.value);
+              var entryState = parseState.parser.stateMachine.parameterStringEntry(
+                captureValue.value,
+                action.nextState,
+              );
+              _enqueue(
+                entryState,
+                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                source: source,
+                action: action,
+              );
             case RuleCall callValue:
               var resolvedCall = _resolveCallArguments(callValue, frame);
               _seedRuleCall(
@@ -2341,7 +2501,7 @@ class Step {
                 continue;
               }
               var predicateSymbol = PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text");
-              var subParseKey = (predicateSymbol, position);
+              var subParseKey = PredicateKey(predicateSymbol, position);
               var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
               var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
                 predicateSymbol,
@@ -2380,8 +2540,8 @@ class Step {
                 tracker.waiters.add((source, frameContext, action.nextState));
                 var predicateKey = frameContext.predicateStack.lastOrNull;
                 if (predicateKey != null) {
-                  var parentTracker = parseState
-                      .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+                  var parentTracker = parseState.predicateTrackers[key];
                   parentTracker?.addPendingFrame();
                 }
               }
@@ -2402,7 +2562,7 @@ class Step {
                 throw StateError("Predicate rule must have a symbol id.");
               }
 
-              var subParseKey = (symbol, position);
+              var subParseKey = PredicateKey(symbol, position);
               var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
               if (isFirst) {
                 parseState.predicateTrackers[subParseKey] = PredicateTracker(
@@ -2444,8 +2604,8 @@ class Step {
                 tracker.waiters.add((source, frameContext, action.nextState));
                 var predicateKey = frameContext.predicateStack.lastOrNull;
                 if (predicateKey != null) {
-                  var parentTracker = parseState
-                      .predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+                  var parentTracker = parseState.predicateTrackers[key];
                   parentTracker?.addPendingFrame();
                 }
               }
@@ -2550,7 +2710,8 @@ class Step {
               frame.context.predicateStack.lastOrNull == caller,
               "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
             );
-            var tracker = parseState.predicateTrackers[(caller.pattern, caller.startPosition)];
+            var key = PredicateKey(caller.pattern, caller.startPosition);
+            var tracker = parseState.predicateTrackers[key];
             if (tracker == null) {
               // The predicate may already have resolved in this position.
               continue;
@@ -2608,23 +2769,23 @@ class Step {
             // Replay to waiters only when this return context is newly added.
             if (caller.addReturn(returnContext)) {
               // Newly discovered return context fan-outs to all queued waiters.
-              for (var waiter in caller.waiters) {
+              for (var (nextState, minPrecedence, parentContext, callSite) in caller.waiters) {
                 _triggerReturn(
                   caller,
-                  waiter.$3.caller,
-                  waiter.$1,
-                  waiter.$2,
-                  waiter.$3,
+                  parentContext.caller,
+                  nextState,
+                  minPrecedence,
+                  parentContext,
                   returnContext,
-                  source: (state.id, position, caller),
+                  source: ParseNodeKey(state.id, position, caller),
                   action: action,
-                  callSite: waiter.$4,
+                  callSite: callSite,
                 );
               }
             }
           }
         case AcceptAction():
-          var accepted = (state, frame.context);
+          var accepted = AcceptedContext(state, frame.context);
           if (_acceptedContextSet.add(accepted)) {
             acceptedContexts.add(accepted);
           }
@@ -2744,8 +2905,8 @@ class Step {
 
       if (predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
         // Next frame belongs to a predicate branch and counts as pending.
-        var tracker =
-            parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+        var tracker = parseState.predicateTrackers[key];
 
         if (tracker != null) {
           // The newly materialized next-frame is pending work for this predicate.
@@ -2781,8 +2942,8 @@ class Step {
           // presence here because exhaustion cleanup can remove a tracker before
           // all delayed frames are drained.
           // This context belongs to a predicate sub-parse; update its tracker.
-          var tracker =
-              parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+          var tracker = parseState.predicateTrackers[key];
           if (tracker != null) {
             // Work unit is now being processed; decrement "pending work" counter.
             tracker.removePendingFrame();
@@ -2842,7 +3003,7 @@ abstract base class GlushParserBase implements GlushParser {
     // Repeat until no predicate resolution can trigger further parent updates.
     while (changed) {
       changed = false;
-      var toRemove = <(PatternSymbol, int)>{};
+      var toRemove = <PredicateKey>{};
       // Resolving one predicate can unblock another predicate in the same pass.
       for (var entry in parseState.predicateTrackers.entries) {
         var tracker = entry.value;
@@ -2851,8 +3012,8 @@ abstract base class GlushParserBase implements GlushParser {
           for (var (_, parentContext, nextState) in tracker.waiters) {
             var predicateKey = parentContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
-              var parentTracker =
-                  parseState.predicateTrackers[(predicateKey.pattern, predicateKey.startPosition)];
+              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+              var parentTracker = parseState.predicateTrackers[key];
               if (parentTracker != null) {
                 parentTracker.removePendingFrame();
                 changed = true;
@@ -2863,7 +3024,8 @@ abstract base class GlushParserBase implements GlushParser {
               var targetPosition = parentContext.pivot ?? 0;
               var nextFrame = Frame(parentContext)..nextStates.add(nextState);
               if (parentContext.predicateStack.lastOrNull case var pk?) {
-                var parentTracker = parseState.predicateTrackers[(pk.pattern, pk.startPosition)];
+                var key = PredicateKey(pk.pattern, pk.startPosition);
+                var parentTracker = parseState.predicateTrackers[key];
                 if (parentTracker != null) {
                   parentTracker.addPendingFrame();
                   changed = true;
@@ -3022,7 +3184,8 @@ abstract base class GlushParserBase implements GlushParser {
             // Contract note mirrors processFrame():
             // tracker can be absent after cleanup of an exhausted predicate.
             // Dequeued predicate-owned frame consumes one pending work unit.
-            parseState.predicateTrackers[(pk.pattern, pk.startPosition)]?.removePendingFrame();
+            var key = PredicateKey(pk.pattern, pk.startPosition);
+            parseState.predicateTrackers[key]?.removePendingFrame();
           }
           if (frame.context.caller case ConjunctionCallerKey caller) {
             // Decrement pending frame counter for the conjunction sub-parse.

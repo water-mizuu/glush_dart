@@ -14,8 +14,8 @@ void main() {
 
       const input = "hello  ";
       var ambiguous = parser.parseAmbiguous(input);
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
 
       var forest = parser.parseWithForest(input);
@@ -28,8 +28,8 @@ void main() {
       var parser = "start = ','? ',';".toSMParser();
 
       var ambiguous = parser.parseAmbiguous(",,");
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
     });
 
@@ -41,8 +41,8 @@ void main() {
 
       var ambiguous1 = parser.parseAmbiguous("x");
       var ambiguous2 = parser.parseAmbiguous("ax");
-      expect((ambiguous1 as ParseAmbiguousForestSuccess).forest.allPaths().length, equals(1));
-      expect((ambiguous2 as ParseAmbiguousForestSuccess).forest.allPaths().length, equals(1));
+      expect((ambiguous1 as ParseAmbiguousSuccess).forest.allPaths().length, equals(1));
+      expect((ambiguous2 as ParseAmbiguousSuccess).forest.allPaths().length, equals(1));
     });
   });
 }

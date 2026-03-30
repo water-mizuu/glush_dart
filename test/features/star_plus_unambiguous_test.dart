@@ -15,8 +15,8 @@ void main() {
       const input = "alpha   beta\tgamma\n\tdelta";
 
       var ambiguous = parser.parseAmbiguous(input);
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
 
       var forest = parser.parseWithForest(input);
@@ -42,8 +42,8 @@ void main() {
 
       const validInput = "   helloworld   ";
       var ambiguous = parser.parseAmbiguous(validInput);
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
 
       var forest = parser.parseWithForest(validInput);
@@ -56,8 +56,8 @@ void main() {
       var parser = r"start = [ \t]* 'x';".toSMParser();
 
       var ambiguous = parser.parseAmbiguous("   \t  x");
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
 
       var forest = parser.parseWithForest("   \t  x");
@@ -70,8 +70,8 @@ void main() {
       var parser = "start = [a-z]+;".toSMParser();
 
       var ambiguous = parser.parseAmbiguous("letters");
-      expect(ambiguous, isA<ParseAmbiguousForestSuccess>());
-      var paths = (ambiguous as ParseAmbiguousForestSuccess).forest.allPaths();
+      expect(ambiguous, isA<ParseAmbiguousSuccess>());
+      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
       expect(paths.length, equals(1));
 
       var forest = parser.parseWithForest("letters");

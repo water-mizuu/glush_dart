@@ -156,8 +156,8 @@ void main() {
       expect(parser.recognize(input), isTrue);
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      expect(res, isA<ParseAmbiguousForestSuccess>());
-      var success = res as ParseAmbiguousForestSuccess;
+      expect(res, isA<ParseAmbiguousSuccess>());
+      var success = res as ParseAmbiguousSuccess;
 
       // Evaluate the structure from the marks
       var root = success.forest.toList().evaluateStructure();
@@ -184,7 +184,7 @@ void main() {
       expect(parser.recognize(input), isTrue);
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       // Check l1 hierarchy

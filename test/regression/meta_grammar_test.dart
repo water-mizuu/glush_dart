@@ -272,7 +272,7 @@ void main() {
       // We validate parsing succeeds by checking the result type
       var result = metaParser.parseAmbiguous(metaGrammarString);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("self-parses: result contains valid parse structure", () {

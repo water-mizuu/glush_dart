@@ -8,8 +8,8 @@ void main() {
       var p2 = "R = 'b' R | 'b'".toSMParser();
 
       // Ensure no stack overflow on deep paths
-      expect(p1.parseAmbiguous("a" * 100), isA<ParseAmbiguousForestSuccess>());
-      expect(p2.parseAmbiguous("b" * 100), isA<ParseAmbiguousForestSuccess>());
+      expect(p1.parseAmbiguous("a" * 100), isA<ParseAmbiguousSuccess>());
+      expect(p2.parseAmbiguous("b" * 100), isA<ParseAmbiguousSuccess>());
     });
 
     test("2. Precedence and Associativity (Complex)", () {
@@ -36,9 +36,9 @@ void main() {
 
       // (n + (n * (n ^ n)))
       var result = parser.parseAmbiguous("n+n*n^n", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
 
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      var forest = (result as ParseAmbiguousSuccess).forest;
       var val = evaluator.evaluate(const StructuredEvaluator().evaluate(forest.allPaths().first));
       expect(val, equals("(n + (n * (n ^ n)))"));
     });
@@ -47,9 +47,9 @@ void main() {
       var parser = r"S = $v ($a 'a' | $b 'a')*".toSMParser();
 
       var result = parser.parseAmbiguous("aa");
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
 
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      var forest = (result as ParseAmbiguousSuccess).forest;
       var paths = forest.allPaths();
       expect(paths.length, equals(4));
     });
@@ -58,8 +58,8 @@ void main() {
       var parser = r"S = ($A 'a' | $B 'a')+".toSMParser();
 
       var result = parser.parseAmbiguous("aa", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      if (result case ParseAmbiguousForestSuccess(:var forest)) {
+      expect(result, isA<ParseAmbiguousSuccess>());
+      if (result case ParseAmbiguousSuccess(:var forest)) {
         // Paths: (A, A), (A, B), (B, A), (B, B) = 4 paths
         expect(forest.allPaths().length, equals(4));
       }
@@ -67,14 +67,11 @@ void main() {
 
     test("5. Epsilon (Empty Match) in Shared Forest", () {
       var parser = r"S = $OPT 'a'? $END 'b'".toSMParser();
-      expect(
-        parser.parseAmbiguous("ab", captureTokensAsMarks: true),
-        isA<ParseAmbiguousForestSuccess>(),
-      );
+      expect(parser.parseAmbiguous("ab", captureTokensAsMarks: true), isA<ParseAmbiguousSuccess>());
       var result = parser.parseAmbiguous("b", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
 
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      var forest = (result as ParseAmbiguousSuccess).forest;
       var marksConcat = forest.allPaths().single.toStringList().join(" ");
       expect(marksConcat, contains("S.OPT"));
       expect(marksConcat, contains("END"));
@@ -83,10 +80,7 @@ void main() {
     test("6. Cyclic Epsilon Grammar (Protection)", () {
       var parser = "S = S | 'a'".toSMParser();
 
-      expect(
-        parser.parseAmbiguous("a", captureTokensAsMarks: true),
-        isA<ParseAmbiguousForestSuccess>(),
-      );
+      expect(parser.parseAmbiguous("a", captureTokensAsMarks: true), isA<ParseAmbiguousSuccess>());
     });
 
     test("7. Mark Collision and Nesting", () {
@@ -100,9 +94,9 @@ void main() {
               .toSMParser();
 
       var result = parser.parseAmbiguous("ab", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
 
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      var forest = (result as ParseAmbiguousSuccess).forest;
       var marks = forest.allPaths().first.toMarkStrings();
       expect(marks, contains("S.M"));
       expect(marks, contains("M"));
@@ -119,19 +113,16 @@ void main() {
           """
               .toSMParser();
       var result = parser.parseAmbiguous("if if a else a", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
 
-      var forest = (result as ParseAmbiguousForestSuccess).forest;
+      var forest = (result as ParseAmbiguousSuccess).forest;
       expect(forest.allPaths().length, equals(2));
     });
 
     test("9. Predicate Interactions", () {
       var parser = "S = &('a' 'b') 'a' 'b'".toSMParser();
 
-      expect(
-        parser.parseAmbiguous("ab", captureTokensAsMarks: true),
-        isA<ParseAmbiguousForestSuccess>(),
-      );
+      expect(parser.parseAmbiguous("ab", captureTokensAsMarks: true), isA<ParseAmbiguousSuccess>());
       expect(parser.parseAmbiguous("ac", captureTokensAsMarks: true), isA<ParseError>());
     });
   });

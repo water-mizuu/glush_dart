@@ -26,7 +26,7 @@ void mathSimple() {
     "add": (ctx) => "(${ctx.next()} + ${ctx.next()})",
     "num": (ctx) => ctx.span.trim(),
   });
-  if (ambiguousResult is ParseAmbiguousForestSuccess) {
+  if (ambiguousResult is ParseAmbiguousSuccess) {
     for (var result in ambiguousResult.forest.allPaths()) {
       var tree = result.evaluateStructure();
       print(evaluator.evaluate(tree));
@@ -51,7 +51,7 @@ void ambiguous() {
   for (int length = 1; length <= 5; ++length) {
     var input = "s" * length;
     var result = parser.parseAmbiguous(input);
-    if (result is! ParseAmbiguousForestSuccess) {
+    if (result is! ParseAmbiguousSuccess) {
       print("Failed to parse $input!");
       continue;
     }
@@ -79,7 +79,7 @@ void orderedChoice() {
   var parser = SMParserMini(grammar);
   var result = parser.parseAmbiguous("abc");
   print(result);
-  if (result case ParseAmbiguousForestSuccess result) {
+  if (result case ParseAmbiguousSuccess result) {
     print(result.forest.allPaths().toList());
   }
 }
@@ -313,7 +313,7 @@ void meta() {
   print(result);
 
   switch (result) {
-    case ParseAmbiguousForestSuccess result:
+    case ParseAmbiguousSuccess result:
       var output = StringBuffer()..writeln("Evaluated Meta Grammar Paths:");
       for (var path in result.forest.allPaths().take(1)) {
         var tree = path.evaluateStructure();
@@ -352,7 +352,7 @@ void dataDriven() {
 
   for (var input in ["<book>Hello</book>", "<book>Hello</author></book>"]) {
     switch (parser.parseAmbiguous(input)) {
-      case ParseAmbiguousForestSuccess result:
+      case ParseAmbiguousSuccess result:
         print("$input -> dataDriven ok: ${result.forest.allPaths().length}");
       case ParseError error:
         error.displayError(input);
@@ -374,7 +374,7 @@ void dataDriven2() {
     Timeline.startSync("Parsing Phase $input");
     var result = parser.parseAmbiguous(input);
     print(result);
-    if (result case ParseAmbiguousForestSuccess result) {
+    if (result case ParseAmbiguousSuccess result) {
       print(result.forest.allPaths().map((v) => v.evaluateStructure()).toList());
     }
     Timeline.finishSync();
@@ -391,7 +391,7 @@ void dataDriven3() {
   const grammarText = r"""
         start = t:repeat(3) check(t.length, t)
         repeat(n) = if (n > 1) repeat(n - 1) 's'
-                 | if (n == 1) 's'
+                  | if (n == 1) 's'
         check(length, t) = if (length == 3 && t.startPosition == 0) ''
       """;
 
@@ -407,11 +407,12 @@ void dataDriven3() {
 
 void dataDriven4() {
   const grammarText = r"""
-    double = $A m:(v:.) m
+    double = $A m:(v:.) cap(m)
+    cap(m) = m
   """;
 
   var parser = grammarText.toSMParser();
-  print(parser.parse("aa"));
+  print(parser.parse("bc").success()!.result.rawMarks);
 }
 
 void main() async {

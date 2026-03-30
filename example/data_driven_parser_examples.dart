@@ -489,7 +489,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   var dslParser = grammarText.toSMParser();
   var dslOutcome = dslParser.parseAmbiguous("a", captureTokensAsMarks: true);
   print("DSL ambiguous outcome: ${dslOutcome.runtimeType}");
-  if (dslOutcome case ParseAmbiguousForestSuccess(:var forest)) {
+  if (dslOutcome case ParseAmbiguousSuccess(:var forest)) {
     print("DSL paths: ${forest.allPaths().length}");
     for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
       print(tree);
@@ -516,7 +516,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   var fluentParser = SMParser(Grammar(() => start), captureTokensAsMarks: true);
   var fluentOutcome = fluentParser.parseAmbiguous("a", captureTokensAsMarks: true);
   print("Fluent ambiguous outcome: ${fluentOutcome.runtimeType}");
-  if (fluentOutcome case ParseAmbiguousForestSuccess(:var forest)) {
+  if (fluentOutcome case ParseAmbiguousSuccess(:var forest)) {
     print("Fluent paths: ${forest.allPaths().length}");
     for (var tree in forest.allPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
       print(tree);

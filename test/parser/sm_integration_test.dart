@@ -11,8 +11,8 @@ void main() {
               .toSMParser();
 
       var result = parser.parseAmbiguous("abc");
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var success = result as ParseAmbiguousForestSuccess;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var success = result as ParseAmbiguousSuccess;
       expect(success.forest.allPaths().length, equals(1));
     });
 
@@ -27,8 +27,8 @@ void main() {
       var input = "a" * 5;
       var result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var success = result as ParseAmbiguousForestSuccess;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var success = result as ParseAmbiguousSuccess;
 
       // For N=5, the number of derivations is the 4th Catalan number = 14
       var paths = success.forest.allPaths();
@@ -49,8 +49,8 @@ void main() {
       // Input: n + n * n
       // Unambiguous with precedence: (n + (n * n))
       var result = parser.parseAmbiguous("n+n*n", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var success = result as ParseAmbiguousForestSuccess;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var success = result as ParseAmbiguousSuccess;
 
       var paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
@@ -67,8 +67,8 @@ void main() {
               .toSMParser();
 
       var result = parser.parseAmbiguous("abc", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
-      var success = result as ParseAmbiguousForestSuccess;
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var success = result as ParseAmbiguousSuccess;
       var paths = success.forest.allPaths().toList();
       expect(paths.length, equals(1));
       expect(paths.single.toShortMarks().join(), equals("abc"));
@@ -85,9 +85,9 @@ void main() {
               .toSMParser();
 
       var successResult = parser.parseAmbiguous("ac", captureTokensAsMarks: true);
-      expect(successResult, isA<ParseAmbiguousForestSuccess>());
+      expect(successResult, isA<ParseAmbiguousSuccess>());
 
-      var success = successResult as ParseAmbiguousForestSuccess;
+      var success = successResult as ParseAmbiguousSuccess;
       var paths = success.forest.allPaths().toList();
       expect(paths.length, equals(1));
       expect(paths.single.toShortMarks().join(), equals("ac"));
@@ -147,7 +147,7 @@ void main() {
 
       var input = "s" * 20;
       var result = parser2.parseAmbiguous(input, captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Nested predicates", () {

@@ -64,7 +64,36 @@ sealed class GlushList<T> {
     return result;
   }
 
-  void forEach(void Function(T) callback);
+  static final Object _dataMarker = Object();
+
+  void forEach(void Function(T) callback) {
+    var stack = <Object?>[this];
+    while (stack.isNotEmpty) {
+      var item = stack.removeLast();
+      if (identical(item, _dataMarker)) {
+        callback(stack.removeLast() as T);
+        continue;
+      }
+
+      var node = item! as GlushList<T>;
+      switch (node) {
+        case EmptyList<T>():
+          break;
+        case BranchedList<T>():
+          var alternatives = node.alternatives;
+          for (var i = alternatives.length - 1; i >= 0; i--) {
+            stack.add(alternatives[i]);
+          }
+        case Push<T>():
+          stack.add(node.data);
+          stack.add(_dataMarker);
+          stack.add(node.parent);
+        case Concat<T>():
+          stack.add(node.right);
+          stack.add(node.left);
+      }
+    }
+  }
 
   bool get isEmpty;
 
@@ -89,9 +118,6 @@ bool _listEquals(List<Object?> left, List<Object?> right) {
 
 class EmptyList<T> extends GlushList<T> {
   const EmptyList._();
-
-  @override
-  void forEach(void Function(T) callback) {}
 
   @override
   bool get isEmpty => true;
@@ -119,13 +145,6 @@ class BranchedList<T> extends GlushList<T> {
   bool get isEmpty => _isEmpty;
 
   @override
-  void forEach(void Function(T) callback) {
-    for (var alt in alternatives) {
-      alt.forEach(callback);
-    }
-  }
-
-  @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is BranchedList<T> &&
@@ -148,12 +167,6 @@ class Push<T> extends GlushList<T> {
   T? get lastOrNull => _lastOrNull;
 
   @override
-  void forEach(void Function(T) callback) {
-    parent.forEach(callback);
-    callback(data);
-  }
-
-  @override
   bool get isEmpty => false;
 
   @override
@@ -173,12 +186,6 @@ class Concat<T> extends GlushList<T> {
   final GlushList<T> left;
   final GlushList<T> right;
   final int _hashCode;
-
-  @override
-  void forEach(void Function(T) callback) {
-    left.forEach(callback);
-    right.forEach(callback);
-  }
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;

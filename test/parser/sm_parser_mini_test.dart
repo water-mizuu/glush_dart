@@ -35,8 +35,8 @@ void main() {
       });
       var parser = SMParserMini(grammar);
       var outcome = parser.parseAmbiguous("aa", captureTokensAsMarks: true);
-      expect(outcome, isA<ParseAmbiguousForestSuccess>());
-      var success = outcome as ParseAmbiguousForestSuccess;
+      expect(outcome, isA<ParseAmbiguousSuccess>());
+      var success = outcome as ParseAmbiguousSuccess;
       // Depending on GlushList implementation, count completions
       expect(success.forest.toList(), isNotEmpty);
     });

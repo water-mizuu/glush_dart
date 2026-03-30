@@ -290,7 +290,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// ambiguity purely from the State Machine's marks system.
   ///
   /// Returns:
-  /// - [ParseAmbiguousForestSuccess] if input matches (all interpretations merged)
+  /// - [ParseAmbiguousSuccess] if input matches (all interpretations merged)
   /// - [ParseError] if parsing fails
   @override
   ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
@@ -313,8 +313,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
-        var results = lastStep.acceptedContexts.map((entry) => entry.$2.marks).toList();
-        return ParseAmbiguousForestSuccess(GlushList.branched(results));
+        var results = lastStep.acceptedContexts.map((entry) => entry.context.marks).toList();
+        return ParseAmbiguousSuccess(GlushList.branched(results));
       } else {
         return ParseError(parseState.position);
       }
@@ -1630,31 +1630,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         }
         return out;
       default:
-        var pattern = grammar.symbolRegistry[tree.symbol];
-        if (pattern == null) {
-          return const <Mark>[];
-        }
-
-        return switch (pattern) {
-          Marker(:var name) => [NamedMark(name, tree.start)],
-          LabelStart(:var name) => [LabelStartMark(name, tree.start)],
-          LabelEnd(:var name) => [LabelEndMark(name, tree.start)],
-          Token() =>
-            captureTokensAsMarks
-                ? [StringMark(tree.getMatchedText(input), tree.start)]
-                : const <Mark>[],
-          Neg() => const <Mark>[],
-          _ =>
-            tree.children
-                .expand(
-                  (c) => _extractParseTreeRawMarks(
-                    c,
-                    input,
-                    captureTokensAsMarks: captureTokensAsMarks,
-                  ),
-                )
-                .toList(),
-        };
+        throw StateError("Did not expect prefix $prefix.");
     }
   }
 }

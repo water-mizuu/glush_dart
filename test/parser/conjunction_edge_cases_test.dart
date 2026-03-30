@@ -19,7 +19,7 @@ void main() {
       expect(parser.recognize(input), isTrue);
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       expect(root.get("l1"), isNotEmpty);
@@ -44,7 +44,7 @@ void main() {
       expect(parser.countAllParses(input), equals(2));
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
 
       // Since it's ambiguous at the top level (two ways to match 'left'),
       // forest.toList() will have two top-level branches if we use allPaths.
@@ -81,7 +81,7 @@ void main() {
       expect(parser.countAllParses(""), equals(1));
 
       var res = parser.parseAmbiguous("", captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       expect(root.get("l1"), isNotEmpty);
@@ -148,7 +148,7 @@ void main() {
       expect(parser.recognize(input), isTrue);
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       expect(root.get("l1"), isNotEmpty);
@@ -177,7 +177,7 @@ void main() {
       expect(parser.recognize(input), isTrue);
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       expect(root.get("l1"), isNotEmpty);
@@ -269,7 +269,7 @@ void main() {
       // Each 'aaa' match has 1 derivation because (l1:a S) and (l2:a S) are both non-ambiguous.
       // But they nesting level is 3 deep.
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      var success = res as ParseAmbiguousForestSuccess;
+      var success = res as ParseAmbiguousSuccess;
       var root = success.forest.toList().evaluateStructure();
 
       // Root (at level 0) should have l1 and l2.

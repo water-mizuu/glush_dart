@@ -97,7 +97,7 @@ void main() {
   measure("metaParser.parse(simple)", 50, () => grammar.parse("rule = 'a'\n"));
   measure("metaParser.parse(self)", 10, () {
     var result = grammar.parse(metaGrammarString);
-    if (result is! ParseSuccess && result is! ParseAmbiguousForestSuccess) {
+    if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;
@@ -105,7 +105,7 @@ void main() {
   measure("metaParser.parse(ambiguous)", 10, () {
     var result = grammar.parseAmbiguous(metaGrammarString);
     if (result is! ParseSuccess &&
-        result is! ParseAmbiguousForestSuccess &&
+        result is! ParseAmbiguousSuccess &&
         result is! ParseForestSuccess) {
       throw Exception("Parse failed: $result");
     }
@@ -114,7 +114,7 @@ void main() {
   measure("metaParser.parse(forest)", 10, () {
     var result = grammar.parseWithForest(metaGrammarString);
     if (result is! ParseSuccess &&
-        result is! ParseAmbiguousForestSuccess &&
+        result is! ParseAmbiguousSuccess &&
         result is! ParseForestSuccess) {
       throw Exception("Parse failed: $result");
     }

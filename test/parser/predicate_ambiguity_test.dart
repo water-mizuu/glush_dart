@@ -14,8 +14,8 @@ void main() {
     // Use parseAmbiguous to see if we get multiple mark streams
     var outcome = parser.parseAmbiguous("a", captureTokensAsMarks: true);
 
-    expect(outcome, isA<ParseAmbiguousForestSuccess>());
-    var success = outcome as ParseAmbiguousForestSuccess;
+    expect(outcome, isA<ParseAmbiguousSuccess>());
+    var success = outcome as ParseAmbiguousSuccess;
 
     // We expect only ONE result, because the predicate ambiguity should be collapsed.
     // If we get TWO results, it means the predicate leaked its ambiguity.
@@ -33,8 +33,8 @@ void main() {
     var parser = SMParserMini(grammar);
     var outcome = parser.parseAmbiguous("b", captureTokensAsMarks: true);
 
-    expect(outcome, isA<ParseAmbiguousForestSuccess>());
-    var success = outcome as ParseAmbiguousForestSuccess;
+    expect(outcome, isA<ParseAmbiguousSuccess>());
+    var success = outcome as ParseAmbiguousSuccess;
 
     expect(success.forest.toList().length, equals(1));
   });
@@ -173,7 +173,7 @@ one = 5 | S 's' | 's'*! # wat
       """;
 
     switch (ambiguousParser.parseAmbiguous("${input.trim()}\n")) {
-      case ParseAmbiguousForestSuccess result:
+      case ParseAmbiguousSuccess result:
         expect(result.forest.allPaths().length, equals(3));
       case ParseError error:
         error.displayError(input);
@@ -181,7 +181,7 @@ one = 5 | S 's' | 's'*! # wat
         throw Error();
     }
     switch (unambiguousParser.parseAmbiguous("${input.trim()}\n")) {
-      case ParseAmbiguousForestSuccess result:
+      case ParseAmbiguousSuccess result:
         expect(result.forest.allPaths().length, equals(1));
       case ParseError error:
         error.displayError(input);

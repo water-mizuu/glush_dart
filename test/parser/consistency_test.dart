@@ -27,12 +27,12 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
   expect(result, isA<ParseSuccess>(), reason: "Standard parse failed for input: $input");
   expect(
     ambigResult,
-    isA<ParseAmbiguousForestSuccess>(),
+    isA<ParseAmbiguousSuccess>(),
     reason: "Ambiguous parse failed for input: $input",
   );
 
   var standardMarks = (result as ParseSuccess).result.rawMarks;
-  var ambigForest = (ambigResult as ParseAmbiguousForestSuccess).forest;
+  var ambigForest = (ambigResult as ParseAmbiguousSuccess).forest;
   var ambigPaths = ambigForest.allPaths().toList();
 
   if (!isAmbiguous) {
@@ -77,7 +77,7 @@ void main() {
       verifyConsistency(g, "a", isAmbiguous: true);
 
       var parser = SMParserMini(g);
-      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousForestSuccess).forest;
+      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
       expect(
         ambig.allPaths().length,
         2,
@@ -107,7 +107,7 @@ void main() {
       verifyConsistency(g, "ab");
 
       var parser = SMParserMini(g);
-      var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousForestSuccess).forest;
+      var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousSuccess).forest;
       // Should have 1 result because both branches are unique and merged.
       expect(ambig.allPaths().length, 1);
 
@@ -133,7 +133,7 @@ void main() {
       });
 
       var parser = SMParserMini(g);
-      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousForestSuccess).forest;
+      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
 
       // Combinations: (A,C), (A,D), (B,C), (B,D)
       // Total 4 paths.

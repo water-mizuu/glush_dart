@@ -66,7 +66,7 @@ void main() {
       var parser = grammarText.toSMParser();
       var result = parser.parseAmbiguous("<book>Hello<author>Ada</author></book>");
 
-      expect(result, isA<ParseAmbiguousForestSuccess>());
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
   });
 }
