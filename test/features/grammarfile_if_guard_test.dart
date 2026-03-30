@@ -22,19 +22,24 @@ void main() {
         start = if (position > 0) "a";
       ''';
 
-      var parser = grammarText.toSMParser();
+      var parser = grammarText.toSMParserMini();
       expect(parser.recognize("a"), isFalse);
     });
 
     test("captures expose span length in guards", () {
       const grammarText = r"""
-        start = capture:repeat(3) check(capture.length, capture.startPosition)
+        start = t:repeat(3) check(capture.length, capture)
         repeat(n) = if (n > 1) repeat(n - 1) 's'
                  | if (n == 1) 's'
-        check(length, start) = if (length == 3 && start == 0) ''
+        check(length, start) = if (length == 3 && start.startPosition == 0) ''
       """;
 
       var parser = grammarText.toSMParser();
+
+      for (var rule in parser.stateMachine.grammar.rules) {
+        print((rule.name, rule.body()));
+      }
+
       expect(parser.recognize("sss"), isTrue);
       expect(parser.parse("sss"), isA<ParseSuccess>());
     });
@@ -54,6 +59,10 @@ void main() {
       var parser = grammarText.toSMParser();
       expect(parser.recognize("sss!"), isTrue);
       expect(parser.parse("sss!"), isA<ParseSuccess>());
+      expect(parser.recognize("ssss!"), isFalse);
+      expect(parser.parse("ssss!"), isA<ParseError>());
+      expect(parser.recognize("ss!"), isFalse);
+      expect(parser.parse("ss!"), isA<ParseError>());
     });
 
     test("label captures are visible to later calls in the same body", () {

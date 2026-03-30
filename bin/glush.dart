@@ -350,7 +350,7 @@ void dataDriven() {
       """
           .toSMParser();
 
-  for (var input in ["<book>Hello</book>", "<book>Hello</author>"]) {
+  for (var input in ["<book>Hello</book>", "<book>Hello</author></book>"]) {
     switch (parser.parseAmbiguous(input)) {
       case ParseAmbiguousForestSuccess result:
         print("$input -> dataDriven ok: ${result.forest.allPaths().length}");
@@ -387,11 +387,40 @@ void dataDriven2() {
   // );
 }
 
+void dataDriven3() {
+  const grammarText = r"""
+        start = t:repeat(3) check(t.length, t)
+        repeat(n) = if (n > 1) repeat(n - 1) 's'
+                 | if (n == 1) 's'
+        check(length, t) = if (length == 3 && t.startPosition == 0) ''
+      """;
+
+  var parser = grammarText.toSMParser();
+
+  for (var rule in parser.stateMachine.grammar.rules) {
+    print((rule.name, rule.body()));
+  }
+
+  print(parser.recognize("sss"));
+  print((parser.parse("sss") as ParseSuccess).result);
+}
+
+void dataDriven4() {
+  const grammarText = r"""
+    double = $A m:(v:.) m
+  """;
+
+  var parser = grammarText.toSMParser();
+  print(parser.parse("aa"));
+}
+
 void main() async {
   // mathSimple();
   // ambiguous();
   // orderedChoice();
-  meta();
-  dataDriven();
+  // meta();
+  // dataDriven();
   // dataDriven2();
+  // dataDriven3();
+  dataDriven4();
 }

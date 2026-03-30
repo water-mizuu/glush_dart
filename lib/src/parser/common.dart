@@ -379,6 +379,7 @@ final class NegationCallerKey implements CallerKey {
   NegationCallerKey(this.pattern, this.startPosition)
     : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
   final PatternSymbol pattern;
+  @override
   final int startPosition;
 
   @override

@@ -850,7 +850,7 @@ Object? _materializeResolvedValue(Object? value, GuardEnvironment env) {
   var seen = <Object>{};
   while (value is CallArgumentValue) {
     if (!seen.add(value)) {
-      throw const UnresolvedCallArgumentReference();
+      throw UnresolvedCallArgumentReference(value);
     }
     value = value.resolve(env);
   }
@@ -858,7 +858,12 @@ Object? _materializeResolvedValue(Object? value, GuardEnvironment env) {
 }
 
 final class UnresolvedCallArgumentReference implements Exception {
-  const UnresolvedCallArgumentReference();
+  const UnresolvedCallArgumentReference(this.value);
+
+  final Object? value;
+
+  @override
+  String toString() => "Unresolved reference: $value";
 }
 
 Object? _resolveMemberValue(Object? target, String member) {
@@ -1054,13 +1059,14 @@ final class GuardEnvironment {
     return capture;
   }
 
-  Object? resolve(String name) =>
-      values[name] ??
-      valueResolver?.call(name) ??
-      arguments[name] ??
-      (name == "marks" ? marks : null) ??
-      _resolveCapture(name) ??
-      rulesByName[name];
+  Object? resolve(String name) {
+    return values[name] ??
+        valueResolver?.call(name) ??
+        arguments[name] ??
+        (name == "marks" ? marks : null) ??
+        _resolveCapture(name) ??
+        rulesByName[name];
+  }
 
   GuardEnvironment mergeWith(Map<String, Object?> additions) {
     if (additions.isEmpty) {
@@ -2234,13 +2240,13 @@ extension type RuleName(String symbol) {}
 /// Grammar rule
 class Rule extends Pattern {
   Rule(String name, this._code) : name = RuleName(name), uid = _uidCounter++;
- 
+
   static int _uidCounter = 1;
- 
+
   final RuleName name;
   final Pattern Function() _code;
   final List<RuleCall> calls = [];
- 
+
   /// Unique serial ID assigned during Rule creation.
   /// Used for fast integer-packed cache keys.
   final int uid;
@@ -2279,8 +2285,18 @@ class Rule extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(body().calculateEmpty(emptyRules));
-    return _isEmpty ?? false;
+    // We MUST still call calculateEmpty on the body to ensure all nested
+    // patterns (Tokens, etc.) have their empty status initialized.
+    var bodyEmpty = body().calculateEmpty(emptyRules);
+
+    if (guard != null) {
+      // Guarded rules are never statically empty because they require
+      // runtime precondition checks before the empty path can be followed.
+      setEmpty(false);
+      return false;
+    }
+    setEmpty(bodyEmpty);
+    return bodyEmpty;
   }
 
   @override
@@ -2366,6 +2382,12 @@ class RuleCall extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
+    if (rule.guard != null) {
+      // Guarded rules are never statically empty because they require
+      // runtime precondition checks before the empty path can be followed.
+      setEmpty(false);
+      return false;
+    }
     setEmpty(emptyRules.contains(rule));
     return _isEmpty ?? false;
   }

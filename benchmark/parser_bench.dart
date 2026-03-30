@@ -1,14 +1,12 @@
 import "package:benchmark_harness/benchmark_harness.dart";
 import "package:glush/glush.dart";
-import "package:glush/src/core/profiling.dart";
 
 /// Stress test using the highly ambiguous Catalan grammar: S -> S S | 'a'
 /// The number of parses follows Catalan numbers C_n = (2n)! / ((n+1)!n!)
 /// For n=10, there are 4862 distinct parse trees.
 class CatalanBenchmark extends BenchmarkBase {
-  CatalanBenchmark(this.name, this.mode, this.inputLength) : super(name);
+  CatalanBenchmark(super.name, this.mode, this.inputLength);
 
-  final String name;
   final String mode;
   final int inputLength;
 
@@ -25,7 +23,7 @@ class CatalanBenchmark extends BenchmarkBase {
     });
     parser = SMParser(grammar);
     input = "a" * inputLength;
-    
+
     // Warm up the state machine compilation
     parser.recognize("a");
   }
@@ -58,9 +56,8 @@ class CatalanBenchmark extends BenchmarkBase {
 
 /// Baseline benchmark using a simple repetition grammar: S -> 'a'+
 class RepetitionBenchmark extends BenchmarkBase {
-  RepetitionBenchmark(this.name, this.mode, this.inputLength) : super(name);
+  RepetitionBenchmark(super.name, this.mode, this.inputLength);
 
-  final String name;
   final String mode;
   final int inputLength;
 
@@ -95,7 +92,7 @@ class RepetitionBenchmark extends BenchmarkBase {
 
 void main() {
   const inputSize = 15; // Small size for catalysts as it's O(n^3)
-  const repSize = 1000;  // Larger size for simple repetition
+  const repSize = 1000; // Larger size for simple repetition
 
   print("Starting Glush Parser Benchmarks...\n");
 

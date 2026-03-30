@@ -710,21 +710,9 @@ class GrammarFileParser {
         return GuardBoolLiteralNode(id == "true");
       }
 
-      if (id == "start") {
-        return const StartPattern();
-      }
-
-      if (id == "eof") {
-        return const EofPattern();
-      }
-
       var number = num.tryParse(id);
       if (number != null) {
         return GuardNumberLiteralNode(number);
-      }
-
-      if (id == "rule") {
-        return const GuardRuleNode();
       }
 
       if (_peek().type == _TokenType.colon) {
@@ -998,13 +986,6 @@ class GrammarFileParser {
     if (type == _TokenType.identifier) {
       var token = _peek();
       var id = _advance().value;
-
-      if (id == "start") {
-        return const StartPattern();
-      }
-      if (id == "eof") {
-        return const EofPattern();
-      }
 
       // Check for label: name:pattern
       if (_peek().type == _TokenType.colon) {

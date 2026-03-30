@@ -1,5 +1,5 @@
 name: glush
-description: A versatile parser toolkit for Dart - generates parsers, supports LL/LR and context-free grammars, scannerless, streamable push-based API.
+description: A versatile parser toolkit for Dart - generates parsers, supports context-free grammars, scannerless, streamable push-based API.
 version: 2.0.0
 homepage: https://github.com/judofyr/glush
 
@@ -8,8 +8,8 @@ environment:
 
 dependencies: { meta: ^1.18.2 }
 dev_dependencies:
+  benchmark_harness: ^2.2.0
   crypto: ^3.0.0
   lints: ^3.0.0
   path: ^1.9.0
   test: ^1.24.0
-  benchmark_harness: ^2.2.0

@@ -7,6 +7,7 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/sm_parser.dart";
+import "package:glush/src/parser/sm_parser_mini.dart";
 
 /// Compiles a GrammarFile into an executable Grammar
 class GrammarFileCompiler {
@@ -145,6 +146,12 @@ class GrammarFileCompiler {
         }
         var rule = _rules[expr.ruleName];
         if (rule == null) {
+          if (expr.ruleName == "start" && expr.arguments.isEmpty) {
+            return Pattern.start();
+          }
+          if (expr.ruleName == "eof" && expr.arguments.isEmpty) {
+            return Pattern.eof();
+          }
           throw Exception("Undefined rule: ${expr.ruleName}");
         }
         var ruleDef = _definitions[expr.ruleName];
@@ -338,10 +345,16 @@ class GrammarFileCompiler {
       ),
       // A bare identifier means either "pass this rule object" or "look this
       // name up at runtime", depending on what exists in the rule table.
-      GuardNameNode(:var name) =>
-        _rules[name] != null
-            ? CallArgumentValue.rule(_rules[name]!)
-            : CallArgumentValue.reference(name),
+      GuardNameNode(:var name) => _rules[name] != null
+          ? CallArgumentValue.rule(_rules[name]!)
+          : _currentParameters.contains(name)
+              ? CallArgumentValue.reference(name)
+              : switch (name) {
+                  "rule" => CallArgumentValue.currentRule(),
+                  "start" => CallArgumentValue.pattern(Pattern.start()),
+                  "eof" => CallArgumentValue.pattern(Pattern.eof()),
+                  _ => CallArgumentValue.reference(name),
+                },
       GuardRuleNode() => CallArgumentValue.currentRule(),
       PatternExpr() => CallArgumentValue.pattern(_compilePattern(value, const {})),
     };
@@ -391,4 +404,10 @@ extension GrammarFileExtension on String {
     GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
     captureTokensAsMarks: captureTokensAsMarks,
   );
+
+  SMParserMini toSMParserMini({String? startRuleName, bool captureTokensAsMarks = false}) =>
+      SMParserMini(
+        GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
+        captureTokensAsMarks: captureTokensAsMarks,
+      );
 }
