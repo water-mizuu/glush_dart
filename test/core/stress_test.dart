@@ -11,7 +11,7 @@ void main() {
       }
 
       var count = 0;
-      list.forEach((e) {
+      list.iterate().forEach((e) {
         expect(e, equals(count));
         count++;
       });
@@ -27,7 +27,7 @@ void main() {
 
       var branched = GlushList.branched(alternatives);
       var results = <int>[];
-      branched.forEach(results.add);
+      branched.iterate().forEach(results.add);
 
       expect(results.length, equals(width));
       for (var i = 0; i < width; i++) {
@@ -48,7 +48,7 @@ void main() {
       // depth 15 => 2^15 elements = 32768
       var list = build(15);
       var count = 0;
-      list.forEach((e) => count++);
+      list.iterate().forEach((e) => count++);
       expect(count, equals(1 << 15));
     });
   });
