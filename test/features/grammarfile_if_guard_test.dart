@@ -28,7 +28,7 @@ void main() {
 
     test("captures expose span length in guards", () {
       const grammarText = r"""
-        start = t:repeat(3) check(capture.length, capture)
+        start = t:repeat(3) check(t.length, t)
         repeat(n) = if (n > 1) repeat(n - 1) 's'
                  | if (n == 1) 's'
         check(length, start) = if (length == 3 && start.startPosition == 0) ''

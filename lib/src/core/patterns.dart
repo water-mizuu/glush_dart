@@ -1060,12 +1060,30 @@ final class GuardEnvironment {
   }
 
   Object? resolve(String name) {
-    return values[name] ??
-        valueResolver?.call(name) ??
-        arguments[name] ??
-        (name == "marks" ? marks : null) ??
-        _resolveCapture(name) ??
-        rulesByName[name];
+    // Stage 1: Parameters (arguments passed to the rule)
+    if (arguments.containsKey(name)) {
+      return arguments[name];
+    }
+
+    // Stage 2: Explicit runtime values (captures, resolver overrides)
+    var explicit = values[name] ?? valueResolver?.call(name);
+    if (explicit != null) {
+      return explicit;
+    }
+
+    // Stage 3: Built-in keywords
+    if (name == "marks") {
+      return marks;
+    }
+    if (name == "rule") {
+      return rule;
+    }
+    if (name == "capture") {
+      return _captureCache.values.lastOrNull ?? _resolveCapture(name);
+    }
+
+    // Stage 4: Captures and rule references
+    return _resolveCapture(name) ?? rulesByName[name];
   }
 
   GuardEnvironment mergeWith(Map<String, Object?> additions) {
@@ -1162,12 +1180,7 @@ final class _GuardNameValue extends GuardValue {
   final String name;
 
   @override
-  Object? evaluate(GuardEnvironment env) {
-    if (name == "rule") {
-      return env.rule;
-    }
-    return env.resolve(name);
-  }
+  Object? evaluate(GuardEnvironment env) => env.resolve(name);
 }
 
 final class _GuardRuleValue extends GuardValue {

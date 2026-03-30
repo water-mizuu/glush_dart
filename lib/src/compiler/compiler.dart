@@ -345,10 +345,10 @@ class GrammarFileCompiler {
       ),
       // A bare identifier means either "pass this rule object" or "look this
       // name up at runtime", depending on what exists in the rule table.
-      GuardNameNode(:var name) => _rules[name] != null
-          ? CallArgumentValue.rule(_rules[name]!)
-          : _currentParameters.contains(name)
-              ? CallArgumentValue.reference(name)
+      GuardNameNode(:var name) => _currentParameters.contains(name)
+          ? CallArgumentValue.reference(name)
+          : _rules[name] != null
+              ? CallArgumentValue.rule(_rules[name]!)
               : switch (name) {
                   "rule" => CallArgumentValue.currentRule(),
                   "start" => CallArgumentValue.pattern(Pattern.start()),
@@ -374,11 +374,15 @@ class GrammarFileCompiler {
       ExpressionUnaryNode() || ExpressionBinaryNode() => throw Exception(
         "Expression arguments require a parameterized rule",
       ),
-      GuardNameNode(:var name) => switch (name) {
-        "start" => Pattern.start(),
-        "eof" => Pattern.eof(),
-        _ => _rules[name]?.call() ?? Pattern.string(name),
-      },
+      GuardNameNode(:var name) => _currentParameters.contains(name)
+          ? ParameterRefPattern(name)
+          : _rules[name] != null
+              ? _rules[name]!.call()
+              : switch (name) {
+                  "start" => Pattern.start(),
+                  "eof" => Pattern.eof(),
+                  _ => Pattern.string(name),
+                },
       GuardRuleNode() => Pattern.string("rule"),
       PatternExpr() => _compilePattern(value, const {}),
     };
