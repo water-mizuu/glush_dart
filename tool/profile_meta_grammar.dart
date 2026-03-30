@@ -92,12 +92,30 @@ void main() {
     var g = GrammarFileCompiler(
       GrammarFileParser(metaGrammarString).parse(),
     ).compile(startRuleName: "full");
-    return SMParserMini(g);
+    return SMParser(g);
   });
   measure("metaParser.parse(simple)", 50, () => grammar.parse("rule = 'a'\n"));
   measure("metaParser.parse(self)", 10, () {
     var result = grammar.parse(metaGrammarString);
     if (result is! ParseSuccess && result is! ParseAmbiguousForestSuccess) {
+      throw Exception("Parse failed: $result");
+    }
+    return result;
+  });
+  measure("metaParser.parse(ambiguous)", 10, () {
+    var result = grammar.parseAmbiguous(metaGrammarString);
+    if (result is! ParseSuccess &&
+        result is! ParseAmbiguousForestSuccess &&
+        result is! ParseForestSuccess) {
+      throw Exception("Parse failed: $result");
+    }
+    return result;
+  });
+  measure("metaParser.parse(forest)", 10, () {
+    var result = grammar.parseWithForest(metaGrammarString);
+    if (result is! ParseSuccess &&
+        result is! ParseAmbiguousForestSuccess &&
+        result is! ParseForestSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;
