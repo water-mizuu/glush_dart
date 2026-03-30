@@ -60,18 +60,18 @@ sealed class GlushList<T> {
 
   List<T> toList() {
     var result = <T>[];
-    forEach(result.add);
+    iterate().forEach(result.add);
     return result;
   }
 
   static final Object _dataMarker = Object();
 
-  void forEach(void Function(T) callback) {
+  Iterable<T> iterate() sync* {
     var stack = <Object?>[this];
     while (stack.isNotEmpty) {
       var item = stack.removeLast();
       if (identical(item, _dataMarker)) {
-        callback(stack.removeLast() as T);
+        yield stack.removeLast() as T;
         continue;
       }
 
@@ -137,13 +137,14 @@ sealed class GlushList<T> {
     if (isEmpty) {
       return null;
     }
-    T? last;
-    forEach((e) => last = e);
-    return last;
+    return iterate().last;
   }
 }
 
 bool _listEquals(List<Object?> left, List<Object?> right) {
+  if (left.length != right.length) {
+    return false;
+  }
   for (var i = 0; i < left.length; i++) {
     if (left[i] != right[i]) {
       return false;
