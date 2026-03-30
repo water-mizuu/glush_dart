@@ -5,7 +5,7 @@ import "dart:collection";
 
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/parser/state_machine.dart" as sm;
+import "package:glush/src/parser/state_machine.dart";
 
 typedef GrammarBuilder = Rule Function();
 
@@ -32,8 +32,11 @@ class Grammar implements GrammarInterface {
 
   @override
   late final RuleCall startCall;
+
   Map<Pattern, List<Pattern>>? transitions;
-  sm.StateMachine? _stateMachine;
+
+  StateMachine? _stateMachine;
+
   final Map<(Pattern, String), Rule> _hoistedPatternRules = {};
 
   @override
@@ -435,8 +438,8 @@ class Grammar implements GrammarInterface {
     }
   }
 
-  sm.StateMachine get stateMachine {
-    _stateMachine ??= sm.StateMachine(this);
+  StateMachine get stateMachine {
+    _stateMachine ??= StateMachine(this);
     return _stateMachine!;
   }
 
@@ -533,10 +536,10 @@ class Grammar implements GrammarInterface {
     transitions = {};
 
     for (var rule in rules) {
-      rule.body().eachPair((a, b) {
+      for (var (a, b) in rule.body().eachPair()) {
         transitions![a] ??= [];
         transitions![a]!.add(b);
-      });
+      }
 
       for (var lastState in rule.body().lastSet()) {
         transitions![lastState] ??= [];
@@ -571,7 +574,7 @@ class IntRange {
 }
 
 class GrammarAdapter implements GrammarInterface {
-  GrammarAdapter(sm.StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
+  GrammarAdapter(StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
     symbolRegistry.addAll(sm.grammar.symbolRegistry);
     childrenRegistry.addAll(sm.grammar.childrenRegistry);
   }
@@ -582,10 +585,13 @@ class GrammarAdapter implements GrammarInterface {
   }
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
+
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
   @override
   final List<Rule> rules;
+
   @override
   final RuleCall startCall;
 
@@ -651,6 +657,7 @@ class GrammarAdapter implements GrammarInterface {
   /// Recursively collects all patterns used in a rule's body
   void _collectPatternsFromRule(Rule rule, Set<Pattern> patterns) {
     var body = rule.body();
+
     _collectPatternsFromPattern(body, patterns);
   }
 
@@ -723,14 +730,19 @@ class ShellGrammar implements GrammarInterface {
     required this.rules,
     required this.startCall,
   });
+
   @override
   final Map<PatternSymbol, Pattern> symbolRegistry = {};
+
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
+
   @override
   final PatternSymbol startSymbol;
+
   @override
   final List<Rule> rules;
+
   @override
   final RuleCall startCall;
 

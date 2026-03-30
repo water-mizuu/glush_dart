@@ -150,34 +150,34 @@ void meta() {
 
         argExpr =
               # Logical Operations
-              1 | $argOr   left:argExpr^1 _ '||' _ right:argExpr^2
-              2 | $argAnd  left:argExpr^2 _ '&&' _ right:argExpr^3
+              1 | $or   left:argExpr^1 _ '||' _ right:argExpr^2
+              2 | $and  left:argExpr^2 _ '&&' _ right:argExpr^3
 
               # Equality & Relational Operations
-              3 | $argEq   left:argExpr^5 _ '==' _ right:argExpr^5
-              3 | $argNeq  left:argExpr^5 _ '!=' _ right:argExpr^5
-              4 | $argLt   left:argExpr^5 _ '<'  _ right:argExpr^5
-              4 | $argLte  left:argExpr^5 _ '<=' _ right:argExpr^5
-              4 | $argGt   left:argExpr^5 _ '>'  _ right:argExpr^5
-              4 | $argGte  left:argExpr^5 _ '>=' _ right:argExpr^5
+              3 | $eq   left:argExpr^5 _ '==' _ right:argExpr^5
+              3 | $neq  left:argExpr^5 _ '!=' _ right:argExpr^5
+              4 | $lt   left:argExpr^5 _ '<'  _ right:argExpr^5
+              4 | $lte  left:argExpr^5 _ '<=' _ right:argExpr^5
+              4 | $gt   left:argExpr^5 _ '>'  _ right:argExpr^5
+              4 | $gte  left:argExpr^5 _ '>=' _ right:argExpr^5
 
               # Arithmetic Operations
-              6 | $argAdd  left:argExpr^6  _ '+' _ right:argExpr^7
-              6 | $argSub  left:argExpr^6  _ '-' _ right:argExpr^7
-              7 | $argMul  left:argExpr^7 _ '*' _ right:argExpr^8
-              7 | $argDiv  left:argExpr^7 _ '/' _ right:argExpr^8
-              7 | $argMod  left:argExpr^7 _ '%' _ right:argExpr^8
+              6 | $add  left:argExpr^6  _ '+' _ right:argExpr^7
+              6 | $sub  left:argExpr^6  _ '-' _ right:argExpr^7
+              7 | $mul  left:argExpr^7 _ '*' _ right:argExpr^8
+              7 | $div  left:argExpr^7 _ '/' _ right:argExpr^8
+              7 | $mod  left:argExpr^7 _ '%' _ right:argExpr^8
 
               # Unary Operations (Prefix)
-             10 | $argNot  '!' _ right:argExpr^10
-             10 | $argNeg  '-' _ right:argExpr^10
-             10 | $argPos  '+' _ right:argExpr^10
+             10 | $not  '!' _ right:argExpr^10
+             10 | $neg  '-' _ right:argExpr^10
+             10 | $pos  '+' _ right:argExpr^10
 
               # Atomic Values
-             20 | $argInt  number
-             20 | $argStr  literal
-             20 | $argIdent ident
-             20 | $argGroup '(' _ expr:argExpr^0 _ ')'
+             20 | $int  number
+             20 | $str  literal
+             20 | $ident ident
+             20 | $group '(' _ expr:argExpr^0 _ ')'
 
         # Terminals
         ident = [A-Za-z$_] [A-Za-z$_0-9]*!
@@ -272,32 +272,32 @@ void meta() {
 
     /// argExpr
     // Logical Operators
-    "argExpr.argOr": (ctx) => ["||", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argAnd": (ctx) => ["&&", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.or": (ctx) => ["||", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.and": (ctx) => ["&&", ctx<Object>("left"), ctx<Object>("right")],
 
     // Relational Operators
-    "argExpr.argEq": (ctx) => ["==", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argNeq": (ctx) => ["!=", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argLt": (ctx) => ["<", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argLte": (ctx) => ["<=", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argGt": (ctx) => [">", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argGte": (ctx) => [">=", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.eq": (ctx) => ["==", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.neq": (ctx) => ["!=", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.lt": (ctx) => ["<", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.lte": (ctx) => ["<=", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.gt": (ctx) => [">", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.gte": (ctx) => [">=", ctx<Object>("left"), ctx<Object>("right")],
 
     // Arithmetic
-    "argExpr.argAdd": (ctx) => ["+", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argSub": (ctx) => ["-", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argMul": (ctx) => ["*", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argDiv": (ctx) => ["/", ctx<Object>("left"), ctx<Object>("right")],
-    "argExpr.argMod": (ctx) => ["%", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.add": (ctx) => ["+", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.sub": (ctx) => ["-", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.mul": (ctx) => ["*", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.div": (ctx) => ["/", ctx<Object>("left"), ctx<Object>("right")],
+    "argExpr.mod": (ctx) => ["%", ctx<Object>("left"), ctx<Object>("right")],
 
     // Unary
-    "argExpr.argNot": (ctx) => ["!", ctx<Object>("right")],
-    "argExpr.argNeg": (ctx) => ["-", ctx<Object>("right")],
-    "argExpr.argPos": (ctx) => ["+", ctx<Object>("right")],
-    "argExpr.argInt": (ctx) => ["int", ctx.span],
-    "argExpr.argStr": (ctx) => ["str", ctx.span],
-    "argExpr.argIdent": (ctx) => ["ident", ctx.span],
-    "argExpr.argGroup": (ctx) => ctx<Object>("expr"),
+    "argExpr.not": (ctx) => ["!", ctx<Object>("right")],
+    "argExpr.neg": (ctx) => ["-", ctx<Object>("right")],
+    "argExpr.pos": (ctx) => ["+", ctx<Object>("right")],
+    "argExpr.int": (ctx) => ["int", ctx.span],
+    "argExpr.str": (ctx) => ["str", ctx.span],
+    "argExpr.ident": (ctx) => ["ident", ctx.span],
+    "argExpr.group": (ctx) => ctx<Object>("expr"),
 
     /// whitespace
     "ws": (ctx) => "WS: ${ctx.span}",
@@ -411,17 +411,17 @@ void dataDriven4() {
     cap(m) = m
   """;
 
-  var parser = grammarText.toSMParser();
-  print(parser.parse("bc").success()!.result.rawMarks);
+  var parser = grammarText.toSMParserMini();
+  print(parser.parse("bb"));
 }
 
 void main() async {
   // mathSimple();
   // ambiguous();
   // orderedChoice();
-  // meta();
+  meta();
   // dataDriven();
   // dataDriven2();
   // dataDriven3();
-  dataDriven4();
+  // dataDriven4();
 }

@@ -501,9 +501,9 @@ class StateMachine {
       }
 
       // Connect each pair
-      rule.body().eachPair((a, b) {
+      for (var (a, b) in rule.body().eachPair()) {
         _connect(_getOrCreateState(_PatternStateKey(a)), b, currentRule: rule);
-      });
+      }
 
       // Mark states before returns
       for (var lastState in rule.body().lastSet()) {

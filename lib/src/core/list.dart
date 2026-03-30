@@ -95,6 +95,42 @@ sealed class GlushList<T> {
     }
   }
 
+  /// Returns the total number of unique flattened derivations this forest represents.
+  ///
+  /// This takes into account branching from [BranchedList] (sum) and combinatorial
+  /// expansion from [Concat] and [ConjunctionMark] (product).
+  int get derivationCount {
+    return _count(this, {});
+  }
+
+  int _count(GlushList<Object?> node, Map<GlushList<Object?>, int> memo) {
+    if (memo[node] case var cached?) {
+      return cached;
+    }
+
+    int res;
+    switch (node) {
+      case EmptyList():
+        res = 1;
+      case BranchedList(:var alternatives):
+        res = 0;
+        for (var alt in alternatives) {
+          res += _count(alt, memo);
+        }
+      case Push(:var parent, :var data):
+        int mult = 1;
+        if (data is ConjunctionMark) {
+          for (var branch in data.branches) {
+            mult *= _count(branch, memo);
+          }
+        }
+        res = _count(parent, memo) * mult;
+      case Concat(:var left, :var right):
+        res = _count(left, memo) * _count(right, memo);
+    }
+    return memo[node] = res;
+  }
+
   bool get isEmpty;
 
   T? get lastOrNull {

@@ -1477,7 +1477,7 @@ sealed class Pattern {
   }
 
   /// Iterate over (a, b) pairs where a is connected to b
-  void eachPair(void Function(Pattern, Pattern) callback) {}
+  Iterable<(Pattern, Pattern)> eachPair() sync* {}
 
   /// Collect all Rule instances referenced in this pattern
   void collectRules(Set<Rule> rules) {}
@@ -1862,9 +1862,9 @@ class Alt extends Pattern {
   Set<Pattern> lastSet() => {...left.lastSet(), ...right.lastSet()};
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    left.eachPair(callback);
-    right.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* left.eachPair();
+    yield* right.eachPair();
   }
 
   @override
@@ -1920,13 +1920,13 @@ class Seq extends Pattern {
   }
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    left.eachPair(callback);
-    right.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* left.eachPair();
+    yield* right.eachPair();
 
     for (var a in left.lastSet()) {
       for (var b in right.firstSet()) {
-        callback(a, b);
+        yield (a, b);
       }
     }
   }
@@ -1967,8 +1967,8 @@ class Opt extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* child.eachPair();
   }
 
   @override
@@ -2005,13 +2005,13 @@ class Star extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* child.eachPair();
 
     // Prefer staying in the repetition before exiting in non-ambiguity mode.
     for (var a in child.lastSet()) {
       for (var b in child.firstSet()) {
-        callback(a, b);
+        yield (a, b);
       }
     }
   }
@@ -2050,13 +2050,13 @@ class Plus extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* child.eachPair();
 
     // Prefer staying in the repetition before exiting in non-ambiguity mode.
     for (var a in child.lastSet()) {
       for (var b in child.firstSet()) {
-        callback(a, b);
+        yield (a, b);
       }
     }
   }
@@ -2145,7 +2145,7 @@ class And extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
     // Predicates don't participate in normal eachPair flow
     // They're checked independently
   }
@@ -2187,7 +2187,7 @@ class Not extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
     // Predicates don't participate in normal eachPair flow
     // They're checked independently
   }
@@ -2235,7 +2235,7 @@ class Neg extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
     // Negations are handled by the state machine as a single unit or conjunction
   }
 
@@ -2407,6 +2407,7 @@ class RuleCall extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
 
@@ -2577,8 +2578,8 @@ class Action<T> extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* child.eachPair();
   }
 
   @override
@@ -2624,8 +2625,8 @@ class Prec extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
-    child.eachPair(callback);
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* child.eachPair();
   }
 
   @override
@@ -2674,16 +2675,16 @@ class Label extends Pattern {
   Set<Pattern> lastSet() => {_end};
 
   @override
-  void eachPair(void Function(Pattern, Pattern) callback) {
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
     for (var f in child.firstSet()) {
-      callback(_start, f);
+      yield (_start, f);
     }
-    child.eachPair(callback);
+    yield* child.eachPair();
     for (var l in child.lastSet()) {
-      callback(l, _end);
+      yield (l, _end);
     }
     if (child.empty()) {
-      callback(_start, _end);
+      yield (_start, _end);
     }
   }
 

@@ -789,6 +789,26 @@ void main() {
     );
 
     testBoth(
+      "S -> SS | a with n=21 results in Catalan C_20 (6,564,120,420)",
+      Grammar(() {
+        late Rule s;
+        s = Rule("S", () => Label("2", s() >> s()) | Token.char("a"));
+        return s;
+      }),
+      (parser) {
+        if (parser is SMParser) {
+          const n = 21;
+          var input = "a" * n;
+
+          // C_20 = 6,564,120,420
+          expect(parser.countAllParses(input), equals(6564120420));
+        } else {
+          expect(parser.recognize("a" * 21), isTrue);
+        }
+      },
+    );
+
+    testBoth(
       "Ambiguous arithmetic a+a+a has exactly 2 parses",
       Grammar(() {
         late Rule e;

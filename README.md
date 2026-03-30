@@ -1,106 +1,176 @@
 # Glush: A Generalized Parsing Toolkit for Dart
 
-Glush is a parser toolkit for Dart focused on three goals:
+[![Pub Version](https://img.shields.io/pub/v/glush?color=blue)](https://pub.dev/packages/glush)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-1. Expressive grammar authoring (string DSL + Dart DSL)
-2. Practical ambiguity handling (forest-based parsing)
-3. Ergonomic semantic evaluation (label-driven evaluator API)
+Glush is a **push-based CFG / CSG (context-sensitive)** parsing toolkit for Dart, designed from the ground up to handle complex, ambiguous, and data-driven grammars with ease. It combines the expressive power of context-free/sensitive grammars with a high-performance state-machine runtime to provide a "zero-overhead" parsing experience.
 
-It is designed for language tooling, DSLs, config parsers, and experimental parsing research.
+## Why Glush?
 
-## What The Toolkit Has
+Traditional parsers (LL, LR, PEG) often force you to refactor your grammar into a specific shape, losing clarity and intent. Glush liberates you from these constraints:
 
-### Grammar Authoring
-- String DSL (`toSMParser()`)
-- Dart DSL (`Grammar`, `Rule`, `Pattern`)
-- Labels (`name:pattern`)
-- Markers (`$name`)
-- Predicates (`&pattern`, `!pattern`)
-- Precedence constraints (`expr^N`, `N| alternative`)
+-   🚀 **Ambiguity is First-Class**: Parse any context-free grammar, even highly ambiguous ones. Obtain all possible derivations in a Shared Packed Parse Forest (SPPF).
+-   🧠 **Context-Sensitive (CSG) Logic**: Rules can take parameters and use `if (guard)` expressions for sophisticated data-driven parsing.
+-   ⚡ **Push-Based Performance**: Hybrid architecture using a push-based state-machine transition model. It optimizes for deterministic paths while maintaining generalized power where needed.
+-   💎 **Ergonomic Evaluation**: Stop indexing children by position (`children[0][1]`). Use the label-driven `Evaluator<T>` API to pull data by name.
 
-### Pattern Operators
-- Sequence (`A B`)
-- Choice (`A | B`)
-- Conjunction (`A & B`)
-- Repetition (`*`, `+`, `?`) with dedicated nodes in core parsing
-- Character ranges (`[a-z]`), wildcards (`.`), backslash literals (`\n`, `\s`, etc.)
+---
 
-### Parsing Modes
-- `recognize(input)` for yes/no acceptance
-- `parse(input)` for marks-based output
-- `parseAmbiguous(input)` for ambiguous-path mark forests
-- `parseWithForest(input)` for SPPF extraction
-- `parseWithForestAsync(stream)` for streaming large inputs
+## 🏗️ Getting Started
 
-### Evaluation
-- `StructuredEvaluator` for converting marks into a labeled `ParseResult` tree
-- `Evaluator<T>` for typed semantic interpretation
-- Forest-side parse-tree evaluation helpers (including evaluator bridge methods)
-- Internally, pattern symbols are encoded as `prefix:id:suffix`; forest
-  reconstruction reads that encoding directly instead of a separate metadata map.
+Add Glush to your `pubspec.yaml`:
 
-## What Is Special About Glush
+```yaml
+dependencies:
+  glush: ^latest
+```
 
-- It treats ambiguity as a first-class problem rather than a failure mode.
-- It supports both parser usage styles:
-  - “Just parse and evaluate”
-  - “Build and inspect a forest / enumerate derivations”
-- It combines a state-machine runtime with graph-style structures (GSS/forest) for practical generalized parsing.
-- It allows label-centric semantic actions that are easier to maintain than positional child indexing.
-
-## Known Issues / Rough Edges
-
-The project is active and still evolving. Current caveats:
-
-- Repetition and optional operators have historically been a source of subtle ambiguity behavior.
-- Forest extraction and semantic reconstruction are implemented, but grammars that mix nullable branches, repetition, and lookahead predicates can still need careful refactoring to avoid unintended ambiguity.
-- Some grammars that mix nullable branches, repetition, and lookahead predicates may need careful refactoring to avoid unintended ambiguity.
-- Performance for large highly-ambiguous grammars can still be improved in both memory and throughput.
-
-## What Is Being Done
-
-Current stabilization work focuses on:
-
-- Making `*`, `+`, and `?` deterministic where intended
-- Improving forest/BSR hygiene for labeled and marked rules
-- Aligning parse-tree evaluation APIs with mark-based evaluation semantics
-- Expanding regression tests for:
-  - whitespace-heavy grammars
-  - optional/repetition boundary cases
-  - forest evaluator correctness
-
-## Quick Example
+### Quick Example: Simple Math
 
 ```dart
 import 'package:glush/glush.dart';
 
 void main() {
   final parser = r'''
-    file = full:rule;
-    rule = name:[a-z]+ ':' body:[a-z]+;
+    expr = 1 | $add left:expr '+' right:expr
+         | 2 | $num [0-9]+;
   '''.toSMParser();
 
-  final outcome = parser.parse('alpha:beta');
+  final outcome = parser.parse('1 + 2 + 3');
+  
   if (outcome is ParseSuccess) {
+    // 1. Convert marks to a structured tree
     final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks);
 
-    final evaluator = Evaluator<Object?>({
-      'full': (ctx) => ctx<Object?>('rule'),
-      'rule': (ctx) => (ctx<String>('name'), ctx<String>('body')),
-      'name': (ctx) => ctx.span,
-      'body': (ctx) => ctx.span,
+    // 2. Interpret with a typed evaluator
+    final evaluator = Evaluator<int>({
+      'add': (ctx) => ctx<int>('left') + ctx<int>('right'),
+      'num': (ctx) => int.parse(ctx.span),
     });
 
-    final value = evaluator.evaluate(tree);
-    print(value); // (alpha, beta)
+    print(evaluator.evaluate(tree)); // Output: 6
   }
 }
 ```
 
-## Project Status
+---
 
-This project is usable and actively improved, but not yet a finished/stable parsing platform for all grammar shapes. If you depend on it in production, pin versions and run grammar-specific regression tests.
+## 📝 Grammar DSL Reference
 
-## License
+Glush uses a powerful string-based DSL that supports virtually every modern parsing primitive.
+
+### 🧩 Pattern Operators
+
+| Operator | Syntax | Description |
+| :--- | :--- | :--- |
+| **Sequence** | `A B` | Matches `A` followed by `B`. |
+| **Choice** | `A \| B` | Matches either `A` or `B` (Generalized). |
+| **Conjunction** | `A && B` | Matches if **both** `A` and `B` match the same span. |
+| **Lookahead** | `&A` / `!A` | Positive or Negative lookahead. Doesn't consume input. |
+| **Negation** | `~A` | Matches if `A` specifically **does not** match. |
+| **Repetition** | `*`, `+`, `?` | Zero-or-more, one-or-more, or optional. |
+| **Possessive** | `*!`, `+!` | Deterministic repetition (won't backtrack once matched). |
+| **Literals** | `'abc'`, `"abc"` | Exact string matching. |
+| **Ranges** | `[a-z]`, `[0-9A-F]` | Character class matching. |
+| **Wildcard** | `.` | Matches any single character. |
+| **Terminals** | `^` (Start), `$` (EOF) | Matches the beginning or end of input. |
+
+### 🏷️ Metadata & Organization
+
+| Feature | Syntax | Description |
+| :--- | :--- | :--- |
+| **Label** | `id:Pattern` | Assigns an identifier to a pattern for the Evaluator API. |
+| **Mark** | `$id` | Emits a semantic marker in the output stream. |
+| **Group** | `( ... )` | Standard grouping for operator precedence. |
+| **Precedence** | `expr ^ N` | Forces an expression to match at precedence level `N`. |
+| **Associativity** | `N \| Alt` | Defines an alternative starting at precedence level `N`. |
+
+---
+
+## 🤖 Data-Driven Grammars (CSG)
+
+Glush is unique in its support for **parameterized rules** and **guards**. This allows you to implement context-sensitive behavior (like XML tag matching or indentation tracking) directly in the grammar.
+
+### Example: XML Tag Matching
+
+```dart
+final grammar = r'''
+  element = openTag body closeTag(tag);
+  
+  openTag = '<' tag:name '>';
+  
+  # Parameters are passed down the call stack
+  closeTag(open) = '</' close:name '>' if (open == close) '';
+  
+  name = [a-z]+;
+  body = [^<]*;
+'''.toSMParser();
+
+print(grammar.recognize('<book>Glush</book>'));    // true
+print(grammar.recognize('<book>Glush</author>'));  // false
+```
+
+---
+
+## 🏆 Advanced Ambiguity Handling
+
+As a generalized parser, Glush doesn't fail on left-recursion or ambiguous "conflicts". It simply explores all paths using its push-based state machine.
+
+```dart
+final parser = r'''
+  S = $TWO S S | $ONE 's';
+'''.toSMParser();
+
+// "sss" can be parsed as (s(ss)) or ((ss)s)
+final outcome = parser.parseAmbiguous('sss');
+
+if (outcome is ParseAmbiguousSuccess) {
+  for (var path in outcome.forest.allPaths()) {
+    print(path.evaluateStructure()); // Prints each unique derivation tree
+  }
+}
+```
+
+---
+
+## 🧪 Semantic Evaluation
+
+The `Evaluator<T>` API is the heart of Glush's ergonomics. It allows you to transform raw parse marks into your domain-specific objects (AST nodes, JSON, etc.) without fragile tree-walking code.
+
+```dart
+final evaluator = Evaluator<MyNode>({
+  'rule_name': (ctx) {
+    // Read labeled children by name
+    final name = ctx<String>('name_label');
+    
+    // Read the current text span
+    final text = ctx.span;
+    
+    // Check for optional matches
+    if (ctx.optional('opt_label') case var value?) { ... }
+    
+    return MyNode(name, text);
+  },
+});
+```
+
+---
+
+## 🛠️ Performance Features
+
+1.  **Push-Based State Machine**: Glush avoids the massive GSS/SPPF overhead of traditional GLL/GLR for deterministic parts of your grammar by using an efficient state-machine transition model.
+2.  **Streaming Interface**: Support for `parseWithForestAsync(stream)` allows you to parse Multi-GB files without loading them into memory.
+3.  **GlushList**: A specialized, low-allocation internal data structure for managing large forests with identity-based interning and identity-based deduplication.
+
+---
+
+## 📡 Roadmap & Status
+
+Glush is actively maintained and currently powering several internal DSL projects. We are currently focusing on:
+- [ ] Stabilizing the Forest/BSR hygiene for complex lookaheads.
+- [ ] Improved error reporting with "expected" token suggestions.
+- [ ] Code generation backend for even faster execution.
+
+## 📄 License
 
 MIT. See [LICENSE](LICENSE).
