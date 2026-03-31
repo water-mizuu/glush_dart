@@ -1295,7 +1295,7 @@
                                                                     "seq",
                                                                     [
                                                                       "seq",
-                                                                      "$argOr",
+                                                                      "$or",
                                                                       [
                                                                         "left",
                                                                         [
@@ -1344,7 +1344,7 @@
                                                                     "seq",
                                                                     [
                                                                       "seq",
-                                                                      "$argAnd",
+                                                                      "$and",
                                                                       [
                                                                         "left",
                                                                         [
@@ -1394,7 +1394,7 @@
                                                                   "seq",
                                                                   [
                                                                     "seq",
-                                                                    "$argEq",
+                                                                    "$eq",
                                                                     [
                                                                       "left",
                                                                       [
@@ -1444,7 +1444,7 @@
                                                                 "seq",
                                                                 [
                                                                   "seq",
-                                                                  "$argNeq",
+                                                                  "$neq",
                                                                   [
                                                                     "left",
                                                                     [
@@ -1494,7 +1494,7 @@
                                                               "seq",
                                                               [
                                                                 "seq",
-                                                                "$argLt",
+                                                                "$lt",
                                                                 [
                                                                   "left",
                                                                   [
@@ -1544,7 +1544,7 @@
                                                             "seq",
                                                             [
                                                               "seq",
-                                                              "$argLte",
+                                                              "$lte",
                                                               [
                                                                 "left",
                                                                 [
@@ -1594,7 +1594,7 @@
                                                           "seq",
                                                           [
                                                             "seq",
-                                                            "$argGt",
+                                                            "$gt",
                                                             [
                                                               "left",
                                                               [
@@ -1644,7 +1644,7 @@
                                                         "seq",
                                                         [
                                                           "seq",
-                                                          "$argGte",
+                                                          "$gte",
                                                           [
                                                             "left",
                                                             [
@@ -1694,7 +1694,7 @@
                                                       "seq",
                                                       [
                                                         "seq",
-                                                        "$argAdd",
+                                                        "$add",
                                                         [
                                                           "left",
                                                           [
@@ -1744,7 +1744,7 @@
                                                     "seq",
                                                     [
                                                       "seq",
-                                                      "$argSub",
+                                                      "$sub",
                                                       [
                                                         "left",
                                                         [
@@ -1794,7 +1794,7 @@
                                                   "seq",
                                                   [
                                                     "seq",
-                                                    "$argMul",
+                                                    "$mul",
                                                     [
                                                       "left",
                                                       [
@@ -1844,7 +1844,7 @@
                                                 "seq",
                                                 [
                                                   "seq",
-                                                  "$argDiv",
+                                                  "$div",
                                                   [
                                                     "left",
                                                     [
@@ -1894,7 +1894,7 @@
                                               "seq",
                                               [
                                                 "seq",
-                                                "$argMod",
+                                                "$mod",
                                                 [
                                                   "left",
                                                   [
@@ -1940,7 +1940,7 @@
                                         "seq",
                                         [
                                           "seq",
-                                          "$argNot",
+                                          "$not",
                                           [
                                             "lit",
                                             "'!'"
@@ -1971,7 +1971,7 @@
                                       "seq",
                                       [
                                         "seq",
-                                        "$argNeg",
+                                        "$neg",
                                         [
                                           "lit",
                                           "'-'"
@@ -2002,7 +2002,7 @@
                                     "seq",
                                     [
                                       "seq",
-                                      "$argPos",
+                                      "$pos",
                                       [
                                         "lit",
                                         "'+'"
@@ -2029,7 +2029,7 @@
                               "20",
                               [
                                 "seq",
-                                "$argInt",
+                                "$int",
                                 [
                                   "ref",
                                   "number",
@@ -2042,7 +2042,7 @@
                             "20",
                             [
                               "seq",
-                              "$argStr",
+                              "$str",
                               [
                                 "ref",
                                 "literal",
@@ -2055,7 +2055,7 @@
                           "20",
                           [
                             "seq",
-                            "$argIdent",
+                            "$ident",
                             [
                               "ref",
                               "ident",
@@ -2076,7 +2076,7 @@
                                 "seq",
                                 [
                                   "seq",
-                                  "$argGroup",
+                                  "$group",
                                   [
                                     "lit",
                                     "'('"

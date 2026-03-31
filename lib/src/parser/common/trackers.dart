@@ -26,6 +26,7 @@ class PredicateTracker {
   int activeFrames = 0;
   bool matched = false;
   bool exhausted = false;
+  int? longestMatch;
 
   final List<Waiter> waiters = [];
 

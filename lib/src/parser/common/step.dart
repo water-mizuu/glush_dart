@@ -114,69 +114,6 @@ class Step {
     }
   }
 
-  /// Resolve a predicate sub-parse and wake any parked continuations.
-  ///
-  /// Rules:
-  /// - AND predicate (`&`) continues only when matched.
-  /// - NOT predicate (`!`) continues only when exhausted without match.
-  ///
-  /// Nested predicates bubble completion back to their parent tracker so the
-  /// parent only resolves after every child branch is done.
-  void _finishPredicate(PredicateTracker tracker, bool matched) {
-    // A successful predicate can release all AND waiters immediately.
-    if (matched) {
-      tracker.matched = true;
-      for (var (source, parentContext, nextState) in tracker.waiters) {
-        var predicateKey = parentContext.predicateStack.lastOrNull;
-        if (predicateKey != null) {
-          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-          var parentTracker = parseState.predicateTrackers[key];
-          if (parentTracker != null) {
-            // This child branch is no longer pending in the parent predicate.
-            parentTracker.removePendingFrame();
-          }
-        }
-
-        // AND predicates resume only on success.
-        if (tracker.isAnd) {
-          _resumeLaggedPredicateContinuation(
-            source: source,
-            parentContext: parentContext,
-            nextState: nextState,
-            isAnd: tracker.isAnd,
-            symbol: tracker.symbol,
-          );
-        }
-      }
-      tracker.waiters.clear();
-    } else if (tracker.canResolveFalse) {
-      // The predicate exhausted without matching, so only NOT waiters resume.
-      for (var (source, parentContext, nextState) in tracker.waiters) {
-        var predicateKey = parentContext.predicateStack.lastOrNull;
-        if (predicateKey != null) {
-          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-          var parentTracker = parseState.predicateTrackers[key];
-          if (parentTracker != null) {
-            // This child branch is no longer pending in the parent predicate.
-            parentTracker.removePendingFrame();
-          }
-        }
-
-        // NOT predicates resume only after the child failed to match.
-        if (!tracker.isAnd) {
-          _resumeLaggedPredicateContinuation(
-            source: source,
-            parentContext: parentContext,
-            nextState: nextState,
-            isAnd: tracker.isAnd,
-            symbol: tracker.symbol,
-          );
-        }
-      }
-      tracker.waiters.clear();
-    }
-  }
-
   /// Resolve a conjunction match and wake up any waiters at the matching position.
   void _finishConjunction(
     ConjunctionTracker tracker,
@@ -720,12 +657,7 @@ class Step {
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
       var key = PredicateKey(pk.pattern, pk.startPosition);
-      var tracker = parseState.predicateTrackers[key];
-      if (tracker != null && tracker.matched) {
-        // This sub-parse branch is already redundant.
-        return;
-      }
-      tracker?.addPendingFrame();
+      parseState.predicateTrackers[key]?.addPendingFrame();
     }
     if (nextContext.caller case ConjunctionCallerKey con) {
       parseState.conjunctionTrackers[ConjunctionKey(con.left, con.right, con.startPosition)]
@@ -930,7 +862,7 @@ class Step {
           // - unresolved: park this continuation and wait for completion
           // - exhausted false: NOT may resume once all pending branches drain
           if (tracker.matched) {
-            // AND can continue immediately; NOT must stop.
+            // AND can resume once with the current results.
             if (tracker.isAnd) {
               _resumeLaggedPredicateContinuation(
                 source: source,
@@ -941,8 +873,20 @@ class Step {
                 branchKey: ActionBranchKey(action),
               );
             }
-          } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
-            // The predicate exhausted without matching, so only NOT waiters resume.
+          }
+
+          if (!tracker.exhausted) {
+            // Still active; park continuation to catch future (potentially longer) matches.
+            tracker.waiters.add((source, frameContext, action.nextState));
+
+            var predicateKey = frameContext.predicateStack.lastOrNull;
+            if (predicateKey != null) {
+              // Register dependency: the parent predicate depends on this child's completion.
+              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+              parseState.predicateTrackers[key]?.addPendingFrame();
+            }
+          } else if (tracker.canResolveFalse) {
+            // The sub-parse already exhausted without matching; NOT waiters resume.
             if (!tracker.isAnd) {
               _resumeLaggedPredicateContinuation(
                 source: source,
@@ -952,17 +896,6 @@ class Step {
                 symbol: action.symbol,
                 branchKey: ActionBranchKey(action),
               );
-            }
-          } else {
-            // The result is still unknown, so park this continuation.
-            // It will be woken by _finishPredicate once the sub-parse drains.
-            tracker.waiters.add((source, frameContext, action.nextState));
-
-            var predicateKey = frameContext.predicateStack.lastOrNull;
-            if (predicateKey != null) {
-              // Register dependency: the parent predicate depends on this child's completion.
-              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-              parseState.predicateTrackers[key]?.addPendingFrame();
             }
           }
 
@@ -1347,7 +1280,17 @@ class Step {
                     branchKey: ActionBranchKey(action),
                   );
                 }
-              } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
+              }
+
+              if (!tracker.exhausted) {
+                tracker.waiters.add((source, frameContext, action.nextState));
+                var predicateKey = frameContext.predicateStack.lastOrNull;
+                if (predicateKey != null) {
+                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+                  var parentTracker = parseState.predicateTrackers[key];
+                  parentTracker?.addPendingFrame();
+                }
+              } else if (tracker.canResolveFalse) {
                 if (!tracker.isAnd) {
                   _resumeLaggedPredicateContinuation(
                     source: source,
@@ -1357,14 +1300,6 @@ class Step {
                     symbol: symbol,
                     branchKey: ActionBranchKey(action),
                   );
-                }
-              } else {
-                tracker.waiters.add((source, frameContext, action.nextState));
-                var predicateKey = frameContext.predicateStack.lastOrNull;
-                if (predicateKey != null) {
-                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-                  var parentTracker = parseState.predicateTrackers[key];
-                  parentTracker?.addPendingFrame();
                 }
               }
 
@@ -1465,8 +1400,39 @@ class Step {
               continue;
             }
 
-            _finishPredicate(tracker, true);
-            continue;
+            bool isNewLongest = tracker.longestMatch == null || position > tracker.longestMatch!;
+            if (!isNewLongest) {
+              continue;
+            }
+            tracker.longestMatch = position;
+            tracker.matched = true;
+
+            // Only resume waiters if this is the first match or a new strictly longer match.
+            if (!isNewLongest) {
+              continue;
+            }
+            for (var (source, parentContext, nextState) in tracker.waiters) {
+              var predicateKey = parentContext.predicateStack.lastOrNull;
+              if (predicateKey != null) {
+                var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+                var parentTracker = parseState.predicateTrackers[key];
+                if (parentTracker != null) {
+                  // This child branch is no longer pending in the parent predicate.
+                  parentTracker.removePendingFrame();
+                }
+              }
+
+              // AND predicates resume only on success.
+              if (tracker.isAnd) {
+                _resumeLaggedPredicateContinuation(
+                  source: source,
+                  parentContext: parentContext,
+                  nextState: nextState,
+                  isAnd: tracker.isAnd,
+                  symbol: tracker.symbol,
+                );
+              }
+            }
           }
 
           if (caller is ConjunctionCallerKey) {
@@ -1535,7 +1501,7 @@ class Step {
         case AcceptAction():
           var accepted = frame.context;
           if (acceptedContexts.add(accepted)) {
-            // Already added by the set if add() succeeded.
+            acceptedContexts.add(accepted);
           }
       }
     }
@@ -1656,10 +1622,6 @@ class Step {
         var tracker = parseState.predicateTrackers[key];
 
         if (tracker != null) {
-          if (tracker.matched) {
-            // Already matched; this branch is redundant.
-            continue;
-          }
           // The newly materialized next-frame is pending work for this predicate.
           tracker.addPendingFrame();
         }
@@ -1697,11 +1659,6 @@ class Step {
           var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
           var tracker = parseState.predicateTrackers[key];
           if (tracker != null) {
-            if (tracker.matched) {
-              // Predicate resolved while this frame was in the queue.
-              tracker.removePendingFrame();
-              continue;
-            }
             // Work unit is now being processed; decrement "pending work" counter.
             tracker.removePendingFrame();
           }

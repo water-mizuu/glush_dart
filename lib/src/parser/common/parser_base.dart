@@ -231,7 +231,10 @@ abstract base class GlushParserBase implements GlushParser {
             // tracker can be absent after cleanup of an exhausted predicate.
             // Dequeued predicate-owned frame consumes one pending work unit.
             var key = PredicateKey(pk.pattern, pk.startPosition);
-            parseState.predicateTrackers[key]?.removePendingFrame();
+            var tracker = parseState.predicateTrackers[key];
+            if (tracker != null) {
+              tracker.removePendingFrame();
+            }
           }
           if (frame.context.caller case ConjunctionCallerKey caller) {
             // Decrement pending frame counter for the conjunction sub-parse.
