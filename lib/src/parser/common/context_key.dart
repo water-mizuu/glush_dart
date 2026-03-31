@@ -1,10 +1,10 @@
-import "package:glush/src/core/list.dart" show GlushList;
-import "package:glush/src/parser/common/caller_key.dart" show CallerKey, PredicateCallerKey;
+import "package:glush/src/core/list.dart";
+import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:meta/meta.dart";
 
-/// Immutable key for a parsing context.
+/// Represents a unique parsing configuration at a specific input position.
 ///
 /// This is used to deduplicate work by identifying whether two parser paths
 /// have reached reach a point with identical state, caller, and constraints.
@@ -22,27 +22,24 @@ sealed class ContextKey {
       // Use 32-bit shift for caller to avoid overlap with 24-bit state ID.
       return IntContextKey((caller.uid << 32) | (state.id << 8) | (minimumPrecedence ?? 0xFF));
     }
+
     return ComplexContextKey(state, caller, minimumPrecedence, predicateStack, captures);
   }
 }
 
-/// A compact integer-based context key for the "fast path" (no predicates or captures).
+/// A bit-packed context key for simple, non-predicate paths.
 final class IntContextKey implements ContextKey {
-  IntContextKey(this.value) : _hash = Object.hash(IntContextKey, value);
-
-  final int value;
-  final int _hash;
+  const IntContextKey(this.id);
+  final int id;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is IntContextKey && value == other.value;
+  bool operator ==(Object other) => other is IntContextKey && id == other.id;
 
   @override
-  int get hashCode => _hash;
+  int get hashCode => id;
 }
 
-/// An expensive context key for the "slow path" involving complex constraints.
-@immutable
+/// A full context key for complex paths (predicates, captures, or BSR rules).
 final class ComplexContextKey implements ContextKey {
   ComplexContextKey(
     this.state,

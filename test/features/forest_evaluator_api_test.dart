@@ -203,7 +203,7 @@ void main() {
       var dslOutcome = dslParser.parse("a");
 
       expect(dslOutcome, isA<ParseSuccess>());
-      var dslTree = const StructuredEvaluator().evaluate((dslOutcome as ParseSuccess).result.rawMarks);
+      var dslTree = const StructuredEvaluator().evaluate(dslOutcome.success()!.result.rawMarks);
       var dslOuter = dslTree["outerWrap"].first as ParseResult;
 
       expect(dslTree.span, equals("a"));
@@ -215,17 +215,15 @@ void main() {
 
       inner = Rule("inner", () => Label("payload", Pattern.char("a")));
       outer = Rule("outer", () => Label("outerWrap", ParameterRefPattern("content")));
-      start = Rule(
-        "start",
-        () => outer(arguments: {"content": CallArgumentValue.rule(inner)}),
-      );
+      start = Rule("start", () => outer(arguments: {"content": CallArgumentValue.rule(inner)}));
 
       var fluentParser = SMParser(Grammar(() => start), captureTokensAsMarks: true);
       var fluentOutcome = fluentParser.parse("a");
 
       expect(fluentOutcome, isA<ParseSuccess>());
-      var fluentTree =
-          const StructuredEvaluator().evaluate((fluentOutcome as ParseSuccess).result.rawMarks);
+      var fluentTree = const StructuredEvaluator().evaluate(
+        (fluentOutcome as ParseSuccess).result.rawMarks,
+      );
       var fluentOuter = fluentTree["outerWrap"].first as ParseResult;
 
       expect(fluentTree.span, equals("a"));

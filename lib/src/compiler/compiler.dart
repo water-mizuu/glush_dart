@@ -270,7 +270,12 @@ class GrammarFileCompiler {
         return _compilePattern(expr.inner, precedenceLevels);
 
       case LabeledPattern(:var label, :var inner):
-        var result = Label(label, _compilePattern(inner, precedenceLevels));
+        var innerPattern = _compilePattern(inner, precedenceLevels);
+        if (innerPattern is And || innerPattern is Not) {
+          return innerPattern;
+        }
+
+        var result = Label(label, innerPattern);
         _currentCaptures = [..._currentCaptures, label];
 
         return result;
