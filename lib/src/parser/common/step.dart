@@ -17,8 +17,8 @@ import "package:glush/src/parser/common/guard_cache_key.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/trackers.dart";
-import "package:glush/src/parser/state_machine.dart";
 import "package:glush/src/representation/bsr.dart";
 
 /// Single parsing step at one input position.
@@ -720,7 +720,12 @@ class Step {
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
       var key = PredicateKey(pk.pattern, pk.startPosition);
-      parseState.predicateTrackers[key]?.addPendingFrame();
+      var tracker = parseState.predicateTrackers[key];
+      if (tracker != null && tracker.matched) {
+        // This sub-parse branch is already redundant.
+        return;
+      }
+      tracker?.addPendingFrame();
     }
     if (nextContext.caller case ConjunctionCallerKey con) {
       parseState.conjunctionTrackers[ConjunctionKey(con.left, con.right, con.startPosition)]
@@ -743,7 +748,7 @@ class Step {
     for (var action in state.actions) {
       // Source node for SPPF forest reconstruction.
       var source = ParseNodeKey(state.id, position, frameContext.caller);
-      var callerOrRoot = frame.caller ?? const RootCallerKey();
+      var callerOrRoot = frame.caller;
       switch (action) {
         case TokenAction():
           var token = _getTokenFor(frame);
@@ -883,7 +888,15 @@ class Step {
           var mark = LabelEndMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(mark)),
+            frameContext.withCallerAndMarks(frame.caller, frame.marks.add(mark)),
+            source: source,
+            action: action,
+          );
+        case BackreferenceAction():
+          var mark = ExpandingMark(action.name, position);
+          _enqueue(
+            action.nextState,
+            frameContext.withCallerAndMarks(frame.caller, frame.marks.add(mark)),
             source: source,
             action: action,
           );
@@ -928,7 +941,7 @@ class Step {
                 branchKey: ActionBranchKey(action),
               );
             }
-          } else if (!isFirst && tracker.canResolveFalse) {
+          } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
             // The predicate exhausted without matching, so only NOT waiters resume.
             if (!tracker.isAnd) {
               _resumeLaggedPredicateContinuation(
@@ -954,7 +967,7 @@ class Step {
           }
 
           // Seed the sub-parse if this is the first time we've reached this predicate.
-          if (isFirst && !tracker.matched) {
+          if (isFirst && !tracker.matched && !tracker.exhausted) {
             _spawnPredicateSubparse(symbol, frame);
           }
         case ConjunctionAction():
@@ -1268,7 +1281,7 @@ class Step {
                     branchKey: ActionBranchKey(action),
                   );
                 }
-              } else if (!isFirst && tracker.canResolveFalse) {
+              } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
                 if (!tracker.isAnd) {
                   _resumeLaggedPredicateContinuation(
                     source: source,
@@ -1289,18 +1302,19 @@ class Step {
                 }
               }
 
-              if (isFirst && !tracker.matched) {
+              if (isFirst && !tracker.matched && !tracker.exhausted) {
                 // Seed a synthetic state machine to probe the parameter string.
                 _spawnParameterPredicateSubparse(text: text, frame: frame, isAnd: action.isAnd);
               }
-            case RuleCall callValue:
-              if (callValue.arguments.isNotEmpty) {
+            case Rule rule:
+            case RuleCall(rule: var rule):
+              if (value is RuleCall && value.arguments.isNotEmpty) {
                 throw UnsupportedError(
-                  "Parameterized call objects are not supported in predicates yet: ${callValue.rule.name.symbol}",
+                  "Parameterized call objects are not supported in predicates yet: "
+                  "${value.rule.name.symbol}",
                 );
               }
 
-              var rule = callValue.rule;
               var symbol = rule.symbolId;
               if (symbol == null) {
                 throw StateError("Predicate rule must have a symbol id.");
@@ -1333,7 +1347,7 @@ class Step {
                     branchKey: ActionBranchKey(action),
                   );
                 }
-              } else if (!isFirst && tracker.canResolveFalse) {
+              } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
                 if (!tracker.isAnd) {
                   _resumeLaggedPredicateContinuation(
                     source: source,
@@ -1354,15 +1368,9 @@ class Step {
                 }
               }
 
-              if (isFirst && !tracker.matched) {
+              if (isFirst && !tracker.matched && !tracker.exhausted) {
                 _spawnPredicateSubparse(symbol, frame);
               }
-            case Rule rule:
-              var symbol = rule.symbolId;
-              if (symbol == null) {
-                throw StateError("Predicate rule must have a symbol id.");
-              }
-              _spawnPredicateSubparse(symbol, frame);
             case Eps():
               if (action.isAnd) {
                 _resumeLaggedPredicateContinuation(
@@ -1392,10 +1400,6 @@ class Step {
             case Pattern pattern:
               throw UnsupportedError(
                 "Complex parser objects used as parameter predicates are not supported yet: ${pattern.runtimeType}",
-              );
-            default:
-              throw UnsupportedError(
-                "Unsupported parameter value for ${action.name}: ${value.runtimeType}",
               );
           }
         case TailCallAction():
@@ -1498,7 +1502,7 @@ class Step {
           }
 
           // In single-derivation mode, replay each caller's returns once.
-          if (!isSupportingAmbiguity && !_returnedCallers.add(caller ?? const RootCallerKey())) {
+          if (!isSupportingAmbiguity && !_returnedCallers.add(caller)) {
             // Logical meaning:
             // - in single-derivation mode we replay returns once per caller key
             // - if add() is false, this caller was already replayed
@@ -1531,7 +1535,7 @@ class Step {
         case AcceptAction():
           var accepted = frame.context;
           if (acceptedContexts.add(accepted)) {
-            acceptedContexts.add(accepted);
+            // Already added by the set if add() succeeded.
           }
       }
     }
@@ -1652,6 +1656,10 @@ class Step {
         var tracker = parseState.predicateTrackers[key];
 
         if (tracker != null) {
+          if (tracker.matched) {
+            // Already matched; this branch is redundant.
+            continue;
+          }
           // The newly materialized next-frame is pending work for this predicate.
           tracker.addPendingFrame();
         }
@@ -1689,6 +1697,11 @@ class Step {
           var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
           var tracker = parseState.predicateTrackers[key];
           if (tracker != null) {
+            if (tracker.matched) {
+              // Predicate resolved while this frame was in the queue.
+              tracker.removePendingFrame();
+              continue;
+            }
             // Work unit is now being processed; decrement "pending work" counter.
             tracker.removePendingFrame();
           }

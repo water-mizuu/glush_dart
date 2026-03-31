@@ -197,6 +197,7 @@ void meta() {
   ).compile(startRuleName: "full");
 
   var parser = SMParserMini(grammar);
+
   var evaluator = Evaluator({
     "full.full": (ctx) => ctx<Object>("file"),
     "file.rules": (ctx) => [ctx<Object>("left"), ctx<Object>("right")],
@@ -407,12 +408,11 @@ void dataDriven3() {
 
 void dataDriven4() {
   const grammarText = r"""
-    double = $A m:(v:.) cap(m)
-    cap(m) = m
+    double = $A m:(v:.) m
   """;
 
   var parser = grammarText.toSMParserMini();
-  print(parser.parse("bb"));
+  print(parser.parse("cc").success()!.result.rawMarks.evaluateStructure());
 }
 
 void main() async {
@@ -423,5 +423,5 @@ void main() async {
   // dataDriven();
   // dataDriven2();
   // dataDriven3();
-  // dataDriven4();
+  dataDriven4();
 }

@@ -200,6 +200,22 @@ final class LabelEndAction implements StateAction {
   int get hashCode => _hash;
 }
 
+final class BackreferenceAction implements StateAction {
+  BackreferenceAction(this.name, this.nextState)
+    : _hash = Object.hash(BackreferenceAction, name, nextState);
+  final String name;
+  final State nextState;
+  final int _hash;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BackreferenceAction && name == other.name && nextState == other.nextState;
+
+  @override
+  int get hashCode => _hash;
+}
+
 final class ParameterAction implements StateAction {
   ParameterAction(this.name, this.pattern, this.nextState)
     : _hash = Object.hash(ParameterAction, name, pattern, nextState);
@@ -674,8 +690,7 @@ class StateMachine {
           nextState: nextState,
         );
         state.actions.add(action);
-      case RuleCall():
-        var minPrecedenceLevel = terminal.minPrecedenceLevel;
+      case RuleCall(:var minPrecedenceLevel):
         if (currentRule != null &&
             minPrecedenceLevel == null &&
             (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
@@ -693,6 +708,10 @@ class StateMachine {
       case LabelEnd():
         var nextState = _getOrCreateState(_PatternStateKey(terminal));
         var action = LabelEndAction(terminal.name, terminal, nextState);
+        state.actions.add(action);
+      case Backreference():
+        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var action = BackreferenceAction(terminal.name, nextState);
         state.actions.add(action);
       case ParameterRefPattern():
         var nextState = _getOrCreateState(_PatternStateKey(terminal));
@@ -832,6 +851,8 @@ class StateMachine {
             _writeEdge(buffer, from: state, to: nextState, label: "label+ $name");
           case LabelEndAction(:var name, :var nextState):
             _writeEdge(buffer, from: state, to: nextState, label: "label- $name");
+          case BackreferenceAction(:var name, :var nextState):
+            _writeEdge(buffer, from: state, to: nextState, label: "backreference- $name");
           case ParameterStringAction(:var codeUnit, :var nextState):
             _writeEdge(
               buffer,
@@ -1147,6 +1168,8 @@ class StateMachine {
           targets.add(nextState);
         case LabelEndAction(:var nextState):
           targets.add(nextState);
+        case BackreferenceAction(:var nextState):
+          targets.add(nextState);
         case ParameterStringAction(:var nextState):
           targets.add(nextState);
         case ParameterCallAction(:var nextState):
@@ -1208,6 +1231,7 @@ class StateMachine {
       case Eps():
       case LabelStart():
       case LabelEnd():
+      case Backreference():
         break;
     }
   }
@@ -1347,6 +1371,7 @@ class StateMachine {
       EofAnchor() ||
       LabelStart() ||
       LabelEnd() ||
+      Backreference() ||
       Rule() ||
       RuleCall() => true,
       ParameterRefPattern() => false,

@@ -7,10 +7,10 @@ import "package:glush/src/parser/common/action_key.dart";
 import "package:glush/src/parser/common/caller_cache_key.dart";
 import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/frame.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
-import "package:glush/src/parser/state_machine.dart";
 import "package:glush/src/representation/bsr.dart";
 
 /// Stateful cursor for manual state-machine parsing.

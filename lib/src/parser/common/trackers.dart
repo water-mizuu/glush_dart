@@ -3,7 +3,13 @@ import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
-import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/parser/common/state_machine.dart";
+
+/// A parked continuation for a sub-parse.
+///
+/// Contains the derivation source, the parent context to resume in,
+/// and the next state to transition to.
+typedef Waiter = (ParseNodeKey?, Context, State);
 
 /// Tracks one lookahead sub-parse for a specific `(pattern, startPosition)`.
 ///
@@ -16,9 +22,12 @@ class PredicateTracker {
   final PatternSymbol symbol;
   final int startPosition;
   final bool isAnd;
+
   int activeFrames = 0;
   bool matched = false;
-  final List<(ParseNodeKey? source, Context, State)> waiters = [];
+  bool exhausted = false;
+
+  final List<Waiter> waiters = [];
 
   /// Mark one predicate-owned frame as live.
   void addPendingFrame() {
@@ -35,7 +44,7 @@ class PredicateTracker {
   }
 
   /// True when the predicate can no longer succeed and has not matched.
-  bool get canResolveFalse => !matched && activeFrames == 0;
+  bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
 }
 
 /// Tracks one consuming conjunction sub-parse (intersection) for `(left, right, startPosition)`.
@@ -57,7 +66,7 @@ class ConjunctionTracker {
   final Map<int, List<GlushList<Mark>>> rightCompletions = {};
   int activeFrames = 0;
 
-  final List<(ParseNodeKey? source, Context, State)> waiters = [];
+  final List<Waiter> waiters = [];
 
   void addPendingFrame() {
     activeFrames++;

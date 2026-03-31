@@ -17,8 +17,14 @@ class GrammarFileCompiler {
   late final Map<String, RuleDefinition> _definitions = {
     for (var rule in grammarFile.rules) rule.name: rule,
   };
+
   final Map<IfPattern, Rule> _guardedRules = {};
+  // final Map<String, Rule> _backReferences = {};
+  Rule? _backreferenceRule;
+
   Rule? _currentOwnerRule;
+
+  List<String> _currentCaptures = const [];
   List<String> _currentParameters = const [];
 
   /// Compile the grammar file into an executable Grammar
@@ -30,8 +36,10 @@ class GrammarFileCompiler {
         rule = Rule(ruleDef.name, () {
           var previousOwner = _currentOwnerRule;
           var previousParameters = _currentParameters;
+          var previousCaptures = _currentCaptures;
           _currentOwnerRule = rule;
           _currentParameters = ruleDef.parameters;
+          _currentCaptures = [];
           try {
             return GlushProfiler.measure("compiler.compile_pattern", () {
               return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
@@ -39,6 +47,7 @@ class GrammarFileCompiler {
           } finally {
             _currentOwnerRule = previousOwner;
             _currentParameters = previousParameters;
+            _currentCaptures = previousCaptures;
           }
         });
         _rules[ruleDef.name] = rule;
@@ -99,7 +108,7 @@ class GrammarFileCompiler {
         );
 
       case AnyPattern():
-        return Token(const AnyToken());
+        return Token.any();
 
       case StartPattern():
         return Pattern.start();
@@ -144,28 +153,50 @@ class GrammarFileCompiler {
           }
           return ParameterRefPattern(expr.ruleName);
         }
+
+        /// We check the existing rules first.
+        ///   This allows us to use captures AND rules like:
+        ///   ```
+        ///   entry = name:name ':' value:name
+        ///   name = [A-Z]+
+        ///   ```
+        ///   without it being rewritten as the backreference pattern.
         var rule = _rules[expr.ruleName];
-        if (rule == null) {
-          if (expr.ruleName == "start" && expr.arguments.isEmpty) {
-            return Pattern.start();
+        if (rule != null) {
+          var ruleDef = _definitions[expr.ruleName];
+          if (expr.arguments.isNotEmpty && (ruleDef?.parameters.isEmpty ?? true)) {
+            Pattern result = rule.call(minPrecedenceLevel: expr.precedenceConstraint);
+            for (var argument in expr.arguments) {
+              result = result >> _compileFallbackArgumentPattern(argument.value);
+            }
+            return result;
           }
-          if (expr.ruleName == "eof" && expr.arguments.isEmpty) {
-            return Pattern.eof();
-          }
-          throw Exception("Undefined rule: ${expr.ruleName}");
+          return rule.call(
+            arguments: _compileCallArguments(expr, ruleDef?.parameters ?? const []),
+            minPrecedenceLevel: expr.precedenceConstraint,
+          );
         }
-        var ruleDef = _definitions[expr.ruleName];
-        if (expr.arguments.isNotEmpty && (ruleDef?.parameters.isEmpty ?? true)) {
-          Pattern result = rule.call(minPrecedenceLevel: expr.precedenceConstraint);
-          for (var argument in expr.arguments) {
-            result = result >> _compileFallbackArgumentPattern(argument.value);
-          }
-          return result;
+
+        // If we found it on the capture list:
+        if (_currentCaptures.contains(expr.ruleName)) {
+          /// S = s:'s' s
+          ///
+          /// is rewritten as
+          ///
+          /// S = s:'s' m'(s)
+          /// m'($) = $
+          var rule = _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
+          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)});
         }
-        return rule.call(
-          arguments: _compileCallArguments(expr, ruleDef?.parameters ?? const []),
-          minPrecedenceLevel: expr.precedenceConstraint,
-        );
+
+        if (expr.ruleName == "start" && expr.arguments.isEmpty) {
+          return Pattern.start();
+        }
+        if (expr.ruleName == "eof" && expr.arguments.isEmpty) {
+          return Pattern.eof();
+        }
+
+        throw Exception("Undefined rule: ${expr.ruleName}");
 
       case SequencePattern():
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
@@ -175,8 +206,14 @@ class GrammarFileCompiler {
         return result;
 
       case AlternationPattern():
+        var beforeCaptures = _currentCaptures;
+
         // Compile each alternative and apply its individual precedence level if specified
         Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
+
+        // Put back the before captures
+        _currentCaptures = beforeCaptures;
+
         var level0 = precedenceLevels[expr.patterns[0]];
         if (level0 != null) {
           result = result.atLevel(level0);
@@ -184,6 +221,9 @@ class GrammarFileCompiler {
 
         for (int i = 1; i < expr.patterns.length; i++) {
           var altPattern = _compilePattern(expr.patterns[i], precedenceLevels);
+          // Put back the before captures
+          _currentCaptures = beforeCaptures;
+
           // Apply precedence level to this specific alternative if it has one
           var altLevel = precedenceLevels[expr.patterns[i]];
           if (altLevel != null) {
@@ -230,7 +270,10 @@ class GrammarFileCompiler {
         return _compilePattern(expr.inner, precedenceLevels);
 
       case LabeledPattern(:var label, :var inner):
-        return Label(label, _compilePattern(inner, precedenceLevels));
+        var result = Label(label, _compilePattern(inner, precedenceLevels));
+        _currentCaptures = [..._currentCaptures, label];
+
+        return result;
 
       case MainMarkPattern(:var name, :var inner):
         var compiled = _compilePattern(inner, precedenceLevels);

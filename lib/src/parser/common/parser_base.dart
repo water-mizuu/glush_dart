@@ -6,9 +6,9 @@ import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/interface.dart";
-import "package:glush/src/parser/state_machine.dart";
 import "package:glush/src/representation/bsr.dart";
 
 abstract base class GlushParserBase implements GlushParser {
@@ -47,8 +47,9 @@ abstract base class GlushParserBase implements GlushParser {
       // Resolving one predicate can unblock another predicate in the same pass.
       for (var entry in parseState.predicateTrackers.entries) {
         var tracker = entry.value;
-        if (tracker.canResolveFalse) {
-          // No live branches remain, so the predicate failed.
+        if (!tracker.exhausted && tracker.canResolveFalse) {
+          // No live branches remain, so the predicate failed (success for NOT).
+          tracker.exhausted = true;
           for (var (_, parentContext, nextState) in tracker.waiters) {
             var predicateKey = parentContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
@@ -77,8 +78,8 @@ abstract base class GlushParserBase implements GlushParser {
           tracker.waiters.clear();
           toRemove.add(entry.key);
           changed = true;
-        } else if (tracker.matched) {
-          // Successful predicates can be removed once their waiters drain.
+        } else if (tracker.matched || tracker.exhausted) {
+          // Resolved predicates can be removed once their waiters drain.
           toRemove.add(entry.key);
         }
       }

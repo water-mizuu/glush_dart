@@ -102,6 +102,27 @@ class LabelEndMark implements Mark {
   String toString() => "LabelEnd($name, $position)";
 }
 
+class ExpandingMark implements Mark {
+  const ExpandingMark(this.name, this.position);
+
+  final String name;
+  final int position;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ExpandingMark &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          position == other.position;
+
+  @override
+  int get hashCode => name.hashCode ^ position.hashCode;
+
+  @override
+  List<Object> toList() => ["expanding", name, position];
+}
+
 /// A mark that holds parallel mark streams from a conjunction.
 ///
 /// This allows structural recovery of sub-parse results from each branch

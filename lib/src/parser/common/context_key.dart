@@ -1,7 +1,7 @@
 import "package:glush/src/core/list.dart" show GlushList;
 import "package:glush/src/parser/common/caller_key.dart" show CallerKey, PredicateCallerKey;
 import "package:glush/src/parser/common/label_capture.dart";
-import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Immutable key for a parsing context.

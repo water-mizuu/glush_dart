@@ -1527,6 +1527,7 @@ sealed class Pattern {
       Label() => "lab",
       LabelStart() => "las",
       LabelEnd() => "lae",
+      Backreference() => "bac",
     };
   }
 
@@ -1562,6 +1563,7 @@ sealed class Pattern {
       Label(:var name) => name,
       LabelStart(:var name) => name,
       LabelEnd(:var name) => name,
+      Backreference(:var name) => name,
     };
   }
 
@@ -1858,6 +1860,7 @@ class Alt extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {...left.firstSet(), ...right.firstSet()};
+
   @override
   Set<Pattern> lastSet() => {...left.lastSet(), ...right.lastSet()};
 
@@ -1894,6 +1897,7 @@ class Seq extends Pattern {
     var leftEmpty = left.calculateEmpty(emptyRules);
     var rightEmpty = right.calculateEmpty(emptyRules);
     var result = leftEmpty && rightEmpty;
+
     setEmpty(result);
     return result;
   }
@@ -2747,6 +2751,32 @@ class LabelEnd extends Pattern {
 
   @override
   String toString() => "label_end($name)";
+}
+
+class Backreference extends Pattern {
+  Backreference(this.name);
+  final String name;
+
+  @override
+  Backreference copy() => Backreference(name);
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  String toString() => "(\\$name)";
 }
 
 // ---------------------------------------------------------------------------

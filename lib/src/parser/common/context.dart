@@ -5,7 +5,7 @@ import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/derivation_key.dart";
 import "package:glush/src/parser/common/label_capture.dart";
-import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Represents a unique parsing configuration at a specific input position.

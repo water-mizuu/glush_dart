@@ -1,6 +1,6 @@
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
-import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Key for identifying unique waiters at a rule call site.

@@ -5,7 +5,7 @@ import "dart:collection";
 
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/parser/state_machine.dart";
+import "package:glush/src/parser/common/state_machine.dart";
 
 typedef GrammarBuilder = Rule Function();
 
@@ -117,7 +117,8 @@ class Grammar implements GrammarInterface {
         ParameterRefPattern() ||
         ParameterCallPattern() ||
         LabelStart() ||
-        LabelEnd() => [],
+        LabelEnd() ||
+        Backreference() => [],
         Neg(:var pattern) => [pattern.symbolId!],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
@@ -425,7 +426,8 @@ class Grammar implements GrammarInterface {
           Rule() ||
           RuleCall() ||
           LabelStart() ||
-          LabelEnd():
+          LabelEnd() ||
+          Backreference():
         break;
     }
   }
@@ -633,7 +635,8 @@ class GrammarAdapter implements GrammarInterface {
         ParameterRefPattern() ||
         ParameterCallPattern() ||
         LabelStart() ||
-        LabelEnd() => [],
+        LabelEnd() ||
+        Backreference() => [],
         //
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
@@ -706,7 +709,8 @@ class GrammarAdapter implements GrammarInterface {
           Rule() ||
           RuleCall() ||
           LabelStart() ||
-          LabelEnd():
+          LabelEnd() ||
+          Backreference():
         break;
     }
   }

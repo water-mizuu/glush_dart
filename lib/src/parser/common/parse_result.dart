@@ -31,6 +31,40 @@ final class ParseError implements ParseOutcome, Exception {
 
   @override
   ParseForestSuccess? forestSuccess() => null;
+
+  void displayError(String input) {
+    List<String> inputRows = input.replaceAll("\r", "").split("\n");
+
+    /// Surely the string we're trying to parse is not empty.
+    if (inputRows.isEmpty) {
+      throw StateError("Huh?");
+    }
+
+    int row = input.substring(0, position).split("\n").length;
+    int column =
+        input //
+            .substring(0, position)
+            .split("\n")
+            .last
+            .codeUnits
+            .length +
+        1;
+    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
+
+    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
+
+    print("Parse error at: ($row:$column)");
+    print(
+      displayedRows
+          .map(
+            (v) =>
+                " ${(v.$1 + 1).toString().padLeft(longest)} | "
+                "${v.$2}",
+          )
+          .join("\n"),
+    );
+    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
+  }
 }
 
 /// Returned when parsing succeeds (marks-based parse).
@@ -88,42 +122,6 @@ final class ParseForestSuccess implements ParseOutcome {
 
   @override
   ParseForestSuccess forestSuccess() => this;
-}
-
-extension ShowErrors on ParseError {
-  void displayError(String input) {
-    List<String> inputRows = input.replaceAll("\r", "").split("\n");
-
-    /// Surely the string we're trying to parse is not empty.
-    if (inputRows.isEmpty) {
-      throw StateError("Huh?");
-    }
-
-    int row = input.substring(0, position).split("\n").length;
-    int column =
-        input //
-            .substring(0, position)
-            .split("\n")
-            .last
-            .codeUnits
-            .length +
-        1;
-    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
-
-    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
-
-    print("Parse error at: ($row:$column)");
-    print(
-      displayedRows
-          .map(
-            (v) =>
-                " ${(v.$1 + 1).toString().padLeft(longest)} | "
-                "${v.$2}",
-          )
-          .join("\n"),
-    );
-    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
-  }
 }
 
 /// Holds the results of a basic parse() operation.

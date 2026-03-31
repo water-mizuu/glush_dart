@@ -275,11 +275,45 @@ class ParseResult extends ParseNode {
 class StructuredEvaluator {
   const StructuredEvaluator();
 
+  void expandMarks(List<Mark> marks, int start, int end) {
+    for (int i = end - 1; i >= start; --i) {
+      if (marks[i] case ExpandingMark(name: var target)) {
+        int? foundStart;
+        int? foundEnd;
+        for (int j = i - 1; j >= start; --j) {
+          if (marks[j] case LabelEndMark(:var name) when name == target) {
+            foundEnd = j;
+            continue;
+          }
+
+          if (marks[j] case LabelStartMark(:var name) when name == target) {
+            if (foundEnd == null) {
+              throw StateError("Malformed mark list.");
+            }
+            foundStart = j;
+            break;
+          }
+        }
+
+        if (foundStart == null || foundEnd == null) {
+          throw StateError("Malformed mark list.");
+        }
+
+        var sublist = marks.sublist(foundStart + 1, foundEnd);
+        marks.insertAll(i, sublist);
+        expandMarks(marks, i, i + sublist.length);
+      }
+    }
+  }
+
   ParseResult evaluate(List<Mark> marks) {
+    var copy = [...marks];
+    expandMarks(copy, 0, copy.length);
+
     return GlushProfiler.measure("evaluator.evaluate_marks", () {
       var stack = <_EvaluationFrame>[_EvaluationFrame("")];
 
-      for (var mark in marks) {
+      for (var mark in copy) {
         switch (mark) {
           case LabelStartMark(:var name):
             stack.add(_EvaluationFrame(name));
@@ -294,6 +328,8 @@ class StructuredEvaluator {
               var newNode = ParseResult([], stack.last.spanBuffer.toString());
               stack.last.children.add((name, newNode));
             }
+          case ExpandingMark():
+            throw UnsupportedError("Marks has not been expanded.");
 
           case ConjunctionMark(:var branches):
             var first = true;
@@ -351,9 +387,11 @@ class StructuredEvaluator {
   }
 
   ParseResult evaluateStrict(List<Mark> marks) {
+    var copy = [...marks];
+    expandMarks(copy, 0, copy.length);
     var stack = <_EvaluationFrame>[_EvaluationFrame("")];
 
-    for (var mark in marks) {
+    for (var mark in copy) {
       switch (mark) {
         case LabelStartMark(:var name):
           stack.add(_EvaluationFrame(name));
@@ -368,6 +406,8 @@ class StructuredEvaluator {
             var newNode = ParseResult([], stack.last.spanBuffer.toString());
             stack.last.children.add((name, newNode));
           }
+        case ExpandingMark():
+          throw UnsupportedError("Marks has not been expanded.");
 
         case ConjunctionMark(:var branches):
           var first = true;
