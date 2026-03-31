@@ -38,13 +38,17 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/common/caller_key.dart";
+import "package:glush/src/parser/common/context.dart";
+import "package:glush/src/parser/common/frame.dart";
+import "package:glush/src/parser/common/parse_derivation.dart";
+import "package:glush/src/parser/common/parse_result.dart";
+import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/state_machine.dart";
 import "package:glush/src/representation/bsr.dart";
 import "package:glush/src/representation/evaluator.dart";
 import "package:glush/src/representation/sppf.dart";
-
 
 /// Main parser implementation using a state machine-based LR-like algorithm.
 ///
@@ -187,7 +191,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
-        var results = lastStep.acceptedContexts.map((entry) => entry.context.marks).toList();
+        var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
         return ParseAmbiguousSuccess(GlushList.branched(results));
       } else {
         return ParseError(parseState.position);
@@ -1350,7 +1354,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
     if (!hasStructuralMarks && tree.node.start == 0 && tree.node.end == input.length) {
       var outcome = parse(input);
-      if (outcome is ParseSuccess) {
+      if (outcome.success() case var outcome?) {
         return outcome.result.rawMarks;
       }
     }

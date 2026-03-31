@@ -3,7 +3,11 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/common/caller_key.dart";
+import "package:glush/src/parser/common/context.dart";
+import "package:glush/src/parser/common/frame.dart";
+import "package:glush/src/parser/common/parse_result.dart";
+import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 import "package:glush/src/parser/state_machine.dart";
@@ -103,7 +107,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
       var lastStep = parseState.finish();
       if (lastStep.accept) {
-        var results = lastStep.acceptedContexts.map((entry) => entry.context.marks).toList();
+        var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
         return ParseAmbiguousSuccess(GlushList.branched(results));
       } else {
         return ParseError(parseState.position);

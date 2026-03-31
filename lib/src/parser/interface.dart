@@ -1,5 +1,8 @@
 import "package:glush/src/core/grammar.dart";
-import "package:glush/src/parser/common.dart";
+import "package:glush/src/parser/common/frame.dart";
+import "package:glush/src/parser/common/parse_result.dart";
+import "package:glush/src/parser/common/parse_state.dart";
+import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/state_machine.dart";
 import "package:glush/src/representation/bsr.dart";
 

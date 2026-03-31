@@ -1,0 +1,32 @@
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
+import "package:glush/src/parser/common/caller_key.dart";
+import "package:glush/src/parser/common/context.dart";
+import "package:glush/src/parser/state_machine.dart";
+
+/// A [Frame] represents a set of parser states that share the same context.
+///
+/// When the parser advances past a token, it produces new frames at the next
+/// position. Each frame carries a [Context] and a list of target [State]s
+/// to be explored from that position using that context.
+class Frame {
+  Frame(this.context, {this.replay = false}) : nextStates = {};
+
+  /// The shared parsing context for all states in this frame.
+  final Context context;
+
+  /// The set of states to be processed at the current input position.
+  final Set<State> nextStates;
+
+  /// Whether this frame is being replayed from history (e.g. for epsilon closure).
+  final bool replay;
+
+  /// Creates a shallow copy of the frame for targeted exploration.
+  Frame copy() => Frame(context);
+
+  /// Convenience accessor for the context's caller.
+  CallerKey? get caller => context.caller;
+
+  /// Convenience accessor for the context's marks.
+  GlushList<Mark> get marks => context.marks;
+}
