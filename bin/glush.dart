@@ -19,7 +19,7 @@ const grammar = r"""
 S = $4  S  S  S  S
   | $3  S  S  S
   | $2  S  S
-  | $1 "s"
+  | $1 's'
 """;
 
 final parser = grammar.toSMParser();
@@ -35,24 +35,22 @@ void main() async {
   state.finish();
 
   var eval = Evaluator<Object>({
+    "S.4": (ctx) => "(${ctx.next()}${ctx.next()}${ctx.next()}${ctx.next()})",
+    "S.3": (ctx) => "(${ctx.next()}${ctx.next()}${ctx.next()})",
     "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
-    "S.1": (ctx) => "${ctx.next()}",
+    "S.1": (ctx) => "s",
   });
 
   var paths = state.lastStep?.acceptedContexts
       .map((v) => v.marks)
-      .fold(const GlushList<Mark>.empty(), (a, b) => GlushList<Mark>.branched([a, b]));
+      .fold(const GlushList<Mark>.empty(), GlushList<Mark>.branched);
 
   if (paths == null) {
     return;
   }
 
-  var result = parser.parseAmbiguous(input);
-  var derivations = result.ambiguousSuccess()!.forest.toList();
-
-  print(derivations.length);
   print(paths.derivationCount);
   for (var path in paths.allPaths()) {
-    print(path);
+    print(eval.evaluate(path.evaluateStructure()));
   }
 }

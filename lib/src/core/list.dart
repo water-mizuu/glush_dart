@@ -16,29 +16,16 @@ sealed class GlushList<T> {
   const factory GlushList.empty() = EmptyList<T>._;
 
   /// Creates a branched list representing multiple parsing alternatives.
-  factory GlushList.branched(List<GlushList<T>> alternatives) {
-    var flattened = <GlushList<T>>[];
-    var seen = <GlushList<T>>{};
-    for (var alt in alternatives) {
-      if (alt is BranchedList<T>) {
-        for (var sub in alt.alternatives) {
-          if (sub is! EmptyList<T> && seen.add(sub)) {
-            flattened.add(sub);
-          }
-        }
-      } else if (alt is! EmptyList<T> && seen.add(alt)) {
-        flattened.add(alt);
-      }
+  factory GlushList.branched(GlushList<T> left, GlushList<T> right) {
+    if (left.isEmpty) {
+      return right;
     }
 
-    if (flattened.isEmpty) {
-      return EmptyList<T>._();
-    }
-    if (flattened.length == 1) {
-      return flattened.first;
+    if (right.isEmpty) {
+      return left;
     }
 
-    return BranchedList<T>._(List.unmodifiable(flattened));
+    return BranchedList<T>._(left, right);
   }
 
   /// Creates a GlushList from a standard Dart list.
@@ -76,10 +63,10 @@ sealed class GlushList<T> {
         case EmptyList<T>():
           break;
         case BranchedList<T>():
-          var alternatives = node.alternatives;
-          for (var i = alternatives.length - 1; i >= 0; i--) {
-            stack.add(alternatives[i]);
+          if (node.right != null) {
+            stack.add(node.right);
           }
+          stack.add(node.left);
         case Push<T>():
           stack.add(node.data);
           stack.add(_dataMarker);
@@ -111,10 +98,10 @@ sealed class GlushList<T> {
     switch (node) {
       case EmptyList():
         res = 1;
-      case BranchedList(:var alternatives):
-        res = 0;
-        for (var alt in alternatives) {
-          res += _count(alt, memo);
+      case BranchedList(:var left, :var right):
+        res = _count(left, memo);
+        if (right != null) {
+          res += _count(right, memo);
         }
       case Push(:var parent, :var data):
         int mult = 1;
@@ -140,18 +127,6 @@ sealed class GlushList<T> {
   }
 }
 
-bool _listEquals(List<Object?> left, List<Object?> right) {
-  if (left.length != right.length) {
-    return false;
-  }
-  for (var i = 0; i < left.length; i++) {
-    if (left[i] != right[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
 class EmptyList<T> extends GlushList<T> {
   const EmptyList._();
 
@@ -168,11 +143,12 @@ class EmptyList<T> extends GlushList<T> {
 }
 
 class BranchedList<T> extends GlushList<T> {
-  BranchedList._(this.alternatives)
-    : _isEmpty = alternatives.every((a) => a.isEmpty),
-      _hashCode = Object.hash(BranchedList, Object.hashAll(alternatives));
+  BranchedList._(this.left, [this.right])
+    : _isEmpty = left.isEmpty && (right?.isEmpty ?? true),
+      _hashCode = Object.hash(BranchedList, left, right);
 
-  final List<GlushList<T>> alternatives;
+  final GlushList<T> left;
+  final GlushList<T>? right;
   final int _hashCode;
 
   final bool _isEmpty;
@@ -185,7 +161,8 @@ class BranchedList<T> extends GlushList<T> {
       identical(this, other) ||
       other is BranchedList<T> &&
           _hashCode == other._hashCode &&
-          _listEquals(alternatives, other.alternatives);
+          left == other.left &&
+          right == other.right;
 
   @override
   int get hashCode => _hashCode;
@@ -248,8 +225,9 @@ extension GlushListVisualizer<T> on GlushList<T> {
       case EmptyList<T>():
         yield const [];
       case BranchedList<T>():
-        for (var alt in node.alternatives) {
-          yield* _collect(alt, visiting);
+        yield* _collect(node.left, visiting);
+        if (node.right != null) {
+          yield* _collect(node.right!, visiting);
         }
       case Push<T>():
         var data = node.data;
@@ -325,14 +303,15 @@ extension GlushListVisualizer<T> on GlushList<T> {
       _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
     } else if (node is BranchedList<T>) {
       buffer.writeln("Branched");
-      for (int i = 0; i < node.alternatives.length; i++) {
-        _visualize(
-          node.alternatives[i],
-          buffer,
-          prefix + (isLast ? "    " : "│   "),
-          i == node.alternatives.length - 1,
-          visited,
-        );
+      _visualize(
+        node.left,
+        buffer,
+        prefix + (isLast ? "    " : "│   "),
+        node.right == null,
+        visited,
+      );
+      if (node.right != null) {
+        _visualize(node.right!, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
       }
     }
   }

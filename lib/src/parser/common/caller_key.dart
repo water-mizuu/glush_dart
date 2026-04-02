@@ -165,10 +165,10 @@ final class Caller extends CallerKey {
       }
 
       _returns[key] = existing.copyWith(
-        marks: GlushList.branched([existing.marks, context.marks]),
+        marks: GlushList.branched(existing.marks, context.marks),
         derivationPath: identical(existing.derivationPath, context.derivationPath)
             ? existing.derivationPath
-            : GlushList.branched([existing.derivationPath, context.derivationPath]),
+            : GlushList.branched(existing.derivationPath, context.derivationPath),
       );
       return true;
     }

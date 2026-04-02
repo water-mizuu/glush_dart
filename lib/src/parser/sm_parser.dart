@@ -28,6 +28,7 @@ library glush.sm_parser;
 
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/common/caller_key.dart";
@@ -178,7 +179,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
-        return ParseAmbiguousSuccess(GlushList.branched(results));
+        return ParseAmbiguousSuccess(
+          results.fold(const GlushList<Mark>.empty(), GlushList<Mark>.branched),
+        );
       } else {
         return ParseError(parseState.position);
       }

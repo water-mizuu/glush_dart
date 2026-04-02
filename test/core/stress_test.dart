@@ -25,7 +25,7 @@ void main() {
         alternatives.add(const GlushList<int>.empty().add(i));
       }
 
-      var branched = GlushList.branched(alternatives);
+      var branched = alternatives.fold(const GlushList<int>.empty(), GlushList.branched);
       var results = <int>[];
       branched.iterate().forEach(results.add);
 

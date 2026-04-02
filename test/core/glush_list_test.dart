@@ -34,7 +34,7 @@ void main() {
     test("BranchedList deduplicates alternatives structurally", () {
       var l1 = const GlushList<int>.empty().add(1);
       var l2 = const GlushList<int>.empty().add(1);
-      var branched = GlushList.branched([l1, l2]);
+      var branched = GlushList.branched(l1, l2);
 
       expect(branched, equals(l1));
       expect(branched is! BranchedList, isTrue);

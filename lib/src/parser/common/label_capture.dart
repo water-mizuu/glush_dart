@@ -30,9 +30,11 @@ final class LabelCaptureWalker {
       case Concat<Mark>(:var left, :var right):
         walk(left, active);
         walk(right, active);
-      case BranchedList<Mark>(:var alternatives):
-        for (var branch in alternatives) {
-          walk(branch, [...active]);
+      case BranchedList<Mark>(:var left, :var right):
+        var rest = [...active];
+        walk(left, rest);
+        if (right != null) {
+          walk(right, rest);
         }
     }
   }

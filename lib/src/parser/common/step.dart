@@ -635,10 +635,10 @@ class Step {
       var existing = _currentFrameGroups[key];
       if (existing != null) {
         // Merge marks and derivation paths if they differ.
-        var nextMarks = GlushList.branched([existing.marks, nextContext.marks]);
+        var nextMarks = GlushList.branched(existing.marks, nextContext.marks);
         var nextDerivation = identical(existing.derivationPath, nextContext.derivationPath)
             ? existing.derivationPath
-            : GlushList.branched([existing.derivationPath, nextContext.derivationPath]);
+            : GlushList.branched(existing.derivationPath, nextContext.derivationPath);
 
         _currentFrameGroups[key] = nextContext.copyWith(
           marks: nextMarks,
@@ -1538,12 +1538,12 @@ class Step {
         :captures,
       ) = value;
 
-      var branchedMarks = GlushList.branched(marks);
+      var branchedMarks = marks.fold(const GlushList<Mark>.empty(), GlushList.branched);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
       var branchedDerivations = isSupportingAmbiguity
-          ? GlushList.branched(derivationPaths)
+          ? derivationPaths.fold(const GlushList<DerivationKey>.empty(), GlushList.branched)
           : derivationPaths.firstOrNull ?? const GlushList<DerivationKey>.empty();
 
       var nextFrame = Frame(
