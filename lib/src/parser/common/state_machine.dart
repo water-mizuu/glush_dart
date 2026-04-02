@@ -527,7 +527,7 @@ class StateMachine {
         var action = ReturnAction(rule, lastState, precedenceMap[lastState]);
         state.actions.add(action);
       }
-      if (rule.body().empty()) {
+      if (rule.body().empty() && rule.body().firstSet().isEmpty) {
         firstState.actions.add(ReturnAction(rule, Eps()));
       }
     }

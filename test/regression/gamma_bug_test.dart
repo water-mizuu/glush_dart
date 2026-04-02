@@ -9,10 +9,10 @@ void main() {
       Grammar(() {
         late Rule s;
         s = Rule("S", () {
-          return Token.char("s") | // s
-              (s() >> s()) |
-              (s() >> s() >> s()) |
-              (s() >> s() >> s() >> s());
+          return Label("1", Token.char("s")) | // s
+              Label("2", s() >> s()) |
+              Label("3", s() >> s() >> s()) |
+              Label("4", s() >> s() >> s() >> s());
         });
         return s;
       }),
@@ -23,9 +23,9 @@ void main() {
         late Rule s;
         s = Rule("S", () {
           return Token.char("s") | // s
-              (Marker("") >> s() >> s()) |
-              (Marker("") >> s() >> s() >> s()) |
-              (Marker("") >> s() >> s() >> s() >> s());
+              (Marker("1") >> s() >> s()) |
+              (Marker("2") >> s() >> s() >> s()) |
+              (Marker("3") >> s() >> s() >> s() >> s());
         });
         return s;
       }),
@@ -36,7 +36,7 @@ void main() {
         late Rule s;
         s = Rule("S", () {
           return Marker("T") >>
-              (Token.char("s") | // s
+              ((Token.char("s")) | // s
                   (s() >> s()) |
                   (s() >> s() >> s()) |
                   (s() >> s() >> s() >> s()));
@@ -51,32 +51,16 @@ void evaluateGamma3(Grammar grammar) {
   const testInput = "ssss";
   var parser = SMParser(grammar);
   var derivationCount = parser.countAllParses(testInput);
-  var derivations = parser.enumerateAllParses(testInput).toList();
-  var forestResult = parser.parseWithForest(testInput);
+  var derivations =
+      parser.parseAmbiguous(testInput).ambiguousSuccess()?.forest.allPaths().toList() ?? [];
+
+  var result = parser.parseAmbiguous(testInput);
   test("Grammar ${counter++}", () {
-    expect(forestResult, isA<ParseForestSuccess>());
+    expect(result, isA<ParseAmbiguousSuccess>());
 
-    if (forestResult is ParseForestSuccess) {
-      Set<String> enumerations = derivations
-          .map((s) => s)
-          .map((s) => s.toPrecedenceString(testInput))
-          .toSet();
-      Set<String> forestExtracted = forestResult.forest
-          .extract()
-          .map((s) => s.toPrecedenceString(testInput))
-          .toSet();
-
-      var trees = forestResult.forest.extract().toList();
-      expect(enumerations.difference(forestExtracted), equals(<String>{}));
-      expect(forestExtracted.difference(enumerations), equals(<String>{}));
-      // Both enumeration and forest extraction should find the same number
-      expect(derivations.length, equals(trees.length));
-      expect(derivations.length, equals(derivationCount));
-      // sss has 3 parse trees:
-      // 1. SSS -> s+s+s
-      // 2. SS -> (s+s)+s
-      // 3. SS -> s+(s+s)
-      expect(derivations.length, equals(11));
-    }
+    // Verify counts match
+    expect(derivations.length, equals(derivationCount));
+    // ssss should have 11 parse trees
+    expect(derivations.length, equals(11));
   });
 }

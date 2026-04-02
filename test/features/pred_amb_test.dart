@@ -15,12 +15,12 @@ void main() {
       expect(parser.recognize("a"), isTrue);
 
       // Verification of forest size if applicable
-      var forest = parser.parseWithForest("a") as ParseForestSuccess;
+      var forest = parser.parseAmbiguous("a") as ParseAmbiguousSuccess;
       // The overall result for 'test' should only have one derivation path
       // for the 'a' token, because the predicate 'ambiguous.and()'
       // does not contribute to the derivation forest (it's non-consuming).
       var stats = forest.forest.countDerivations();
-      expect(stats["count"], BigInt.one);
+      expect(stats, 1);
     });
 
     test("NOT with ambiguous sub-pattern fails correctly", () {

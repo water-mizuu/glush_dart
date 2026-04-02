@@ -106,16 +106,16 @@ void main() {
     var result = grammar.parseAmbiguous(metaGrammarString);
     if (result is! ParseSuccess &&
         result is! ParseAmbiguousSuccess &&
-        result is! ParseForestSuccess) {
+        result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;
   });
   measure("metaParser.parse(forest)", 10, () {
-    var result = grammar.parseWithForest(metaGrammarString);
+    var result = grammar.parseAmbiguous(metaGrammarString);
     if (result is! ParseSuccess &&
         result is! ParseAmbiguousSuccess &&
-        result is! ParseForestSuccess) {
+        result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;

@@ -124,18 +124,10 @@ void _profileForest() {
   ).compile(startRuleName: "start");
   var parser = SMParser(grammar);
 
-  _runProfile("forest-parse", () {
-    var outcome = parser.parseWithForest("alpha:beta");
-    if (outcome case ParseForestSuccess(:var forest)) {
-      var tree = forest.extract().first;
-      parser.evaluateParseTreeWith(
-        tree,
-        "alpha:beta",
-        Evaluator<String>({
-          "name": (ctx) => ctx.span,
-          "start": (ctx) => ctx.all<String>("item").join(":"),
-        }),
-      );
+  _runProfile("parse-ambiguous", () {
+    var outcome = parser.parseAmbiguous("alpha:beta", captureTokensAsMarks: true);
+    if (outcome case ParseAmbiguousSuccess(:var forest)) {
+      const StructuredEvaluator().evaluate(forest.allPaths().single);
     }
   });
 }

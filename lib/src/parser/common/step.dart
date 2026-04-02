@@ -19,7 +19,6 @@ import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/trackers.dart";
-import "package:glush/src/representation/bsr.dart";
 
 /// Single parsing step at one input position.
 ///
@@ -36,7 +35,6 @@ class Step {
     this.position, {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
-    this.bsr,
   });
 
   /// The global parse session state.
@@ -47,9 +45,6 @@ class Step {
 
   /// The current zero-based input position.
   final int position;
-
-  /// Optional BSR sink for forest extraction.
-  final BsrSet? bsr;
 
   /// Whether to support ambiguous parse paths (forest mode).
   final bool isSupportingAmbiguity;
@@ -189,6 +184,8 @@ class Step {
       nextContext = parentContext.copyWith(derivationPath: nextPath);
     }
 
+    parseState.tracer.onMessage("Predicate matched: $symbol (AND: $isAnd)");
+
     requeue(Frame(nextContext)..nextStates.add(nextState));
   }
 
@@ -205,6 +202,8 @@ class Step {
     }
     var newPredicateKey = PredicateCallerKey(symbol, position);
     var nextStack = frame.context.predicateStack.add(newPredicateKey);
+
+    parseState.tracer.onMessage("Spawning sub-parse for predicate: $symbol");
 
     for (var firstState in states) {
       _enqueue(
@@ -444,7 +443,7 @@ class Step {
 
     // Resolve arguments in the caller's environment so references can inherit
     // values, rules, or captures from the surrounding parse context.
-    var callerRule = switch (frame.caller) {
+    var callerRule = switch (frame.context.caller) {
       Caller(:var rule) => rule,
       _ => call.rule,
     };
@@ -458,7 +457,7 @@ class Step {
     Frame frame,
     Rule rule,
   ) {
-    var callerRule = switch (frame.caller) {
+    var callerRule = switch (frame.context.caller) {
       Caller(rule: var callerRule) => callerRule,
       _ => rule,
     };
@@ -517,6 +516,7 @@ class Step {
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewCaller) {
+      parseState.tracer.onRuleCall(targetRule, position, caller);
       var states = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!] ?? [];
       for (var firstState in states) {
         _enqueue(
@@ -540,7 +540,7 @@ class Step {
       for (var returnContext in caller.returns) {
         _triggerReturn(
           caller,
-          frame.caller,
+          frame.context.caller,
           returnState,
           minPrecedenceLevel,
           frame.context,
@@ -614,6 +614,7 @@ class Step {
     if (targetPosition != position) {
       // Cross-position work is deferred to preserve position-order semantics.
       GlushProfiler.increment("parser.enqueue.requeued");
+      parseState.tracer.onEnqueue(state, targetPosition, "future position");
       requeue(Frame(nextContext)..nextStates.add(state));
       return;
     }
@@ -678,16 +679,16 @@ class Step {
     var frameContext = frame.context;
     // Iterate over all possible actions originating from the current state.
     for (var action in state.actions) {
+      parseState.tracer.onAction(action, "processing");
       // Source node for SPPF forest reconstruction.
       var source = ParseNodeKey(state.id, position, frameContext.caller);
-      var callerOrRoot = frame.caller;
+      var callerOrRoot = frame.context.caller;
       switch (action) {
         case TokenAction():
           var token = _getTokenFor(frame);
           // Token actions fire only when an input token matches the expected pattern.
           if (token != null && action.pattern.match(token)) {
-            var newMarks = frame.marks;
-            var terminalSymbol = action.pattern.symbolId;
+            var newMarks = frame.context.marks;
             var pattern = action.pattern;
 
             // Terminal capture logic: some patterns (like literal strings)
@@ -695,23 +696,9 @@ class Step {
             var shouldCapture =
                 captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
 
-            // Record terminal match for BSR/SPPF if requested.
-            if (terminalSymbol != null) {
-              bsr?.addTerminal(terminalSymbol, position, position + 1, token);
-            }
-
             // Capture policy controls whether consumed chars become human-readable StringMarks.
             if (shouldCapture) {
               newMarks = newMarks.add(StringMark(String.fromCharCode(token), position));
-            }
-
-            if (frame.context.bsrRuleSymbol != null && frame.context.callStart != null) {
-              bsr?.add(
-                frame.context.bsrRuleSymbol!,
-                frame.context.callStart!,
-                position,
-                position + 1,
-              );
             }
 
             // Batched until finalize() so all token-consuming transitions advance
@@ -747,7 +734,7 @@ class Step {
           if (isMatch) {
             _enqueue(
               action.nextState,
-              frameContext.withMarks(frame.marks),
+              frameContext.withMarks(frame.context.marks),
               source: source,
               action: action,
             );
@@ -755,18 +742,9 @@ class Step {
         case ParameterStringAction():
           var token = _getTokenFor(frame);
           if (token != null && token == action.codeUnit) {
-            var newMarks = frame.marks;
+            var newMarks = frame.context.marks;
             if (captureTokensAsMarks) {
               newMarks = newMarks.add(StringMark(String.fromCharCode(action.codeUnit), position));
-            }
-
-            if (frame.context.bsrRuleSymbol != null && frame.context.callStart != null) {
-              bsr?.add(
-                frame.context.bsrRuleSymbol!,
-                frame.context.callStart!,
-                position,
-                position + 1,
-              );
             }
 
             var nextKey = ContextKey.create(
@@ -801,7 +779,7 @@ class Step {
           var mark = NamedMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(mark)),
+            frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
             source: source,
             action: action,
           );
@@ -810,7 +788,7 @@ class Step {
           var mark = LabelStartMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.marks.add(mark)),
+            frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
             source: source,
             action: action,
           );
@@ -820,7 +798,7 @@ class Step {
           var mark = LabelEndMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(frame.caller, frame.marks.add(mark)),
+            frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
             source: source,
             action: action,
           );
@@ -828,7 +806,7 @@ class Step {
           var mark = ExpandingMark(action.name, position);
           _enqueue(
             action.nextState,
-            frameContext.withCallerAndMarks(frame.caller, frame.marks.add(mark)),
+            frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
             source: source,
             action: action,
           );
@@ -1017,7 +995,7 @@ class Step {
                 // Epsilon transition if the string is empty.
                 _enqueue(
                   action.nextState,
-                  frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                  frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
                   source: source,
                   action: action,
                 );
@@ -1030,7 +1008,7 @@ class Step {
               );
               _enqueue(
                 entryState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
                 source: source,
                 action: action,
               );
@@ -1043,7 +1021,7 @@ class Step {
               );
               _enqueue(
                 entryState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
                 source: source,
                 action: action,
               );
@@ -1080,7 +1058,7 @@ class Step {
               // Parameter as epsilon transition.
               _enqueue(
                 action.nextState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
                 source: source,
                 action: action,
               );
@@ -1090,7 +1068,7 @@ class Step {
               if (token != null && pattern.match(token)) {
                 _enqueue(
                   action.nextState,
-                  frame.context.withCallerAndMarks(callerOrRoot, frame.marks),
+                  frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
                   source: source,
                   action: action,
                 );
@@ -1373,19 +1351,7 @@ class Step {
             continue;
           }
 
-          var caller = frame.caller;
-          var callStart =
-              frame.context.callStart ?? //
-              (caller is Caller ? caller.startPosition : null);
-
-          if (frame.context.bsrRuleSymbol != null && callStart != null) {
-            bsr?.add(
-              frame.context.bsrRuleSymbol!,
-              callStart,
-              frame.context.pivot ?? callStart,
-              position,
-            );
-          }
+          var caller = frame.context.caller;
 
           // Predicate returns settle the predicate tracker directly.
           if (caller is PredicateCallerKey) {
@@ -1439,7 +1405,7 @@ class Step {
             var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
             var tracker = parseState.conjunctionTrackers[key];
             if (tracker != null) {
-              _finishConjunction(tracker, position, caller.isLeft, frame.marks);
+              _finishConjunction(tracker, position, caller.isLeft, frame.context.marks);
             }
             continue;
           }
@@ -1451,20 +1417,6 @@ class Step {
               tracker.markMatchedPosition(position);
             }
             continue;
-          }
-
-          if (caller is Caller) {
-            // Record completion edges for each parent waiter.
-            for (var (_, context) in caller.iterate()) {
-              if (context.bsrRuleSymbol != null && context.callStart != null) {
-                bsr?.add(
-                  context.bsrRuleSymbol!,
-                  context.callStart!,
-                  caller.startPosition,
-                  position,
-                );
-              }
-            }
           }
 
           // In single-derivation mode, replay each caller's returns once.
@@ -1531,8 +1483,10 @@ class Step {
         returnContext.precedenceLevel != null &&
         returnContext.precedenceLevel! < minPrecedence) {
       // Waiter's precedence threshold is not met by this return.
+      parseState.tracer.onRuleReturn(caller.rule, position, caller);
       return;
     }
+    parseState.tracer.onRuleReturn(caller.rule, position, caller);
     // Fast paths for the common case where one/both mark streams are empty.
     // This avoids building branched wrappers for right-recursive call returns.
     // Continous mark streams must be concatenated, not branched.
@@ -1564,15 +1518,6 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    if (parentContext.bsrRuleSymbol != null && parentContext.callStart != null) {
-      bsr?.add(
-        parentContext.bsrRuleSymbol!,
-        parentContext.callStart!,
-        caller.startPosition,
-        returnContext.pivot ?? position,
-      );
-    }
-
     _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
   }
 
@@ -1593,12 +1538,12 @@ class Step {
         :captures,
       ) = value;
 
-      var branchedMarks = GlushList.branched<Mark>(marks);
+      var branchedMarks = GlushList.branched(marks);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
       var branchedDerivations = isSupportingAmbiguity
-          ? GlushList.branched<DerivationKey>(derivationPaths)
+          ? GlushList.branched(derivationPaths)
           : derivationPaths.firstOrNull ?? const GlushList<DerivationKey>.empty();
 
       var nextFrame = Frame(
@@ -1639,6 +1584,7 @@ class Step {
   void processFrame(Frame frame) {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
+      parseState.tracer.onProcessState(frame, state);
       _enqueue(state, frame.context);
     }
     while (_workQueue.isNotEmpty) {

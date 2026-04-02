@@ -9,9 +9,9 @@ import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
+import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
-import "package:glush/src/representation/bsr.dart";
 
 /// Stateful cursor for manual state-machine parsing.
 ///
@@ -23,11 +23,13 @@ final class ParseState {
     required List<Frame> initialFrames,
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
-    this.bsr,
+    this.tracer = const NullTracer(),
   }) : // Initialize active frames with the starting set provided by the parser.
        frames = initialFrames,
        // Index rules by name for faster lookup during guard evaluation.
-       rulesByName = {for (var rule in parser.grammar.rules) rule.name.symbol: rule};
+       rulesByName = {for (var rule in parser.grammar.rules) rule.name.symbol: rule} {
+    tracer.onStart(parser.stateMachine);
+  }
 
   /// The parser definition being executed.
   final GlushParser parser;
@@ -38,8 +40,8 @@ final class ParseState {
   /// True when consumed exact tokens should be emitted as `StringMark`s.
   final bool captureTokensAsMarks;
 
-  /// Optional BSR sink used by forest-oriented parser entry points.
-  final BsrSet? bsr;
+  /// Optional tracer for diagnostics.
+  final ParseTracer tracer;
 
   /// Token history indexed by input position so lagging frames can catch up.
   final List<int> historyByPosition = [];
@@ -77,6 +79,8 @@ final class ParseState {
   /// Process one input code unit and advance the parser by one position.
   /// advance the parser.
   Step processToken(int unit) {
+    tracer.onStepStart(position, unit, frames);
+
     // Measure performance of the token processing step.
     var step = GlushProfiler.measure("parser.process_token", () {
       return parser.processToken(
@@ -84,7 +88,6 @@ final class ParseState {
         position,
         frames,
         parseState: this,
-        bsr: bsr,
         isSupportingAmbiguity: isSupportingAmbiguity,
         captureTokensAsMarks: captureTokensAsMarks,
       );
@@ -99,18 +102,20 @@ final class ParseState {
 
   /// Finalize the parse at end-of-input.
   Step finish() {
+    tracer.onStepStart(position, null, frames);
+
     var step = GlushProfiler.measure("parser.finish", () {
       return parser.processToken(
         null,
         position,
         frames,
         parseState: this,
-        bsr: bsr,
         isSupportingAmbiguity: isSupportingAmbiguity,
         captureTokensAsMarks: captureTokensAsMarks,
       );
     });
     _lastStep = step;
+    tracer.finalize();
     return step;
   }
 
@@ -126,8 +131,4 @@ final class ParseState {
 
   /// Marks from the most recent step.
   List<Mark> get marks => _lastStep?.marks ?? const [];
-}
-
-extension type const ParseStateWithBsr(ParseState _) implements ParseState {
-  BsrSet get bsr => _.bsr!;
 }

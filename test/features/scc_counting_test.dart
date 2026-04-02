@@ -10,33 +10,30 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("abc");
+      var result = parser.parseAmbiguous("abc");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts["count"], BigInt.one);
-        expect(counts["hasCycles"], false);
-        expect(counts["sccs"], greaterThan(0));
+        expect(counts, 1);
       }
     });
 
     test("Ambiguous grammar with alternation", () {
       // (a | a) matches two derivations
       var grammar = Grammar(() {
-        return Rule("", () => Token.char("a") | Token.char("a"));
+        return Rule("", () => Label("1", Token.char("a")) | Label("2", Token.char("a")));
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("a");
+      var result = parser.parseAmbiguous("a");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts["count"], BigInt.two);
-        expect(counts["hasCycles"], false);
+        expect(counts, 2);
       }
     });
 
@@ -51,17 +48,14 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("a+a");
+      var result = parser.parseAmbiguous("a+a");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
         // Should have multiple derivations for "a+a"
-        expect(counts["count"], greaterThanOrEqualTo(BigInt.one));
-        // May or may not have cycles depending on implementation
-        expect(counts.containsKey("hasCycles"), true);
-        expect(counts.containsKey("sccs"), true);
+        expect(counts, greaterThanOrEqualTo(1));
       }
     });
 
@@ -72,14 +66,14 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("aaa");
+      var result = parser.parseAmbiguous("aaa");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
         // PEG greedy semantics: only one derivation (match all three 'a's)
-        expect(counts["count"], equals(BigInt.one));
+        expect(counts, equals(1));
       }
     });
 
@@ -104,33 +98,13 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("a+a");
+      var result = parser.parseAmbiguous("a+a");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts["count"], greaterThanOrEqualTo(BigInt.one));
-        expect(counts["forestSize"], greaterThan(0));
-      }
-    });
-
-    test("SCC count matches forest size", () {
-      var grammar = Grammar(() {
-        return Rule("", () => Token.char("a") >> Token.char("b"));
-      });
-
-      var parser = SMParser(grammar);
-      var result = parser.parseWithForest("ab");
-
-      if (result is ParseForestSuccess) {
-        var forest = result.forest;
-        var counts = forest.countDerivations();
-
-        // SCC count should be at least 1
-        expect(counts["sccs"], greaterThanOrEqualTo(1));
-        // Forest size should be at least as large as SCC count
-        expect(counts["forestSize"], greaterThanOrEqualTo(counts["sccs"]! as int));
+        expect(counts, greaterThanOrEqualTo(1));
       }
     });
 
@@ -140,13 +114,13 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("");
+      var result = parser.parseAmbiguous("");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts["count"], BigInt.one);
+        expect(counts, 1);
       }
     });
 
@@ -162,15 +136,14 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("aabb");
+      var result = parser.parseAmbiguous("aabb");
 
-      if (result is ParseForestSuccess) {
+      if (result is ParseAmbiguousSuccess) {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
         // Should count the derivations correctly
-        expect(counts["count"], greaterThan(BigInt.zero));
-        expect(counts["count"], isA<BigInt>());
+        expect(counts, greaterThan(0));
       }
     });
   });

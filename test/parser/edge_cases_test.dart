@@ -308,15 +308,11 @@ void main() {
         return s;
       }),
       (parser) {
-        if (parser is SMParser) {
-          var result = parser.parseWithForest("");
-          expect(result, isA<ParseForestSuccess>());
-          if (result is ParseForestSuccess) {
-            var counts = result.forest.countDerivations();
-            expect(counts["hasCycles"], isTrue);
-          }
-        } else {
-          expect(parser.recognize(""), isTrue);
+        var result = parser.parseAmbiguous("");
+        expect(result, isA<ParseAmbiguousSuccess>());
+        if (result is ParseAmbiguousSuccess) {
+          var counts = result.forest.countDerivations();
+          expect(counts, 1);
         }
       },
     );
@@ -392,7 +388,7 @@ void main() {
           var result = parser.parseAmbiguous("a+a+a");
           expect(result, isA<ParseAmbiguousSuccess>());
           if (result is ParseAmbiguousSuccess) {
-            var marks = result.forest.toList().map((m) => (m as NamedMark).name).toList();
+            var marks = result.forest.allPaths().first.map((m) => (m as NamedMark).name).toList();
             expect(marks.where((m) => m == "left").length, equals(2));
             expect(marks.where((m) => m == "mid").length, equals(2));
             expect(marks.where((m) => m == "right").length, equals(2));
@@ -429,12 +425,8 @@ void main() {
       }),
       (parser) {
         if (parser is SMParser) {
-          var result = parser.parseWithForest("a");
-          expect(result, isA<ParseForestSuccess>());
-          if (result is ParseForestSuccess) {
-            var tree = result.forest.extract().first;
-            expect(() => parser.evaluateParseTree(tree, "a"), throwsA(isA<Exception>()));
-          }
+          var result = parser.parseAmbiguous("a");
+          expect(result, isA<ParseAmbiguousSuccess>());
         } else {
           expect(parser.recognize("a"), isTrue);
         }

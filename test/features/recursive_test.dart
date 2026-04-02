@@ -21,7 +21,7 @@ void main() {
         var input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
-        expect(parser.parseWithForest(input), isNotNull);
+        expect(parser.parseAmbiguous(input), isNotNull);
       }
     });
 
@@ -44,7 +44,7 @@ void main() {
         var input = "s+" * count + "s";
 
         expect(parser.parse(input), isNotNull);
-        expect(parser.parseWithForest(input), isNotNull);
+        expect(parser.parseAmbiguous(input), isNotNull);
       }
     });
   });

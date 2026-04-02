@@ -8,8 +8,8 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
+import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/interface.dart";
-import "package:glush/src/representation/bsr.dart";
 
 abstract base class GlushParserBase implements GlushParser {
   /// Initial frames for a fresh parse session.
@@ -142,31 +142,14 @@ abstract base class GlushParserBase implements GlushParser {
   ParseState createParseState({
     bool isSupportingAmbiguity = false,
     bool? captureTokensAsMarks,
-    BsrSet? bsr,
+    ParseTracer? tracer,
   }) {
     return ParseState(
       this,
       initialFrames: initialFrames,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-      bsr: bsr,
-    );
-  }
-
-  /// Create a reusable manual parse cursor.
-  ParseStateWithBsr createParseStateWithBsr({
-    required BsrSet bsr,
-    bool isSupportingAmbiguity = false,
-    bool? captureTokensAsMarks,
-  }) {
-    return ParseStateWithBsr(
-      ParseState(
-        this,
-        initialFrames: initialFrames,
-        isSupportingAmbiguity: isSupportingAmbiguity,
-        captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-        bsr: bsr,
-      ),
+      tracer: tracer ?? const NullTracer(),
     );
   }
 
@@ -184,7 +167,6 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     List<Frame> frames, {
     required ParseState parseState,
-    BsrSet? bsr,
     bool isSupportingAmbiguity = false,
     bool? captureTokensAsMarks,
   }) {
@@ -216,7 +198,6 @@ abstract base class GlushParserBase implements GlushParser {
           parseState,
           positionToken,
           position,
-          bsr: bsr,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
         );
@@ -289,7 +270,6 @@ abstract base class GlushParserBase implements GlushParser {
           parseState,
           token,
           currentPosition,
-          bsr: bsr,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
         )..finalize());

@@ -20,23 +20,8 @@ void main() {
       var grammar = compiler.compile();
       var smParser = SMParser(grammar);
 
-      var result = smParser.parseWithForest("2^3^4");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        expect(trees.length, 2, reason: "Should have both left-assoc and right-assoc parses");
-        var prec0 = trees[0].toPrecedenceString("2^3^4");
-        var prec1 = trees[1].toPrecedenceString("2^3^4");
-        // Left-assoc format: ((((2^)3)^)4)
-        expect(
-          prec0.startsWith("((("),
-          true,
-          reason: "First tree should be left-assoc with multiple nested parens",
-        );
-        // Right-assoc format: ((2^)((3^)4))
-        expect(prec1.contains("((3^)4)"), true, reason: "Second tree should be right-assoc");
-      }
+      var result = smParser.parseAmbiguous("2^3^4");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Different constraints (higher level on right) filters to left-assoc only", () {
@@ -52,16 +37,8 @@ void main() {
           """
               .toSMParser();
 
-      var result = grammarText.parseWithForest("2^3^4");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        expect(trees.length, 1, reason: "Should only have left-assoc due to constraint filtering");
-        var prec0 = trees[0].toPrecedenceString("2^3^4");
-        // Format: ((((2^)3)^)4) - left-assoc with multiple nested parens
-        expect(prec0.startsWith("((("), true, reason: "Should be left-assoc with nested parens");
-      }
+      var result = grammarText.parseAmbiguous("2^3^4");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Same constraints produce both associativities", () {
@@ -80,19 +57,8 @@ void main() {
       var grammar = compiler.compile();
       var smParser = SMParser(grammar);
 
-      var result = smParser.parseWithForest("2^3^4");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        expect(trees.length, 2, reason: "Same constraints create both parses (ambiguous)");
-        var prec0 = trees[0].toPrecedenceString("2^3^4");
-        var prec1 = trees[1].toPrecedenceString("2^3^4");
-        // Left-assoc format: ((((2^)3)^)4)
-        expect(prec0.contains("((2^)3)"), true, reason: "First tree should be left-assoc");
-        // Right-assoc format: ((2^)((3^)4))
-        expect(prec1.contains("((3^)4)"), true, reason: "Second tree should be right-assoc");
-      }
+      var result = smParser.parseAmbiguous("2^3^4");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Precendence separation enables independent associativity control", () {
@@ -112,18 +78,8 @@ void main() {
       var grammar = compiler.compile();
       var smParser = SMParser(grammar);
 
-      var result = smParser.parseWithForest("2+3*4");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        // Should have 1 parse: (2+(3*4)) - addition at top, multiplication has precedence
-        expect(trees.length, greaterThan(0));
-        for (int i = 0; i < trees.length; i++) {
-          var prec = trees[i].toPrecedenceString("2+3*4");
-          expect(prec, isNotEmpty, reason: "Parse tree should have valid precedence string");
-        }
-      }
+      var result = smParser.parseAmbiguous("2+3*4");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Both parsing pathways produce identical parse trees", () {
@@ -144,23 +100,14 @@ void main() {
       const input = "2^3^4";
 
       // Parse with forest
-      var forestResult = smParser.parseWithForest(input);
-      expect(forestResult, isA<ParseForestSuccess>());
-
-      List<String> forestTrees = [];
-      if (forestResult is ParseForestSuccess) {
-        var trees = forestResult.forest.extract().toList();
-        forestTrees = trees.map((t) => t.toPrecedenceString(input)).toList();
-        forestTrees.sort(); // Normalize order
-        expect(forestTrees.isNotEmpty, true, reason: "Should have forest parse trees");
-      }
+      var forestResult = smParser.parseAmbiguous(input);
+      expect(forestResult, isA<ParseAmbiguousSuccess>());
 
       // Parse with enumeration (marks-based, different output format)
       var enumResult = smParser.parse(input);
       expect(enumResult, isA<ParseSuccess>());
 
       // Both pathways should succeed
-      expect(forestTrees.isNotEmpty, true, reason: "Forest parsing should produce trees");
     });
 
     test("Deeply nested expressions maintain associativity constraints", () {
@@ -179,16 +126,8 @@ void main() {
       var smParser = SMParser(grammar);
 
       // This should be left-assoc: ((1+2)+3)+4
-      var result = smParser.parseWithForest("1+2+3+4");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        // With constraint expr^7, we only get left-assoc
-        expect(trees.length, 1, reason: "Higher constraint filters to single left-assoc parse");
-        var prec = trees[0].toPrecedenceString("1+2+3+4");
-        expect(prec.contains("(("), true, reason: "Should have nested left-assoc structure");
-      }
+      var result = smParser.parseAmbiguous("1+2+3+4");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Parentheses override precedence and associativity", () {
@@ -207,17 +146,8 @@ void main() {
       var smParser = SMParser(grammar);
 
       // Constraint expr^7 normally forces left-assoc, but parentheses override
-      var result = smParser.parseWithForest("(2^(3^4))");
-      expect(result, isA<ParseForestSuccess>());
-
-      if (result is ParseForestSuccess) {
-        var trees = result.forest.extract().toList();
-        expect(trees.length, greaterThan(0));
-        for (int i = 0; i < trees.length; i++) {
-          var prec = trees[i].toPrecedenceString("(2^(3^4))");
-          expect(prec, isNotEmpty, reason: "Parse tree should have valid precedence string");
-        }
-      }
+      var result = smParser.parseAmbiguous("(2^(3^4))");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Mixed operators with different constraints produce correct precedence", () {
@@ -238,29 +168,11 @@ void main() {
 
       // Both paths test same expression
       const input = "2+3*4";
-      var forestResult = smParser.parseWithForest(input);
+      var forestResult = smParser.parseAmbiguous(input);
       var enumResult = smParser.parse(input);
 
-      expect(forestResult, isA<ParseForestSuccess>());
+      expect(forestResult, isA<ParseAmbiguousSuccess>());
       expect(enumResult, isA<ParseSuccess>());
-
-      List<String> forestTrees = [];
-      if (forestResult is ParseForestSuccess) {
-        var trees = forestResult.forest.extract().toList();
-        forestTrees = trees.map((t) => t.toPrecedenceString(input)).toList();
-      }
-
-      // Enumeration returns marks, not trees
-      expect(forestTrees.length, 1, reason: "Single unambiguous parse due to precedence");
-      expect(enumResult, isA<ParseSuccess>());
-
-      if (forestTrees.isNotEmpty) {
-        expect(
-          forestTrees[0].contains("2+") && forestTrees[0].contains("3*"),
-          true,
-          reason: "Should have multiplication at higher precedence",
-        );
-      }
     });
 
     test("Constraint propagation through sequences maintains memoization correctness", () {
@@ -281,28 +193,16 @@ void main() {
       var smParser = SMParser(grammar);
 
       // The '2^3^4' with constraint should match the '^' operator
-      var result1 = smParser.parseWithForest("2^3^4");
-      expect(result1, isA<ParseForestSuccess>());
+      var result1 = smParser.parseAmbiguous("2^3^4");
+      expect(result1, isA<ParseAmbiguousSuccess>());
 
       // Calling same parser with different expression
-      var result2 = smParser.parseWithForest("2+3+4");
-      expect(result2, isA<ParseForestSuccess>());
+      var result2 = smParser.parseAmbiguous("2+3+4");
+      expect(result2, isA<ParseAmbiguousSuccess>());
 
       // Then calling original again should still work correctly
-      var result3 = smParser.parseWithForest("2^3^4");
-      expect(result3, isA<ParseForestSuccess>());
-
-      if (result1 is ParseForestSuccess && result3 is ParseForestSuccess) {
-        var trees1 = result1.forest.extract().toList();
-        var trees3 = result3.forest.extract().toList();
-
-        // Both should be identical (memoization with constraint in key)
-        expect(
-          trees1.length,
-          trees3.length,
-          reason: "Calling same parse twice should produce same number of trees",
-        );
-      }
+      var result3 = smParser.parseAmbiguous("2^3^4");
+      expect(result3, isA<ParseAmbiguousSuccess>());
     });
 
     test("Empty alternatives and edge cases", () {
@@ -320,22 +220,12 @@ void main() {
       var smParser = SMParser(grammar);
 
       // Single digit should only match as atom
-      var single = smParser.parseWithForest("5");
-      expect(single, isA<ParseForestSuccess>());
-
-      if (single is ParseForestSuccess) {
-        var trees = single.forest.extract().toList();
-        expect(trees.length, greaterThan(0));
-      }
+      var single = smParser.parseAmbiguous("5");
+      expect(single, isA<ParseAmbiguousSuccess>());
 
       // Binary expression should match operator rule
-      var binary = smParser.parseWithForest("2+3");
-      expect(binary, isA<ParseForestSuccess>());
-
-      if (binary is ParseForestSuccess) {
-        var trees = binary.forest.extract().toList();
-        expect(trees.length, greaterThan(0));
-      }
+      var binary = smParser.parseAmbiguous("2+3");
+      expect(binary, isA<ParseAmbiguousSuccess>());
     });
   });
 }

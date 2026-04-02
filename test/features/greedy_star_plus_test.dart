@@ -9,8 +9,8 @@ void main() {
 
       expect(outcome, isA<ParseSuccess>());
       var tree = const StructuredEvaluator().evaluate((outcome as ParseSuccess).result.rawMarks);
-      var head = (tree.get("head").first as ParseResult).span;
-      var tail = (tree.get("tail").first as ParseResult).span;
+      var head = tree.get("head").first.span;
+      var tail = tree.get("tail").first.span;
 
       expect(head, equals("aa"));
       expect(tail, equals("a"));
@@ -22,8 +22,8 @@ void main() {
 
       expect(outcome, isA<ParseSuccess>());
       var tree = const StructuredEvaluator().evaluate((outcome as ParseSuccess).result.rawMarks);
-      var head = (tree.get("head").first as ParseResult).span;
-      var tail = (tree.get("tail").first as ParseResult).span;
+      var head = tree.get("head").first.span;
+      var tail = tree.get("tail").first.span;
 
       expect(head, equals("aa"));
       expect(tail, equals("a"));

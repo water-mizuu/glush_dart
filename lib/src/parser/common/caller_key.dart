@@ -154,6 +154,16 @@ final class Caller extends CallerKey {
         return false;
       }
 
+      // Detect cyclic epsilon returns that would create infinite derivations.
+      // If a rule matches epsilon (pivot == callStart, no input consumed) and we
+      // already have a return at this point, we've discovered the fundamental cycle.
+      // Adding more returns would create infinite alternatives. Stop here.
+      if (context.pivot == context.callStart) {
+        // At an epsilon position, cap at the first return found.
+        // Don't merge further - prevents infinite branching patterns.
+        return false;
+      }
+
       _returns[key] = existing.copyWith(
         marks: GlushList.branched([existing.marks, context.marks]),
         derivationPath: identical(existing.derivationPath, context.derivationPath)

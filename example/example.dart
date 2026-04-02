@@ -123,20 +123,6 @@ void main() {
   _methodEnumerateAllParsesWithResults(actionGrammar, input);
   _methodEnumerateAllParsesWithResults(markerGrammar, input);
   _methodEnumerateAllParsesWithResults(cleanGrammar, input);
-
-  // // Complex example
-  const input2 = "(5-1)*2+3";
-  print('\n\n${'=' * 70}');
-  print('Complex Input: "$input2" (expected: $input2 = 11)\n');
-  print("-" * 70);
-  print("Method 1 - parse():");
-  _methodParse(markerGrammar, input2);
-  // Method 2: enumerateAllParses()
-  print("\n\nMethod 2: enumerateAllParses() -> returns parse trees");
-  _methodEnumerateAllParses(actionGrammar, input2);
-  _methodEnumerateAllParses(markerGrammar, input2);
-  print("\nMethod 3 - enumerateAllParsesWithResults():");
-  _methodEnumerateAllParsesWithResults(actionGrammar, input2);
 }
 
 void _methodParse(GrammarInterface grammar, String input) {
@@ -165,38 +151,38 @@ void _methodParse(GrammarInterface grammar, String input) {
 // METHOD 2: enumerateAllParses()
 // ============================================================================
 void _methodEnumerateAllParses(GrammarInterface grammar, String input) {
-  var parser = SMParser(grammar);
-  var parses = parser.enumerateAllParses(input).toList();
+  // var parser = SMParser(grammar);
+  // var parses = parser.parseAmbiguous(input).ambiguousSuccess()?.forest.toList() ?? [];
 
-  if (parses.isNotEmpty) {
-    print("Total parse trees: ${parses.length}");
-    for (var (i, parse) in parses.indexed) {
-      print("  Parse ${i + 1}:");
-      print("    Tree: ${parse.toTreeString(input)}");
-      var value = parser.evaluateParseDerivation(parse, input);
-      print("    Raw structure: $value");
-    }
-  } else {
-    print("No parses found.");
-  }
+  // if (parses.isNotEmpty) {
+  //   print("Total parse trees: ${parses.length}");
+  //   for (var (i, parse) in parses.indexed) {
+  //     print("  Parse ${i + 1}:");
+  //     print("    Tree: ${parse.toTreeString(input)}");
+  //     var value = parser.evaluateParseDerivation(parse, input);
+  //     print("    Raw structure: $value");
+  //   }
+  // } else {
+  //   print("No parses found.");
+  // }
 }
 
 // ============================================================================
 // METHOD 3: enumerateAllParsesWithResults()
 // ============================================================================
 void _methodEnumerateAllParsesWithResults(GrammarInterface grammar, String input) {
-  var parser = SMParser(grammar);
-  var parses = parser.enumerateAllParsesWithResults(input).toList();
+  // var parser = SMParser(grammar);
+  // var parses = parser.enumerateAllParsesWithResults(input).toList();
 
-  if (parses.isNotEmpty) {
-    print("Total parse trees: ${parses.length}");
-    for (var (i, parse) in parses.indexed) {
-      print("  Parse ${i + 1}:");
-      print("    Result: ${parse.tree.toTreeString(input)}");
-      var value = parse.value;
-      print("    Evaluated result: $value");
-    }
-  } else {
-    print("No parses found.");
-  }
+  // if (parses.isNotEmpty) {
+  //   print("Total parse trees: ${parses.length}");
+  //   for (var (i, parse) in parses.indexed) {
+  //     print("  Parse ${i + 1}:");
+  //     print("    Result: ${parse.tree.toTreeString(input)}");
+  //     var value = parse.value;
+  //     print("    Evaluated result: $value");
+  //   }
+  // } else {
+  //   print("No parses found.");
+  // }
 }

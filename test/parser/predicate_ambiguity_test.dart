@@ -19,7 +19,7 @@ void main() {
 
     // We expect only ONE result, because the predicate ambiguity should be collapsed.
     // If we get TWO results, it means the predicate leaked its ambiguity.
-    expect(success.forest.toList().length, equals(1));
+    expect(success.forest.allPaths().length, equals(1));
   });
 
   test("Negative predicates do not multiply branches", () {
@@ -36,7 +36,7 @@ void main() {
     expect(outcome, isA<ParseAmbiguousSuccess>());
     var success = outcome as ParseAmbiguousSuccess;
 
-    expect(success.forest.toList().length, equals(1));
+    expect(success.forest.allPaths().length, equals(1));
   });
 
   test("", () {

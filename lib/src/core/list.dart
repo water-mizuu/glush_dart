@@ -16,7 +16,7 @@ sealed class GlushList<T> {
   const factory GlushList.empty() = EmptyList<T>._;
 
   /// Creates a branched list representing multiple parsing alternatives.
-  static GlushList<T> branched<T>(List<GlushList<T>> alternatives) {
+  factory GlushList.branched(List<GlushList<T>> alternatives) {
     var flattened = <GlushList<T>>[];
     var seen = <GlushList<T>>{};
     for (var alt in alternatives) {
@@ -58,11 +58,7 @@ sealed class GlushList<T> {
     _ => Concat<T>._(this, list),
   };
 
-  List<T> toList() {
-    var result = <T>[];
-    iterate().forEach(result.add);
-    return result;
-  }
+  List<T> toList() => iterate().toList();
 
   static final Object _dataMarker = Object();
 
@@ -103,11 +99,14 @@ sealed class GlushList<T> {
     return _count(this, {});
   }
 
+  int countDerivations() => _count(this, {});
+
   int _count(GlushList<Object?> node, Map<GlushList<Object?>, int> memo) {
     if (memo[node] case var cached?) {
       return cached;
     }
 
+    memo[node] = 0;
     int res;
     switch (node) {
       case EmptyList():

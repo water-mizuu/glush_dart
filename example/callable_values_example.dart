@@ -35,13 +35,10 @@ void main() {
   });
 
   var fluentParser = SMParser(fluentGrammar);
-  var fluentForest = fluentParser.parseWithForest("bc");
-  print("Fluent forest: $fluentForest");
-  if (fluentForest case ParseForestSuccess(:var forest)) {
-    var tree = forest.extract().first;
-    print("Fluent tree: ${tree.toTreeString()}");
-    var value = fluentParser.evaluateParseTree(tree, "bc");
-    print("Fluent value: $value");
+  var fluentResult = fluentParser.parseAmbiguous("bc", captureTokensAsMarks: true);
+  print("Fluent result: $fluentResult");
+  if (fluentResult case ParseAmbiguousSuccess(:var forest)) {
+    print("Fluent marks: ${forest.allPaths().first}");
   }
 
   const grammarText = r"""
@@ -52,11 +49,11 @@ void main() {
   """;
 
   var dslParser = grammarText.toSMParser();
-  var dslForest = dslParser.parseWithForest("bc");
-  print("DSL forest: $dslForest");
-  if (dslForest case ParseForestSuccess(:var forest)) {
-    var tree = forest.extract().first;
-    print("DSL tree: ${tree.toTreeString()}");
+  var dslResult = dslParser.parseAmbiguous("bc", captureTokensAsMarks: true);
+  print("DSL result: $dslResult");
+  if (dslResult case ParseAmbiguousSuccess(:var forest)) {
+    var tree = forest.allPaths().first;
+    print("DSL marks: $tree");
 
     var boxRule = Rule("box", () => Eps());
     var value = dslParser.evaluateParseTreeWith(

@@ -22,8 +22,6 @@ void _profileDataDrivenParameters() {
   _measure("recognize", 400, () => parser.recognize("[aa]a"));
   _measure("parse", 300, () => parser.parse("[aa]a"));
   _measure("parseAmbiguous", 150, () => parser.parseAmbiguous("[aa]a"));
-  _measure("parseWithForest", 120, () => parser.parseWithForest("[aa]a"));
-  _measure("parseToBsr", 120, () => parser.parseToBsr("[aa]a"));
 }
 
 void _profileDataDrivenRules() {
@@ -44,7 +42,6 @@ void _profileDataDrivenRules() {
   _measure("recognize", 400, () => parser.recognize("[aa]"));
   _measure("parse", 300, () => parser.parse("[aa]"));
   _measure("parseAmbiguous", 120, () => parser.parseAmbiguous("[aa]", captureTokensAsMarks: true));
-  _measure("parseWithForest", 120, () => parser.parseWithForest("[aa]"));
 }
 
 void _profileForestEvaluator() {
@@ -57,63 +54,11 @@ void _profileForestEvaluator() {
 
   _printHeader("forest_evaluator");
   var parser = _measure("compile", 50, () => grammarText.toSMParser());
-  var forestOutcome = _measure(
-    "parseWithForest_once",
-    120,
-    () => parser.parseWithForest("alpha:beta"),
-  );
-  var forest = (forestOutcome as ParseForestSuccess).forest;
-  var tree = forest.extract().first;
-  var evaluator = Evaluator<Object?>({
-    "full": (ctx) => ctx<Object?>("file"),
-    "rule": (ctx) => (ctx<String>("name"), ctx<Object?>("body")),
-    "name": (ctx) => ctx.span,
-    "ws": (ctx) => ctx.span,
-  });
-  _measure("forest.extract.first", 120, () => forest.extract().first);
   _measure(
-    "evaluateParseTreeWith",
-    200,
-    () => parser.evaluateParseTreeWith(tree, "alpha:beta", evaluator),
-  );
-
-  const callableGrammarText = r"""
-    start = outer:outer
-    outer = box:box tail:tail
-    box = value:'b'
-    tail = 'c'
-  """;
-
-  var callableParser = _measure("compile_callable", 50, () => callableGrammarText.toSMParser());
-  var callableForestOutcome = _measure(
-    "parseWithForest_callable_once",
+    "parseAmbiguous_once",
     120,
-    () => callableParser.parseWithForest("bc"),
+    () => parser.parseAmbiguous("alpha:beta", captureTokensAsMarks: true),
   );
-  var callableTree = (callableForestOutcome as ParseForestSuccess).forest.extract().first;
-  var boxRule = Rule("box", () => Eps());
-  var seed = Token.char("a");
-  var callableEvaluator = Evaluator<Object?>({
-    "start": (ctx) => ctx<Object?>("outer"),
-    "outer": (ctx) {
-      var closure = ctx<Object?>("box")! as PatternClosureValue;
-      return CallArgumentValue.map({
-        "direct": CallArgumentValue.callable(closure),
-        "nested": CallArgumentValue.list([
-          CallArgumentValue.callable(closure),
-          CallArgumentValue.literal(ctx<String>("tail")),
-        ]),
-      });
-    },
-    "value": (ctx) {
-      var closure = PatternClosureValue(seed, GuardEnvironment(rule: boxRule));
-      return CallArgumentValue.callable(closure);
-    },
-    "tail": (ctx) => ctx.span,
-  });
-  _measure("evaluate_callable_tree", 200, () {
-    callableParser.evaluateParseTreeWith(callableTree, "bc", callableEvaluator);
-  });
 }
 
 T _measure<T>(String label, int iterations, T Function() fn) {

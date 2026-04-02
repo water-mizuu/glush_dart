@@ -2,14 +2,12 @@ import "dart:math" show max;
 
 import "package:glush/src/core/list.dart" show GlushList;
 import "package:glush/src/core/mark.dart" show LabelStartMark, Mark, NamedMark, StringMark;
-import "package:glush/src/representation/sppf.dart" show ParseForest;
 
 /// Sealed result type returned by parser.parse().
 sealed class ParseOutcome {
   ParseError? error();
   ParseSuccess? success();
   ParseAmbiguousSuccess? ambiguousSuccess();
-  ParseForestSuccess? forestSuccess();
 }
 
 /// Returned when parsing fails.
@@ -28,9 +26,6 @@ final class ParseError implements ParseOutcome, Exception {
 
   @override
   ParseAmbiguousSuccess? ambiguousSuccess() => null;
-
-  @override
-  ParseForestSuccess? forestSuccess() => null;
 
   void displayError(String input) {
     List<String> inputRows = input.replaceAll("\r", "").split("\n");
@@ -80,9 +75,6 @@ final class ParseSuccess implements ParseOutcome {
 
   @override
   ParseAmbiguousSuccess? ambiguousSuccess() => null;
-
-  @override
-  ParseForestSuccess? forestSuccess() => null;
 }
 
 /// Returned when parsing succeeds with an ambiguous forest.
@@ -98,30 +90,6 @@ final class ParseAmbiguousSuccess implements ParseOutcome {
 
   @override
   ParseAmbiguousSuccess ambiguousSuccess() => this;
-
-  @override
-  ParseForestSuccess? forestSuccess() => null;
-}
-
-/// Returned when parsing succeeds with a full parse forest.
-final class ParseForestSuccess implements ParseOutcome {
-  const ParseForestSuccess(this.forest);
-  final ParseForest forest;
-
-  @override
-  String toString() => "ParseForestSuccess(forest=$forest)";
-
-  @override
-  ParseError? error() => null;
-
-  @override
-  ParseSuccess? success() => null;
-
-  @override
-  ParseAmbiguousSuccess? ambiguousSuccess() => null;
-
-  @override
-  ParseForestSuccess forestSuccess() => this;
 }
 
 /// Holds the results of a basic parse() operation.

@@ -36,16 +36,6 @@ Set<String> _marksTrees(SMParser parser, String input) {
   };
 }
 
-Set<String> _forestTrees(SMParser parser, String input) {
-  var result = parser.parseWithForest(input);
-  expect(result, isA<ParseForestSuccess>());
-  var forest = (result as ParseForestSuccess).forest;
-  return {
-    for (final tree in forest.extract())
-      _canonicalNode(parser.structuredFromParseTree(tree, input)),
-  };
-}
-
 void main() {
   group("Marks System Regression", () {
     var compareCases = <_MarksCase>[
@@ -133,14 +123,10 @@ void main() {
         var parser = testCase.grammar.toSMParser(startRuleName: testCase.startRuleName);
 
         var marksTrees = _marksTrees(parser, testCase.input);
-        var forestTrees = _forestTrees(parser, testCase.input);
 
         if (testCase.expectedPaths case var expected?) {
           expect(marksTrees.length, equals(expected));
-          expect(forestTrees.length, equals(expected));
         }
-
-        expect(marksTrees, equals(forestTrees));
       });
     }
 

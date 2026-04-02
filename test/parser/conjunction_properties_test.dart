@@ -159,7 +159,7 @@ void main() {
       expect(res, isA<ParseAmbiguousSuccess>());
       var success = res as ParseAmbiguousSuccess;
 
-      // Evaluate the structure from the marks
+      // Evaluate the structure from the marks of the first derivation
       var root = success.forest.toList().evaluateStructure();
 
       // We expect BOTH l1 and l2 to be present in the children

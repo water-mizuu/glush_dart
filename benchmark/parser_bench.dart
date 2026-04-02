@@ -37,8 +37,6 @@ class CatalanBenchmark extends BenchmarkBase {
         parser.parse(input);
       case "parseAmbiguous":
         parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      case "parseWithForest":
-        parser.parseWithForest(input);
       default:
         throw ArgumentError("Unknown mode: $mode");
     }
@@ -84,8 +82,6 @@ class RepetitionBenchmark extends BenchmarkBase {
         parser.parse(input);
       case "parseAmbiguous":
         parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      case "parseWithForest":
-        parser.parseWithForest(input);
     }
   }
 }
@@ -100,7 +96,6 @@ void main() {
   CatalanBenchmark("Catalan[$inputSize].recognize", "recognize", inputSize).report();
   CatalanBenchmark("Catalan[$inputSize].parse", "parse", inputSize).report();
   CatalanBenchmark("Catalan[$inputSize].parseAmbiguous", "parseAmbiguous", inputSize).report();
-  CatalanBenchmark("Catalan[$inputSize].parseWithForest", "parseWithForest", inputSize).report();
 
   print("\n------------------------------------------------\n");
 
@@ -108,12 +103,11 @@ void main() {
   RepetitionBenchmark("Repetition[$repSize].recognize", "recognize", repSize).report();
   RepetitionBenchmark("Repetition[$repSize].parse", "parse", repSize).report();
   RepetitionBenchmark("Repetition[$repSize].parseAmbiguous", "parseAmbiguous", repSize).report();
-  RepetitionBenchmark("Repetition[$repSize].parseWithForest", "parseWithForest", repSize).report();
 
   // Enable profiler for one more run to see stats
   print("\n--- Running with Profiler Enabled ---");
   GlushProfiler.enabled = true;
-  var bench = CatalanBenchmark("Catalan[$inputSize].profile", "parseWithForest", inputSize);
+  var bench = CatalanBenchmark("Catalan[$inputSize].profile", "parseAmbiguous", inputSize);
   bench.setup();
   bench.run();
   bench.teardown();

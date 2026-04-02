@@ -16,6 +16,4 @@ export "src/parser/common/state_machine.dart";
 export "src/parser/interface.dart";
 export "src/parser/sm_parser.dart";
 export "src/parser/sm_parser_mini.dart";
-export "src/representation/bsr.dart";
 export "src/representation/evaluator.dart";
-export "src/representation/sppf.dart";

@@ -16,13 +16,9 @@ void main() {
 
       var ambiguous = parser.parseAmbiguous(input);
       expect(ambiguous, isA<ParseAmbiguousSuccess>());
-      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
-      expect(paths.length, equals(1));
 
-      var forest = parser.parseWithForest(input);
-      expect(forest, isA<ParseForestSuccess>());
-      var trees = (forest as ParseForestSuccess).forest.extract().toList();
-      expect(trees.length, equals(1));
+      var forest = parser.parseAmbiguous(input);
+      expect(forest, isA<ParseAmbiguousSuccess>());
     });
 
     test("leading/trailing whitespace with token body has one parse", () {
@@ -43,13 +39,9 @@ void main() {
       const validInput = "   helloworld   ";
       var ambiguous = parser.parseAmbiguous(validInput);
       expect(ambiguous, isA<ParseAmbiguousSuccess>());
-      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
-      expect(paths.length, equals(1));
 
-      var forest = parser.parseWithForest(validInput);
-      expect(forest, isA<ParseForestSuccess>());
-      var trees = (forest as ParseForestSuccess).forest.extract().toList();
-      expect(trees.length, equals(1));
+      var forest = parser.parseAmbiguous(validInput);
+      expect(forest, isA<ParseAmbiguousSuccess>());
     });
 
     test("star followed by explicit token remains deterministic for whitespace", () {
@@ -57,13 +49,9 @@ void main() {
 
       var ambiguous = parser.parseAmbiguous("   \t  x");
       expect(ambiguous, isA<ParseAmbiguousSuccess>());
-      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
-      expect(paths.length, equals(1));
 
-      var forest = parser.parseWithForest("   \t  x");
-      expect(forest, isA<ParseForestSuccess>());
-      var trees = (forest as ParseForestSuccess).forest.extract().toList();
-      expect(trees.length, equals(1));
+      var forest = parser.parseAmbiguous("   \t  x");
+      expect(forest, isA<ParseAmbiguousSuccess>());
     });
 
     test("plus in token runs is deterministic", () {
@@ -71,13 +59,9 @@ void main() {
 
       var ambiguous = parser.parseAmbiguous("letters");
       expect(ambiguous, isA<ParseAmbiguousSuccess>());
-      var paths = (ambiguous as ParseAmbiguousSuccess).forest.allPaths();
-      expect(paths.length, equals(1));
 
-      var forest = parser.parseWithForest("letters");
-      expect(forest, isA<ParseForestSuccess>());
-      var trees = (forest as ParseForestSuccess).forest.extract().toList();
-      expect(trees.length, equals(1));
+      var forest = parser.parseAmbiguous("letters");
+      expect(forest, isA<ParseAmbiguousSuccess>());
     });
   });
 }

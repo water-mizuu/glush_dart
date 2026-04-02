@@ -260,7 +260,7 @@ void main() {
         var parser = SMParser(grammar);
 
         // '1+1' has 1 unambiguous parse
-        var one = parser.enumerateAllParses("1+1").toList();
+        var one = parser.parseAmbiguous("1+1").ambiguousSuccess()?.forest.allPaths().toList() ?? [];
         expect(one.length, greaterThanOrEqualTo(1));
 
         // With structure-based precedence, should reduce ambiguity
@@ -275,7 +275,7 @@ void main() {
         });
 
         var parser2 = SMParser(grammar2);
-        var unambig = parser2.enumerateAllParses("1+1+1").toList();
+        var unambig = parser2.parseAmbiguous("1+1+1").ambiguousSuccess()?.forest.allPaths().toList() ?? [];
         // Well-structured grammar should have exactly 1 parse
         expect(unambig.length, equals(1));
       });
@@ -292,13 +292,8 @@ void main() {
         });
 
         var parser = SMParser(grammar);
-        var result = parser.parseWithForest("1+1+1");
-        expect(result, isA<ParseForestSuccess>());
-
-        if (result is ParseForestSuccess) {
-          var trees = result.forest.extract().toList();
-          expect(trees, isNotEmpty);
-        }
+        var result = parser.parseAmbiguous("1+1+1");
+        expect(result, isA<ParseAmbiguousSuccess>());
       });
     });
 

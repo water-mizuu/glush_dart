@@ -344,8 +344,8 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var result = parser.parseWithForest("a");
-      expect(result, isA<ParseForestSuccess>());
+      var result = parser.parseAmbiguous("a");
+      expect(result, isA<ParseAmbiguousSuccess>());
     });
 
     test("Predicate with enumeration", () {
@@ -359,7 +359,7 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var derivations = parser.enumerateAllParses("a").toList();
+      var derivations = parser.parseAmbiguous("a").ambiguousSuccess()?.forest.allPaths().toList();
       expect(derivations, isNotEmpty);
     });
   });

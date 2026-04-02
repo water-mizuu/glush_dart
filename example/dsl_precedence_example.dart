@@ -99,24 +99,11 @@ expr =
       print('✓ "$expr" ($description)');
 
       try {
-        var result = parser.parseWithForest(expr);
+        var result = parser.parseAmbiguous(expr, captureTokensAsMarks: true);
 
-        if (result is ParseForestSuccess) {
-          var trees = result.forest.extract().toList();
-          print("  Status: ✓ Success (Forest)");
-          print("  Parse trees extracted: ${trees.length}");
-
-          for (int i = 0; i < trees.length; i++) {
-            var tree = trees[i];
-            print("  [$i] Tree structure:");
-            print(tree.toTreeString(2));
-            var precedenceStr = tree.toPrecedenceString(expr);
-            print("      Precedence: $precedenceStr");
-          }
-
-          if (trees.length > 1) {
-            print("  WARNING: Multiple parse trees found (ambiguity!)");
-          }
+        if (result is ParseSuccess) {
+          print("  Status: ✓ Success");
+          print("  Marks: ${result.result.rawMarks.length}");
         } else if (result is ParseError) {
           print("  Status: ✗ Parse error at position ${result.position}");
         }
@@ -129,11 +116,10 @@ expr =
     print("━" * 60);
     print("");
     print("Key Observations:");
-    print("  • Using parseWithForest() for forest-based parsing (not enumeration)");
-    print("  • Precedence levels (7 for *, 6 for +) prevent ambiguity in forest");
+    print("  • Using parseAmbiguous() for ambiguity detection");
+    print("  • Precedence levels (7 for *, 6 for +) prevent ambiguity");
     print("  • Constraints (expr^7, expr^11) enforce operator associativity");
     print("  • Parenthesized expressions (level 11) override precedence rules");
-    print("  • Forest building with minPrecedenceLevel filtering now implemented!");
   } on Exception catch (e) {
     print("✗ Error: $e");
     if (e is GrammarFileParseError) {

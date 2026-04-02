@@ -1840,8 +1840,7 @@ class Alt extends Pattern {
   Pattern invert() {
     try {
       return left.invert() & right.invert();
-    } on GrammarError catch (e) {
-      print(e);
+    } on GrammarError {
       return not();
     }
   }

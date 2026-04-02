@@ -225,6 +225,9 @@ class NodeIterator {
 sealed class ParseNode {
   /// The full text content of this node.
   String get span;
+
+  /// Simplified representation of this node.
+  Object simple();
 }
 
 /// A node representing a raw token (leaf).
@@ -235,6 +238,9 @@ class TokenResult extends ParseNode {
 
   @override
   String toString() => 'Token("$span")';
+
+  @override
+  Object simple() => span;
 }
 
 /// A node in the structured parse result tree
@@ -269,6 +275,17 @@ class ParseResult extends ParseNode {
 
   /// Dictionary-style access to get all results with a given label.
   List<ParseNode> operator [](String name) => get(name);
+
+  @override
+  Object simple() {
+    if (children.isEmpty) {
+      return span;
+    }
+
+    return [
+      for (var (l, n) in children) {l: n.simple()},
+    ];
+  }
 }
 
 /// Evaluator that produces a structured tree of results based on labels.

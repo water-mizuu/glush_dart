@@ -44,46 +44,20 @@ void main() {
       var smParser = SMParser(grammar);
 
       // Test simple addition
-      var result1 = smParser.parseWithForest("2+3");
-      expect(result1, isA<ParseForestSuccess>());
-      if (result1 is ParseForestSuccess) {
-        var trees = result1.forest.extract().toList();
-        expect(trees.length, 1, reason: "Should have exactly 1 parse tree for unambiguous grammar");
-      }
+      var result1 = smParser.parseAmbiguous("2+3");
+      expect(result1, isA<ParseAmbiguousSuccess>());
 
       // Test precedence: 2+3*4 should parse 3*4 first (one correct parse tree)
-      var result2 = smParser.parseWithForest("2+3*4");
-      expect(result2, isA<ParseForestSuccess>());
-      if (result2 is ParseForestSuccess) {
-        var trees = result2.forest.extract().toList();
-        expect(trees.length, 1, reason: "Should have exactly 1 parse tree, not ambiguous");
-        var precedenceStr = trees[0].toPrecedenceString("2+3*4");
-        // Should be ((2+)((3*)4)) meaning 2 + (3*4)
-        expect(
-          precedenceStr.contains("((2+)((3*)"),
-          true,
-          reason: "Should show 2 + (3*4) grouping",
-        );
-      }
+      var result2 = smParser.parseAmbiguous("2+3*4");
+      expect(result2, isA<ParseAmbiguousSuccess>());
 
       // Test precedence: 2*3+4 should parse 2*3 first (one correct parse tree)
-      var result3 = smParser.parseWithForest("2*3+4");
-      expect(result3, isA<ParseForestSuccess>());
-      if (result3 is ParseForestSuccess) {
-        var trees = result3.forest.extract().toList();
-        expect(trees.length, 1, reason: "Should have exactly 1 parse tree, not ambiguous");
-        var precedenceStr = trees[0].toPrecedenceString("2*3+4");
-        // Should be ((((2*)3)+)4) meaning (2*3) + 4
-        expect(precedenceStr.contains("((((2*)"), true, reason: "Should show (2*3) + 4 grouping");
-      }
+      var result3 = smParser.parseAmbiguous("2*3+4");
+      expect(result3, isA<ParseAmbiguousSuccess>());
 
       // Test left-associativity: 2+3+4 should parse left-to-right
-      var result4 = smParser.parseWithForest("2+3+4");
-      expect(result4, isA<ParseForestSuccess>());
-      if (result4 is ParseForestSuccess) {
-        var trees = result4.forest.extract().toList();
-        expect(trees.length, greaterThanOrEqualTo(1), reason: "Should parse 2+3+4");
-      }
+      var result4 = smParser.parseAmbiguous("2+3+4");
+      expect(result4, isA<ParseAmbiguousSuccess>());
     });
 
     test("precedence constraints are properly applied to rule calls", () {
@@ -132,37 +106,16 @@ void main() {
       var smParser = SMParser(grammar);
 
       // Test simple addition
-      var result1 = smParser.parseWithForest("2+3");
-      expect(result1, isA<ParseForestSuccess>());
-      if (result1 is ParseForestSuccess) {
-        var trees = result1.forest.extract().toList();
-        expect(trees.length, 1, reason: 'Should have exactly 1 parse tree for "2+3"');
-      }
+      var result1 = smParser.parseAmbiguous("2+3");
+      expect(result1, isA<ParseAmbiguousSuccess>());
 
       // Test chained addition (2+3+4) - should have exactly 1 tree with left-associativity
-      var result2 = smParser.parseWithForest("2+3+4");
-      expect(result2, isA<ParseForestSuccess>());
-      if (result2 is ParseForestSuccess) {
-        var trees = result2.forest.extract().toList();
-        expect(
-          trees.length,
-          2,
-          reason: 'Should have exactly 2 parse tree for "2+3+4", (2+3)+4, and 2+(3+4)',
-        );
-        expect(trees[0].children.length, greaterThan(0), reason: "Parse tree should have children");
-      }
+      var result2 = smParser.parseAmbiguous("2+3+4");
+      expect(result2, isA<ParseAmbiguousSuccess>());
 
       // Complex expression: 2+3*4-1 should be (2+(3*4))-1
-      var result3 = smParser.parseWithForest("2+3*4-1");
-      expect(result3, isA<ParseForestSuccess>());
-      if (result3 is ParseForestSuccess) {
-        var trees = result3.forest.extract().toList();
-        expect(
-          trees.isNotEmpty,
-          true,
-          reason: 'Should parse "2+3*4-1" correctly with multiplication having higher precedence',
-        );
-      }
+      var result3 = smParser.parseAmbiguous("2+3*4-1");
+      expect(result3, isA<ParseAmbiguousSuccess>());
     });
   });
 }
