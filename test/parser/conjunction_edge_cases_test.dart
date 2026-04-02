@@ -78,16 +78,37 @@ void main() {
       var parser = SMParser(grammar);
 
       expect(parser.recognize(""), isTrue);
+      // For empty string, (l1:eps | a) can match via l1:eps, and (l2:eps | a) can match via l2:eps.
+      // Both produce matches at span (0,0), so conjunction succeeds.
       expect(parser.countAllParses(""), equals(1));
 
       var res = parser.parseAmbiguous("", captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
-
-      expect(root.get("l1"), isNotEmpty);
-      expect(root.get("l2"), isNotEmpty);
+      var forest = success.forest;
+      var paths = forest.allPaths();
+      print("Forest allPaths: ${paths.length}");
+      for (var (i, path) in paths.indexed) {
+        print("  Path $i has ${path.length} marks:");
+        for (var mark in path) {
+          if (mark is ConjunctionMark) {
+            print(
+              "    - ConjunctionMark @ ${mark.position}: left=${mark.branches[0].runtimeType}, right=${mark.branches[1].runtimeType}",
+            );
+          } else {
+            print("    - ${mark.runtimeType}");
+          }
+        }
+      }
+      var root = forest.toList().evaluateStructure();
+      print("Final result: $root");
+      expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured even though epsilon");
+      expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured even though epsilon");
       expect(root.span, equals(""));
 
+      // For input "a", we have multiple matching paths:
+      // 1. left via 'a' (not l1), right via 'a' (not l2) → conjunction produces ConjunctionMark + 'a'
+      // 2. left via l1:eps, right via l2:eps → but span is (0,0), 'a' is at (0,1) → mismatch, fails
+      // So only path 1 succeeds.
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -95,7 +116,7 @@ void main() {
       var grammar = Grammar(() {
         var a = Pattern.char("a");
 
-        // &(a & a) a
+        // &(a && a) a
         var pred = And(a & a);
         return Rule("test", () => pred >> a);
       });
@@ -283,6 +304,94 @@ void main() {
       expect(l1Node.get("l2"), isNotEmpty);
 
       expect(root.span, equals("aaa"));
+    });
+
+    test("Optional within Conjunction (Optional(label) & label)", () {
+      var a = Pattern.char("a");
+      var grammar = Grammar(() {
+        var l1 = Label("l1", a);
+        var l2 = Label("l2", a);
+
+        // (l1:a)? & l2:a
+        // For input "a":
+        //   (l1:a)? matches "a" via l1, then l2:a matches "a".
+        //   They must match the same span: (0,1). Both do.
+        //   So conjunction succeeds.
+        //   Result should have l1="a" and l2="a".
+
+        var left = l1.opt();
+        var right = l2;
+        return Rule("test", () => left & right);
+      });
+
+      var parser = SMParser(grammar);
+
+      // "a" should match
+      expect(parser.recognize("a"), isTrue);
+
+      var res = parser.parseAmbiguous("a", captureTokensAsMarks: true);
+      var success = res as ParseAmbiguousSuccess;
+      var root = success.forest.toList().evaluateStructure();
+
+      expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured");
+      expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured");
+      expect(root.span, equals("a"));
+
+      // Empty string: (l1:a)? matches "" (epsilon), l2:a matches...nothing.
+      // So conjunction fails because empty span ≠ next position after parse.
+      expect(parser.recognize(""), isFalse);
+    });
+
+    test("Asymmetric Conjunction (Optional & Non-optional)", () {
+      var a = Pattern.char("a");
+      var b = Pattern.char("b");
+      var grammar = Grammar(() {
+        var l1 = Label("l1", a);
+        var l2 = Label("l2", b);
+
+        // (l1:a)? & l2:b
+        // For "b": (l1:a)? at 0 matches "" (epsilon), l2:b at 0 matches "b" (span 0->1).
+        // Asymmetric spans: epsilon (0,0) vs (0,1) → conjunction fails.
+
+        var left = l1.opt();
+        var right = l2;
+        return Rule("test", () => left & right);
+      });
+
+      var parser = SMParser(grammar);
+
+      // "b" alone should fail (asymmetric spans)
+      expect(parser.recognize("b"), isFalse);
+
+      var grammar2 = Grammar(() {
+        var l1 = Label("l1", a);
+        var l2 = Label("l2", b);
+
+        // (l1:a)? & (l2:b)?
+        // For input "a":
+        //   - (l1:a)? matches "a" via l1
+        //   - (l2:b)? fails to match "a", but as optional it matches empty
+        //   - Asymmetric spans (0->1) vs (0->0), so conjunction fails.
+        // For input "":
+        //   - Both match empty (0->0), so conjunction succeeds.
+
+        var left = l1.opt();
+        var right = l2.opt();
+        return Rule("test", () => left & right);
+      });
+
+      var parser2 = SMParser(grammar2);
+
+      // Only empty string should match (both optionals match empty span)
+      expect(parser2.recognize(""), isTrue);
+      expect(
+        parser2.recognize("a"),
+        isFalse,
+      ); // (l1:a)? matches "a", (l2:b)? matches empty → asymmetric
+      expect(
+        parser2.recognize("b"),
+        isFalse,
+      ); // (l1:a)? matches empty, (l2:b)? matches "b" → asymmetric
     });
   });
 }

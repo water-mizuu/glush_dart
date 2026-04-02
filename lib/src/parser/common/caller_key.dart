@@ -115,6 +115,7 @@ final class Caller extends CallerKey {
   final Set<WaiterInfo> waiters = {};
   final Map<ReturnKey, Context> _returns = {};
   final Set<WaiterKey> _waiterKeys = {};
+  final Set<ReturnKey> _cyclicEpsilonTriggered = {};
 
   @override
   bool operator ==(Object other) =>
@@ -154,14 +155,15 @@ final class Caller extends CallerKey {
         return false;
       }
 
-      // Detect cyclic epsilon returns that would create infinite derivations.
-      // If a rule matches epsilon (pivot == callStart, no input consumed) and we
-      // already have a return at this point, we've discovered the fundamental cycle.
-      // Adding more returns would create infinite alternatives. Stop here.
+      // For cyclic epsilon returns (pivot == callStart), allow only the first
+      // return to trigger waiters, blocking subsequent ones to prevent infinite
+      // loops in self-referential epsilon productions like: S = $mark S | '';
       if (context.pivot == context.callStart) {
-        // At an epsilon position, cap at the first return found.
-        // Don't merge further - prevents infinite branching patterns.
-        return false;
+        if (!_cyclicEpsilonTriggered.add(key)) {
+          // Already triggered once, block subsequent attempts
+          return false;
+        }
+        // First occurrence: allow waiter triggering
       }
 
       _returns[key] = existing.copyWith(

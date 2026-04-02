@@ -183,13 +183,13 @@ class Context {
   int get hashCode => Object.hash(
     caller,
     marks,
-    // arguments,
-    // captures,
-    // predicateStack,
-    // callStart,
-    // pivot,
-    // minPrecedenceLevel,
-    // precedenceLevel,
+    arguments,
+    captures,
+    predicateStack,
+    callStart,
+    pivot,
+    minPrecedenceLevel,
+    precedenceLevel,
   );
 }
 

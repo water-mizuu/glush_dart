@@ -504,7 +504,7 @@ class StateMachine {
       rules.add(rule.symbolId!);
 
       var firstState = _getOrCreateState(_PatternStateKey(rule));
-      ruleFirst[rule.symbolId!] = [firstState];
+      ruleFirst[rule.symbolId!] = firstState;
       _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
 
       // Pre-calculate precedence mapping for this rule's body
@@ -527,8 +527,16 @@ class StateMachine {
         var action = ReturnAction(rule, lastState, precedenceMap[lastState]);
         state.actions.add(action);
       }
-      if (rule.body().empty() && rule.body().firstSet().isEmpty) {
-        firstState.actions.add(ReturnAction(rule, Eps()));
+      if (rule.body().empty()) {
+        // Only add direct epsilon return if there are NO labeled epsilon paths.
+        // If a labeled epsilon path exists (e.g., a:eps in (a:eps | x)), we rely on
+        // the LabelStart -> LabelEnd path to flow through and eventually return,
+        // ensuring labels are captured.
+        var firstSet = rule.body().firstSet();
+        var hasLabeledEpsilon = firstSet.any((p) => p is LabelStart);
+        if (!hasLabeledEpsilon) {
+          firstState.actions.add(ReturnAction(rule, Eps()));
+        }
       }
     }
   }
@@ -538,7 +546,7 @@ class StateMachine {
   StateMachine.empty(this.grammar);
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
-  final Map<PatternSymbol, List<State>> ruleFirst = {};
+  final Map<PatternSymbol, State> ruleFirst = {};
   List<State>? _cachedStates;
   late final List<State> _initialStates;
   final Map<(String, State), State> _parameterStringChains = {};
@@ -874,7 +882,7 @@ class StateMachine {
             );
           case PredicateAction(:var isAnd, :var symbol, :var nextState):
             var cluster = predicateClustersByRule[grammar.symbolRegistry[symbol]];
-            for (var entry in ruleFirst[symbol] ?? const <State>[]) {
+            if (ruleFirst[symbol] case var entry?) {
               _writeEdge(
                 buffer,
                 from: state,
@@ -902,7 +910,7 @@ class StateMachine {
               }
             }
           case TailCallAction(:var rule):
-            for (var entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
+            if (ruleFirst[rule.symbolId!] case var entry?) {
               var label = "tail ${rule.name.symbol}";
               if (action.pattern case RuleCall()) {
                 label = "tail ${_describeRuleCall(action.pattern as RuleCall)}";
@@ -910,7 +918,7 @@ class StateMachine {
               _writeEdge(buffer, from: state, to: entry, label: label, style: "dotted");
             }
           case CallAction(:var rule, :var minPrecedenceLevel):
-            for (var entry in ruleFirst[rule.symbolId!] ?? const <State>[]) {
+            if (ruleFirst[rule.symbolId!] case var entry?) {
               var label = minPrecedenceLevel == null
                   ? "call ${rule.name.symbol}"
                   : "call ${rule.name.symbol}^$minPrecedenceLevel";

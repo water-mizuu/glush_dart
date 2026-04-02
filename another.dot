@@ -1,7 +1,7 @@
-digraph SPPF {
-  n0 [label="<S> (0, 2)", shape=box];
-  pn0_j2_933294442 [label="j=2", shape=circle, width=0.3, fixedsize=true];
-  n0 -> pn0_j2_933294442;
-  n1 [label="State(5, a) (0, 2)", shape=box];
-  pn0_j2_933294442 -> n1;
+digraph GlushList {
+  node [shape=box, style=rounded];
+  rankdir=TB;
+  node_0 [label="Push(ConjunctionMark([Instance of 'Push<Mark>', Instance of 'Push<Mark>'], 0))", style="filled", fillcolor="lightblue"];
+  node_0 -> node_1 [label="parent"];
+  node_1 [label="Empty", style="filled", fillcolor="lightgray"];
 }

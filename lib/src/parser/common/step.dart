@@ -194,37 +194,35 @@ class Step {
   /// Predicates are lookahead-only, so their entry states are spawned in a
   /// separate sub-parse that can resolve later and wake parked continuations.
   void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame) {
-    var states = parseState.parser.stateMachine.ruleFirst[symbol];
+    var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
     // Missing entry states indicates invalid predicate target symbol.
-    if (states == null) {
+    if (entryState == null) {
       // Predicates must map to rule entries in the state machine.
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
     }
-    var newPredicateKey = PredicateCallerKey(symbol, position);
-    var nextStack = frame.context.predicateStack.add(newPredicateKey);
+    var predicateKey = PredicateCallerKey(symbol, position);
+    var nextStack = frame.context.predicateStack.add(predicateKey);
 
     parseState.tracer.onMessage("Spawning sub-parse for predicate: $symbol");
 
-    for (var firstState in states) {
-      _enqueue(
-        firstState,
-        Context(
-          newPredicateKey,
-          const GlushList<Mark>.empty(),
-          arguments: frame.context.arguments,
-          captures: frame.context.captures,
-          predicateStack: nextStack,
-          callStart: position,
-          pivot: position,
-        ),
-      );
-    }
+    _enqueue(
+      entryState,
+      Context(
+        predicateKey,
+        const GlushList<Mark>.empty(),
+        arguments: frame.context.arguments,
+        captures: frame.context.captures,
+        predicateStack: nextStack,
+        callStart: position,
+        pivot: position,
+      ),
+    );
   }
 
   /// Seed a conjunction sub-parse (both side A and side B).
   void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
-    var leftStates = parseState.parser.stateMachine.ruleFirst[left] ?? [];
-    var rightStates = parseState.parser.stateMachine.ruleFirst[right] ?? [];
+    var leftState = parseState.parser.stateMachine.ruleFirst[left];
+    var rightState = parseState.parser.stateMachine.ruleFirst[right];
 
     var leftCaller = ConjunctionCallerKey(
       left: left,
@@ -243,7 +241,7 @@ class Step {
     parseState.conjunctionTrackers[subParseKey]!; // Touch to ensure it exists if called from Action
 
     // Side A
-    for (var s in leftStates) {
+    if (leftState case var s?) {
       _enqueue(
         s,
         Context(
@@ -259,7 +257,7 @@ class Step {
     }
 
     // Side B
-    for (var s in rightStates) {
+    if (rightState case var s?) {
       _enqueue(
         s,
         Context(
@@ -277,28 +275,26 @@ class Step {
 
   /// Seed a negation sub-parse at the current input position.
   void _spawnNegationSubparse(PatternSymbol symbol, Frame frame) {
-    var states = parseState.parser.stateMachine.ruleFirst[symbol];
+    var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
     // Missing entry states indicates invalid negation target symbol.
-    if (states == null) {
+    if (entryState == null) {
       // Negations must map to rule entries in the state machine.
       throw StateError("Negation symbol must resolve to a rule: $symbol");
     }
     var newNegationKey = NegationCallerKey(symbol, position);
 
-    for (var firstState in states) {
-      _enqueue(
-        firstState,
-        Context(
-          newNegationKey,
-          const GlushList<Mark>.empty(),
-          arguments: frame.context.arguments,
-          captures: frame.context.captures,
-          callStart: position,
-          pivot: position,
-          predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
-        ),
-      );
-    }
+    _enqueue(
+      entryState,
+      Context(
+        newNegationKey,
+        const GlushList<Mark>.empty(),
+        arguments: frame.context.arguments,
+        captures: frame.context.captures,
+        callStart: position,
+        pivot: position,
+        predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
+      ),
+    );
   }
 
   /// Retrieves the correct token for a frame based on its pivot position.
@@ -517,8 +513,9 @@ class Step {
     );
     if (isNewCaller) {
       parseState.tracer.onRuleCall(targetRule, position, caller);
-      var states = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!] ?? [];
-      for (var firstState in states) {
+      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
+
+      if (firstState != null) {
         _enqueue(
           firstState,
           Context(
@@ -1330,8 +1327,8 @@ class Step {
           // Tail-call optimized recursion re-enters the rule without allocating
           // a fresh caller node. The enclosing return is unchanged, so the
           // current caller context can be reused as a simple loop back-edge.
-          var states = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!] ?? [];
-          for (var firstState in states) {
+          var firstState = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!];
+          if (firstState != null) {
             _enqueue(
               firstState,
               frame.context.copyWith(
@@ -1373,10 +1370,6 @@ class Step {
             tracker.longestMatch = position;
             tracker.matched = true;
 
-            // Only resume waiters if this is the first match or a new strictly longer match.
-            if (!isNewLongest) {
-              continue;
-            }
             for (var (source, parentContext, nextState) in tracker.waiters) {
               var predicateKey = parentContext.predicateStack.lastOrNull;
               if (predicateKey != null) {
@@ -1452,9 +1445,7 @@ class Step {
           }
         case AcceptAction():
           var accepted = frame.context;
-          if (acceptedContexts.add(accepted)) {
-            acceptedContexts.add(accepted);
-          }
+          acceptedContexts.add(accepted);
       }
     }
   }

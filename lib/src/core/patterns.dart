@@ -1761,7 +1761,6 @@ class Eps extends Pattern {
 
   @override
   Set<Pattern> lastSet() => _emptySet;
-
   @override
   Eps copy() => Eps();
 

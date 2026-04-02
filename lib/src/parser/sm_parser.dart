@@ -179,9 +179,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
-        return ParseAmbiguousSuccess(
-          results.fold(const GlushList<Mark>.empty(), GlushList<Mark>.branched),
-        );
+        var forest = results.fold(const GlushList<Mark>.empty(), GlushList.branched);
+        return ParseAmbiguousSuccess(forest);
       } else {
         return ParseError(parseState.position);
       }

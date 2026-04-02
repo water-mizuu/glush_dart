@@ -25,6 +25,11 @@ sealed class GlushList<T> {
       return left;
     }
 
+    // Deduplicate structurally equal alternatives
+    if (left == right) {
+      return left;
+    }
+
     return BranchedList<T>._(left, right);
   }
 
@@ -159,10 +164,7 @@ class BranchedList<T> extends GlushList<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is BranchedList<T> &&
-          _hashCode == other._hashCode &&
-          left == other.left &&
-          right == other.right;
+      other is BranchedList<T> && left == other.left && right == other.right;
 
   @override
   int get hashCode => _hashCode;
@@ -184,11 +186,7 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Push<T> &&
-          _hashCode == other._hashCode &&
-          parent == other.parent &&
-          data == other.data;
+      identical(this, other) || other is Push<T> && parent == other.parent && data == other.data;
 
   @override
   int get hashCode => _hashCode;
@@ -205,11 +203,7 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Concat<T> &&
-          _hashCode == other._hashCode &&
-          left == other.left &&
-          right == other.right;
+      identical(this, other) || other is Concat<T> && left == other.left && right == other.right;
 
   @override
   int get hashCode => _hashCode;
@@ -273,6 +267,85 @@ extension GlushListVisualizer<T> on GlushList<T> {
     var buffer = StringBuffer();
     _visualize(this, buffer, "", true, {});
     return buffer.toString();
+  }
+
+  /// Generates a Graphviz dot format representation of the GlushList structure.
+  ///
+  /// Returns a dot graph string that can be rendered with graphviz tools.
+  /// Useful for debugging and visualizing the internal tree structure.
+  String toDot() {
+    var buffer = StringBuffer();
+    buffer.writeln("digraph GlushList {");
+    buffer.writeln("  node [shape=box, style=rounded];");
+    buffer.writeln("  rankdir=TB;");
+
+    var nodeIds = <GlushList<T>, String>{};
+    var visited = <GlushList<T>>{};
+    var nodeCounter = 0;
+
+    void generateNodeId(GlushList<T> node) {
+      if (!nodeIds.containsKey(node)) {
+        nodeIds[node] = "node_${nodeCounter++}";
+      }
+    }
+
+    void buildGraph(GlushList<T> node, StringBuffer buf) {
+      if (visited.contains(node)) {
+        return;
+      }
+      visited.add(node);
+
+      generateNodeId(node);
+      var nodeId = nodeIds[node]!;
+
+      if (node is EmptyList<T>) {
+        buf.writeln('  $nodeId [label="Empty", style="filled", fillcolor="lightgray"];');
+      } else if (node is Push<T>) {
+        buf.writeln(
+          '  $nodeId [label="Push(${_escapeDot(node.data.toString())})", style="filled", fillcolor="lightblue"];',
+        );
+        generateNodeId(node.parent);
+        var parentId = nodeIds[node.parent]!;
+        buf.writeln('  $nodeId -> $parentId [label="parent"];');
+        buildGraph(node.parent, buf);
+      } else if (node is Concat<T>) {
+        buf.writeln('  $nodeId [label="Concat", style="filled", fillcolor="lightyellow"];');
+        generateNodeId(node.left);
+        generateNodeId(node.right);
+        var leftId = nodeIds[node.left]!;
+        var rightId = nodeIds[node.right]!;
+        buf.writeln('  $nodeId -> $leftId [label="left"];');
+        buf.writeln('  $nodeId -> $rightId [label="right"];');
+        buildGraph(node.left, buf);
+        buildGraph(node.right, buf);
+      } else if (node is BranchedList<T>) {
+        buf.writeln('  $nodeId [label="Branched", style="filled", fillcolor="lightgreen"];');
+        generateNodeId(node.left);
+        var leftId = nodeIds[node.left]!;
+        buf.writeln('  $nodeId -> $leftId [label="left"];');
+        buildGraph(node.left, buf);
+
+        if (node.right != null) {
+          generateNodeId(node.right!);
+          var rightId = nodeIds[node.right!]!;
+          buf.writeln('  $nodeId -> $rightId [label="right"];');
+          buildGraph(node.right!, buf);
+        }
+      }
+    }
+
+    buildGraph(this, buffer);
+    buffer.writeln("}");
+    return buffer.toString();
+  }
+
+  /// Escapes special characters for dot format
+  String _escapeDot(String label) {
+    return label
+        .replaceAll(r"\", r"\\")
+        .replaceAll('"', r'\"')
+        .replaceAll("\n", r"\n")
+        .replaceAll("\r", r"\r");
   }
 
   void _visualize(
