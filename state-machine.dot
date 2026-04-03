@@ -1,0 +1,31 @@
+digraph StateMachine {
+  rankdir=LR;
+  node [fontname="Courier"];
+  "__start__" [shape=point, label=""];
+  "__accept__" [shape=doublecircle, label="accept"];
+  "__return_S__" [shape=box, label="return S", style=filled, fillcolor=lightgray];
+  "S0" [shape=circle, label="init"];
+  "S1" [shape=doublecircle, label="<S_0>"];
+  "S2" [shape=circle, label="<S>"];
+  "S3" [shape=circle, label="label_start(S.2)"];
+  "S4" [shape=circle, label="label_start(S.1)"];
+  "S5" [shape=circle, label="and(<S_1>)"];
+  "S6" [shape=circle, label="<S_2>"];
+  "S7" [shape=circle, label="115..115"];
+  "S8" [shape=circle, label="label_end(S.2)"];
+  "S9" [shape=circle, label="115..115"];
+  "S10" [shape=circle, label="label_end(S.1)"];
+  "__start__" -> "S0" [label="start"];
+  "S0" -> "S1" [label="call S", style=bold];
+  "S1" -> "__accept__" [label="accept"];
+  "S2" -> "S3" [label="label start S.2"];
+  "S2" -> "S4" [label="label start S.1"];
+  "S3" -> "S5" [label="AND rul:S0:", style=dashed, color=seagreen4];
+  "S4" -> "S9" [label="token 115..115"];
+  "S5" -> "S6" [label="call S", style=bold];
+  "S6" -> "S7" [label="token 115..115"];
+  "S7" -> "S8" [label="label end S.2"];
+  "S8" -> "__return_S__" [label="return S", style=dashed, color=gray45];
+  "S9" -> "S10" [label="label end S.1"];
+  "S10" -> "__return_S__" [label="return S", style=dashed, color=gray45];
+}

@@ -18,13 +18,13 @@ import "package:glush/src/parser/common/tracer.dart" show FileTracer;
 // final parser = SMParserMini(grammar);
 
 const grammar = r"""
-S = (a:'' | '') && ''
+S = $2 &S S [s] | $1 [s]
 """;
 
 final parser = grammar.toSMParser();
 
 void main() async {
-  const input = "";
+  const input = "sss";
 
   var tracer = FileTracer("another.log");
   var state = parser.createParseState(isSupportingAmbiguity: true, tracer: tracer);
@@ -46,4 +46,8 @@ void main() async {
   File("another.dot")
     ..createSync(recursive: true)
     ..writeAsStringSync(paths.toDot());
+
+  File("state-machine.dot")
+    ..createSync(recursive: true)
+    ..writeAsStringSync(parser.stateMachine.toDot());
 }

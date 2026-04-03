@@ -388,17 +388,16 @@ class StructuredEvaluator {
           case ExpandingMark():
             throw UnsupportedError("Marks has not been expanded.");
 
-          case ConjunctionMark(:var branches):
-            var first = true;
-            for (var branch in branches) {
-              var branchResult = evaluate(branch.allPaths().expand((v) => v).toList());
-              for (var child in branchResult.children) {
-                stack.last.children.add(child);
-              }
-              if (first) {
-                stack.last.addToken(branchResult.span);
-                first = false;
-              }
+          case ConjunctionMark(:var left, :var right):
+            var leftResult = evaluate(left.allPaths().expand((v) => v).toList());
+            for (var child in leftResult.children) {
+              stack.last.children.add(child);
+            }
+            stack.last.addToken(leftResult.span);
+
+            var rightResult = evaluate(right.allPaths().expand((v) => v).toList());
+            for (var child in rightResult.children) {
+              stack.last.children.add(child);
             }
           case StringMark(:var value):
             stack.last.addToken(value);
@@ -466,17 +465,16 @@ class StructuredEvaluator {
         case ExpandingMark():
           throw UnsupportedError("Marks has not been expanded.");
 
-        case ConjunctionMark(:var branches):
-          var first = true;
-          for (var branch in branches) {
-            var branchResult = evaluateStrict(branch.allPaths().expand((v) => v).toList());
-            for (var child in branchResult.children) {
-              stack.last.children.add(child);
-            }
-            if (first) {
-              stack.last.addToken(branchResult.span);
-              first = false;
-            }
+        case ConjunctionMark(:var left, :var right):
+          var leftResult = evaluateStrict(left.allPaths().expand((v) => v).toList());
+          for (var child in leftResult.children) {
+            stack.last.children.add(child);
+          }
+          stack.last.addToken(leftResult.span);
+
+          var rightResult = evaluateStrict(right.allPaths().expand((v) => v).toList());
+          for (var child in rightResult.children) {
+            stack.last.children.add(child);
           }
         case StringMark(:var value):
           stack.last.addToken(value);

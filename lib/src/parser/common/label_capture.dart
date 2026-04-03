@@ -60,12 +60,11 @@ final class LabelCaptureWalker {
             }
           }
         }
-      case ConjunctionMark(:var branches):
+      case ConjunctionMark(:var left, :var right):
         // Ambiguous branches need isolated active stacks, otherwise captures
         // from one derivation would leak into another.
-        for (var branch in branches) {
-          walk(branch, [...active]);
-        }
+        walk(left, [...active]);
+        walk(right, [...active]);
       default:
         break;
     }

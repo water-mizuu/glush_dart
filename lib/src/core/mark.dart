@@ -128,17 +128,22 @@ class ExpandingMark implements Mark {
 /// This allows structural recovery of sub-parse results from each branch
 /// of an intersection without duplicating tokens in the final evaluated span.
 final class ConjunctionMark implements Mark {
-  ConjunctionMark(this.branches, this.position)
-    : _hash = Object.hash(ConjunctionMark, Object.hashAll(branches), position);
+  ConjunctionMark(this.left, this.right, this.position)
+    : _hash = Object.hash(ConjunctionMark, left, right, position);
 
   /// The parallel mark streams from each branch of the conjunction.
-  final List<GlushList<Mark>> branches;
+  final GlushList<Mark> left;
+  final GlushList<Mark> right;
 
   final int position;
   final int _hash;
 
   @override
-  List<Object> toList() => ["con", branches, position];
+  List<Object> toList() => [
+    "con",
+    [left, right],
+    position,
+  ];
 
   @override
   bool operator ==(Object other) =>
@@ -146,25 +151,14 @@ final class ConjunctionMark implements Mark {
       other is ConjunctionMark &&
           runtimeType == other.runtimeType &&
           position == other.position &&
-          _listEquals(branches, other.branches);
+          left == other.left &&
+          right == other.right;
 
   @override
   int get hashCode => _hash;
 
   @override
-  String toString() => "ConjunctionMark($branches, $position)";
-}
-
-bool _listEquals(List<Object?> left, List<Object?> right) {
-  if (left.length != right.length) {
-    return false;
-  }
-  for (var i = 0; i < left.length; i++) {
-    if (left[i] != right[i]) {
-      return false;
-    }
-  }
-  return true;
+  String toString() => "ConjunctionMark(($left, $right), $position)";
 }
 
 String _escapeDisplay(String value) {
@@ -225,23 +219,4 @@ extension MarkListExtension on List<Mark> {
 
     return result;
   }
-}
-
-@immutable
-sealed class MarkTree {
-  const MarkTree();
-}
-
-final class LeafMarkTree extends MarkTree {
-  const LeafMarkTree(this.mark);
-  final Mark mark;
-}
-
-final class BranchMarkTree extends MarkTree {
-  BranchMarkTree(List<MarkTree> children) : children = List<MarkTree>.unmodifiable(children);
-  final List<MarkTree> children;
-}
-
-final class EmptyMarkTree extends MarkTree {
-  const EmptyMarkTree();
 }

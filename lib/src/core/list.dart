@@ -127,9 +127,7 @@ sealed class GlushList<T> {
       case Push(:var parent, :var data):
         int mult = 1;
         if (data is ConjunctionMark) {
-          for (var branch in data.branches) {
-            mult *= _count(branch, memo);
-          }
+          mult = _count(data.left, memo) * _count(data.right, memo);
         }
         res = _count(parent, memo) * mult;
       case Concat(:var left, :var right):
@@ -280,31 +278,12 @@ extension GlushListVisualizer<T> on GlushList<T> {
         if (T == Mark || T.toString().contains("Mark")) {
           for (var leftPath in _collect(node.left, visiting)) {
             for (var rightPath in _collect(node.right, visiting)) {
-              // For nested Parallel, flatten the structure by merging ConjunctionMark branches
-              List<GlushList<Mark>> branches = [];
+              // Convert paths to GlushLists for ConjunctionMark
+              var leftList = GlushList.fromList(leftPath.cast<Mark>());
+              var rightList = GlushList.fromList(rightPath.cast<Mark>());
 
-              // Extract branches from left path (may contain nested ConjunctionMark)
-              if (leftPath.length == 1 && leftPath[0] is ConjunctionMark) {
-                var conjMark = leftPath[0] as ConjunctionMark;
-                branches.addAll(conjMark.branches);
-              } else {
-                // For non-nested case, convert the path sequence into a GlushList
-                branches.add(GlushList.fromList(leftPath.cast<Mark>()));
-              }
-
-              // Extract branches from right path (may contain nested ConjunctionMark)
-              if (rightPath.length == 1 && rightPath[0] is ConjunctionMark) {
-                var conjMark = rightPath[0] as ConjunctionMark;
-                branches.addAll(conjMark.branches);
-              } else {
-                // For non-nested case, convert the path sequence into a GlushList
-                branches.add(GlushList.fromList(rightPath.cast<Mark>()));
-              }
-
-              // Create a ConjunctionMark with all flattened branches
-              // The branches now contain the actual mark sequences from each branch
-              var conjMark = ConjunctionMark(branches, 0) as T;
-              yield [conjMark];
+              // Create a ConjunctionMark with binary structure
+              yield [ConjunctionMark(leftList, rightList, 0) as T];
             }
           }
         } else {

@@ -6,44 +6,69 @@ import "package:glush/src/core/patterns.dart";
 import "package:meta/meta.dart";
 
 /// Key for identifying states in the state machine.
+///
+/// Used to distinguish different types of states in the state machine.
+/// Each state type has its own key class for pattern matching.
 @immutable
 sealed class StateKey {
   const StateKey();
 }
 
+/// Key for the initial/start state of the state machine.
 final class _InitStateKey extends StateKey {
   const _InitStateKey();
 
+  /// Check equality with another object.
   @override
   bool operator ==(Object other) => other is _InitStateKey;
 
+  /// Get hash code for use in collections.
   @override
   int get hashCode => (_InitStateKey).hashCode;
 
+  /// Human-readable string representation.
   @override
   String toString() => ":init";
 }
 
+/// Key for states corresponding to grammar patterns.
+///
+/// Maps a [Pattern] (token, rule reference, etc.) to its state.
 final class _PatternStateKey extends StateKey {
   const _PatternStateKey(this.pattern);
+
+  /// The grammar pattern this state represents.
   final Pattern pattern;
 
+  /// Check equality based on the pattern.
   @override
   bool operator ==(Object other) => other is _PatternStateKey && other.pattern == pattern;
 
+  /// Get hash code based on the pattern.
   @override
   int get hashCode => pattern.hashCode;
 
+  /// Use pattern's string representation.
   @override
   String toString() => pattern.toString();
 }
 
+/// Key for states in parameter string matching chains.
+///
+/// Used to build chains of states that consume parameter string characters one by one.
 final class _ParamStringStateKey extends StateKey {
   const _ParamStringStateKey(this.text, this.index, this.nextState);
+
+  /// The parameter string being matched.
   final String text;
+
+  /// Current position in the string.
   final int index;
+
+  /// The state to transition to after matching this character.
   final State nextState;
 
+  /// Check equality based on text, index, and next state.
   @override
   bool operator ==(Object other) =>
       other is _ParamStringStateKey &&
@@ -51,46 +76,80 @@ final class _ParamStringStateKey extends StateKey {
       other.index == index &&
       other.nextState == nextState;
 
+  /// Hash based on all three components.
   @override
   int get hashCode => Object.hash(text, index, nextState);
 }
 
+/// Key for states in parameter predicate matching chains.
+///
+/// Used to build chains that check parameter predicates character by character.
 final class _ParamPredicateStateKey extends StateKey {
   const _ParamPredicateStateKey(this.text, this.index);
+
+  /// The parameter text being checked.
   final String text;
+
+  /// Current position in the text.
   final int index;
 
+  /// Check equality based on text and index.
   @override
   bool operator ==(Object other) =>
       other is _ParamPredicateStateKey && other.text == text && other.index == index;
 
+  /// Hash based on text and index.
   @override
   int get hashCode => Object.hash(text, index);
 }
 
+/// Key for the terminal state of a parameter predicate chain.
+///
+/// Represents the end of a predicate matching sequence.
 final class _ParamPredicateEndStateKey extends StateKey {
   const _ParamPredicateEndStateKey(this.text);
+
+  /// The parameter text that was fully matched.
   final String text;
 
+  /// Check equality based on text.
   @override
   bool operator ==(Object other) => other is _ParamPredicateEndStateKey && other.text == text;
 
+  /// Hash based on text.
   @override
   int get hashCode => text.hashCode;
 }
 
-// Action types for state machine
+/// Base class for all actions that can occur in a state.
+///
+/// Actions represent transitions and side effects in the state machine,
+/// such as token consumption, function calls, returns, and predicates.
 @immutable
 sealed class StateAction {
   const StateAction();
 }
 
+/// Action to set a mark for later backreference.
 final class MarkAction implements StateAction {
+  /// Create a mark action.
+  ///
+  /// Parameters:
+  ///   [name] - The name of the mark
+  ///   [pattern] - The pattern being marked
+  ///   [nextState] - The state to transition to after marking
   MarkAction(this.name, this.pattern, this.nextState)
     : _hash = Object.hash(MarkAction, name, pattern, nextState);
+
+  /// The name of this mark.
   final String name;
+
+  /// The pattern associated with this mark.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -105,10 +164,21 @@ final class MarkAction implements StateAction {
   int get hashCode => _hash;
 }
 
+/// Action to consume a token and transition to the next state.
 final class TokenAction implements StateAction {
+  /// Create a token action.
+  ///
+  /// Parameters:
+  ///   [pattern] - The token pattern to consume
+  ///   [nextState] - The state to transition to after consuming the token
   TokenAction(this.pattern, this.nextState) : _hash = Object.hash(TokenAction, pattern, nextState);
+
+  /// The token pattern to consume.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -123,14 +193,35 @@ final class TokenAction implements StateAction {
   String toString() => "Token($pattern)";
 }
 
-enum BoundaryKind { start, eof }
+/// Kinds of input boundaries that can be checked.
+enum BoundaryKind {
+  /// Beginning of input.
+  start,
 
+  /// End of input.
+  eof,
+}
+
+/// Action to check for start or end of input boundary.
 final class BoundaryAction implements StateAction {
+  /// Create a boundary action.
+  ///
+  /// Parameters:
+  ///   [kind] - The type of boundary (start or eof)
+  ///   [pattern] - The boundary pattern
+  ///   [nextState] - The state to transition to if boundary matches
   BoundaryAction(this.kind, this.pattern, this.nextState)
     : _hash = Object.hash(BoundaryAction, kind, pattern, nextState);
+
+  /// The type of boundary being checked.
   final BoundaryKind kind;
+
+  /// The boundary pattern.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -145,6 +236,16 @@ final class BoundaryAction implements StateAction {
   int get hashCode => _hash;
 }
 
+/// Convert a [RuleCall] to a human-readable description.
+///
+/// Includes precedence level if present or provided.
+///
+/// Parameters:
+///   [call] - The rule call to describe
+///   [minPrecedenceLevel] - Optional minimum precedence level override
+///
+/// Returns:
+///   A string like "ruleName" or "ruleName^5" for precedenced calls
 String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
   var description = call.toString();
   if (description.startsWith("<") && description.endsWith(">")) {
@@ -160,12 +261,26 @@ String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
   return "$description^$prec";
 }
 
+/// Action to mark the start of a labeled capture group.
 final class LabelStartAction implements StateAction {
+  /// Create a label start action.
+  ///
+  /// Parameters:
+  ///   [name] - The name of the label
+  ///   [pattern] - The starting pattern
+  ///   [nextState] - The state to transition to
   LabelStartAction(this.name, this.pattern, this.nextState)
     : _hash = Object.hash(LabelStartAction, name, pattern, nextState);
+
+  /// The name of the label.
   final String name;
+
+  /// The pattern at label start.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -180,12 +295,26 @@ final class LabelStartAction implements StateAction {
   int get hashCode => _hash;
 }
 
+/// Action to mark the end of a labeled capture group.
 final class LabelEndAction implements StateAction {
+  /// Create a label end action.
+  ///
+  /// Parameters:
+  ///   [name] - The name of the label
+  ///   [pattern] - The ending pattern
+  ///   [nextState] - The state to transition to
   LabelEndAction(this.name, this.pattern, this.nextState)
     : _hash = Object.hash(LabelEndAction, name, pattern, nextState);
+
+  /// The name of the label.
   final String name;
+
+  /// The pattern at label end.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -200,11 +329,22 @@ final class LabelEndAction implements StateAction {
   int get hashCode => _hash;
 }
 
+/// Action to match a previously captured label group by name.
 final class BackreferenceAction implements StateAction {
+  /// Create a backreference action.
+  ///
+  /// Parameters:
+  ///   [name] - The name of the label to reference
+  ///   [nextState] - The state to transition to if match succeeds
   BackreferenceAction(this.name, this.nextState)
     : _hash = Object.hash(BackreferenceAction, name, nextState);
+
+  /// The name of the label being referenced.
   final String name;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -216,12 +356,26 @@ final class BackreferenceAction implements StateAction {
   int get hashCode => _hash;
 }
 
+/// Action to consume a parameter value during parsing.
 final class ParameterAction implements StateAction {
+  /// Create a parameter action.
+  ///
+  /// Parameters:
+  ///   [name] - The name of the parameter
+  ///   [pattern] - The parameter pattern
+  ///   [nextState] - The state to transition to
   ParameterAction(this.name, this.pattern, this.nextState)
     : _hash = Object.hash(ParameterAction, name, pattern, nextState);
+
+  /// The name of the parameter.
   final String name;
+
+  /// The parameter pattern.
   final Pattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -239,12 +393,22 @@ final class ParameterAction implements StateAction {
   String toString() => "Parameter($name)";
 }
 
+/// Action to call a parameterized rule.
 final class ParameterCallAction implements StateAction {
+  /// Create a parameter call action.
+  ///
+  /// Parameters:
+  ///   [pattern] - The parameterized call pattern
+  ///   [nextState] - The state to transition to after the call returns
   ParameterCallAction(this.pattern, this.nextState)
     : _hash = Object.hash(ParameterCallAction, pattern, nextState);
 
+  /// The parameterized call pattern.
   final ParameterCallPattern pattern;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -259,37 +423,76 @@ final class ParameterCallAction implements StateAction {
   String toString() => "ParameterCall($pattern)";
 }
 
+/// Action to consume one character from a parameter string.
 final class ParameterStringAction implements StateAction {
+  /// Create a parameter string action.
+  ///
+  /// Parameters:
+  ///   [codeUnit] - The character code to consume
+  ///   [nextState] - The state to transition to after consuming
   const ParameterStringAction(this.codeUnit, this.nextState);
+
+  /// The Unicode code unit to match.
   final int codeUnit;
+
+  /// The next state after this transition.
   final State nextState;
 
   @override
   String toString() => "ParameterString(${String.fromCharCode(codeUnit)})";
 }
 
+/// Action to check a predicate on a parameter value.
 final class ParameterPredicateAction implements StateAction {
+  /// Create a parameter predicate action.
+  ///
+  /// Parameters:
+  ///   [isAnd] - true for AND (&parameter), false for NOT (!parameter)
+  ///   [name] - The parameter name to check
+  ///   [nextState] - The state to transition to if predicate succeeds
   const ParameterPredicateAction({
     required this.isAnd,
     required this.name,
     required this.nextState,
   });
 
+  /// Whether this is an AND (&) or NOT (!) predicate.
   final bool isAnd;
+
+  /// The name of the parameter being checked.
   final String name;
+
+  /// The next state after this transition.
   final State nextState;
 
   @override
   String toString() => isAnd ? "ParameterPredicate(&$name)" : "ParameterPredicate(!$name)";
 }
 
+/// Action to call a rule and push a return state onto the call stack.
 final class CallAction implements StateAction {
+  /// Create a call action.
+  ///
+  /// Parameters:
+  ///   [rule] - The rule to call
+  ///   [pattern] - The rule call pattern
+  ///   [returnState] - The state to return to when the rule completes
+  ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
   CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel])
     : _hash = Object.hash(CallAction, rule, pattern, returnState, minPrecedenceLevel);
+
+  /// The rule being called.
   final Rule rule;
+
+  /// The rule call pattern.
   final Pattern pattern;
+
+  /// The state to return to after the call completes.
   final State returnState;
+
+  /// Optional minimum precedence level for the call.
   final int? minPrecedenceLevel;
+
   final int _hash;
 
   @override
@@ -314,12 +517,29 @@ final class CallAction implements StateAction {
   };
 }
 
+/// Action for tail-call optimization of recursive rules.
+///
+/// When a recursive rule can be optimized into a loop, this action is used
+/// instead of CallAction to avoid stack growth.
 final class TailCallAction implements StateAction {
+  /// Create a tail call action.
+  ///
+  /// Parameters:
+  ///   [rule] - The rule to tail-call
+  ///   [pattern] - The rule call pattern
+  ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
   TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel])
     : _hash = Object.hash(TailCallAction, rule, pattern, minPrecedenceLevel);
+
+  /// The rule being tail-called.
   final Rule rule;
+
+  /// The rule call pattern.
   final Pattern pattern;
+
+  /// Optional minimum precedence level for the call.
   final int? minPrecedenceLevel;
+
   final int _hash;
 
   @override
@@ -343,12 +563,26 @@ final class TailCallAction implements StateAction {
   };
 }
 
+/// Action to return from a rule call and pop the call stack.
 final class ReturnAction implements StateAction {
+  /// Create a return action.
+  ///
+  /// Parameters:
+  ///   [rule] - The rule being returned from
+  ///   [lastPattern] - The last pattern matched before returning
+  ///   [precedenceLevel] - Optional precedence level for the return
   ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel])
     : _hash = Object.hash(ReturnAction, rule, lastPattern, precedenceLevel);
+
+  /// The rule this return belongs to.
   final Rule rule;
+
+  /// The last pattern matched.
   final Pattern lastPattern;
+
+  /// Optional precedence level associated with the return.
   final int? precedenceLevel;
+
   final int _hash;
 
   @override
@@ -368,7 +602,9 @@ final class ReturnAction implements StateAction {
       : "ReturnAction(${rule.name})";
 }
 
+/// Action to accept the input and complete parsing successfully.
 final class AcceptAction implements StateAction {
+  /// Create an accept action.
   const AcceptAction();
 }
 
@@ -407,14 +643,26 @@ final class PredicateAction implements StateAction {
       : "Predicate(!$symbol)";
 }
 
-/// Conjunction action for consuming intersection (A & B)
+/// Action for consuming intersection (A & B) of two patterns.
 final class ConjunctionAction implements StateAction {
+  /// Create a conjunction action.
+  ///
+  /// Parameters:
+  ///   [leftSymbol] - The left pattern symbol
+  ///   [rightSymbol] - The right pattern symbol
+  ///   [nextState] - The state to transition to if both patterns match
   ConjunctionAction({required this.leftSymbol, required this.rightSymbol, required this.nextState})
     : _hash = Object.hash(ConjunctionAction, leftSymbol, rightSymbol, nextState);
 
+  /// The left operand symbol.
   final PatternSymbol leftSymbol;
+
+  /// The right operand symbol.
   final PatternSymbol rightSymbol;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -432,13 +680,22 @@ final class ConjunctionAction implements StateAction {
   String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
 
-/// Negation action for consuming complement (¬A)
+/// Action for consuming complement (¬A) of a pattern.
 final class NegationAction implements StateAction {
+  /// Create a negation action.
+  ///
+  /// Parameters:
+  ///   [symbol] - The pattern symbol to negate
+  ///   [nextState] - The state to transition to if negation succeeds
   NegationAction({required this.symbol, required this.nextState})
     : _hash = Object.hash(NegationAction, symbol, nextState);
 
+  /// The symbol being negated.
   final PatternSymbol symbol;
+
+  /// The next state after this transition.
   final State nextState;
+
   final int _hash;
 
   @override
@@ -453,33 +710,52 @@ final class NegationAction implements StateAction {
   String toString() => "Neg($symbol)";
 }
 
-/// State in the state machine
+/// State in the state machine.
+///
+/// Each state contains a list of actions (transitions) that can be taken from it.
 class State {
-  State(this.id);
+  const State(this.id, this.actions);
 
   final int id;
-  final List<StateAction> actions = [];
+  final List<StateAction> actions;
 
   @override
   String toString() => "State($id)";
 }
 
-final class _PredicateCluster {
-  const _PredicateCluster({
-    required this.rule,
-    required this.label,
-    required this.states,
-    required this.terminalStates,
-  });
-
-  final Rule rule;
-  final String label;
-  final List<State> states;
-  final List<State> terminalStates;
-}
-
-/// The compiled state machine
+/// A compiled state machine that represents a PEG grammar as a finite state automaton.
+///
+/// This state machine is built using Glushkov construction, which converts each grammar rule
+/// into a deterministic pushdown automaton. The automaton uses:
+/// - **States** to represent positions in parsing
+/// - **Actions** to represent transitions (consuming tokens, calling rules, managing the stack)
+/// - **Tail call optimization** for efficient right-recursive rules
+///
+/// The state machine supports advanced parsing features:
+/// - **Precedence climbing** for operator expressions
+/// - **Predicates** (lookahead with AND/NOT)
+/// - **Conjunctions** (intersection of patterns)
+/// - **Negations** (complement of patterns)
+/// - **Parameters** (dynamic string/predicate matching)
+/// - **Labels** (capturing groups and backreferences)
+/// - **Marks** (for semantic actions)
+///
+/// Each rule is connected to form a complete automaton that can be used
+/// by the parser to recognize strings matching the grammar.
 class StateMachine {
+  /// Create a state machine by compiling the grammar.
+  ///
+  /// This constructor:
+  /// 1. Creates an initial state and connects the start rule to it
+  /// 2. Marks the start state as accepting
+  /// 3. Processes all grammar rules to build the state graph
+  /// 4. For each rule, connects first patterns and sequence pairs
+  /// 5. Marks return states for each rule
+  /// 6. Analyzes rules for tail call optimization opportunities
+  /// 7. Builds precedence maps for handling operator precedence
+  ///
+  /// Parameters:
+  ///   [grammar] - The grammar interface to compile
   StateMachine(this.grammar) {
     var initState = _getOrCreateState(const _InitStateKey());
     _connect(initState, grammar.startCall);
@@ -535,8 +811,14 @@ class StateMachine {
     }
   }
 
-  /// Internal constructor for pre-built state machines (imported)
+  /// Internal constructor for pre-built state machines (imported).
+  ///
   /// Used by ImportedStateMachine to reconstruct exported state machines
+  /// without re-compiling the grammar. The state structure must be initialized
+  /// separately via initializeImported.
+  ///
+  /// Parameters:
+  ///   [grammar] - The grammar interface to associate with this machine
   StateMachine.empty(this.grammar);
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
@@ -550,27 +832,61 @@ class StateMachine {
   final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
 
-  /// Initialize state structure for imported state machines
-  /// (exposed for ImportedStateMachine)
+  /// Initialize the state structure for imported state machines.
+  ///
+  /// This method is called by ImportedStateMachine to populate the state mapping
+  /// and initial states from a previously serialized/exported state machine.
+  /// It replaces the normal compilation process done in the main constructor.
+  ///
+  /// Parameters:
+  ///   [initialStates] - The list of states to start parsing from
+  ///   [stateMapping] - The complete mapping of state keys to compiled states
   void initializeImported(List<State> initialStates, Map<StateKey, State> stateMapping) {
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
   }
 
+  /// Get or create a state with the given key.
+  ///
+  /// If a state with this key already exists, returns it.
+  /// Otherwise, creates a new state with the next available ID.
+  /// Invalidates the cached states list to ensure consistency.
+  ///
+  /// Parameters:
+  ///   [key] - The key identifying the state (initial, pattern, parameter, etc.)
+  ///
+  /// Returns:
+  ///   The existing or newly created state for this key
   State _getOrCreateState(StateKey key) {
     var state = _stateMapping[key];
     if (state != null) {
       return state;
     }
-    var created = State(_stateMapping.length);
+    var created = State(_stateMapping.length, []);
     _stateMapping[key] = created;
     _cachedStates = null;
     return created;
   }
 
+  /// Get the initial/start state of the state machine.
+  ///
+  /// Returns:
+  ///   The state marked as the initial state (created with [_InitStateKey])
   State get startState => _stateMapping[const _InitStateKey()]!;
 
+  /// Get or create a chain of states for matching a parameter string.
+  ///
+  /// Parameter matching requires consuming characters one by one,
+  /// so this creates a chain of states transitioning through each character
+  /// until reaching the [nextState].
+  ///
+  /// Parameters:
+  ///   [text] - The string to match character-by-character
+  ///   [nextState] - The state to reach after matching all characters
+  ///
+  /// Returns:
+  ///   The entry point state for this parameter string chain
   State parameterStringEntry(String text, State nextState) {
     if (text.isEmpty) {
       return nextState;
@@ -592,6 +908,17 @@ class StateMachine {
     return _parameterStringChains[key] = tail;
   }
 
+  /// Get or create a chain of states for checking a parameter predicate.
+  ///
+  /// Parameter predicates are evaluated at runtime to check if the parameter
+  /// value matches a specific string. This creates a chain of states that
+  /// consumes characters and ultimately returns if the entire string matches.
+  ///
+  /// Parameters:
+  ///   [text] - The string that the parameter must match
+  ///
+  /// Returns:
+  ///   The entry point state for this predicate check chain
   State parameterPredicateEntry(String text) {
     // Predicates use the same cached chain idea, but end in a synthetic
     // return state so lookahead can resume the caller if the predicate matches.
@@ -620,6 +947,26 @@ class StateMachine {
     return _parameterPredicateChains[text] = tail;
   }
 
+  /// Connect a state to a pattern terminal.
+  ///
+  /// This method is the core of state machine construction. It examines
+  /// the pattern type and creates appropriate transitions:
+  ///
+  /// - **Tokens**: Create [TokenAction] to consume specific input
+  /// - **Conjunctions**: Create [ConjunctionAction] for (A & B) intersection parsing
+  /// - **Boundaries**: Create [BoundaryAction] for start/EOF checks
+  /// - **Markers**: Create [MarkAction] for semantic backref capture
+  /// - **Predicates**: Create [PredicateAction] for (AND/NOT) lookahead
+  /// - **Negations**: Create [NegationAction] for (¬A) complement parsing
+  /// - **Rule calls**: Create [CallAction] or [TailCallAction] for function calls
+  /// - **Labels**: Create [LabelStartAction]/[LabelEndAction] for capture groups
+  /// - **Backreferences**: Create [BackreferenceAction] to match captured text
+  /// - **Parameters**: Create [ParameterAction]/[ParameterCallAction] for dynamic matching
+  ///
+  /// Parameters:
+  ///   [state] - The state to add the transition from
+  ///   [terminal] - The pattern to connect
+  ///   [currentRule] - Optional: the current rule (used for tail call detection)
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token():
@@ -732,6 +1079,16 @@ class StateMachine {
     }
   }
 
+  /// Extract the symbol (rule ID) from a pattern.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to extract the symbol from
+  ///
+  /// Returns:
+  ///   The rule symbol ID if the pattern is a [RuleCall]
+  ///
+  /// Throws:
+  ///   [UnsupportedError] if the pattern is not a rule call or token
   PatternSymbol _extractSymbol(Pattern pattern) {
     return switch (pattern) {
       RuleCall(:var rule) => rule.symbolId!,
@@ -739,6 +1096,16 @@ class StateMachine {
     };
   }
 
+  /// Build a map of patterns to their precedence levels.
+  ///
+  /// This recursively traverses the pattern structure, tracking precedence
+  /// through [Prec] nodes. Used by [ReturnAction] to apply correct precedence
+  /// levels during parsing.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to analyze
+  ///   [current] - The current precedence level
+  ///   [map] - The map to populate with precedence information
   void _buildPrecedenceMap(Pattern pattern, int? current, Map<Pattern, int?> map) {
     if (pattern is Prec) {
       _buildPrecedenceMap(pattern.child, pattern.precedenceLevel, map);
@@ -775,469 +1142,44 @@ class StateMachine {
     }
   }
 
+  /// Get all states in this state machine.
+  ///
+  /// The list is cached until the state machine is modified.
+  ///
+  /// Returns:
+  ///   A list of all compiled states
   List<State> get states {
     _cachedStates ??= _stateMapping.values.toList();
     return _cachedStates!;
   }
 
+  /// Get all initial states that parsing can start from.
+  ///
+  /// Returns:
+  ///   A list of the initial states (typically just the start state for grammars)
   List<State> get initialStates => _initialStates;
 
   /// Render the compiled state machine as Graphviz DOT.
   ///
-  /// The export includes synthetic start/accept nodes so the entry and exit
-  /// points stay connected when the machine is viewed as a graph.
+  String toDot() => _toDot(this);
+
+  /// Find all direct tail-self-call opportunities in a rule.
   ///
-  /// Predicate actions also draw a visual edge to their spawned sub-parse
-  /// entry states so lookahead rules do not appear disconnected.
-  String toDot() {
-    var buffer = StringBuffer();
-    var sortedStates = [...states]..sort((a, b) => a.id.compareTo(b.id));
-    var predicateClusters = _predicateClusters(sortedStates);
-    var hiddenStates = _predicateWrapperStates();
-    var predicateClustersByRule = {for (final cluster in predicateClusters) cluster.rule: cluster};
-
-    var callTargets = <Rule, Set<State>>{};
-    for (var state in sortedStates) {
-      for (var action in state.actions) {
-        if (action case CallAction(:var rule, :var returnState)) {
-          (callTargets[rule] ??= {}).add(returnState);
-        }
-      }
-    }
-
-    buffer.writeln("digraph StateMachine {");
-    buffer.writeln("  rankdir=LR;");
-    buffer.writeln('  node [fontname="Courier"];');
-    buffer.writeln('  "__start__" [shape=point, label=""];');
-    buffer.writeln('  "__accept__" [shape=doublecircle, label="accept"];');
-
-    for (var state in sortedStates) {
-      if (hiddenStates.contains(state)) {
-        continue;
-      }
-      var isAccept = state.actions.any((action) => action is AcceptAction);
-      var label = _dotEscape(_stateLabel(state));
-      var shape = isAccept ? "doublecircle" : "circle";
-      buffer.writeln('  "S${state.id}" [shape=$shape, label="$label"];');
-    }
-
-    buffer.writeln('  "__start__" -> "S${startState.id}" [label="start"];');
-
-    for (var i = 0; i < predicateClusters.length; i++) {
-      var cluster = predicateClusters[i];
-      buffer.writeln("  subgraph cluster_predicate_$i {");
-      buffer.writeln('    style="rounded,dashed";');
-      buffer.writeln('    color="gray70";');
-      buffer.writeln('    label="${_dotEscape(cluster.label)}";');
-      for (var state in cluster.states) {
-        buffer.writeln('    "S${state.id}";');
-      }
-      buffer.writeln("  }");
-    }
-
-    for (var state in sortedStates) {
-      for (var action in state.actions) {
-        switch (action) {
-          case TokenAction(:var pattern, :var nextState):
-            _writeEdge(buffer, from: state, to: nextState, label: _patternEdgeLabel(pattern));
-          case BoundaryAction(:var kind, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: kind == BoundaryKind.start ? "start" : "eof",
-            );
-          case MarkAction(:var name, :var nextState):
-            _writeEdge(buffer, from: state, to: nextState, label: "mark $name");
-          case LabelStartAction(:var name, :var nextState):
-            _writeEdge(buffer, from: state, to: nextState, label: "label+ $name");
-          case LabelEndAction(:var name, :var nextState):
-            _writeEdge(buffer, from: state, to: nextState, label: "label- $name");
-          case BackreferenceAction(:var name, :var nextState):
-            _writeEdge(buffer, from: state, to: nextState, label: "backreference- $name");
-          case ParameterStringAction(:var codeUnit, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: "param '${String.fromCharCode(codeUnit)}'",
-              style: "dashed",
-              color: "slategray4",
-            );
-          case ParameterPredicateAction(:var isAnd, :var name, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: '${isAnd ? 'AND' : 'NOT'} param $name',
-              style: "dashed",
-              color: isAnd ? "seagreen4" : "firebrick3",
-              constraint: false,
-            );
-          case PredicateAction(:var isAnd, :var symbol, :var nextState):
-            var cluster = predicateClustersByRule[grammar.symbolRegistry[symbol]];
-            if (ruleFirst[symbol] case var entry?) {
-              _writeEdge(
-                buffer,
-                from: state,
-                to: entry,
-                label: '${isAnd ? 'AND' : 'NOT'} ${_symbolName(symbol)}',
-                style: "dashed",
-                color: isAnd ? "seagreen4" : "firebrick3",
-                constraint: false,
-              );
-            }
-            if (cluster != null) {
-              var continuationTargets = _continuationTargets(nextState, hiddenStates);
-              for (var terminal in cluster.terminalStates) {
-                for (var target in continuationTargets) {
-                  _writeEdge(
-                    buffer,
-                    from: terminal,
-                    to: target,
-                    label: isAnd ? "AND" : "NOT",
-                    style: "dashed",
-                    color: isAnd ? "seagreen4" : "firebrick3",
-                    constraint: false,
-                  );
-                }
-              }
-            }
-          case TailCallAction(:var rule):
-            if (ruleFirst[rule.symbolId!] case var entry?) {
-              var label = "tail ${rule.name.symbol}";
-              if (action.pattern case RuleCall()) {
-                label = "tail ${_describeRuleCall(action.pattern as RuleCall)}";
-              }
-              _writeEdge(buffer, from: state, to: entry, label: label, style: "dotted");
-            }
-          case CallAction(:var rule, :var minPrecedenceLevel):
-            if (ruleFirst[rule.symbolId!] case var entry?) {
-              var label = minPrecedenceLevel == null
-                  ? "call ${rule.name.symbol}"
-                  : "call ${rule.name.symbol}^$minPrecedenceLevel";
-              if (action.pattern case RuleCall()) {
-                label = "call ${_describeRuleCall(action.pattern as RuleCall, minPrecedenceLevel)}";
-              }
-              _writeEdge(buffer, from: state, to: entry, label: label, style: "bold");
-            }
-          case ReturnAction(:var rule, :var precedenceLevel):
-            for (var target in callTargets[rule] ?? const <State>{}) {
-              _writeEdge(
-                buffer,
-                from: state,
-                to: target,
-                label: precedenceLevel == null
-                    ? "return ${rule.name.symbol}"
-                    : "return ${rule.name.symbol}^$precedenceLevel",
-                style: "dashed",
-                color: "gray45",
-              );
-            }
-          case ConjunctionAction(:var leftSymbol, :var rightSymbol, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: "conj $leftSymbol & $rightSymbol",
-              style: "dashed",
-              color: "blue",
-            );
-          case NegationAction(:var symbol, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: "neg ${_symbolName(symbol)}",
-              style: "dashed",
-              color: "orange",
-            );
-          case ParameterAction(:var name, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: "param $name",
-              style: "dashed",
-              color: "gray45",
-            );
-          case ParameterCallAction(:var pattern, :var nextState):
-            _writeEdge(
-              buffer,
-              from: state,
-              to: nextState,
-              label: "paramcall $pattern",
-              style: "dashed",
-              color: "slategray4",
-            );
-          case AcceptAction():
-            _writeEdge(buffer, from: state, label: "accept");
-        }
-      }
-    }
-
-    buffer.writeln("}");
-    return buffer.toString();
-  }
-
-  String _stateLabel(State state) {
-    for (var entry in _stateMapping.entries) {
-      if (identical(entry.value, state)) {
-        var key = entry.key;
-        return switch (key) {
-          _InitStateKey() => "init",
-          _PatternStateKey(:var pattern) => pattern.toString(),
-          _ParamPredicateEndStateKey(:var text) => "param-predicate-end($text)",
-          _ParamPredicateStateKey(:var text, :var index) => "param-predicate($text:$index)",
-          _ParamStringStateKey(:var text, :var index) => "param-string($text:$index)",
-        };
-      }
-    }
-    return "state ${state.id}";
-  }
-
-  String _patternEdgeLabel(Pattern pattern) {
-    return switch (pattern) {
-      Token(:var choice) => switch (choice) {
-        AnyToken() => "token any",
-        ExactToken(:var value) => "token ${String.fromCharCode(value)}",
-        RangeToken(:var start, :var end) => "token [$start-$end]",
-        LessToken(:var bound) => "token <= $bound",
-        GreaterToken(:var bound) => "token >= $bound",
-      },
-      StartAnchor() => "start",
-      EofAnchor() => "eof",
-      Marker(:var name) => "mark $name",
-      Conj() => "conj",
-      RuleCall() => _describeRuleCall(pattern),
-      LabelStart(:var name) => "label+ $name",
-      LabelEnd(:var name) => "label- $name",
-      ParameterRefPattern(:var name) => "param $name",
-      ParameterCallPattern(:var name) => "paramcall $name",
-      And(:var pattern) => "& ${_patternSummary(pattern)}",
-      Not(:var pattern) => "! ${_patternSummary(pattern)}",
-      Neg(:var pattern) => "¬ ${_patternSummary(pattern)}",
-      _ => pattern.toString(),
-    };
-  }
-
-  String _patternSummary(Pattern pattern) {
-    return switch (pattern) {
-      RuleCall(:var rule) => rule.name.symbol,
-      ParameterRefPattern(:var name) => name,
-      ParameterCallPattern(:var name) => name,
-      _ => pattern.toString(),
-    };
-  }
-
-  String _symbolName(PatternSymbol symbol) {
-    var pattern = grammar.symbolRegistry[symbol];
-    if (pattern == null) {
-      return symbol.symbol;
-    }
-    return pattern.toString();
-  }
-
-  String _dotEscape(String value) {
-    var out = StringBuffer();
-    for (var rune in value.runes) {
-      switch (rune) {
-        case 0x5C: // \
-          out.write(r"\\");
-        case 0x22: // "
-          out.write(r'\"');
-        case 0x0A: // newline
-          out.write(r"\n");
-        case 0x0D: // carriage return
-          out.write(r"\r");
-        case 0x09: // tab
-          out.write(r"\t");
-        default:
-          out.write(String.fromCharCode(rune));
-      }
-    }
-    return out.toString();
-  }
-
-  void _writeEdge(
-    StringBuffer buffer, {
-    required State from,
-    required String label,
-    State? to,
-    String? style,
-    String? color,
-    bool? constraint,
-  }) {
-    if (to == null) {
-      buffer.writeln('  "S${from.id}" -> "__accept__" [label="${_dotEscape(label)}"];');
-      return;
-    }
-
-    var attrs = <String>['label="${_dotEscape(label)}"'];
-    if (style != null) {
-      attrs.add("style=$style");
-    }
-    if (color != null) {
-      attrs.add("color=$color");
-    }
-    if (constraint != null) {
-      attrs.add("constraint=$constraint");
-    }
-    buffer.writeln('  "S${from.id}" -> "S${to.id}" [${attrs.join(', ')}];');
-  }
-
-  List<_PredicateCluster> _predicateClusters(List<State> sortedStates) {
-    var clusters = <_PredicateCluster>[];
-    var seenRules = <Rule>{};
-
-    for (var entry in _stateMapping.entries) {
-      var key = entry.key;
-      if (key is! _PatternStateKey || key.pattern is! Rule) {
-        continue;
-      }
-      var rule = key.pattern as Rule;
-      if (!rule.name.symbol.startsWith(r"pred$")) {
-        continue;
-      }
-      if (!seenRules.add(rule)) {
-        continue;
-      }
-
-      var patterns = <Pattern>{};
-      _collectPatterns(rule.body(), patterns);
-      patterns.add(rule);
-
-      var clusterStates = <State>[];
-      var seenStates = <State>{};
-      for (var pattern in patterns) {
-        var state = _stateMapping[_PatternStateKey(pattern)];
-        if (state != null && seenStates.add(state)) {
-          clusterStates.add(state);
-        }
-      }
-      clusterStates.sort((a, b) => a.id.compareTo(b.id));
-
-      if (clusterStates.isNotEmpty) {
-        var terminalStates = <State>[];
-        var seenTerminalStates = <State>{};
-        for (var state in clusterStates) {
-          var isTerminal = state.actions.any(
-            (action) => action is ReturnAction && identical(action.rule, rule),
-          );
-          if (isTerminal && seenTerminalStates.add(state)) {
-            terminalStates.add(state);
-          }
-        }
-        terminalStates.sort((a, b) => a.id.compareTo(b.id));
-        clusters.add(
-          _PredicateCluster(
-            rule: rule,
-            label: "predicate ${rule.name.symbol}",
-            states: clusterStates,
-            terminalStates: terminalStates.isEmpty ? clusterStates : terminalStates,
-          ),
-        );
-      }
-    }
-
-    clusters.sort((a, b) => a.states.first.id.compareTo(b.states.first.id));
-    return clusters;
-  }
-
-  Set<State> _predicateWrapperStates() {
-    var hidden = <State>{};
-    for (var state in states) {
-      for (var action in state.actions) {
-        if (action case PredicateAction(:var nextState)) {
-          hidden.add(nextState);
-        }
-      }
-    }
-    return hidden;
-  }
-
-  Set<State> _continuationTargets(State wrapperState, Set<State> hiddenStates) {
-    var targets = <State>{};
-    for (var action in wrapperState.actions) {
-      switch (action) {
-        case TokenAction(:var nextState):
-          targets.add(nextState);
-        case BoundaryAction(:var nextState):
-          targets.add(nextState);
-        case MarkAction(:var nextState):
-          targets.add(nextState);
-        case LabelStartAction(:var nextState):
-          targets.add(nextState);
-        case LabelEndAction(:var nextState):
-          targets.add(nextState);
-        case BackreferenceAction(:var nextState):
-          targets.add(nextState);
-        case ParameterStringAction(:var nextState):
-          targets.add(nextState);
-        case ParameterCallAction(:var nextState):
-          targets.add(nextState);
-        case ParameterPredicateAction(:var nextState):
-          targets.add(nextState);
-        case PredicateAction(:var nextState):
-          targets.addAll(_continuationTargets(nextState, hiddenStates));
-        case ConjunctionAction(:var nextState):
-          targets.add(nextState);
-        case NegationAction(:var nextState):
-          targets.add(nextState);
-        case CallAction():
-        case TailCallAction():
-        case ParameterAction():
-        case ReturnAction():
-        case AcceptAction():
-          break;
-      }
-    }
-
-    return targets.where((state) => !hiddenStates.contains(state)).toSet();
-  }
-
-  void _collectPatterns(Pattern pattern, Set<Pattern> patterns) {
-    if (!patterns.add(pattern)) {
-      return;
-    }
-    switch (pattern) {
-      case Seq(:var left, :var right) || Alt(:var left, :var right) || Conj(:var left, :var right):
-        _collectPatterns(left, patterns);
-        _collectPatterns(right, patterns);
-      case And(:var pattern):
-        _collectPatterns(pattern, patterns);
-      case Not(:var pattern):
-        _collectPatterns(pattern, patterns);
-      case Neg(:var pattern):
-        _collectPatterns(pattern, patterns);
-      case Action(:var child):
-        _collectPatterns(child, patterns);
-      case Prec(:var child):
-        _collectPatterns(child, patterns);
-      case Opt(:var child):
-        _collectPatterns(child, patterns);
-      case Plus(:var child):
-        _collectPatterns(child, patterns);
-      case Star(:var child):
-        _collectPatterns(child, patterns);
-      case Label(:var child):
-        _collectPatterns(child, patterns);
-      case Rule():
-      case RuleCall():
-      case ParameterRefPattern():
-      case ParameterCallPattern():
-      case Token():
-      case Marker():
-      case StartAnchor():
-      case EofAnchor():
-      case Eps():
-      case LabelStart():
-      case LabelEnd():
-      case Backreference():
-        break;
-    }
-  }
-
+  /// Tail call optimization replaces recursive calls at the end of a sequence
+  /// with efficient loop jumps, avoiding stack growth for right-recursive patterns.
+  ///
+  /// This method identifies rules that can be optimized by checking:
+  /// 1. The rule has exactly two branches: base case and recursive case
+  /// 2. One branch is the base (non-recursive) case that consumes input
+  /// 3. The other is a sequence that ends with an immediate recursive call
+  /// 4. The base case must not be empty (to ensure progress)
+  /// 5. The prefix before the recursive call must consume input
+  ///
+  /// Parameters:
+  ///   [rule] - The rule to analyze for tail call opportunities
+  ///
+  /// Returns:
+  ///   Set of direct tail recursive calls in this rule (typically 0 or 1)
   Set<RuleCall> _findDirectTailSelfCalls(Rule rule) {
     var branches = _flattenAlternation(_stripTransparent(rule.body()));
     // Only optimize the simple shape:
@@ -1307,6 +1249,16 @@ class StateMachine {
     return {last};
   }
 
+  /// Flatten an alternation pattern into a list of branches.
+  ///
+  /// Recursively expands all [Alt] nodes to produce a flat list
+  /// where each element is a branch of the original alternation.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to flatten
+  ///
+  /// Returns:
+  ///   A list of all branches in the alternation
   List<Pattern> _flattenAlternation(Pattern pattern) {
     return switch (pattern) {
       Alt(:var left, :var right) => [..._flattenAlternation(left), ..._flattenAlternation(right)],
@@ -1314,6 +1266,16 @@ class StateMachine {
     };
   }
 
+  /// Flatten a sequence pattern into a list of elements.
+  ///
+  /// Recursively expands all [Seq] nodes to produce a flat list
+  /// where each element is a component of the original sequence.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to flatten
+  ///
+  /// Returns:
+  ///   A list of all elements in the sequence
   List<Pattern> _flattenSequence(Pattern pattern) {
     return switch (pattern) {
       Seq(:var left, :var right) => [..._flattenSequence(left), ..._flattenSequence(right)],
@@ -1321,6 +1283,16 @@ class StateMachine {
     };
   }
 
+  /// Remove dead suffixes (epsilon/empty patterns) from a list.
+  ///
+  /// Dead suffixes are epsilon patterns that don't contribute to parsing
+  /// and shouldn't prevent tail-position detection.
+  ///
+  /// Parameters:
+  ///   [patterns] - The list of patterns
+  ///
+  /// Returns:
+  ///   The list with trailing epsilons removed
   List<Pattern> _stripDeadSuffixes(List<Pattern> patterns) {
     var end = patterns.length;
     while (end > 0 && _isDeadSuffix(patterns[end - 1])) {
@@ -1329,6 +1301,16 @@ class StateMachine {
     return patterns.sublist(0, end);
   }
 
+  /// Strip transparent wrappers from a pattern.
+  ///
+  /// Transparent wrappers ([Action], [Prec]) don't affect the parsing structure,
+  /// so this unwraps them to get to the underlying pattern for analysis.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to unwrap
+  ///
+  /// Returns:
+  ///   The innermost non-transparent pattern
   Pattern _stripTransparent(Pattern pattern) {
     Pattern current = pattern;
     while (true) {
@@ -1343,6 +1325,15 @@ class StateMachine {
     }
   }
 
+  /// Check if a pattern is a dead suffix.
+  ///
+  /// A dead suffix contributes nothing to parsing (epsilon patterns).
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to check
+  ///
+  /// Returns:
+  ///   true if this pattern is a dead suffix, false otherwise
   bool _isDeadSuffix(Pattern pattern) {
     var stripped = _stripTransparent(pattern);
     // A trailing epsilon contributes neither input progress nor a real
@@ -1350,12 +1341,30 @@ class StateMachine {
     return stripped is Eps;
   }
 
+  /// Check if a pattern contains a reference to a specific rule.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to search
+  ///   [target] - The rule to look for
+  ///
+  /// Returns:
+  ///   true if this pattern or any subpattern references the target rule
   bool _containsRuleReference(Pattern pattern, Rule target) {
     var referencedRules = <Rule>{};
     pattern.collectRules(referencedRules);
     return referencedRules.contains(target);
   }
 
+  /// Join a list of patterns into a single sequence.
+  ///
+  /// Parameters:
+  ///   [patterns] - The patterns to join
+  ///
+  /// Returns:
+  ///   A single pattern representing sequences of all input patterns
+  ///
+  /// Throws:
+  ///   [AssertionError] if patterns is empty
   Pattern _joinSequence(List<Pattern> patterns) {
     assert(
       patterns.isNotEmpty,
@@ -1364,6 +1373,17 @@ class StateMachine {
     return patterns.reduce((left, right) => left >> right);
   }
 
+  /// Check if a pattern definitely consumes input (is non-empty).
+  ///
+  /// This is a conservative check used to ensure tail calls make progress.
+  /// Some patterns (like alternatives) return false if they might be empty,
+  /// even if they sometimes consume input.
+  ///
+  /// Parameters:
+  ///   [pattern] - The pattern to check
+  ///
+  /// Returns:
+  ///   true if the pattern always consumes at least one input element
   bool _isDefinitelyNonEmpty(Pattern pattern) {
     return switch (pattern) {
       Eps() || Opt() || Star() => false,
@@ -1388,4 +1408,258 @@ class StateMachine {
       Label(:var child) => _isDefinitelyNonEmpty(child),
     };
   }
+}
+
+/// Converts a [StateMachine] into Graphviz DOT format for visualization.
+///
+/// This generates a directed graph where:
+/// - Nodes represent states in the state machine
+/// - Edges represent transitions (StateActions) between states
+/// - Special nodes include:
+///   - `__start__`: Entry point (shown as a point)
+///   - `__accept__`: Accepting state (shown as double circle)
+///   - `__return_<RuleName>__`: Rule-specific return nodes (shown as gray boxes)
+///
+/// The visualization uses different edge styles to distinguish action types:
+/// - Bold edges: function calls
+/// - Dashed green edges: AND predicates
+/// - Dashed gray edges: returns
+/// - Regular edges: other transitions
+///
+/// Returns a String containing the complete Graphviz DOT format.
+String _toDot(StateMachine machine) {
+  var buffer = StringBuffer();
+
+  // Write graph header and global styling
+  buffer.writeln("digraph StateMachine {");
+  buffer.writeln("  rankdir=LR;");
+  buffer.writeln('  node [fontname="Courier"];');
+  buffer.writeln('  "__start__" [shape=point, label=""];');
+  buffer.writeln('  "__accept__" [shape=doublecircle, label="accept"];');
+
+  // Collect all unique rules that have return actions
+  // This allows us to create per-rule return nodes
+  var returnRules = <Rule>{};
+  for (var state in machine._stateMapping.values) {
+    for (var action in state.actions) {
+      if (action is ReturnAction) {
+        returnRules.add(action.rule);
+      }
+    }
+  }
+
+  // Create rule-specific return nodes for visualization
+  // Each rule gets its own return node to make control flow clearer
+  for (var rule in returnRules) {
+    var returnNodeId = "__return_${rule.name}__";
+    buffer.writeln(
+      '  "$returnNodeId" [shape=box, label="return ${rule.name}", style=filled, fillcolor=lightgray];',
+    );
+  }
+
+  // Create nodes for all states in the state machine
+  // Iterate through _stateMapping to ensure ALL states are included
+  // (including parameter states and predicate states)
+  for (var entry in machine._stateMapping.entries) {
+    var state = entry.value;
+    var stateId = "S${state.id}";
+
+    // Determine an appropriate label for this state based on its key type
+    String label = "S${state.id}";
+
+    var key = entry.key;
+    if (key is _InitStateKey) {
+      label = "init";
+    } else if (key is _PatternStateKey) {
+      label = key.pattern.toString();
+    } else if (key is _ParamStringStateKey) {
+      label = "param_str[${key.index}]";
+    } else if (key is _ParamPredicateStateKey) {
+      label = "param_pred[${key.index}]";
+    } else if (key is _ParamPredicateEndStateKey) {
+      label = "param_pred_end";
+    }
+
+    // Check if this state is an accept state
+    // Accept states are shown with a double circle shape
+    bool isAcceptState = false;
+    for (var action in state.actions) {
+      if (action is AcceptAction) {
+        isAcceptState = true;
+        break;
+      }
+    }
+
+    // Write the node definition with appropriate shape and label
+    var shape = isAcceptState ? "doublecircle" : "circle";
+    buffer.writeln('  "$stateId" [shape=$shape, label="$label"];');
+  }
+
+  // Create the start edge from the invisible start point to the initial state
+  var startState = "S${machine.startState.id}";
+  buffer.writeln('  "__start__" -> "$startState" [label="start"];');
+
+  // Create edges for all state transitions
+  // Each StateAction becomes one or more edges in the DOT graph
+  for (var state in machine._stateMapping.values) {
+    var fromStateId = "S${state.id}";
+
+    for (var action in state.actions) {
+      // TokenAction: consume a token and transition
+      if (action is TokenAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="token ${_dotEscape(action.pattern.toString())}"];',
+        );
+      }
+      // CallAction: enter a subroutine (rule call)
+      else if (action is CallAction) {
+        var toStateId = "S${action.returnState.id}";
+        var ruleDisplay = action.minPrecedenceLevel != null
+            ? "${action.rule.name}^${action.minPrecedenceLevel}"
+            : action.rule.name;
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="call $ruleDisplay", style=bold];');
+      }
+      // TailCallAction: optimized recursive call (loops back to same state)
+      else if (action is TailCallAction) {
+        var ruleDisplay = action.minPrecedenceLevel != null
+            ? "${action.rule.name}^${action.minPrecedenceLevel}"
+            : action.rule.name;
+        buffer.writeln(
+          '  "$fromStateId" -> "$fromStateId" [label="tail call $ruleDisplay", style=bold];',
+        );
+      }
+      // ReturnAction: return from a subroutine to the rule's return node
+      else if (action is ReturnAction) {
+        var returnNodeId = "__return_${action.rule.name}__";
+        var labelStr = action.rule.name.toString();
+        if (action.precedenceLevel != null) {
+          labelStr = "$labelStr (prec: ${action.precedenceLevel})";
+        }
+        buffer.writeln(
+          '  "$fromStateId" -> "$returnNodeId" [label="return $labelStr", style=dashed, color=gray45];',
+        );
+      }
+      // MarkAction: set a mark for later backreference
+      else if (action is MarkAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="mark ${action.name}"];');
+      }
+      // BoundaryAction: check start-of-input or end-of-input boundary
+      else if (action is BoundaryAction) {
+        var toStateId = "S${action.nextState.id}";
+        var kindStr = action.kind == BoundaryKind.start ? "start" : "eof";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="boundary $kindStr"];');
+      }
+      // LabelStartAction: begin a labeled capture group
+      else if (action is LabelStartAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label start ${action.name}"];');
+      }
+      // LabelEndAction: end a labeled capture group
+      else if (action is LabelEndAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label end ${action.name}"];');
+      }
+      // BackreferenceAction: match a previously captured group
+      else if (action is BackreferenceAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="backref ${action.name}"];');
+      }
+      // ParameterAction: consume a parameter value
+      else if (action is ParameterAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param ${action.name}"];');
+      }
+      // ParameterCallAction: call a parameterized rule
+      else if (action is ParameterCallAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="param call ${_dotEscape(action.pattern.toString())}"];',
+        );
+      }
+      // ParameterStringAction: match one character from a parameter string
+      else if (action is ParameterStringAction) {
+        var toStateId = "S${action.nextState.id}";
+        var char = String.fromCharCode(action.codeUnit);
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param str ${_dotEscape(char)}"];');
+      }
+      // ParameterPredicateAction: predicate check on a parameter
+      else if (action is ParameterPredicateAction) {
+        var toStateId = "S${action.nextState.id}";
+        var pred = action.isAnd ? "&" : "!";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="param pred $pred${action.name}"];',
+        );
+      }
+      // PredicateAction: lookahead assertion (AND or NOT)
+      else if (action is PredicateAction) {
+        var toStateId = "S${action.nextState.id}";
+        var pred = action.isAnd ? "AND" : "NOT";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="$pred ${_dotEscape(action.symbol.toString())}", style=dashed, color=seagreen4];',
+        );
+      }
+      // ConjunctionAction: intersection (A & B) parsing
+      else if (action is ConjunctionAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="Conj ${_dotEscape(action.leftSymbol.toString())} & ${_dotEscape(action.rightSymbol.toString())}"];',
+        );
+      }
+      // NegationAction: complement (¬A) parsing
+      else if (action is NegationAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln(
+          '  "$fromStateId" -> "$toStateId" [label="Neg ${_dotEscape(action.symbol.toString())}"];',
+        );
+      }
+      // AcceptAction: successful parse - connect to accept node
+      else if (action is AcceptAction) {
+        buffer.writeln('  "$fromStateId" -> "__accept__" [label="accept"];');
+      }
+    }
+  }
+
+  // Close the graph
+  buffer.writeln("}");
+  return buffer.toString();
+}
+
+/// Escapes special characters in a string for use in Graphviz DOT format.
+///
+/// Graphviz DOT requires certain characters to be escaped:
+/// - Backslash (\) → \\
+/// - Double quote (") → \"
+/// - Newline → \n
+/// - Carriage return → \r
+/// - Tab → \t
+///
+/// This ensures that pattern descriptions, labels, and other text can be safely
+/// embedded in DOT edge and node labels without breaking the graph syntax.
+///
+/// Parameters:
+///   [value] - The string to escape
+///
+/// Returns:
+///   The escaped string safe for use in DOT format
+String _dotEscape(String value) {
+  var out = StringBuffer();
+  for (var rune in value.runes) {
+    switch (rune) {
+      case 0x5C: // \
+        out.write(r"\\");
+      case 0x22: // "
+        out.write(r'\"');
+      case 0x0A: // newline
+        out.write(r"\n");
+      case 0x0D: // carriage return
+        out.write(r"\r");
+      case 0x09: // tab
+        out.write(r"\t");
+      default:
+        out.write(String.fromCharCode(rune));
+    }
+  }
+  return out.toString();
 }

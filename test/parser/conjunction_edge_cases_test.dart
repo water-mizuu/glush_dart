@@ -92,7 +92,7 @@ void main() {
         for (var mark in path) {
           if (mark is ConjunctionMark) {
             print(
-              "    - ConjunctionMark @ ${mark.position}: left=${mark.branches[0].runtimeType}, right=${mark.branches[1].runtimeType}",
+              "    - ConjunctionMark @ ${mark.position}: left=${mark.left.runtimeType}, right=${mark.right.runtimeType}",
             );
           } else {
             print("    - ${mark.runtimeType}");
