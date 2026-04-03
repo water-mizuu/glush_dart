@@ -8,41 +8,44 @@ import "package:meta/meta.dart";
 
 /// Represents a unique parsing configuration at a specific input position.
 ///
-/// A [Context] tracks the state of the "virtual parser" including:
+/// A [Context] tracks the state of the \"virtual parser\" including:
 /// - The caller stack (represented as a link to a GSS [Caller])
-/// - The marks (result forest) accumulated so far in this path
 /// - Active lookahead predicates (the [predicateStack])
 /// - Dynamic label captures (the [captures] map)
+/// - Rule arguments (resolved once at construction)
 @immutable
 class Context {
-  const Context(
-    this.caller,
-    this.marks, {
-    Map<String, Object?>? arguments,
+  Context(
+    this.caller, {
+    this.arguments = const <String, Object?>{},
     this.captures = const CaptureBindings.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
     this.callStart,
     this.pivot,
     this.minPrecedenceLevel,
     this.precedenceLevel,
-  }) : _arguments = arguments;
+  }) : _hash = Object.hash(
+         caller,
+         callStart,
+         pivot,
+         minPrecedenceLevel,
+         precedenceLevel,
+         captures,
+         predicateStack,
+         _mapHashCode(arguments),
+       ),
+       isSimple = predicateStack.isEmpty && captures.isEmpty && callStart == null && arguments.isEmpty;
 
-  /// The Graph-Shared Stack (GSS) node representing the current call hierarchy.
+  final int _hash;
+
+  /// Whether this context has no lookahead predicates, captures, or arguments.
+  final bool isSimple;
+
+  /// The GRAPH-SHARED STACK (GSS) node representing the current call hierarchy.
   final CallerKey caller;
 
-  /// The accumulated results for this parse path.
-  final GlushList<Mark> marks;
-
-  /// The arguments passed to the current rule call.
-  final Map<String, Object?>? _arguments;
-
-  /// Returns the resolved arguments for this context, falling back to the caller's arguments.
-  Map<String, Object?> get arguments =>
-      _arguments ??
-      switch (caller) {
-        Caller(:var arguments) => arguments,
-        _ => const <String, Object?>{},
-      };
+  /// The resolved arguments for this context.
+  final Map<String, Object?> arguments;
 
   /// Bindings for data captured via structural labels (name:pattern).
   final CaptureBindings captures;
@@ -62,10 +65,9 @@ class Context {
   /// The precedence level of the rule currently being parsed.
   final int? precedenceLevel;
 
-  /// Creates a copy of this context with the given fields replaced.
+  /// Creates a copy of this context with the specified fields updated.
   Context copyWith({
     CallerKey? caller,
-    GlushList<Mark>? marks,
     Map<String, Object?>? arguments,
     CaptureBindings? captures,
     GlushList<PredicateCallerKey>? predicateStack,
@@ -74,13 +76,9 @@ class Context {
     int? minPrecedenceLevel,
     int? precedenceLevel,
   }) {
-    var nextCaller = caller ?? this.caller;
-    var nextArguments =
-        arguments ?? (identical(nextCaller, this.caller) ? _arguments : this.arguments);
     return Context(
-      nextCaller,
-      marks ?? this.marks,
-      arguments: nextArguments,
+      caller ?? this.caller,
+      arguments: arguments ?? this.arguments,
       captures: captures ?? this.captures,
       predicateStack: predicateStack ?? this.predicateStack,
       callStart: callStart ?? this.callStart,
@@ -90,52 +88,15 @@ class Context {
     );
   }
 
-  /// Returns a new context with the given marks, avoiding allocation if they are identical.
-  Context withMarks(GlushList<Mark> nextMarks) {
-    if (identical(nextMarks, marks)) {
-      return this;
-    }
-    return Context(
-      caller,
-      nextMarks,
-      arguments: _arguments,
-      captures: captures,
-      predicateStack: predicateStack,
-      callStart: callStart,
-      pivot: pivot,
-      minPrecedenceLevel: minPrecedenceLevel,
-      precedenceLevel: precedenceLevel,
-    );
-  }
-
-  /// Returns a new context with a different caller, updating arguments as needed.
-  Context withCaller(CallerKey nextCaller) {
-    if (identical(nextCaller, caller)) {
+  /// Creates a copy of this context for a rule call.
+  Context withCaller(CallerKey nextCaller, {Map<String, Object?>? arguments}) {
+    if (identical(nextCaller, caller) && arguments == null) {
       return this;
     }
     return Context(
       nextCaller,
-      marks,
-      arguments: identical(nextCaller, caller) ? _arguments : arguments,
-      captures: captures,
-      predicateStack: predicateStack,
-      callStart: callStart,
-      pivot: pivot,
-      minPrecedenceLevel: minPrecedenceLevel,
-      precedenceLevel: precedenceLevel,
-    );
-  }
-
-  /// Returns a new context with a different caller and marks, optimizing for identity.
-  Context withCallerAndMarks(CallerKey nextCaller, GlushList<Mark> nextMarks) {
-    if (identical(nextCaller, caller) && identical(nextMarks, marks)) {
-      return this;
-    }
-
-    return Context(
-      nextCaller,
-      nextMarks,
-      arguments: identical(nextCaller, caller) ? _arguments : arguments,
+      arguments:
+          arguments ?? (nextCaller is Caller ? nextCaller.arguments : const <String, Object?>{}),
       captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
@@ -149,28 +110,43 @@ class Context {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is Context &&
+          hashCode == other.hashCode &&
           caller == other.caller &&
-          marks == other.marks &&
-          arguments == other.arguments &&
-          captures == other.captures &&
-          predicateStack == other.predicateStack &&
           callStart == other.callStart &&
           pivot == other.pivot &&
           minPrecedenceLevel == other.minPrecedenceLevel &&
-          precedenceLevel == other.precedenceLevel;
+          precedenceLevel == other.precedenceLevel &&
+          captures == other.captures &&
+          predicateStack == other.predicateStack &&
+          _mapEquals(arguments, other.arguments);
+
+  static bool _mapEquals(Map<dynamic, dynamic>? a, Map<dynamic, dynamic>? b) {
+    if (identical(a, b)) {
+      return true;
+    }
+    if (a == null || b == null) {
+      return false;
+    }
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var key in a.keys) {
+      if (!b.containsKey(key) || b[key] != a[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   @override
-  int get hashCode => Object.hash(
-    caller,
-    marks,
-    arguments,
-    captures,
-    predicateStack,
-    callStart,
-    pivot,
-    minPrecedenceLevel,
-    precedenceLevel,
-  );
+  int get hashCode => _hash;
+
+  static int? _mapHashCode(Map<dynamic, dynamic>? m) {
+    if (m == null || m.isEmpty) {
+      return null;
+    }
+    return Object.hashAll(m.keys.cast<Object?>().followedBy(m.values));
+  }
 }
 
 /// Helper for grouping context-equivalent frames during token transitions.
@@ -179,18 +155,15 @@ class Context {
 /// grouped into a single [ContextGroup] so that their marks and derivations
 /// can be merged into a single branched node.
 final class ContextGroup {
-  ContextGroup({
-    required this.state,
-    required this.caller,
-    required this.minPrecedenceLevel,
-    required this.predicateStack,
-    required this.captures,
-  });
+  ContextGroup(this.state, this.context);
 
   final State state;
-  final CallerKey caller;
-  final int? minPrecedenceLevel;
-  final GlushList<PredicateCallerKey> predicateStack;
-  final CaptureBindings captures;
-  final List<GlushList<Mark>> marks = [];
+  final Context context;
+
+  /// Optimized mark merging: avoids List allocation and final fold.
+  GlushList<Mark> mergedMarks = const GlushList<Mark>.empty();
+
+  void addMarks(GlushList<Mark> marks) {
+    mergedMarks = mergedMarks.isEmpty ? marks : GlushList.branched(mergedMarks, marks);
+  }
 }

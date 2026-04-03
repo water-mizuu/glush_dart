@@ -33,8 +33,7 @@ void main() async {
   }
   state.finish();
 
-  var paths = state.lastStep?.acceptedContexts
-      .map((v) => v.marks)
+  var paths = state.lastStep?.acceptedContexts.values
       .fold(const GlushList<Mark>.empty(), GlushList<Mark>.branched);
 
   if (paths == null) {

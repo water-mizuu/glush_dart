@@ -51,7 +51,6 @@ sealed class GlushList<T> {
   };
 
   /// Creates a parallel combination (cartesian product) of mark forests.
-  /// Represents left and right marks both occurring at the same span.
   static GlushList<T> conjunction<T>(GlushList<T> left, GlushList<T> right) {
     if (left.isEmpty && right.isEmpty) {
       return const GlushList.empty();
@@ -76,33 +75,33 @@ sealed class GlushList<T> {
         continue;
       }
 
-      var node = item! as GlushList<T>;
+      if (item is! GlushList) {
+        continue;
+      }
+      var node = item;
       switch (node) {
-        case EmptyList<T>():
+        case EmptyList():
           break;
-        case BranchedList<T>():
-          if (node.right != null) {
-            stack.add(node.right);
+        case BranchedList(:var left, :var right):
+          if (right != null) {
+            stack.add(right);
           }
-          stack.add(node.left);
-        case Push<T>():
-          stack.add(node.data);
+          stack.add(left);
+        case Push(:var parent, :var data):
+          stack.add(data);
           stack.add(_dataMarker);
-          stack.add(node.parent);
-        case Concat<T>():
-          stack.add(node.right);
-          stack.add(node.left);
-        case Conjunction<T>():
-          stack.add(node.right);
-          stack.add(node.left);
+          stack.add(parent);
+        case Concat(:var left, :var right):
+          stack.add(right);
+          stack.add(left);
+        case Conjunction(:var left, :var right):
+          stack.add(right);
+          stack.add(left);
       }
     }
   }
 
   /// Returns the total number of unique flattened derivations this forest represents.
-  ///
-  /// This takes into account branching from [BranchedList] (sum) and combinatorial
-  /// expansion from [Concat] and [ConjunctionMark] (product).
   int get derivationCount {
     return _count(this, {});
   }
@@ -141,6 +140,9 @@ sealed class GlushList<T> {
   bool get isEmpty;
 
   T? get lastOrNull {
+    if (this case Push<T>(:var data)) {
+      return data;
+    }
     if (isEmpty) {
       return null;
     }
@@ -180,7 +182,10 @@ class BranchedList<T> extends GlushList<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is BranchedList<T> && left == other.left && right == other.right;
+      other is BranchedList<T> &&
+          _hashCode == other._hashCode &&
+          left == other.left &&
+          right == other.right;
 
   @override
   int get hashCode => _hashCode;
@@ -202,7 +207,11 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is Push<T> && parent == other.parent && data == other.data;
+      identical(this, other) ||
+      other is Push<T> &&
+          _hashCode == other._hashCode &&
+          parent == other.parent &&
+          data == other.data;
 
   @override
   int get hashCode => _hashCode;
@@ -219,15 +228,17 @@ class Concat<T> extends GlushList<T> {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is Concat<T> && left == other.left && right == other.right;
+      identical(this, other) ||
+      other is Concat<T> &&
+          _hashCode == other._hashCode &&
+          left == other.left &&
+          right == other.right;
 
   @override
   int get hashCode => _hashCode;
 }
 
 /// Represents parallel marks at the same span from different derivations.
-/// Used in conjunctions to express cartesian products: left and right marks
-/// both occurring at the same position (their union).
 class Conjunction<T> extends GlushList<T> {
   Conjunction._(this.left, this.right) : _hashCode = Object.hash(Conjunction, left, right);
   final GlushList<T> left;
@@ -240,7 +251,10 @@ class Conjunction<T> extends GlushList<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Conjunction<T> && left == other.left && right == other.right;
+      other is Conjunction<T> &&
+          _hashCode == other._hashCode &&
+          left == other.left &&
+          right == other.right;
 
   @override
   int get hashCode => _hashCode;
@@ -266,28 +280,21 @@ extension GlushListVisualizer<T> on GlushList<T> {
           yield [...pPath, data];
         }
       case Concat<T>():
-        // Concat is rare but we handle it lazily
         for (var l in _collect(node.left, visiting)) {
           for (var r in _collect(node.right, visiting)) {
             yield [...l, ...r];
           }
         }
       case Conjunction<T>():
-        // Parallel represents cartesian product at same span.
-        // Enumerate all (left, right) path combinations and emit as ConjunctionMark.
         if (T == Mark || T.toString().contains("Mark")) {
           for (var leftPath in _collect(node.left, visiting)) {
             for (var rightPath in _collect(node.right, visiting)) {
-              // Convert paths to GlushLists for ConjunctionMark
               var leftList = GlushList.fromList(leftPath.cast<Mark>());
               var rightList = GlushList.fromList(rightPath.cast<Mark>());
-
-              // Create a ConjunctionMark with binary structure
               yield [ConjunctionMark(leftList, rightList, 0) as T];
             }
           }
         } else {
-          // For non-Mark types, just concatenate
           for (var l in _collect(node.left, visiting)) {
             for (var r in _collect(node.right, visiting)) {
               yield [...l, ...r];
@@ -303,10 +310,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
     return buffer.toString();
   }
 
-  /// Generates a Graphviz dot format representation of the GlushList structure.
-  ///
-  /// Returns a dot graph string that can be rendered with graphviz tools.
-  /// Useful for debugging and visualizing the internal tree structure.
   String toDot() {
     var buffer = StringBuffer();
     buffer.writeln("digraph GlushList {");
@@ -328,10 +331,8 @@ extension GlushListVisualizer<T> on GlushList<T> {
         return;
       }
       visited.add(node);
-
       generateNodeId(node);
       var nodeId = nodeIds[node]!;
-
       if (node is EmptyList<T>) {
         buf.writeln('  $nodeId [label="Empty", style="filled", fillcolor="lightgray"];');
       } else if (node is Push<T>) {
@@ -339,40 +340,32 @@ extension GlushListVisualizer<T> on GlushList<T> {
           '  $nodeId [label="Push(${_escapeDot(node.data.toString())})", style="filled", fillcolor="lightblue"];',
         );
         generateNodeId(node.parent);
-        var parentId = nodeIds[node.parent]!;
-        buf.writeln('  $nodeId -> $parentId [label="parent"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
         buildGraph(node.parent, buf);
       } else if (node is Concat<T>) {
         buf.writeln('  $nodeId [label="Concat", style="filled", fillcolor="lightyellow"];');
         generateNodeId(node.left);
         generateNodeId(node.right);
-        var leftId = nodeIds[node.left]!;
-        var rightId = nodeIds[node.right]!;
-        buf.writeln('  $nodeId -> $leftId [label="left"];');
-        buf.writeln('  $nodeId -> $rightId [label="right"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
         buildGraph(node.left, buf);
         buildGraph(node.right, buf);
       } else if (node is Conjunction<T>) {
         buf.writeln('  $nodeId [label="Parallel", style="filled", fillcolor="lightcyan"];');
         generateNodeId(node.left);
         generateNodeId(node.right);
-        var leftId = nodeIds[node.left]!;
-        var rightId = nodeIds[node.right]!;
-        buf.writeln('  $nodeId -> $leftId [label="left"];');
-        buf.writeln('  $nodeId -> $rightId [label="right"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
         buildGraph(node.left, buf);
         buildGraph(node.right, buf);
       } else if (node is BranchedList<T>) {
         buf.writeln('  $nodeId [label="Branched", style="filled", fillcolor="lightgreen"];');
         generateNodeId(node.left);
-        var leftId = nodeIds[node.left]!;
-        buf.writeln('  $nodeId -> $leftId [label="left"];');
+        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
         buildGraph(node.left, buf);
-
         if (node.right != null) {
           generateNodeId(node.right!);
-          var rightId = nodeIds[node.right!]!;
-          buf.writeln('  $nodeId -> $rightId [label="right"];');
+          buf.writeln('  $nodeId -> ${nodeIds[node.right!]!} [label="right"];');
           buildGraph(node.right!, buf);
         }
       }
@@ -383,7 +376,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
     return buffer.toString();
   }
 
-  /// Escapes special characters for dot format
   String _escapeDot(String label) {
     return label
         .replaceAll(r"\", r"\\")
@@ -402,13 +394,11 @@ extension GlushListVisualizer<T> on GlushList<T> {
     var connector = isLast ? "└── " : "├── ";
     buffer.write(prefix);
     buffer.write(connector);
-
     if (visited.contains(node)) {
       buffer.writeln("(shared ...)");
       return;
     }
     visited.add(node);
-
     if (node is EmptyList<T>) {
       buffer.writeln("Empty");
     } else if (node is Push<T>) {
@@ -442,7 +432,6 @@ extension ListMarkExtractor on List<Mark> {
   List<String> toStringList() {
     var result = <String>[];
     String? currentStringMark;
-
     for (var mark in this) {
       if (mark is NamedMark) {
         if (currentStringMark != null) {
@@ -460,11 +449,9 @@ extension ListMarkExtractor on List<Mark> {
         currentStringMark = (currentStringMark ?? "") + mark.value;
       }
     }
-
     if (currentStringMark != null) {
       result.add(currentStringMark);
     }
-
     return result;
   }
 

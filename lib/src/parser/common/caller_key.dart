@@ -1,6 +1,8 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/return_key.dart";
@@ -89,13 +91,13 @@ final class ConjunctionCallerKey extends CallerKey {
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
-final class Caller extends CallerKey {
+// ignore: must_be_immutable
+class Caller extends CallerKey {
   Caller(
     this.rule,
     this.pattern,
     this.startPosition,
     this.minPrecedenceLevel,
-    this.callArgumentsKey,
     Map<String, Object?> arguments,
     this.uid,
   ) : arguments = Map<String, Object?>.unmodifiable(arguments);
@@ -103,7 +105,6 @@ final class Caller extends CallerKey {
   final Rule rule;
   final Pattern pattern;
   final int? minPrecedenceLevel;
-  final CallArgumentsKey callArgumentsKey;
   final Map<String, Object?> arguments;
 
   @override
@@ -112,10 +113,10 @@ final class Caller extends CallerKey {
   @override
   final int uid;
 
-  final Set<WaiterInfo> waiters = {};
-  final Map<ReturnKey, Context> _returns = {};
-  final Set<WaiterKey> _waiterKeys = {};
-  final Set<ReturnKey> _cyclicEpsilonTriggered = {};
+  final Map<int, (Context, GlushList<Mark>)> _returnsInt = {};
+  final Set<int> _cyclicInt = {};
+
+  _WaiterData? _waiterData;
 
   @override
   bool operator ==(Object other) =>
@@ -125,57 +126,103 @@ final class Caller extends CallerKey {
           rule == other.rule &&
           pattern == other.pattern &&
           startPosition == other.startPosition &&
-          minPrecedenceLevel == other.minPrecedenceLevel &&
-          callArgumentsKey == other.callArgumentsKey;
+          minPrecedenceLevel == other.minPrecedenceLevel;
 
   @override
-  int get hashCode =>
-      Object.hash(rule, pattern, startPosition, minPrecedenceLevel, callArgumentsKey);
+  int get hashCode => Object.hash(rule, pattern, startPosition, minPrecedenceLevel);
 
-  bool addWaiter(State next, int? minPrecedence, Context callerContext, ParseNodeKey node) {
-    var waiterKey = WaiterKey(next, minPrecedence, callerContext);
-    if (!_waiterKeys.add(waiterKey)) {
-      return false;
-    }
-    waiters.add((next, minPrecedence, callerContext, node));
-    return true;
-  }
+  bool addWaiter(
+    State next,
+    int? minPrecedence,
+    Context callerContext,
+    Ref<GlushList<Mark>> callerMarks,
+    ParseNodeKey node,
+  ) {
+    var waiter = (next, minPrecedence, callerContext, callerMarks, node);
+    var data = _waiterData;
 
-  bool addReturn(Context context) {
-    var key = ReturnKey(context.precedenceLevel, context.pivot, context.callStart);
-
-    var existing = _returns[key];
-    if (existing != null) {
-      if (existing.marks == context.marks) {
-        return false;
-      }
-
-      // For cyclic epsilon returns (pivot == callStart), allow only the first
-      // return to trigger waiters, blocking subsequent ones to prevent infinite
-      // loops in self-referential epsilon productions like: S = $mark S | '';
-      if (context.pivot == context.callStart) {
-        if (!_cyclicEpsilonTriggered.add(key)) {
-          // Already triggered once, block subsequent attempts
-          return false;
-        }
-        // First occurrence: allow waiter triggering
-      }
-
-      _returns[key] = existing.copyWith(marks: GlushList.branched(existing.marks, context.marks));
+    if (data == null) {
+      _waiterData = _SingleWaiter(waiter);
       return true;
     }
 
-    _returns[key] = context;
+    switch (data) {
+      case _SingleWaiter(:var existing):
+        if (existing.$1 == next &&
+            existing.$2 == minPrecedence &&
+            existing.$3 == callerContext &&
+            existing.$4 == callerMarks) {
+          return false;
+        }
+        _waiterData = _ManyWaiters([existing, waiter]);
+        return true;
+      case _ManyWaiters(:var waiters):
+        for (var existing in waiters) {
+          if (existing.$1 == next &&
+              existing.$2 == minPrecedence &&
+              existing.$3 == callerContext &&
+              existing.$4 == callerMarks) {
+            return false;
+          }
+        }
+        waiters.add(waiter);
+        return true;
+    }
+  }
+
+  bool addReturn(Context context, GlushList<Mark> marks) {
+    var packedId = ReturnKey.getPackedId(context.precedenceLevel, context.pivot, context.callStart);
+    var existing = _returnsInt[packedId];
+
+    if (existing == null) {
+      _returnsInt[packedId] = (context, marks);
+      return true;
+    }
+
+    var (existingContext, existingMarks) = existing;
+    if (existingMarks == marks) {
+      return false;
+    }
+
+    if (context.pivot == context.callStart) {
+      if (!_cyclicInt.add(packedId)) {
+        return false;
+      }
+    }
+
+    var merged = GlushList.branched(existingMarks, marks);
+    _returnsInt[packedId] = (existingContext, merged);
     return true;
   }
 
-  Iterable<Context> get returns => _returns.values;
+  Iterable<(Context, GlushList<Mark>)> get returns => _returnsInt.values;
 
-  Iterable<(CallerKey?, Context)> iterate() sync* {
-    for (var (_, _, context, _) in waiters) {
-      yield (context.caller, context);
-    }
+  bool isCyclic(int? precedenceLevel, int? pivot, int? callStart) {
+    return _cyclicInt.contains(ReturnKey.getPackedId(precedenceLevel, pivot, callStart));
   }
+
+  Iterable<WaiterInfo> get waiters {
+    var data = _waiterData;
+    if (data == null) {
+      return const [];
+    }
+    return switch (data) {
+      _SingleWaiter(:var existing) => [existing],
+      _ManyWaiters(:var waiters) => waiters,
+    };
+  }
+}
+
+sealed class _WaiterData {}
+
+final class _SingleWaiter extends _WaiterData {
+  _SingleWaiter(this.existing);
+  final WaiterInfo existing;
+}
+
+final class _ManyWaiters extends _WaiterData {
+  _ManyWaiters(this.waiters);
+  final List<WaiterInfo> waiters;
 }
 
 /// Represents a negation caller key, used to track negation calls in the parse tree.

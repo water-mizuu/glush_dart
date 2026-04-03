@@ -5,6 +5,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/action_key.dart";
 import "package:glush/src/parser/common/branch_key.dart";
 import "package:glush/src/parser/common/caller_cache_key.dart";
@@ -54,17 +55,17 @@ class Step {
   /// Frames produced for the *next* input position after consuming a token.
   final List<Frame> nextFrames = [];
 
-  /// Batched next-position frames grouped by context metadata.
-  /// Keys can be `int` (packed) or [ComplexContextKey].
-  final Map<ContextKey, ContextGroup> _nextFrameGroups = {};
-
   /// Batched current-position frames grouped by context metadata.
-  /// Keys can be `int` (packed) or [ComplexContextKey].
-  final Map<ContextKey, Context> _currentFrameGroups = {};
+  final Map<int, ContextGroup> _currentFrameGroupsInt = {};
+  final Map<ComplexContextKey, ContextGroup> _currentFrameGroupsComplex = {};
+
+  /// Batched next-position frames grouped by context metadata.
+  final Map<int, ContextGroup> _nextFrameGroupsInt = {};
+  final Map<ComplexContextKey, ContextGroup> _nextFrameGroupsComplex = {};
 
   /// Deduplication set for non-forest mode.
-  /// Keys can be `int` (packed) or [ComplexContextKey].
-  final Set<ContextKey> _activeContextKeys = {};
+  final Set<int> _activeContextKeysInt = {};
+  final Set<ComplexContextKey> _activeContextKeysComplex = {};
 
   /// The work queue for same-position closure exploration.
   final Queue<(ContextKey, State)> _workQueue = DoubleLinkedQueue();
@@ -72,8 +73,8 @@ class Step {
   /// Set of GSS callers that have already returned at this position.
   final Set<CallerKey> _returnedCallers = {};
 
-  /// Deduplication set for uniquely identifying accepted parse contexts.
-  final Set<Context> acceptedContexts = {};
+  /// Deduplication set for uniquely identifying accepted parse contexts and their marks.
+  final Map<Context, GlushList<Mark>> acceptedContexts = {};
 
   /// Frames that were delayed or diverted (e.g. for sub-parses).
   final List<Frame> requeued = [];
@@ -137,18 +138,18 @@ class Step {
     int endPosition,
     GlushList<Mark> left,
     GlushList<Mark> right,
-    List<(ParseNodeKey? source, Context, State)> targetWaiters,
+    List<(ParseNodeKey? source, Context, State, GlushList<Mark>)> targetWaiters,
   ) {
     // Create a Parallel node representing the cartesian product of left and right marks
     // at the same span. This captures all combinations of parallel marks.
     var conjunctionResult = GlushList.conjunction(left, right);
 
-    for (var (_, parentContext, nextState) in targetWaiters) {
+    for (var (_, parentContext, nextState, parentMarks) in targetWaiters) {
       // Add the parallel result to the parent marks.
-      var nextMarks = parentContext.marks.addList(conjunctionResult);
-      var nextContext = parentContext.copyWith(pivot: endPosition, marks: nextMarks);
+      var nextMarks = parentMarks.addList(conjunctionResult);
+      var nextContext = parentContext.copyWith(pivot: endPosition);
 
-      requeue(Frame(nextContext)..nextStates.add(nextState));
+      requeue(Frame(nextContext, nextMarks)..nextStates.add(nextState));
     }
   }
 
@@ -160,16 +161,17 @@ class Step {
   void _resumeLaggedPredicateContinuation({
     required ParseNodeKey? source,
     required Context parentContext,
+    required GlushList<Mark> parentMarks,
     required State nextState,
     required bool isAnd,
     required PatternSymbol symbol,
-    BranchKey? branchKey,
+    ActionBranchKey? branchKey,
   }) {
-    var nextContext = parentContext;
+    var marks = parentMarks;
 
     parseState.tracer.onMessage("Predicate matched: $symbol (AND: $isAnd)");
 
-    requeue(Frame(nextContext)..nextStates.add(nextState));
+    requeue(Frame(parentContext, marks)..nextStates.add(nextState));
   }
 
   /// Seed a predicate sub-parse at the current input position.
@@ -192,13 +194,13 @@ class Step {
       entryState,
       Context(
         predicateKey,
-        const GlushList<Mark>.empty(),
         arguments: frame.context.arguments,
         captures: frame.context.captures,
         predicateStack: nextStack,
         callStart: position,
         pivot: position,
       ),
+      const GlushList<Mark>.empty(),
     );
   }
 
@@ -229,13 +231,13 @@ class Step {
         s,
         Context(
           leftCaller,
-          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           callStart: position,
           pivot: position,
           predicateStack: frame.context.predicateStack,
         ),
+        const GlushList<Mark>.empty(),
       );
     }
 
@@ -245,13 +247,13 @@ class Step {
         s,
         Context(
           rightCaller,
-          const GlushList<Mark>.empty(),
           arguments: frame.context.arguments,
           captures: frame.context.captures,
           callStart: position,
           pivot: position,
           predicateStack: frame.context.predicateStack,
         ),
+        const GlushList<Mark>.empty(),
       );
     }
   }
@@ -270,13 +272,13 @@ class Step {
       entryState,
       Context(
         newNegationKey,
-        const GlushList<Mark>.empty(),
         arguments: frame.context.arguments,
         captures: frame.context.captures,
         callStart: position,
         pivot: position,
         predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
       ),
+      const GlushList<Mark>.empty(),
     );
   }
 
@@ -315,7 +317,7 @@ class Step {
     var cacheKey = GuardCacheKey(
       subjectRule,
       guard,
-      frame.context.marks,
+      frame.marks,
       argumentsKey,
       position,
       frame.context.callStart ?? position,
@@ -356,7 +358,7 @@ class Step {
 
     return GuardEnvironment(
       rule: rule,
-      marks: frame.context.marks,
+      marks: frame.marks,
       arguments: arguments,
       values: values,
       valuesKey: GuardValuesKey(
@@ -417,7 +419,7 @@ class Step {
     Frame frame,
   ) {
     if (call.arguments.isEmpty) {
-      return (arguments: const <String, Object?>{}, key: StringCallArgumentsKey(call.argumentsKey));
+      return (arguments: frame.context.arguments, key: StringCallArgumentsKey(call.argumentsKey));
     }
 
     // Resolve arguments in the caller's environment so references can inherit
@@ -470,28 +472,52 @@ class Step {
       return;
     }
 
-    var key = CallerCacheKey.create(targetRule, position, minPrecedenceLevel, callArgumentsKey);
-    var caller = parseState.callers[key];
-    bool isNewCaller = caller == null;
-    if (isNewCaller) {
-      GlushProfiler.incrementMiss("parser.callers.cache");
-      caller = parseState.callers[key] = Caller(
-        targetRule,
-        callPattern,
-        position,
-        minPrecedenceLevel,
-        callArgumentsKey,
-        callArguments,
-        parseState.callerCounter++,
-      );
-      GlushProfiler.increment("parser.callers.cache_assign");
+    var isSimpleCall = callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty;
+    Caller? caller;
+    var isNewCaller = false;
+
+    if (isSimpleCall) {
+      var packedId = (position << 32) | (targetRule.uid << 8) | (minPrecedenceLevel ?? 0xFF);
+      caller = parseState.callersInt[packedId];
+      if (caller == null) {
+        isNewCaller = true;
+        GlushProfiler.incrementMiss("parser.callers.cache");
+        caller = parseState.callersInt[packedId] = Caller(
+          targetRule,
+          callPattern,
+          position,
+          minPrecedenceLevel,
+          callArguments,
+          parseState.callerCounter++,
+        );
+        GlushProfiler.increment("parser.callers.cache_assign");
+      } else {
+        GlushProfiler.incrementHit("parser.callers.cache");
+      }
     } else {
-      GlushProfiler.incrementHit("parser.callers.cache");
+      var key = ComplexCallerCacheKey(targetRule, position, minPrecedenceLevel, callArgumentsKey);
+      caller = parseState.callersComplex[key];
+      if (caller == null) {
+        isNewCaller = true;
+        GlushProfiler.incrementMiss("parser.callers.cache");
+        caller = parseState.callersComplex[key] = Caller(
+          targetRule,
+          callPattern,
+          position,
+          minPrecedenceLevel,
+          callArguments,
+          parseState.callerCounter++,
+        );
+        GlushProfiler.increment("parser.callers.cache_assign");
+      } else {
+        GlushProfiler.incrementHit("parser.callers.cache");
+      }
     }
     var isNewWaiter = caller.addWaiter(
       returnState,
       minPrecedenceLevel,
       frame.context,
+      Ref(frame.marks),
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewCaller) {
@@ -503,27 +529,30 @@ class Step {
           firstState,
           Context(
             caller,
-            const GlushList<Mark>.empty(),
             captures: frame.context.captures,
             predicateStack: frame.context.predicateStack,
             callStart: position,
             pivot: position,
             minPrecedenceLevel: minPrecedenceLevel,
+            arguments: callArguments,
           ),
+          const GlushList<Mark>.empty(),
           source: source,
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     } else if (isNewWaiter) {
-      for (var returnContext in caller.returns) {
+      for (var (returnContext, returnMarks) in caller.returns) {
         _triggerReturn(
           caller,
           frame.context.caller,
           returnState,
           minPrecedenceLevel,
           frame.context,
+          frame.marks,
           returnContext,
+          returnMarks,
           source: ParseNodeKey(currentState.id, position, caller),
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
@@ -546,13 +575,13 @@ class Step {
       entryState,
       Context(
         newPredicateKey,
-        const GlushList<Mark>.empty(),
         arguments: frame.context.arguments,
         captures: frame.context.captures,
         predicateStack: nextStack,
         callStart: position,
         pivot: position,
       ),
+      const GlushList<Mark>.empty(),
     );
   }
 
@@ -565,7 +594,8 @@ class Step {
   /// target configuration is already active, because marks carry the derivation.
   void _enqueue(
     State state,
-    Context context, {
+    Context context,
+    GlushList<Mark> marks, {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
@@ -579,51 +609,66 @@ class Step {
       // Cross-position work is deferred to preserve position-order semantics.
       GlushProfiler.increment("parser.enqueue.requeued");
       parseState.tracer.onEnqueue(state, targetPosition, "future position");
-      requeue(Frame(nextContext)..nextStates.add(state));
+      requeue(Frame(nextContext, marks)..nextStates.add(state));
       return;
     }
 
-    // Deduplicate closure branches by merging equivalent contexts.
-    var key = ContextKey.create(
-      state,
-      nextContext.caller,
-      nextContext.minPrecedenceLevel,
-      nextContext.predicateStack,
-      nextContext.captures,
-    );
-    // Forest mode tracks alternate derivation edges for equivalent contexts.
-    if (isSupportingAmbiguity) {
-      // Forest mode keeps alternate derivation edges even when a context is
-      // already active. Track each distinct mark branch independently so we
-      // do not blend unrelated label paths together.
-      var existing = _currentFrameGroups[key];
-      if (existing != null) {
-        // Merge marks if they differ.
-        var nextMarks = GlushList.branched(existing.marks, nextContext.marks);
+    // Optimized fast-path: check if context is simple and use bit-packed ID
+    if (nextContext.isSimple) {
+      var packedId =
+          (nextContext.caller.uid << 32) |
+          (state.id << 8) |
+          (nextContext.minPrecedenceLevel ?? 0xFF);
 
-        _currentFrameGroups[key] = nextContext.copyWith(marks: nextMarks);
-        GlushProfiler.increment("parser.enqueue.merged");
+      if (!isSupportingAmbiguity && !_activeContextKeysInt.add(packedId)) {
+        GlushProfiler.incrementHit("parser.enqueue.deduplicated");
         return;
       }
-    } else {
-      // In non-forest mode, keep only the first equivalent context.
-      if (!_activeContextKeys.add(key)) {
-        GlushProfiler.increment("parser.enqueue.dedup_hits");
+
+      var group = _currentFrameGroupsInt[packedId];
+      if (group != null) {
+        GlushProfiler.incrementHit("parser.enqueue.merged");
+        group.addMarks(marks);
         return;
       }
+
+      GlushProfiler.incrementMiss("parser.enqueue.merged");
+      var newGroup = ContextGroup(state, nextContext)..addMarks(marks);
+      _currentFrameGroupsInt[packedId] = newGroup;
+
+      _workQueue.add((IntContextKey(packedId), state));
+      return;
     }
-    GlushProfiler.increment("parser.enqueue.accepted");
+
+    // Slow-path for complex contexts
+    var key = ComplexContextKey(state, nextContext);
+
+    if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
+      GlushProfiler.incrementHit("parser.enqueue.deduplicated");
+      return;
+    }
+
+    var group = _currentFrameGroupsComplex[key];
+    if (group != null) {
+      GlushProfiler.incrementHit("parser.enqueue.merged");
+      group.addMarks(marks);
+      return;
+    }
+
+    GlushProfiler.incrementMiss("parser.enqueue.merged");
+    _activeContextKeysComplex.add(key);
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
-      var key = PredicateKey(pk.pattern, pk.startPosition);
-      parseState.predicateTrackers[key]?.addPendingFrame();
+      var pKey = PredicateKey(pk.pattern, pk.startPosition);
+      parseState.predicateTrackers[pKey]?.addPendingFrame();
     }
     if (nextContext.caller case ConjunctionCallerKey con) {
       parseState.conjunctionTrackers[ConjunctionKey(con.left, con.right, con.startPosition)]
           ?.addPendingFrame();
     }
 
-    _currentFrameGroups[key] = nextContext;
+    // Initialize group and store initial marks.
+    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
     _workQueue.add((key, state));
   }
 
@@ -686,7 +731,9 @@ class Step {
     State nextState,
     int? minPrecedence,
     Context parentContext,
-    Context returnContext, {
+    GlushList<Mark> parentMarks,
+    Context returnContext,
+    GlushList<Mark> returnMarks, {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
@@ -709,7 +756,7 @@ class Step {
     // Continous mark streams must be concatenated, not branched.
     // Branching is for alternative derivations (same span), while rule returns
     // represent a sequence (prefix + call result).
-    var nextMarks = parentContext.marks.addList(returnContext.marks);
+    var nextMarks = parentMarks.addList(returnMarks);
 
     CaptureBindings mergedCaptures;
     if (parentContext.captures.isEmpty) {
@@ -724,7 +771,6 @@ class Step {
 
     var nextContext = Context(
       nextCaller,
-      nextMarks,
       arguments: parentContext.arguments,
       captures: mergedCaptures,
       predicateStack: parentContext.predicateStack,
@@ -733,51 +779,45 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    _enqueue(nextState, nextContext, source: source, action: action, callSite: callSite);
+    _enqueue(nextState, nextContext, nextMarks, source: source, action: action, callSite: callSite);
   }
 
   /// Materialize batched token transitions into next-position frames.
-  ///
-  /// Grouping equivalent (state, caller, context) pairs here merges their
-  /// derivation paths into a single branched node, preserving polynomial
-  /// forest-sharing benefits while maintaining deterministic ordering.
   void finalize() {
-    for (var MapEntry(:value) in _nextFrameGroups.entries) {
-      var ContextGroup(:state, :caller, :minPrecedenceLevel, :predicateStack, :marks, :captures) =
-          value;
-
-      var branchedMarks = marks.fold(const GlushList<Mark>.empty(), GlushList.branched);
-      var callerStartPosition = (caller is Caller)
-          ? caller.startPosition
-          : (caller is RootCallerKey ? 0 : null);
-
-      var nextFrame = Frame(
-        Context(
-          caller,
-          branchedMarks,
-          captures: captures,
-          predicateStack: predicateStack,
-          callStart: callerStartPosition,
-          pivot: position + 1,
-          minPrecedenceLevel: minPrecedenceLevel,
-        ),
-      );
-      nextFrame.nextStates.add(state);
-
-      if (predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-        // Next frame belongs to a predicate branch and counts as pending.
-        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-        var tracker = parseState.predicateTrackers[key];
-
-        if (tracker != null) {
-          // The newly materialized next-frame is pending work for this predicate.
-          tracker.addPendingFrame();
-        }
-      }
-
-      nextFrames.add(nextFrame);
+    for (var nextGroup in _nextFrameGroupsInt.values) {
+      _processNextGroup(nextGroup);
     }
-    _nextFrameGroups.clear();
+    for (var nextGroup in _nextFrameGroupsComplex.values) {
+      _processNextGroup(nextGroup);
+    }
+    _nextFrameGroupsInt.clear();
+    _nextFrameGroupsComplex.clear();
+  }
+
+  void _processNextGroup(ContextGroup nextGroup) {
+    var branchedMarks = nextGroup.mergedMarks;
+    var context = nextGroup.context;
+    var caller = context.caller;
+    var callerStartPosition = (caller is Caller)
+        ? caller.startPosition
+        : (caller is RootCallerKey ? 0 : null);
+
+    if (context.pivot != position + 1 || context.callStart != callerStartPosition) {
+      context = context.copyWith(pivot: position + 1, callStart: callerStartPosition);
+    }
+
+    var nextFrame = Frame(context, branchedMarks);
+    nextFrame.nextStates.add(nextGroup.state);
+
+    if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+      var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+      var tracker = parseState.predicateTrackers[key];
+      if (tracker != null) {
+        tracker.addPendingFrame();
+      }
+    }
+
+    nextFrames.add(nextFrame);
   }
 
   /// Compute the same-position closure for a given frame.
@@ -788,27 +828,32 @@ class Step {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
       parseState.tracer.onProcessState(frame, state);
-      _enqueue(state, frame.context);
+      _enqueue(state, frame.context, frame.marks);
     }
     while (_workQueue.isNotEmpty) {
       var (key, state) = _workQueue.removeFirst();
-      var context = _currentFrameGroups.remove(key);
-      if (context == null) {
-        // This can happen if the queue outlived its accompanying context group
-        // during complex transitions or duplicates in the work queue.
+      ContextGroup? group;
+      if (key is IntContextKey) {
+        group = _currentFrameGroupsInt.remove(key.id);
+      } else {
+        group = _currentFrameGroupsComplex.remove(key as ComplexContextKey);
+      }
+
+      if (group == null) {
         continue;
       }
-      if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-        // This context belongs to a predicate sub-parse; update its tracker.
-        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-        var tracker = parseState.predicateTrackers[key];
+
+      var marks = group.mergedMarks;
+      var context = group.context;
+
+      if (context.predicateStack.lastOrNull case var pk?) {
+        var pKey = PredicateKey(pk.pattern, pk.startPosition);
+        var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
-          // Work unit is now being processed; decrement "pending work" counter.
           tracker.removePendingFrame();
         }
       }
       if (context.caller case ConjunctionCallerKey c) {
-        // Decrement pending frame counter for the conjunction sub-parse.
         var tracker =
             parseState.conjunctionTrackers[ConjunctionKey(c.left, c.right, c.startPosition)];
         if (tracker != null && tracker.activeFrames > 0) {
@@ -816,13 +861,13 @@ class Step {
         }
       }
 
-      if (frame.context.caller case NegationCallerKey caller) {
+      if (context.caller case NegationCallerKey caller) {
         parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)] //
+            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
             ?.visitedPositions
             .add(position);
       }
-      _process(Frame(context), state);
+      _process(Frame(context, marks), state);
     }
   }
 
@@ -832,7 +877,7 @@ class Step {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
       parseState.tracer.onProcessState(frame, state);
-      _enqueue(state, frame.context);
+      _enqueue(state, frame.context, frame.marks);
     }
   }
 
@@ -841,17 +886,22 @@ class Step {
   void processFrameFinalize() {
     while (_workQueue.isNotEmpty) {
       var (key, state) = _workQueue.removeFirst();
-      var context = _currentFrameGroups.remove(key);
-      if (context == null) {
-        // This can happen if the queue outlived its accompanying context group
-        // during complex transitions or duplicates in the work queue.
+      ContextGroup? group;
+      if (key is IntContextKey) {
+        group = _currentFrameGroupsInt.remove(key.id);
+      } else {
+        group = _currentFrameGroupsComplex.remove(key as ComplexContextKey);
+      }
+      if (group == null) {
         continue;
       }
 
-      // Handle tracker bookkeeping - these checks need to happen before processing
-      if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-        var tracker = parseState.predicateTrackers[key];
+      var marks = group.mergedMarks;
+      var context = group.context;
+
+      if (context.predicateStack.lastOrNull case var pk?) {
+        var pKey = PredicateKey(pk.pattern, pk.startPosition);
+        var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
         }
@@ -866,12 +916,12 @@ class Step {
 
       if (context.caller case NegationCallerKey caller) {
         parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)] //
+            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
             ?.visitedPositions
             .add(position);
       }
 
-      _process(Frame(context), state);
+      _process(Frame(context, marks), state);
     }
   }
 
@@ -884,12 +934,11 @@ class Step {
   /// Handle [TokenAction]: consume a token matching the expected pattern.
   void _processTokenAction(Frame frame, State state, TokenAction action) {
     var frameContext = frame.context;
-    var callerOrRoot = frameContext.caller;
     var token = _getTokenFor(frame);
 
     // Token actions fire only when an input token matches the expected pattern.
     if (token != null && action.pattern.match(token)) {
-      var newMarks = frame.context.marks;
+      var newMarks = frame.marks;
       var pattern = action.pattern;
 
       // Terminal capture logic: some patterns (like literal strings)
@@ -901,28 +950,39 @@ class Step {
         newMarks = newMarks.add(StringMark(String.fromCharCode(token), position));
       }
 
-      // Batched until finalize() so all token-consuming transitions advance
-      // together to the same next-position pivot.
-      var nextKey = ContextKey.create(
-        action.nextState,
-        callerOrRoot,
-        frameContext.minPrecedenceLevel,
-        frameContext.predicateStack,
-        frameContext.captures,
-      );
-
-      // Deduplicate next-position frames by merging equivalent contexts.
-      var nextGroup = _nextFrameGroups[nextKey];
-      nextGroup = _nextFrameGroups[nextKey] ??= ContextGroup(
-        state: action.nextState,
-        caller: callerOrRoot,
-        minPrecedenceLevel: frameContext.minPrecedenceLevel,
-        predicateStack: frameContext.predicateStack,
-        captures: frameContext.captures,
-      );
-
-      // Merge the derivation path and marks into the group.
-      nextGroup.marks.add(newMarks);
+      // BATTERIZED next-position fast path calculation
+      if (frameContext.predicateStack.isEmpty &&
+          frameContext.captures.isEmpty &&
+          frameContext.callStart == null &&
+          frameContext.arguments.isEmpty) {
+        var packedId =
+            (frameContext.caller.uid << 32) |
+            (action.nextState.id << 8) |
+            (frameContext.minPrecedenceLevel ?? 0xFF);
+        var nextGroup = _nextFrameGroupsInt[packedId];
+        if (nextGroup != null) {
+          nextGroup.addMarks(newMarks);
+        } else {
+          _nextFrameGroupsInt[packedId] = ContextGroup(
+            action.nextState,
+            frameContext.copyWith(pivot: position + 1),
+          )..addMarks(newMarks);
+        }
+      } else {
+        var complexKey = ComplexContextKey(
+          action.nextState,
+          frameContext.copyWith(pivot: position + 1),
+        );
+        var nextGroup = _nextFrameGroupsComplex[complexKey];
+        if (nextGroup != null) {
+          nextGroup.addMarks(newMarks);
+        } else {
+          _nextFrameGroupsComplex[complexKey] = ContextGroup(
+            action.nextState,
+            frameContext.copyWith(pivot: position + 1),
+          )..addMarks(newMarks);
+        }
+      }
     }
   }
 
@@ -936,83 +996,80 @@ class Step {
     // or end-of-input (token is null).
     var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
     if (isMatch) {
-      _enqueue(
-        action.nextState,
-        frameContext.withMarks(frame.context.marks),
-        source: source,
-        action: action,
-      );
+      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
     }
   }
 
   /// Handle [ParameterStringAction]: consume a specific code unit.
   void _processParameterStringAction(Frame frame, State state, ParameterStringAction action) {
     var frameContext = frame.context;
-    var callerOrRoot = frameContext.caller;
     var token = _getTokenFor(frame);
 
     if (token != null && token == action.codeUnit) {
-      var newMarks = frame.context.marks;
+      var newMarks = frame.marks;
       if (captureTokensAsMarks) {
         newMarks = newMarks.add(StringMark(String.fromCharCode(action.codeUnit), position));
       }
 
-      var nextKey = ContextKey.create(
-        action.nextState,
-        callerOrRoot,
-        frameContext.minPrecedenceLevel,
-        frameContext.predicateStack,
-        frameContext.captures,
-      );
-
-      var nextGroup = _nextFrameGroups[nextKey];
-      if (nextGroup != null) {
-        GlushProfiler.incrementHit("parser.context.dedup");
+      // BATTERIZED next-position fast path calculation
+      if (frameContext.predicateStack.isEmpty &&
+          frameContext.captures.isEmpty &&
+          frameContext.callStart == null &&
+          frameContext.arguments.isEmpty) {
+        var packedId =
+            (frameContext.caller.uid << 32) |
+            (action.nextState.id << 8) |
+            (frameContext.minPrecedenceLevel ?? 0xFF);
+        var nextGroup = _nextFrameGroupsInt[packedId];
+        if (nextGroup != null) {
+          GlushProfiler.incrementHit("parser.context.dedup");
+        } else {
+          GlushProfiler.incrementMiss("parser.context.dedup");
+          nextGroup = _nextFrameGroupsInt[packedId] = ContextGroup(
+            action.nextState,
+            frameContext.copyWith(pivot: position + 1),
+          );
+        }
+        nextGroup.addMarks(newMarks);
       } else {
-        GlushProfiler.incrementMiss("parser.context.dedup");
-        nextGroup = _nextFrameGroups[nextKey] = ContextGroup(
-          state: action.nextState,
-          caller: callerOrRoot,
-          minPrecedenceLevel: frameContext.minPrecedenceLevel,
-          predicateStack: frameContext.predicateStack,
-          captures: frameContext.captures,
+        var complexKey = ComplexContextKey(
+          action.nextState,
+          frameContext.copyWith(pivot: position + 1),
         );
+        var nextGroup = _nextFrameGroupsComplex[complexKey];
+        if (nextGroup != null) {
+          GlushProfiler.incrementHit("parser.context.dedup");
+        } else {
+          GlushProfiler.incrementMiss("parser.context.dedup");
+          nextGroup = _nextFrameGroupsComplex[complexKey] = ContextGroup(
+            action.nextState,
+            frameContext.copyWith(pivot: position + 1),
+          );
+        }
+        nextGroup.addMarks(newMarks);
       }
-      nextGroup.marks.add(newMarks);
     }
   }
 
   /// Handle [MarkAction]: emit a named mark at the current position.
   void _processMarkAction(Frame frame, State state, MarkAction action) {
     var frameContext = frame.context;
-    var callerOrRoot = frameContext.caller;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
     // Emit a named mark at the current position.
     // Used for user-defined annotations.
     var mark = NamedMark(action.name, position);
-    _enqueue(
-      action.nextState,
-      frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
-      source: source,
-      action: action,
-    );
+    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
   }
 
   /// Handle [LabelStartAction]: begin a labeled capture group.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
     var frameContext = frame.context;
-    var callerOrRoot = frameContext.caller;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
     // Begin a labelled span (capture start).
     var mark = LabelStartMark(action.name, position);
-    _enqueue(
-      action.nextState,
-      frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
-      source: source,
-      action: action,
-    );
+    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
   }
 
   /// Handle [LabelEndAction]: end a labeled capture group.
@@ -1023,12 +1080,7 @@ class Step {
     // End a labelled span (capture end).
     // This allows the parser to extract the text covered by the label.
     var mark = LabelEndMark(action.name, position);
-    _enqueue(
-      action.nextState,
-      frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
-      source: source,
-      action: action,
-    );
+    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
   }
 
   /// Handle [BackreferenceAction]: create an expanding mark for backref.
@@ -1037,12 +1089,7 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
     var mark = ExpandingMark(action.name, position);
-    _enqueue(
-      action.nextState,
-      frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
-      source: source,
-      action: action,
-    );
+    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
   }
 
   /// Handle [PredicateAction]: lookahead predicate (&pattern or !pattern).
@@ -1083,6 +1130,7 @@ class Step {
         _resumeLaggedPredicateContinuation(
           source: source,
           parentContext: frame.context,
+          parentMarks: frame.marks,
           nextState: action.nextState,
           isAnd: action.isAnd,
           symbol: action.symbol,
@@ -1093,7 +1141,7 @@ class Step {
 
     if (!tracker.exhausted) {
       // Still active; park continuation to catch future (potentially longer) matches.
-      tracker.waiters.add((source, frameContext, action.nextState));
+      tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
 
       var predicateKey = frameContext.predicateStack.lastOrNull;
       if (predicateKey != null) {
@@ -1107,6 +1155,7 @@ class Step {
         _resumeLaggedPredicateContinuation(
           source: source,
           parentContext: frame.context,
+          parentMarks: frame.marks,
           nextState: action.nextState,
           isAnd: action.isAnd,
           symbol: action.symbol,
@@ -1138,7 +1187,7 @@ class Step {
     );
 
     // Park the continuation until both sides meet at the same end position.
-    var waiter = (source, frameContext, action.nextState);
+    var waiter = (source, frameContext, action.nextState, frame.marks);
     tracker.waiters.add(waiter);
 
     // Rendezvous logic: if results are already available for both sides
@@ -1181,6 +1230,7 @@ class Step {
         _resumeLaggedPredicateContinuation(
           source: source,
           parentContext: frame.context,
+          parentMarks: frame.marks,
           nextState: action.nextState,
           isAnd: true,
           symbol: action.symbol,
@@ -1188,7 +1238,7 @@ class Step {
         );
       } else if (!tracker.hasWaiterAt(targetJ)) {
         // Result unknown; park until sub-parse settles for this j.
-        tracker.addWaiter(targetJ, (frameContext, action.nextState));
+        tracker.addWaiter(targetJ, (frameContext, action.nextState, frame.marks));
       }
     } else {
       // Unconstrained negation: resume at EVERY position the sub-parse
@@ -1197,11 +1247,13 @@ class Step {
         // Sub-parse already done — fire for all non-matched visited positions.
         for (var j in tracker.visitedPositions) {
           if (!tracker.matchedPositions.contains(j)) {
-            requeue(Frame(frameContext.copyWith(pivot: j))..nextStates.add(action.nextState));
+            requeue(
+              Frame(frameContext.copyWith(pivot: j), frame.marks)..nextStates.add(action.nextState),
+            );
           }
         }
       } else {
-        tracker.unconstrainedWaiters.add((frameContext, action.nextState));
+        tracker.unconstrainedWaiters.add((frameContext, action.nextState, frame.marks));
       }
     }
 
@@ -1237,7 +1289,6 @@ class Step {
   /// Handle [ParameterAction]: dynamic parameter reference ($paramName).
   void _processParameterAction(Frame frame, State state, ParameterAction action) {
     var frameContext = frame.context;
-    var callerOrRoot = frameContext.caller;
     var token = _getTokenFor(frame);
     var source = ParseNodeKey(state.id, position, frameContext.caller);
     // Dynamic parameter reference ($paramName).
@@ -1253,12 +1304,7 @@ class Step {
         // String parameters are materialized as virtual input tokens.
         if (text.isEmpty) {
           // Epsilon transition if the string is empty.
-          _enqueue(
-            action.nextState,
-            frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-            source: source,
-            action: action,
-          );
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
           return;
         }
         // Redirect to a synthetic state machine that consumes the string.
@@ -1266,12 +1312,7 @@ class Step {
           text,
           action.nextState,
         );
-        _enqueue(
-          entryState,
-          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-          source: source,
-          action: action,
-        );
+        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
         return;
       case CaptureValue captureValue:
         // Data captured from a label can also be used as a parameter.
@@ -1279,12 +1320,7 @@ class Step {
           captureValue.value,
           action.nextState,
         );
-        _enqueue(
-          entryState,
-          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-          source: source,
-          action: action,
-        );
+        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
       case RuleCall callValue:
         // Parameter resolves to a rule call: expansion occurs at the current position.
         var resolvedCall = _resolveCallArguments(callValue, frame);
@@ -1316,21 +1352,11 @@ class Step {
         );
       case Eps():
         // Parameter as epsilon transition.
-        _enqueue(
-          action.nextState,
-          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-          source: source,
-          action: action,
-        );
+        _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
       case Pattern pattern when pattern.singleToken():
         // Parameter as a single-token pattern (e.g. char ranges).
         if (token != null && pattern.match(token)) {
-          _enqueue(
-            action.nextState,
-            frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-            source: source,
-            action: action,
-          );
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
         }
       case Pattern pattern:
         throw UnsupportedError(
@@ -1433,6 +1459,7 @@ class Step {
             _resumeLaggedPredicateContinuation(
               source: source,
               parentContext: frame.context,
+              parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
               symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
@@ -1455,6 +1482,7 @@ class Step {
             _resumeLaggedPredicateContinuation(
               source: source,
               parentContext: frame.context,
+              parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
               symbol: predicateSymbol,
@@ -1466,6 +1494,7 @@ class Step {
             _resumeLaggedPredicateContinuation(
               source: source,
               parentContext: frame.context,
+              parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
               symbol: predicateSymbol,
@@ -1473,7 +1502,7 @@ class Step {
             );
           }
         } else {
-          tracker.waiters.add((source, frameContext, action.nextState));
+          tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
           var predicateKey = frameContext.predicateStack.lastOrNull;
           if (predicateKey != null) {
             var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
@@ -1521,6 +1550,7 @@ class Step {
             _resumeLaggedPredicateContinuation(
               source: source,
               parentContext: frame.context,
+              parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
               symbol: symbol,
@@ -1530,7 +1560,7 @@ class Step {
         }
 
         if (!tracker.exhausted) {
-          tracker.waiters.add((source, frameContext, action.nextState));
+          tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
           var predicateKey = frameContext.predicateStack.lastOrNull;
           if (predicateKey != null) {
             var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
@@ -1542,6 +1572,7 @@ class Step {
             _resumeLaggedPredicateContinuation(
               source: source,
               parentContext: frame.context,
+              parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
               symbol: symbol,
@@ -1558,6 +1589,7 @@ class Step {
           _resumeLaggedPredicateContinuation(
             source: source,
             parentContext: frame.context,
+            parentMarks: frame.marks,
             nextState: action.nextState,
             isAnd: action.isAnd,
             symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
@@ -1570,6 +1602,7 @@ class Step {
           _resumeLaggedPredicateContinuation(
             source: source,
             parentContext: frame.context,
+            parentMarks: frame.marks,
             nextState: action.nextState,
             isAnd: action.isAnd,
             symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}"),
@@ -1584,6 +1617,7 @@ class Step {
   }
 
   /// Handle [TailCallAction]: tail-call optimized recursion.
+  /// Uses direct trampolining to avoid queue overhead for recursive chains.
   void _processTailCallAction(Frame frame, State state, TailCallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
@@ -1599,16 +1633,94 @@ class Step {
       return;
     }
     // Tail-call optimized recursion re-enters the rule without allocating
-    // a fresh caller node. The enclosing return is unchanged, so the
-    // current caller context can be reused as a simple loop back-edge.
+    // a fresh caller node. Use direct trampolining to avoid queue overhead.
     var firstState = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!];
     if (firstState != null) {
-      _enqueue(
-        firstState,
-        frame.context.copyWith(pivot: position, minPrecedenceLevel: action.minPrecedenceLevel),
-        source: source,
-        action: action,
+      var tailContext = frame.context.copyWith(
+        pivot: position,
+        minPrecedenceLevel: action.minPrecedenceLevel,
+        arguments: resolvedCall.arguments,
       );
+      // Enter tail-call trampoline loop to process recursive chain directly
+      _tailCallTrampoline(firstState, tailContext, frame.marks, source, action);
+    }
+  }
+
+  /// Direct trampoline loop for tail calls.
+  ///
+  /// Processes tail calls in a loop without queue overhead, enabling efficient
+  /// left-recursive and right-recursive parsing without stack growth or frame allocation.
+  ///
+  /// This replaces work-queue dequeue/enqueue for recursive chains, improving
+  /// performance for deep recursion patterns.
+  void _tailCallTrampoline(
+    State currentState,
+    Context currentContext,
+    GlushList<Mark> currentMarks,
+    ParseNodeKey source,
+    StateAction action,
+  ) {
+    var state = currentState;
+    var context = currentContext;
+    var marks = currentMarks;
+
+    // Keep processing states in a loop until we hit a non-tail action
+    while (true) {
+      // Check for any non-tail actions that require work queue or deferred processing
+      bool hasTailOnlyPath = true;
+      TailCallAction? nextTailCall;
+
+      for (var stateAction in state.actions) {
+        if (stateAction case TailCallAction tailCall) {
+          // Store potential tail call but check if there are other actions
+          nextTailCall = tailCall;
+        } else {
+          // Any non-tail action means we need to exit trampoline and queue for normal processing
+          hasTailOnlyPath = false;
+          break;
+        }
+      }
+
+      // If we found a pure tail call path, try to jump to next recursion level
+      if (hasTailOnlyPath && nextTailCall != null && state.actions.length == 1) {
+        // Single tail call action - jump to it directly
+        var tailCall = nextTailCall;
+        var resolvedCall = _resolveCallArguments(
+          tailCall.pattern as RuleCall,
+          Frame(context, marks),
+        );
+
+        // Validate guard for the tail call
+        if (!_ruleGuardPasses(
+          tailCall.rule,
+          Frame(context, marks),
+          arguments: resolvedCall.arguments,
+          argumentsKey: resolvedCall.key,
+        )) {
+          return;
+        }
+
+        // Jump to the tail-called rule's entry state
+        var nextFirstState = parseState.parser.stateMachine.ruleFirst[tailCall.rule.symbolId!];
+        if (nextFirstState == null) {
+          return;
+        }
+
+        // Update state and context for next iteration
+        state = nextFirstState;
+        context = context.copyWith(
+          pivot: position,
+          minPrecedenceLevel: tailCall.minPrecedenceLevel,
+        );
+        // marks remain the same as tail calls don't consume tokens or emit marks themselves
+        // (they just loop back)
+        GlushProfiler.increment("parser.tail_call.trampoline_hop");
+        continue; // Loop back to process next state
+      }
+
+      // Exit trampoline: process normally via work queue
+      _enqueue(state, context, marks, source: source, action: action);
+      return;
     }
   }
 
@@ -1644,7 +1756,7 @@ class Step {
       tracker.longestMatch = position;
       tracker.matched = true;
 
-      for (var (source, parentContext, nextState) in tracker.waiters) {
+      for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
         var predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
           var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
@@ -1660,6 +1772,7 @@ class Step {
           _resumeLaggedPredicateContinuation(
             source: source,
             parentContext: parentContext,
+            parentMarks: parentMarks,
             nextState: nextState,
             isAnd: tracker.isAnd,
             symbol: tracker.symbol,
@@ -1672,7 +1785,7 @@ class Step {
       var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
       var tracker = parseState.conjunctionTrackers[key];
       if (tracker != null) {
-        _finishConjunction(tracker, position, caller.isLeft, frame.context.marks);
+        _finishConjunction(tracker, position, caller.isLeft, frame.marks);
       }
       return;
     }
@@ -1700,16 +1813,19 @@ class Step {
       // Only rule-call callers memoize and replay return contexts.
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       // Replay to waiters only when this return context is newly added.
-      if (caller.addReturn(returnContext)) {
+      if (caller.addReturn(returnContext, frame.marks)) {
         // Newly discovered return context fan-outs to all queued waiters.
-        for (var (nextState, minPrecedence, parentContext, callSite) in caller.waiters) {
+        for (var (nextState, minPrecedence, parentContext, parentMarks, callSite)
+            in caller.waiters) {
           _triggerReturn(
             caller,
             parentContext.caller,
             nextState,
             minPrecedence,
             parentContext,
+            parentMarks.value,
             returnContext,
+            frame.marks,
             source: ParseNodeKey(state.id, position, caller),
             action: action,
             callSite: callSite,
@@ -1721,6 +1837,11 @@ class Step {
 
   /// Handle [AcceptAction]: mark parse as accepted.
   void _processAcceptAction(Frame frame) {
-    acceptedContexts.add(frame.context);
+    var previousMarks = acceptedContexts[frame.context];
+    if (previousMarks != null) {
+      acceptedContexts[frame.context] = GlushList.branched(previousMarks, frame.marks);
+    } else {
+      acceptedContexts[frame.context] = frame.marks;
+    }
   }
 }

@@ -12,26 +12,22 @@ sealed class CallerCacheKey {
   ) {
     if (callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty) {
       // Bit-pack: StartPos (31) | RuleUID (24) | MinPrec (8)
-      // Use 32-bit shift for position to avoid overlap with 24-bit rule ID.
-      return IntCallerCacheKey(
-        (startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF),
-      );
+      return IntCallerCacheKey((startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF));
     }
     return ComplexCallerCacheKey(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
   }
 }
 
+@immutable
 final class IntCallerCacheKey implements CallerCacheKey {
-  IntCallerCacheKey(this.value) : _hash = Object.hash(IntCallerCacheKey, value);
-  final int value;
-  final int _hash;
+  const IntCallerCacheKey(this.id);
+  final int id;
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is IntCallerCacheKey && value == other.value;
+  bool operator ==(Object other) => other is IntCallerCacheKey && id == other.id;
 
   @override
-  int get hashCode => _hash;
+  int get hashCode => id;
 }
 
 @immutable

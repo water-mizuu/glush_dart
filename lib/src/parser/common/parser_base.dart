@@ -1,6 +1,8 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "dart:collection";
 
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/common/action_key.dart";
 import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
@@ -50,7 +52,7 @@ abstract base class GlushParserBase implements GlushParser {
         if (!tracker.exhausted && tracker.canResolveFalse) {
           // No live branches remain, so the predicate failed (success for NOT).
           tracker.exhausted = true;
-          for (var (_, parentContext, nextState) in tracker.waiters) {
+          for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
             var predicateKey = parentContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
               var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
@@ -63,13 +65,12 @@ abstract base class GlushParserBase implements GlushParser {
 
             if (!tracker.isAnd) {
               var targetPosition = parentContext.pivot ?? 0;
-              var nextFrame = Frame(parentContext)..nextStates.add(nextState);
+              var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
               if (parentContext.predicateStack.lastOrNull case var pk?) {
                 var key = PredicateKey(pk.pattern, pk.startPosition);
                 var parentTracker = parseState.predicateTrackers[key];
                 if (parentTracker != null) {
                   parentTracker.addPendingFrame();
-                  changed = true;
                 }
               }
               workQueue.addFrame(targetPosition, nextFrame);
@@ -90,8 +91,14 @@ abstract base class GlushParserBase implements GlushParser {
   }
 
   /// Helper to enqueue a frame at a specific future position.
-  void _enqueueAt(_PositionWorkQueue workQueue, int position, State state, Context context) {
-    var frame = Frame(context)..nextStates.add(state);
+  void _enqueueAt(
+    _PositionWorkQueue workQueue,
+    int position,
+    State state,
+    Context context,
+    GlushList<Mark> marks,
+  ) {
+    var frame = Frame(context, marks)..nextStates.add(state);
     workQueue.addFrame(position, frame);
   }
 
@@ -110,8 +117,8 @@ abstract base class GlushParserBase implements GlushParser {
         for (var MapEntry(key: j, value: waiters) in tracker.waiters.entries) {
           if (!tracker.matchedPositions.contains(j)) {
             // Surviving waiter! Resume at j.
-            for (var (context, nextState) in waiters) {
-              _enqueueAt(workQueue, j, nextState, context);
+            for (var (context, nextState, marks) in waiters) {
+              _enqueueAt(workQueue, j, nextState, context, marks);
             }
           }
         }
@@ -123,8 +130,11 @@ abstract base class GlushParserBase implements GlushParser {
         if (tracker.unconstrainedWaiters.isNotEmpty) {
           for (var j in tracker.visitedPositions) {
             if (!tracker.matchedPositions.contains(j)) {
-              for (var (context, nextState) in tracker.unconstrainedWaiters) {
-                workQueue.addFrame(j, Frame(context.copyWith(pivot: j))..nextStates.add(nextState));
+              for (var (context, nextState, marks) in tracker.unconstrainedWaiters) {
+                workQueue.addFrame(
+                  j,
+                  Frame(context.copyWith(pivot: j), marks)..nextStates.add(nextState),
+                );
               }
             }
           }

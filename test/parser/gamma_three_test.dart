@@ -25,4 +25,27 @@ void main() {
     // ssss should have 11 parse trees
     expect(derivations.length, equals(11));
   });
+
+  test("ambiguous gamma 3: S = S c c | .", () {
+    var parser =
+        r"""
+      V = value:(.) S(value)
+      S(v) = $2 S(v) S(v)
+           | $1 v
+      """
+            .toSMParser();
+
+    const testInput = "bbbbbb";
+    var result = parser.parseAmbiguous(testInput);
+    expect(result, isA<ParseAmbiguousSuccess>());
+    var derivations = result.ambiguousSuccess()!.forest.allPaths().toList();
+
+    var evaluator = Evaluator({
+      "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
+      "S.1": (ctx) => ".",
+    });
+    for (var derivation in derivations) {
+      print(evaluator.evaluate(derivation.evaluateStructure()));
+    }
+  });
 }

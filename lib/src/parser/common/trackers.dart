@@ -9,7 +9,7 @@ import "package:glush/src/parser/common/state_machine.dart";
 ///
 /// Contains the derivation source, the parent context to resume in,
 /// and the next state to transition to.
-typedef Waiter = (ParseNodeKey?, Context, State);
+typedef Waiter = (ParseNodeKey?, Context, State, GlushList<Mark>);
 
 /// Tracks one lookahead sub-parse for a specific `(pattern, startPosition)`.
 ///
@@ -101,14 +101,14 @@ class NegationTracker {
   final Set<int> visitedPositions = <int>{};
 
   /// Map of end positions j to waiters that should resume if A does NOT match j.
-  final Map<int, List<(Context, State)>> waiters = {};
+  final Map<int, List<(Context, State, GlushList<Mark>)>> waiters = {};
 
   /// Waiters with no specific target j — fire at every visited position
   /// that A did NOT match.
-  final List<(Context, State)> unconstrainedWaiters = [];
+  final List<(Context, State, GlushList<Mark>)> unconstrainedWaiters = [];
 
   /// Add a waiter for a specific end position.
-  void addWaiter(int endPosition, (Context, State) waiter) {
+  void addWaiter(int endPosition, (Context, State, GlushList<Mark>) waiter) {
     (waiters[endPosition] ??= []).add(waiter);
   }
 

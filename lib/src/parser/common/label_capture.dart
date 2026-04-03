@@ -172,4 +172,19 @@ final class CaptureBindings {
     GlushProfiler.increment("parser.bindings.signature_cache_assign");
     return sig;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CaptureBindings && hashCode == other.hashCode && signature == other.signature;
+
+  static final Expando<int> _hashes = Expando();
+  @override
+  int get hashCode {
+    var h = _hashes[this];
+    if (h != null) {
+      return h;
+    }
+    return _hashes[this] = signature.hashCode;
+  }
 }
