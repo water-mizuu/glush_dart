@@ -11,7 +11,6 @@ import "package:glush/src/parser/common/caller_cache_key.dart";
 import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/context_key.dart";
-import "package:glush/src/parser/common/derivation_key.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/guard_cache_key.dart";
 import "package:glush/src/parser/common/label_capture.dart";
@@ -144,22 +143,10 @@ class Step {
     // at the same span. This captures all combinations of parallel marks.
     var conjunctionResult = GlushList.conjunction(left, right);
 
-    for (var (source, parentContext, nextState) in targetWaiters) {
+    for (var (_, parentContext, nextState) in targetWaiters) {
       // Add the parallel result to the parent marks.
       var nextMarks = parentContext.marks.addList(conjunctionResult);
       var nextContext = parentContext.copyWith(pivot: endPosition, marks: nextMarks);
-
-      if (isSupportingAmbiguity && source != null) {
-        // Record the conjunction completion in the derivation path
-        var nextPath = parentContext.derivationPath.add(
-          DerivationKey(
-            source,
-            const ConjunctionBranchKey(), // Special marker for conjunction completion
-            null,
-          ),
-        );
-        nextContext = nextContext.copyWith(derivationPath: nextPath);
-      }
 
       requeue(Frame(nextContext)..nextStates.add(nextState));
     }
@@ -179,13 +166,6 @@ class Step {
     BranchKey? branchKey,
   }) {
     var nextContext = parentContext;
-    if (isSupportingAmbiguity && source != null) {
-      var nextBranchKey =
-          branchKey ??
-          ActionBranchKey(PredicateAction(isAnd: isAnd, symbol: symbol, nextState: nextState));
-      var nextPath = parentContext.derivationPath.add(DerivationKey(source, nextBranchKey, null));
-      nextContext = parentContext.copyWith(derivationPath: nextPath);
-    }
 
     parseState.tracer.onMessage("Predicate matched: $symbol (AND: $isAnd)");
 
@@ -526,7 +506,6 @@ class Step {
             const GlushList<Mark>.empty(),
             captures: frame.context.captures,
             predicateStack: frame.context.predicateStack,
-            bsrRuleSymbol: targetRule.symbolId,
             callStart: position,
             pivot: position,
             minPrecedenceLevel: minPrecedenceLevel,
@@ -589,17 +568,10 @@ class Step {
     Context context, {
     ParseNodeKey? source,
     StateAction? action,
-    BranchKey? branchKey,
     ParseNodeKey? callSite,
   }) {
     GlushProfiler.increment("parser.enqueue.calls");
     var nextContext = context;
-    if (isSupportingAmbiguity && source != null) {
-      var nextBranchKey =
-          branchKey ?? (action != null ? ActionBranchKey(action) : StateBranchKey(state));
-      var nextPath = context.derivationPath.add(DerivationKey(source, nextBranchKey, callSite));
-      nextContext = context.copyWith(derivationPath: nextPath);
-    }
 
     var targetPosition = nextContext.pivot ?? 0;
     // Queue cross-position work instead of mixing pivots in this step.
@@ -626,16 +598,10 @@ class Step {
       // do not blend unrelated label paths together.
       var existing = _currentFrameGroups[key];
       if (existing != null) {
-        // Merge marks and derivation paths if they differ.
+        // Merge marks if they differ.
         var nextMarks = GlushList.branched(existing.marks, nextContext.marks);
-        var nextDerivation = identical(existing.derivationPath, nextContext.derivationPath)
-            ? existing.derivationPath
-            : GlushList.branched(existing.derivationPath, nextContext.derivationPath);
 
-        _currentFrameGroups[key] = nextContext.copyWith(
-          marks: nextMarks,
-          derivationPath: nextDerivation,
-        );
+        _currentFrameGroups[key] = nextContext.copyWith(marks: nextMarks);
         GlushProfiler.increment("parser.enqueue.merged");
         return;
       }
@@ -668,779 +634,44 @@ class Step {
   /// are enqueued immediately. This split avoids interleaving same-position
   /// closure with next-position work.
   void _process(Frame frame, State state) {
-    var frameContext = frame.context;
     // Iterate over all possible actions originating from the current state.
     for (var action in state.actions) {
       parseState.tracer.onAction(action, "processing");
-      // Source node for SPPF forest reconstruction.
-      var source = ParseNodeKey(state.id, position, frameContext.caller);
-      var callerOrRoot = frame.context.caller;
       switch (action) {
         case TokenAction():
-          var token = _getTokenFor(frame);
-          // Token actions fire only when an input token matches the expected pattern.
-          if (token != null && action.pattern.match(token)) {
-            var newMarks = frame.context.marks;
-            var pattern = action.pattern;
-
-            // Terminal capture logic: some patterns (like literal strings)
-            // naturally want to be captured as marks.
-            var shouldCapture =
-                captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
-
-            // Capture policy controls whether consumed chars become human-readable StringMarks.
-            if (shouldCapture) {
-              newMarks = newMarks.add(StringMark(String.fromCharCode(token), position));
-            }
-
-            // Batched until finalize() so all token-consuming transitions advance
-            // together to the same next-position pivot.
-            var nextKey = ContextKey.create(
-              action.nextState,
-              callerOrRoot,
-              frameContext.minPrecedenceLevel,
-              frameContext.predicateStack,
-              frameContext.captures,
-            );
-
-            // Deduplicate next-position frames by merging equivalent contexts.
-            var nextGroup = _nextFrameGroups[nextKey];
-            nextGroup = _nextFrameGroups[nextKey] ??= ContextGroup(
-              state: action.nextState,
-              caller: callerOrRoot,
-              minPrecedenceLevel: frameContext.minPrecedenceLevel,
-              predicateStack: frameContext.predicateStack,
-              captures: frameContext.captures,
-            );
-
-            // Merge the derivation path and marks into the group.
-            nextGroup.marks.add(newMarks);
-            if (isSupportingAmbiguity) {
-              nextGroup.derivationPaths.add(frameContext.derivationPath);
-            }
-          }
+          _processTokenAction(frame, state, action);
         case BoundaryAction():
-          // Boundary actions match either the start-of-input (position 0)
-          // or end-of-input (token is null).
-          var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
-          if (isMatch) {
-            _enqueue(
-              action.nextState,
-              frameContext.withMarks(frame.context.marks),
-              source: source,
-              action: action,
-            );
-          }
+          _processBoundaryAction(frame, state, action);
         case ParameterStringAction():
-          var token = _getTokenFor(frame);
-          if (token != null && token == action.codeUnit) {
-            var newMarks = frame.context.marks;
-            if (captureTokensAsMarks) {
-              newMarks = newMarks.add(StringMark(String.fromCharCode(action.codeUnit), position));
-            }
-
-            var nextKey = ContextKey.create(
-              action.nextState,
-              callerOrRoot,
-              frameContext.minPrecedenceLevel,
-              frameContext.predicateStack,
-              frameContext.captures,
-            );
-
-            var nextGroup = _nextFrameGroups[nextKey];
-            if (nextGroup != null) {
-              GlushProfiler.incrementHit("parser.context.dedup");
-            } else {
-              GlushProfiler.incrementMiss("parser.context.dedup");
-              nextGroup = _nextFrameGroups[nextKey] = ContextGroup(
-                state: action.nextState,
-                caller: callerOrRoot,
-                minPrecedenceLevel: frameContext.minPrecedenceLevel,
-                predicateStack: frameContext.predicateStack,
-                captures: frameContext.captures,
-              );
-            }
-            nextGroup.marks.add(newMarks);
-            if (isSupportingAmbiguity) {
-              nextGroup.derivationPaths.add(frameContext.derivationPath);
-            }
-          }
+          _processParameterStringAction(frame, state, action);
         case MarkAction():
-          // Emit a named mark at the current position.
-          // Used for user-defined annotations.
-          var mark = NamedMark(action.name, position);
-          _enqueue(
-            action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
-            source: source,
-            action: action,
-          );
+          _processMarkAction(frame, state, action);
         case LabelStartAction():
-          // Begin a labelled span (capture start).
-          var mark = LabelStartMark(action.name, position);
-          _enqueue(
-            action.nextState,
-            frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
-            source: source,
-            action: action,
-          );
+          _processLabelStartAction(frame, state, action);
         case LabelEndAction():
-          // End a labelled span (capture end).
-          // This allows the parser to extract the text covered by the label.
-          var mark = LabelEndMark(action.name, position);
-          _enqueue(
-            action.nextState,
-            frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
-            source: source,
-            action: action,
-          );
+          _processLabelEndAction(frame, state, action);
         case BackreferenceAction():
-          var mark = ExpandingMark(action.name, position);
-          _enqueue(
-            action.nextState,
-            frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
-            source: source,
-            action: action,
-          );
+          _processBackreferenceAction(frame, state, action);
         case PredicateAction():
-          // Lookahead predicate (&pattern or !pattern).
-          // Spawns a sub-parse that must complete before this path can continue.
-          var symbol = action.symbol;
-          var subParseKey = PredicateKey(symbol, position);
-          var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
-
-          // Use a tracker to coordinate results from the sub-parse.
-          var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
-            symbol,
-            position,
-            isAnd: action.isAnd,
-          );
-
-          assert(
-            tracker.symbol == symbol && tracker.startPosition == position,
-            "Invariant violation in PredicateAction: tracker key and payload diverged.",
-          );
-          assert(
-            tracker.isAnd == action.isAnd,
-            "Invariant violation in PredicateAction: mixed AND/NOT trackers share "
-            "the same (symbol,position) key.",
-          );
-
-          // A predicate may be re-entered after it has already matched.
-          // The tracker has three states:
-          // - matched: AND can resume, NOT cannot
-          // - unresolved: park this continuation and wait for completion
-          // - exhausted false: NOT may resume once all pending branches drain
-          if (tracker.matched) {
-            // AND can resume once with the current results.
-            if (tracker.isAnd) {
-              _resumeLaggedPredicateContinuation(
-                source: source,
-                parentContext: frame.context,
-                nextState: action.nextState,
-                isAnd: action.isAnd,
-                symbol: action.symbol,
-                branchKey: ActionBranchKey(action),
-              );
-            }
-          }
-
-          if (!tracker.exhausted) {
-            // Still active; park continuation to catch future (potentially longer) matches.
-            tracker.waiters.add((source, frameContext, action.nextState));
-
-            var predicateKey = frameContext.predicateStack.lastOrNull;
-            if (predicateKey != null) {
-              // Register dependency: the parent predicate depends on this child's completion.
-              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-              parseState.predicateTrackers[key]?.addPendingFrame();
-            }
-          } else if (tracker.canResolveFalse) {
-            // The sub-parse already exhausted without matching; NOT waiters resume.
-            if (!tracker.isAnd) {
-              _resumeLaggedPredicateContinuation(
-                source: source,
-                parentContext: frame.context,
-                nextState: action.nextState,
-                isAnd: action.isAnd,
-                symbol: action.symbol,
-                branchKey: ActionBranchKey(action),
-              );
-            }
-          }
-
-          // Seed the sub-parse if this is the first time we've reached this predicate.
-          if (isFirst && !tracker.matched && !tracker.exhausted) {
-            _spawnPredicateSubparse(symbol, frame);
-          }
+          _processPredicateAction(frame, state, action);
         case ConjunctionAction():
-          // Intersection rule (A & B).
-          // Both side A and side B are run independently from the same position.
-          var left = action.leftSymbol;
-          var right = action.rightSymbol;
-          var key = ConjunctionKey(left, right, position);
-          var isFirst = !parseState.conjunctionTrackers.containsKey(key);
-          var tracker = parseState.conjunctionTrackers[key] ??= ConjunctionTracker(
-            leftSymbol: left,
-            rightSymbol: right,
-            startPosition: position,
-          );
-
-          // Park the continuation until both sides meet at the same end position.
-          var waiter = (source, frameContext, action.nextState);
-          tracker.waiters.add(waiter);
-
-          // Rendezvous logic: if results are already available for both sides
-          // at some position J, resume the waiter immediately.
-          for (var j in tracker.leftCompletions.keys) {
-            if (tracker.rightCompletions.containsKey(j)) {
-              var lefts = tracker.leftCompletions[j]!;
-              var rights = tracker.rightCompletions[j]!;
-              for (var left in lefts) {
-                for (var right in rights) {
-                  _triggerConjunctionReturn(tracker, j, left, right, [waiter]);
-                }
-              }
-            }
-          }
-
-          if (isFirst) {
-            _spawnConjunctionSubparse(left, right, frame);
-          }
+          _processConjunctionAction(frame, state, action);
         case NegationAction():
-          // Negative lookahead (!pattern).
-          // Continues only if the sub-parse fails to match a given span.
-          var symbol = action.symbol;
-          var key = NegationKey(symbol, position);
-          var isFirst = !parseState.negationTrackers.containsKey(key);
-          var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
-
-          // Probing: If a pivot is already set, we check if [start, pivot] matches.
-          var targetJ = frame.context.pivot;
-          if (targetJ != null) {
-            if (tracker.matchedPositions.contains(targetJ)) {
-              // The sub-parse already matched this specific span, so negation fails.
-            } else if (tracker.isExhausted) {
-              // The child sub-parse is done and did NOT match targetJ; negation succeeds.
-              _resumeLaggedPredicateContinuation(
-                source: source,
-                parentContext: frame.context,
-                nextState: action.nextState,
-                isAnd: true,
-                symbol: action.symbol,
-                branchKey: ActionBranchKey(action),
-              );
-            } else if (!tracker.hasWaiterAt(targetJ)) {
-              // Result unknown; park until sub-parse settles for this j.
-              tracker.addWaiter(targetJ, (frameContext, action.nextState));
-            }
-          } else {
-            // Unconstrained negation: resume at EVERY position the sub-parse
-            // visited where A did NOT produce a match.
-            if (tracker.isExhausted) {
-              // Sub-parse already done — fire for all non-matched visited positions.
-              for (var j in tracker.visitedPositions) {
-                if (!tracker.matchedPositions.contains(j)) {
-                  requeue(Frame(frameContext.copyWith(pivot: j))..nextStates.add(action.nextState));
-                }
-              }
-            } else {
-              tracker.unconstrainedWaiters.add((frameContext, action.nextState));
-            }
-          }
-
-          if (isFirst) {
-            _spawnNegationSubparse(symbol, frame);
-          }
+          _processNegationAction(frame, state, action);
         case CallAction():
-          // Static rule call (GLL).
-          // Resolves arguments and initiates rule expansion via GSS.
-          Pattern callPattern = action.pattern;
-          var call = callPattern as RuleCall;
-          var resolvedCall = _resolveCallArguments(call, frame);
-
-          _seedRuleCall(
-            targetRule: action.rule,
-            callPattern: callPattern,
-            callArguments: resolvedCall.arguments,
-            callArgumentsKey: resolvedCall.key,
-            action: action,
-            returnState: action.returnState,
-            minPrecedenceLevel: action.minPrecedenceLevel,
-            frame: frame,
-            source: source,
-            currentState: state,
-          );
+          _processCallAction(frame, state, action);
         case ParameterAction():
-          // Dynamic parameter reference ($paramName).
-          // Resolves the parameter value from the caller's environment.
-          var arguments = frame.context.arguments;
-          if (!arguments.containsKey(action.name)) {
-            throw StateError("Missing argument '${action.name}' for parameter reference.");
-          }
-
-          var value = arguments[action.name];
-          switch (value) {
-            case String text:
-              // String parameters are materialized as virtual input tokens.
-              if (text.isEmpty) {
-                // Epsilon transition if the string is empty.
-                _enqueue(
-                  action.nextState,
-                  frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-                  source: source,
-                  action: action,
-                );
-                continue;
-              }
-              // Redirect to a synthetic state machine that consumes the string.
-              var entryState = parseState.parser.stateMachine.parameterStringEntry(
-                text,
-                action.nextState,
-              );
-              _enqueue(
-                entryState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-                source: source,
-                action: action,
-              );
-              continue;
-            case CaptureValue captureValue:
-              // Data captured from a label can also be used as a parameter.
-              var entryState = parseState.parser.stateMachine.parameterStringEntry(
-                captureValue.value,
-                action.nextState,
-              );
-              _enqueue(
-                entryState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-                source: source,
-                action: action,
-              );
-            case RuleCall callValue:
-              // Parameter resolves to a rule call: expansion occurs at the current position.
-              var resolvedCall = _resolveCallArguments(callValue, frame);
-              _seedRuleCall(
-                targetRule: callValue.rule,
-                callPattern: callValue,
-                callArguments: resolvedCall.arguments,
-                callArgumentsKey: resolvedCall.key,
-                action: action,
-                returnState: action.nextState,
-                minPrecedenceLevel: callValue.minPrecedenceLevel,
-                frame: frame,
-                source: source,
-                currentState: state,
-              );
-            case Rule rule:
-              // Parameter is a raw rule reference.
-              _seedRuleCall(
-                targetRule: rule,
-                callPattern: rule,
-                callArguments: const {},
-                callArgumentsKey: const EmptyCallArgumentsKey(),
-                action: action,
-                returnState: action.nextState,
-                minPrecedenceLevel: null,
-                frame: frame,
-                source: source,
-                currentState: state,
-              );
-            case Eps():
-              // Parameter as epsilon transition.
-              _enqueue(
-                action.nextState,
-                frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-                source: source,
-                action: action,
-              );
-            case Pattern pattern when pattern.singleToken():
-              // Parameter as a single-token pattern (e.g. char ranges).
-              var token = _getTokenFor(frame);
-              if (token != null && pattern.match(token)) {
-                _enqueue(
-                  action.nextState,
-                  frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
-                  source: source,
-                  action: action,
-                );
-              }
-            case Pattern pattern:
-              throw UnsupportedError(
-                "Complex parser objects used as parameters are not supported yet: ${pattern.runtimeType}",
-              );
-            default:
-              throw UnsupportedError(
-                "Unsupported parameter value for ${action.name}: ${value.runtimeType}",
-              );
-          }
+          _processParameterAction(frame, state, action);
         case ParameterCallAction():
-          // Rule call via a parameter reference ($paramName(args)).
-          // Resolves the rule and merges call-site arguments with rule-defined ones.
-          var arguments = frame.context.arguments;
-          if (!arguments.containsKey(action.pattern.name)) {
-            throw StateError("Missing argument '${action.pattern.name}' for parameter reference.");
-          }
-
-          var value = arguments[action.pattern.name];
-          switch (value) {
-            case RuleCall callValue:
-              // Merge rule-provided arguments with the dynamic call-site arguments.
-              var mergedArguments = <String, CallArgumentValue>{
-                ...callValue.arguments,
-                ...action.pattern.arguments,
-              };
-              var syntheticCall = RuleCall(
-                callValue.name,
-                callValue.rule,
-                arguments: mergedArguments,
-                minPrecedenceLevel:
-                    callValue.minPrecedenceLevel ?? action.pattern.minPrecedenceLevel,
-              );
-              var resolvedCall = _resolveCallArguments(syntheticCall, frame);
-              _seedRuleCall(
-                targetRule: syntheticCall.rule,
-                callPattern: syntheticCall,
-                callArguments: resolvedCall.arguments,
-                callArgumentsKey: resolvedCall.key,
-                action: action,
-                returnState: action.nextState,
-                minPrecedenceLevel: syntheticCall.minPrecedenceLevel,
-                frame: frame,
-                source: source,
-                currentState: state,
-              );
-            case Rule rule:
-              // Parameter as a raw rule. We apply the call arguments to it.
-              var syntheticCall = RuleCall(
-                rule.name.symbol,
-                rule,
-                arguments: action.pattern.arguments,
-                minPrecedenceLevel: action.pattern.minPrecedenceLevel,
-              );
-              var resolvedCall = _resolveParameterCallArguments(action.pattern, frame, rule);
-              if (resolvedCall == null) {
-                continue;
-              }
-              _seedRuleCall(
-                targetRule: rule,
-                callPattern: syntheticCall,
-                callArguments: resolvedCall.arguments,
-                callArgumentsKey: resolvedCall.key,
-                action: action,
-                returnState: action.nextState,
-                minPrecedenceLevel: action.pattern.minPrecedenceLevel,
-                frame: frame,
-                source: source,
-                currentState: state,
-              );
-            default:
-              throw UnsupportedError(
-                "Unsupported parameter call value for ${action.pattern.name}: ${value.runtimeType}",
-              );
-          }
+          _processParameterCallAction(frame, state, action);
         case ParameterPredicateAction():
-          // Lookahead predicate on a dynamic parameter (&($paramName)).
-          var arguments = frame.context.arguments;
-          if (!arguments.containsKey(action.name)) {
-            throw StateError("Missing argument '${action.name}' for parameter reference.");
-          }
-
-          var value = arguments[action.name];
-          switch (value) {
-            case String text:
-              // Parameter predicates for strings reuse the same materialization logic
-              // but wrap the result in lookahead (epsilon-like) semantics.
-              if (text.isEmpty) {
-                if (action.isAnd) {
-                  _resumeLaggedPredicateContinuation(
-                    source: source,
-                    parentContext: frame.context,
-                    nextState: action.nextState,
-                    isAnd: action.isAnd,
-                    symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
-                    branchKey: ActionBranchKey(action),
-                  );
-                }
-                continue;
-              }
-              var predicateSymbol = PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text");
-              var subParseKey = PredicateKey(predicateSymbol, position);
-              var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
-              var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
-                predicateSymbol,
-                position,
-                isAnd: action.isAnd,
-              );
-
-              if (tracker.matched) {
-                if (tracker.isAnd) {
-                  _resumeLaggedPredicateContinuation(
-                    source: source,
-                    parentContext: frame.context,
-                    nextState: action.nextState,
-                    isAnd: action.isAnd,
-                    symbol: predicateSymbol,
-                    branchKey: ActionBranchKey(action),
-                  );
-                }
-              } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
-                if (!tracker.isAnd) {
-                  _resumeLaggedPredicateContinuation(
-                    source: source,
-                    parentContext: frame.context,
-                    nextState: action.nextState,
-                    isAnd: action.isAnd,
-                    symbol: predicateSymbol,
-                    branchKey: ActionBranchKey(action),
-                  );
-                }
-              } else {
-                tracker.waiters.add((source, frameContext, action.nextState));
-                var predicateKey = frameContext.predicateStack.lastOrNull;
-                if (predicateKey != null) {
-                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-                  var parentTracker = parseState.predicateTrackers[key];
-                  parentTracker?.addPendingFrame();
-                }
-              }
-
-              if (isFirst && !tracker.matched && !tracker.exhausted) {
-                // Seed a synthetic state machine to probe the parameter string.
-                _spawnParameterPredicateSubparse(text: text, frame: frame, isAnd: action.isAnd);
-              }
-            case Rule rule:
-            case RuleCall(rule: var rule):
-              if (value is RuleCall && value.arguments.isNotEmpty) {
-                throw UnsupportedError(
-                  "Parameterized call objects are not supported in predicates yet: "
-                  "${value.rule.name.symbol}",
-                );
-              }
-
-              var symbol = rule.symbolId;
-              if (symbol == null) {
-                throw StateError("Predicate rule must have a symbol id.");
-              }
-
-              var subParseKey = PredicateKey(symbol, position);
-              var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
-              if (isFirst) {
-                parseState.predicateTrackers[subParseKey] = PredicateTracker(
-                  symbol,
-                  position,
-                  isAnd: action.isAnd,
-                );
-              }
-              var tracker = parseState.predicateTrackers[subParseKey]!;
-              assert(
-                tracker.isAnd == action.isAnd,
-                "Invariant violation in ParameterPredicateAction: mixed AND/NOT trackers share "
-                "the same parameter predicate key.",
-              );
-
-              if (tracker.matched) {
-                if (tracker.isAnd) {
-                  _resumeLaggedPredicateContinuation(
-                    source: source,
-                    parentContext: frame.context,
-                    nextState: action.nextState,
-                    isAnd: action.isAnd,
-                    symbol: symbol,
-                    branchKey: ActionBranchKey(action),
-                  );
-                }
-              }
-
-              if (!tracker.exhausted) {
-                tracker.waiters.add((source, frameContext, action.nextState));
-                var predicateKey = frameContext.predicateStack.lastOrNull;
-                if (predicateKey != null) {
-                  var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-                  var parentTracker = parseState.predicateTrackers[key];
-                  parentTracker?.addPendingFrame();
-                }
-              } else if (tracker.canResolveFalse) {
-                if (!tracker.isAnd) {
-                  _resumeLaggedPredicateContinuation(
-                    source: source,
-                    parentContext: frame.context,
-                    nextState: action.nextState,
-                    isAnd: action.isAnd,
-                    symbol: symbol,
-                    branchKey: ActionBranchKey(action),
-                  );
-                }
-              }
-
-              if (isFirst && !tracker.matched && !tracker.exhausted) {
-                _spawnPredicateSubparse(symbol, frame);
-              }
-            case Eps():
-              if (action.isAnd) {
-                _resumeLaggedPredicateContinuation(
-                  source: source,
-                  parentContext: frame.context,
-                  nextState: action.nextState,
-                  isAnd: action.isAnd,
-                  symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
-                  branchKey: ActionBranchKey(action),
-                );
-              }
-            case Pattern pattern when pattern.singleToken():
-              var token = _getTokenFor(frame);
-              var matches = token != null && pattern.match(token);
-              if (matches == action.isAnd) {
-                _resumeLaggedPredicateContinuation(
-                  source: source,
-                  parentContext: frame.context,
-                  nextState: action.nextState,
-                  isAnd: action.isAnd,
-                  symbol: PatternSymbol(
-                    "_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}",
-                  ),
-                  branchKey: ActionBranchKey(action),
-                );
-              }
-            case Pattern pattern:
-              throw UnsupportedError(
-                "Complex parser objects used as parameter predicates are not supported yet: ${pattern.runtimeType}",
-              );
-          }
+          _processParameterPredicateAction(frame, state, action);
         case TailCallAction():
-          // Tail calls still respect argument resolution and guards, but avoid
-          // allocating a fresh caller when the recursion can be looped.
-          var resolvedCall = _resolveCallArguments(action.pattern as RuleCall, frame);
-          if (!_ruleGuardPasses(
-            action.rule,
-            frame,
-            arguments: resolvedCall.arguments,
-            argumentsKey: resolvedCall.key,
-          )) {
-            continue;
-          }
-          // Tail-call optimized recursion re-enters the rule without allocating
-          // a fresh caller node. The enclosing return is unchanged, so the
-          // current caller context can be reused as a simple loop back-edge.
-          var firstState = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!];
-          if (firstState != null) {
-            _enqueue(
-              firstState,
-              frame.context.copyWith(
-                pivot: position,
-                minPrecedenceLevel: action.minPrecedenceLevel,
-              ),
-              source: source,
-              action: action,
-            );
-          }
+          _processTailCallAction(frame, state, action);
         case ReturnAction():
-          // Enforce call-site precedence gating for this return.
-          if (frame.context.minPrecedenceLevel != null &&
-              action.precedenceLevel != null &&
-              action.precedenceLevel! < frame.context.minPrecedenceLevel!) {
-            // Returned precedence is below required minimum for this call-site.
-            continue;
-          }
-
-          var caller = frame.context.caller;
-
-          // Predicate returns settle the predicate tracker directly.
-          if (caller is PredicateCallerKey) {
-            assert(
-              frame.context.predicateStack.lastOrNull == caller,
-              "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
-            );
-            var key = PredicateKey(caller.pattern, caller.startPosition);
-            var tracker = parseState.predicateTrackers[key];
-            if (tracker == null) {
-              // The predicate may already have resolved in this position.
-              continue;
-            }
-
-            bool isNewLongest = tracker.longestMatch == null || position > tracker.longestMatch!;
-            if (!isNewLongest) {
-              continue;
-            }
-            tracker.longestMatch = position;
-            tracker.matched = true;
-
-            for (var (source, parentContext, nextState) in tracker.waiters) {
-              var predicateKey = parentContext.predicateStack.lastOrNull;
-              if (predicateKey != null) {
-                var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-                var parentTracker = parseState.predicateTrackers[key];
-                if (parentTracker != null) {
-                  // This child branch is no longer pending in the parent predicate.
-                  parentTracker.removePendingFrame();
-                }
-              }
-
-              // AND predicates resume only on success.
-              if (tracker.isAnd) {
-                _resumeLaggedPredicateContinuation(
-                  source: source,
-                  parentContext: parentContext,
-                  nextState: nextState,
-                  isAnd: tracker.isAnd,
-                  symbol: tracker.symbol,
-                );
-              }
-            }
-          }
-
-          if (caller is ConjunctionCallerKey) {
-            var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
-            var tracker = parseState.conjunctionTrackers[key];
-            if (tracker != null) {
-              _finishConjunction(tracker, position, caller.isLeft, frame.context.marks);
-            }
-            continue;
-          }
-
-          if (caller is NegationCallerKey) {
-            var key = NegationKey(caller.pattern, caller.startPosition);
-            var tracker = parseState.negationTrackers[key];
-            if (tracker != null) {
-              tracker.markMatchedPosition(position);
-            }
-            continue;
-          }
-
-          // In single-derivation mode, replay each caller's returns once.
-          if (!isSupportingAmbiguity && !_returnedCallers.add(caller)) {
-            // Logical meaning:
-            // - in single-derivation mode we replay returns once per caller key
-            // - if add() is false, this caller was already replayed
-            // => skip duplicate resume fan-out.
-            continue;
-          }
-
-          // Only caller nodes memoize return contexts and wake waiters.
-          if (caller is Caller) {
-            // Only rule-call callers memoize and replay return contexts.
-            var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
-            // Replay to waiters only when this return context is newly added.
-            if (caller.addReturn(returnContext)) {
-              // Newly discovered return context fan-outs to all queued waiters.
-              for (var (nextState, minPrecedence, parentContext, callSite) in caller.waiters) {
-                _triggerReturn(
-                  caller,
-                  parentContext.caller,
-                  nextState,
-                  minPrecedence,
-                  parentContext,
-                  returnContext,
-                  source: ParseNodeKey(state.id, position, caller),
-                  action: action,
-                  callSite: callSite,
-                );
-              }
-            }
-          }
+          _processReturnAction(frame, state, action);
         case AcceptAction():
-          var accepted = frame.context;
-          acceptedContexts.add(accepted);
+          _processAcceptAction(frame);
       }
     }
   }
@@ -1496,9 +727,7 @@ class Step {
       nextMarks,
       arguments: parentContext.arguments,
       captures: mergedCaptures,
-      derivationPath: parentContext.derivationPath.addList(returnContext.derivationPath),
       predicateStack: parentContext.predicateStack,
-      bsrRuleSymbol: parentContext.bsrRuleSymbol,
       callStart: parentContext.callStart,
       pivot: returnContext.pivot,
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
@@ -1514,32 +743,20 @@ class Step {
   /// forest-sharing benefits while maintaining deterministic ordering.
   void finalize() {
     for (var MapEntry(:value) in _nextFrameGroups.entries) {
-      var ContextGroup(
-        :state,
-        :caller,
-        :minPrecedenceLevel,
-        :predicateStack,
-        :derivationPaths,
-        :marks,
-        :captures,
-      ) = value;
+      var ContextGroup(:state, :caller, :minPrecedenceLevel, :predicateStack, :marks, :captures) =
+          value;
 
       var branchedMarks = marks.fold(const GlushList<Mark>.empty(), GlushList.branched);
       var callerStartPosition = (caller is Caller)
           ? caller.startPosition
           : (caller is RootCallerKey ? 0 : null);
-      var branchedDerivations = isSupportingAmbiguity
-          ? derivationPaths.fold(const GlushList<DerivationKey>.empty(), GlushList.branched)
-          : derivationPaths.firstOrNull ?? const GlushList<DerivationKey>.empty();
 
       var nextFrame = Frame(
         Context(
           caller,
           branchedMarks,
           captures: captures,
-          derivationPath: branchedDerivations,
           predicateStack: predicateStack,
-          bsrRuleSymbol: caller is Caller ? caller.rule.symbolId! : null,
           callStart: callerStartPosition,
           pivot: position + 1,
           minPrecedenceLevel: minPrecedenceLevel,
@@ -1581,37 +798,31 @@ class Step {
         // during complex transitions or duplicates in the work queue.
         continue;
       }
-      if (!frame.replay) {
-        if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-          // Contract note:
-          // Being in a predicate stack does not strictly guarantee tracker
-          // presence here because exhaustion cleanup can remove a tracker before
-          // all delayed frames are drained.
-          // This context belongs to a predicate sub-parse; update its tracker.
-          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-          var tracker = parseState.predicateTrackers[key];
-          if (tracker != null) {
-            // Work unit is now being processed; decrement "pending work" counter.
-            tracker.removePendingFrame();
-          }
-        }
-        if (context.caller case ConjunctionCallerKey c) {
-          // Decrement pending frame counter for the conjunction sub-parse.
-          var tracker =
-              parseState.conjunctionTrackers[ConjunctionKey(c.left, c.right, c.startPosition)];
-          if (tracker != null && tracker.activeFrames > 0) {
-            tracker.removePendingFrame();
-          }
-        }
-
-        if (frame.context.caller case NegationCallerKey caller) {
-          parseState
-              .negationTrackers[NegationKey(caller.pattern, caller.startPosition)] //
-              ?.visitedPositions
-              .add(position);
+      if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+        // This context belongs to a predicate sub-parse; update its tracker.
+        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+        var tracker = parseState.predicateTrackers[key];
+        if (tracker != null) {
+          // Work unit is now being processed; decrement "pending work" counter.
+          tracker.removePendingFrame();
         }
       }
-      _process(Frame(context, replay: frame.replay), state);
+      if (context.caller case ConjunctionCallerKey c) {
+        // Decrement pending frame counter for the conjunction sub-parse.
+        var tracker =
+            parseState.conjunctionTrackers[ConjunctionKey(c.left, c.right, c.startPosition)];
+        if (tracker != null && tracker.activeFrames > 0) {
+          tracker.removePendingFrame();
+        }
+      }
+
+      if (frame.context.caller case NegationCallerKey caller) {
+        parseState
+            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)] //
+            ?.visitedPositions
+            .add(position);
+      }
+      _process(Frame(context), state);
     }
   }
 
@@ -1628,7 +839,6 @@ class Step {
   /// Process all accumulated work from previous processFrameEnqueue() calls.
   /// This must be called after all frames at a position have been enqueued.
   void processFrameFinalize() {
-    // Track if we're in replay mode - frames added during finalize phase are not replay
     while (_workQueue.isNotEmpty) {
       var (key, state) = _workQueue.removeFirst();
       var context = _currentFrameGroups.remove(key);
@@ -1663,5 +873,854 @@ class Step {
 
       _process(Frame(context), state);
     }
+  }
+
+  // ============================================================================
+  // StateAction Processing Methods
+  // ============================================================================
+  // The following private methods handle the logic for each StateAction type.
+  // They are extracted from the _process method for readability and maintainability.
+
+  /// Handle [TokenAction]: consume a token matching the expected pattern.
+  void _processTokenAction(Frame frame, State state, TokenAction action) {
+    var frameContext = frame.context;
+    var callerOrRoot = frameContext.caller;
+    var token = _getTokenFor(frame);
+
+    // Token actions fire only when an input token matches the expected pattern.
+    if (token != null && action.pattern.match(token)) {
+      var newMarks = frame.context.marks;
+      var pattern = action.pattern;
+
+      // Terminal capture logic: some patterns (like literal strings)
+      // naturally want to be captured as marks.
+      var shouldCapture = captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
+
+      // Capture policy controls whether consumed chars become human-readable StringMarks.
+      if (shouldCapture) {
+        newMarks = newMarks.add(StringMark(String.fromCharCode(token), position));
+      }
+
+      // Batched until finalize() so all token-consuming transitions advance
+      // together to the same next-position pivot.
+      var nextKey = ContextKey.create(
+        action.nextState,
+        callerOrRoot,
+        frameContext.minPrecedenceLevel,
+        frameContext.predicateStack,
+        frameContext.captures,
+      );
+
+      // Deduplicate next-position frames by merging equivalent contexts.
+      var nextGroup = _nextFrameGroups[nextKey];
+      nextGroup = _nextFrameGroups[nextKey] ??= ContextGroup(
+        state: action.nextState,
+        caller: callerOrRoot,
+        minPrecedenceLevel: frameContext.minPrecedenceLevel,
+        predicateStack: frameContext.predicateStack,
+        captures: frameContext.captures,
+      );
+
+      // Merge the derivation path and marks into the group.
+      nextGroup.marks.add(newMarks);
+    }
+  }
+
+  /// Handle [BoundaryAction]: check start-of-input or end-of-input conditions.
+  void _processBoundaryAction(Frame frame, State state, BoundaryAction action) {
+    var frameContext = frame.context;
+    var token = _getTokenFor(frame);
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+
+    // Boundary actions match either the start-of-input (position 0)
+    // or end-of-input (token is null).
+    var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
+    if (isMatch) {
+      _enqueue(
+        action.nextState,
+        frameContext.withMarks(frame.context.marks),
+        source: source,
+        action: action,
+      );
+    }
+  }
+
+  /// Handle [ParameterStringAction]: consume a specific code unit.
+  void _processParameterStringAction(Frame frame, State state, ParameterStringAction action) {
+    var frameContext = frame.context;
+    var callerOrRoot = frameContext.caller;
+    var token = _getTokenFor(frame);
+
+    if (token != null && token == action.codeUnit) {
+      var newMarks = frame.context.marks;
+      if (captureTokensAsMarks) {
+        newMarks = newMarks.add(StringMark(String.fromCharCode(action.codeUnit), position));
+      }
+
+      var nextKey = ContextKey.create(
+        action.nextState,
+        callerOrRoot,
+        frameContext.minPrecedenceLevel,
+        frameContext.predicateStack,
+        frameContext.captures,
+      );
+
+      var nextGroup = _nextFrameGroups[nextKey];
+      if (nextGroup != null) {
+        GlushProfiler.incrementHit("parser.context.dedup");
+      } else {
+        GlushProfiler.incrementMiss("parser.context.dedup");
+        nextGroup = _nextFrameGroups[nextKey] = ContextGroup(
+          state: action.nextState,
+          caller: callerOrRoot,
+          minPrecedenceLevel: frameContext.minPrecedenceLevel,
+          predicateStack: frameContext.predicateStack,
+          captures: frameContext.captures,
+        );
+      }
+      nextGroup.marks.add(newMarks);
+    }
+  }
+
+  /// Handle [MarkAction]: emit a named mark at the current position.
+  void _processMarkAction(Frame frame, State state, MarkAction action) {
+    var frameContext = frame.context;
+    var callerOrRoot = frameContext.caller;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+
+    // Emit a named mark at the current position.
+    // Used for user-defined annotations.
+    var mark = NamedMark(action.name, position);
+    _enqueue(
+      action.nextState,
+      frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
+      source: source,
+      action: action,
+    );
+  }
+
+  /// Handle [LabelStartAction]: begin a labeled capture group.
+  void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
+    var frameContext = frame.context;
+    var callerOrRoot = frameContext.caller;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+
+    // Begin a labelled span (capture start).
+    var mark = LabelStartMark(action.name, position);
+    _enqueue(
+      action.nextState,
+      frameContext.withCallerAndMarks(callerOrRoot, frame.context.marks.add(mark)),
+      source: source,
+      action: action,
+    );
+  }
+
+  /// Handle [LabelEndAction]: end a labeled capture group.
+  void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+
+    // End a labelled span (capture end).
+    // This allows the parser to extract the text covered by the label.
+    var mark = LabelEndMark(action.name, position);
+    _enqueue(
+      action.nextState,
+      frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
+      source: source,
+      action: action,
+    );
+  }
+
+  /// Handle [BackreferenceAction]: create an expanding mark for backref.
+  void _processBackreferenceAction(Frame frame, State state, BackreferenceAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+
+    var mark = ExpandingMark(action.name, position);
+    _enqueue(
+      action.nextState,
+      frameContext.withCallerAndMarks(frame.context.caller, frame.context.marks.add(mark)),
+      source: source,
+      action: action,
+    );
+  }
+
+  /// Handle [PredicateAction]: lookahead predicate (&pattern or !pattern).
+  void _processPredicateAction(Frame frame, State state, PredicateAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Lookahead predicate (&pattern or !pattern).
+    // Spawns a sub-parse that must complete before this path can continue.
+    var symbol = action.symbol;
+    var subParseKey = PredicateKey(symbol, position);
+    var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+
+    // Use a tracker to coordinate results from the sub-parse.
+    var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
+      symbol,
+      position,
+      isAnd: action.isAnd,
+    );
+
+    assert(
+      tracker.symbol == symbol && tracker.startPosition == position,
+      "Invariant violation in PredicateAction: tracker key and payload diverged.",
+    );
+    assert(
+      tracker.isAnd == action.isAnd,
+      "Invariant violation in PredicateAction: mixed AND/NOT trackers share "
+      "the same (symbol,position) key.",
+    );
+
+    // A predicate may be re-entered after it has already matched.
+    // The tracker has three states:
+    // - matched: AND can resume, NOT cannot
+    // - unresolved: park this continuation and wait for completion
+    // - exhausted false: NOT may resume once all pending branches drain
+    if (tracker.matched) {
+      // AND can resume once with the current results.
+      if (tracker.isAnd) {
+        _resumeLaggedPredicateContinuation(
+          source: source,
+          parentContext: frame.context,
+          nextState: action.nextState,
+          isAnd: action.isAnd,
+          symbol: action.symbol,
+          branchKey: ActionBranchKey(action),
+        );
+      }
+    }
+
+    if (!tracker.exhausted) {
+      // Still active; park continuation to catch future (potentially longer) matches.
+      tracker.waiters.add((source, frameContext, action.nextState));
+
+      var predicateKey = frameContext.predicateStack.lastOrNull;
+      if (predicateKey != null) {
+        // Register dependency: the parent predicate depends on this child's completion.
+        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+        parseState.predicateTrackers[key]?.addPendingFrame();
+      }
+    } else if (tracker.canResolveFalse) {
+      // The sub-parse already exhausted without matching; NOT waiters resume.
+      if (!tracker.isAnd) {
+        _resumeLaggedPredicateContinuation(
+          source: source,
+          parentContext: frame.context,
+          nextState: action.nextState,
+          isAnd: action.isAnd,
+          symbol: action.symbol,
+          branchKey: ActionBranchKey(action),
+        );
+      }
+    }
+
+    // Seed the sub-parse if this is the first time we've reached this predicate.
+    if (isFirst && !tracker.matched && !tracker.exhausted) {
+      _spawnPredicateSubparse(symbol, frame);
+    }
+  }
+
+  /// Handle [ConjunctionAction]: intersection rule (A & B).
+  void _processConjunctionAction(Frame frame, State state, ConjunctionAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Intersection rule (A & B).
+    // Both side A and side B are run independently from the same position.
+    var left = action.leftSymbol;
+    var right = action.rightSymbol;
+    var key = ConjunctionKey(left, right, position);
+    var isFirst = !parseState.conjunctionTrackers.containsKey(key);
+    var tracker = parseState.conjunctionTrackers[key] ??= ConjunctionTracker(
+      leftSymbol: left,
+      rightSymbol: right,
+      startPosition: position,
+    );
+
+    // Park the continuation until both sides meet at the same end position.
+    var waiter = (source, frameContext, action.nextState);
+    tracker.waiters.add(waiter);
+
+    // Rendezvous logic: if results are already available for both sides
+    // at some position J, resume the waiter immediately.
+    for (var j in tracker.leftCompletions.keys) {
+      if (tracker.rightCompletions.containsKey(j)) {
+        var lefts = tracker.leftCompletions[j]!;
+        var rights = tracker.rightCompletions[j]!;
+        for (var left in lefts) {
+          for (var right in rights) {
+            _triggerConjunctionReturn(tracker, j, left, right, [waiter]);
+          }
+        }
+      }
+    }
+
+    if (isFirst) {
+      _spawnConjunctionSubparse(left, right, frame);
+    }
+  }
+
+  /// Handle [NegationAction]: negative lookahead (!pattern).
+  void _processNegationAction(Frame frame, State state, NegationAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Negative lookahead (!pattern).
+    // Continues only if the sub-parse fails to match a given span.
+    var symbol = action.symbol;
+    var key = NegationKey(symbol, position);
+    var isFirst = !parseState.negationTrackers.containsKey(key);
+    var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
+
+    // Probing: If a pivot is already set, we check if [start, pivot] matches.
+    var targetJ = frame.context.pivot;
+    if (targetJ != null) {
+      if (tracker.matchedPositions.contains(targetJ)) {
+        // The sub-parse already matched this specific span, so negation fails.
+      } else if (tracker.isExhausted) {
+        // The child sub-parse is done and did NOT match targetJ; negation succeeds.
+        _resumeLaggedPredicateContinuation(
+          source: source,
+          parentContext: frame.context,
+          nextState: action.nextState,
+          isAnd: true,
+          symbol: action.symbol,
+          branchKey: ActionBranchKey(action),
+        );
+      } else if (!tracker.hasWaiterAt(targetJ)) {
+        // Result unknown; park until sub-parse settles for this j.
+        tracker.addWaiter(targetJ, (frameContext, action.nextState));
+      }
+    } else {
+      // Unconstrained negation: resume at EVERY position the sub-parse
+      // visited where A did NOT produce a match.
+      if (tracker.isExhausted) {
+        // Sub-parse already done — fire for all non-matched visited positions.
+        for (var j in tracker.visitedPositions) {
+          if (!tracker.matchedPositions.contains(j)) {
+            requeue(Frame(frameContext.copyWith(pivot: j))..nextStates.add(action.nextState));
+          }
+        }
+      } else {
+        tracker.unconstrainedWaiters.add((frameContext, action.nextState));
+      }
+    }
+
+    if (isFirst) {
+      _spawnNegationSubparse(symbol, frame);
+    }
+  }
+
+  /// Handle [CallAction]: static rule call (GLL).
+  void _processCallAction(Frame frame, State state, CallAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Static rule call (GLL).
+    // Resolves arguments and initiates rule expansion via GSS.
+    Pattern callPattern = action.pattern;
+    var call = callPattern as RuleCall;
+    var resolvedCall = _resolveCallArguments(call, frame);
+
+    _seedRuleCall(
+      targetRule: action.rule,
+      callPattern: callPattern,
+      callArguments: resolvedCall.arguments,
+      callArgumentsKey: resolvedCall.key,
+      action: action,
+      returnState: action.returnState,
+      minPrecedenceLevel: action.minPrecedenceLevel,
+      frame: frame,
+      source: source,
+      currentState: state,
+    );
+  }
+
+  /// Handle [ParameterAction]: dynamic parameter reference ($paramName).
+  void _processParameterAction(Frame frame, State state, ParameterAction action) {
+    var frameContext = frame.context;
+    var callerOrRoot = frameContext.caller;
+    var token = _getTokenFor(frame);
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Dynamic parameter reference ($paramName).
+    // Resolves the parameter value from the caller's environment.
+    var arguments = frame.context.arguments;
+    if (!arguments.containsKey(action.name)) {
+      throw StateError("Missing argument '${action.name}' for parameter reference.");
+    }
+
+    var value = arguments[action.name];
+    switch (value) {
+      case String text:
+        // String parameters are materialized as virtual input tokens.
+        if (text.isEmpty) {
+          // Epsilon transition if the string is empty.
+          _enqueue(
+            action.nextState,
+            frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
+            source: source,
+            action: action,
+          );
+          return;
+        }
+        // Redirect to a synthetic state machine that consumes the string.
+        var entryState = parseState.parser.stateMachine.parameterStringEntry(
+          text,
+          action.nextState,
+        );
+        _enqueue(
+          entryState,
+          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
+          source: source,
+          action: action,
+        );
+        return;
+      case CaptureValue captureValue:
+        // Data captured from a label can also be used as a parameter.
+        var entryState = parseState.parser.stateMachine.parameterStringEntry(
+          captureValue.value,
+          action.nextState,
+        );
+        _enqueue(
+          entryState,
+          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
+          source: source,
+          action: action,
+        );
+      case RuleCall callValue:
+        // Parameter resolves to a rule call: expansion occurs at the current position.
+        var resolvedCall = _resolveCallArguments(callValue, frame);
+        _seedRuleCall(
+          targetRule: callValue.rule,
+          callPattern: callValue,
+          callArguments: resolvedCall.arguments,
+          callArgumentsKey: resolvedCall.key,
+          action: action,
+          returnState: action.nextState,
+          minPrecedenceLevel: callValue.minPrecedenceLevel,
+          frame: frame,
+          source: source,
+          currentState: state,
+        );
+      case Rule rule:
+        // Parameter is a raw rule reference.
+        _seedRuleCall(
+          targetRule: rule,
+          callPattern: rule,
+          callArguments: const {},
+          callArgumentsKey: const EmptyCallArgumentsKey(),
+          action: action,
+          returnState: action.nextState,
+          minPrecedenceLevel: null,
+          frame: frame,
+          source: source,
+          currentState: state,
+        );
+      case Eps():
+        // Parameter as epsilon transition.
+        _enqueue(
+          action.nextState,
+          frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
+          source: source,
+          action: action,
+        );
+      case Pattern pattern when pattern.singleToken():
+        // Parameter as a single-token pattern (e.g. char ranges).
+        if (token != null && pattern.match(token)) {
+          _enqueue(
+            action.nextState,
+            frame.context.withCallerAndMarks(callerOrRoot, frame.context.marks),
+            source: source,
+            action: action,
+          );
+        }
+      case Pattern pattern:
+        throw UnsupportedError(
+          "Complex parser objects used as parameters are not supported yet: ${pattern.runtimeType}",
+        );
+      default:
+        throw UnsupportedError(
+          "Unsupported parameter value for ${action.name}: ${value.runtimeType}",
+        );
+    }
+  }
+
+  /// Handle [ParameterCallAction]: rule call via parameter reference.
+  void _processParameterCallAction(Frame frame, State state, ParameterCallAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Rule call via a parameter reference ($paramName(args)).
+    // Resolves the rule and merges call-site arguments with rule-defined ones.
+    var arguments = frame.context.arguments;
+    if (!arguments.containsKey(action.pattern.name)) {
+      throw StateError("Missing argument '${action.pattern.name}' for parameter reference.");
+    }
+
+    var value = arguments[action.pattern.name];
+    switch (value) {
+      case RuleCall callValue:
+        // Merge rule-provided arguments with the dynamic call-site arguments.
+        var mergedArguments = <String, CallArgumentValue>{
+          ...callValue.arguments,
+          ...action.pattern.arguments,
+        };
+        var syntheticCall = RuleCall(
+          callValue.name,
+          callValue.rule,
+          arguments: mergedArguments,
+          minPrecedenceLevel: callValue.minPrecedenceLevel ?? action.pattern.minPrecedenceLevel,
+        );
+        var resolvedCall = _resolveCallArguments(syntheticCall, frame);
+        _seedRuleCall(
+          targetRule: syntheticCall.rule,
+          callPattern: syntheticCall,
+          callArguments: resolvedCall.arguments,
+          callArgumentsKey: resolvedCall.key,
+          action: action,
+          returnState: action.nextState,
+          minPrecedenceLevel: syntheticCall.minPrecedenceLevel,
+          frame: frame,
+          source: source,
+          currentState: state,
+        );
+      case Rule rule:
+        // Parameter as a raw rule. We apply the call arguments to it.
+        var syntheticCall = RuleCall(
+          rule.name.symbol,
+          rule,
+          arguments: action.pattern.arguments,
+          minPrecedenceLevel: action.pattern.minPrecedenceLevel,
+        );
+        var resolvedCall = _resolveParameterCallArguments(action.pattern, frame, rule);
+        if (resolvedCall == null) {
+          return;
+        }
+        _seedRuleCall(
+          targetRule: rule,
+          callPattern: syntheticCall,
+          callArguments: resolvedCall.arguments,
+          callArgumentsKey: resolvedCall.key,
+          action: action,
+          returnState: action.nextState,
+          minPrecedenceLevel: action.pattern.minPrecedenceLevel,
+          frame: frame,
+          source: source,
+          currentState: state,
+        );
+      default:
+        throw UnsupportedError(
+          "Unsupported parameter call value for ${action.pattern.name}: ${value.runtimeType}",
+        );
+    }
+  }
+
+  /// Handle [ParameterPredicateAction]: lookahead on dynamic parameter.
+  void _processParameterPredicateAction(Frame frame, State state, ParameterPredicateAction action) {
+    var frameContext = frame.context;
+    var token = _getTokenFor(frame);
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Lookahead predicate on a dynamic parameter (&($paramName)).
+    var arguments = frame.context.arguments;
+    if (!arguments.containsKey(action.name)) {
+      throw StateError("Missing argument '${action.name}' for parameter reference.");
+    }
+
+    var value = arguments[action.name];
+    switch (value) {
+      case String text:
+        // Parameter predicates for strings reuse the same materialization logic
+        // but wrap the result in lookahead (epsilon-like) semantics.
+        if (text.isEmpty) {
+          if (action.isAnd) {
+            _resumeLaggedPredicateContinuation(
+              source: source,
+              parentContext: frame.context,
+              nextState: action.nextState,
+              isAnd: action.isAnd,
+              symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
+              branchKey: ActionBranchKey(action),
+            );
+          }
+          return;
+        }
+        var predicateSymbol = PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text");
+        var subParseKey = PredicateKey(predicateSymbol, position);
+        var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+        var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
+          predicateSymbol,
+          position,
+          isAnd: action.isAnd,
+        );
+
+        if (tracker.matched) {
+          if (tracker.isAnd) {
+            _resumeLaggedPredicateContinuation(
+              source: source,
+              parentContext: frame.context,
+              nextState: action.nextState,
+              isAnd: action.isAnd,
+              symbol: predicateSymbol,
+              branchKey: ActionBranchKey(action),
+            );
+          }
+        } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
+          if (!tracker.isAnd) {
+            _resumeLaggedPredicateContinuation(
+              source: source,
+              parentContext: frame.context,
+              nextState: action.nextState,
+              isAnd: action.isAnd,
+              symbol: predicateSymbol,
+              branchKey: ActionBranchKey(action),
+            );
+          }
+        } else {
+          tracker.waiters.add((source, frameContext, action.nextState));
+          var predicateKey = frameContext.predicateStack.lastOrNull;
+          if (predicateKey != null) {
+            var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+            var parentTracker = parseState.predicateTrackers[key];
+            parentTracker?.addPendingFrame();
+          }
+        }
+
+        if (isFirst && !tracker.matched && !tracker.exhausted) {
+          // Seed a synthetic state machine to probe the parameter string.
+          _spawnParameterPredicateSubparse(text: text, frame: frame, isAnd: action.isAnd);
+        }
+      case Rule rule:
+      case RuleCall(rule: var rule):
+        if (value is RuleCall && value.arguments.isNotEmpty) {
+          throw UnsupportedError(
+            "Parameterized call objects are not supported in predicates yet: "
+            "${value.rule.name.symbol}",
+          );
+        }
+
+        var symbol = rule.symbolId;
+        if (symbol == null) {
+          throw StateError("Predicate rule must have a symbol id.");
+        }
+
+        var subParseKey = PredicateKey(symbol, position);
+        var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+        if (isFirst) {
+          parseState.predicateTrackers[subParseKey] = PredicateTracker(
+            symbol,
+            position,
+            isAnd: action.isAnd,
+          );
+        }
+        var tracker = parseState.predicateTrackers[subParseKey]!;
+        assert(
+          tracker.isAnd == action.isAnd,
+          "Invariant violation in ParameterPredicateAction: mixed AND/NOT trackers share "
+          "the same parameter predicate key.",
+        );
+
+        if (tracker.matched) {
+          if (tracker.isAnd) {
+            _resumeLaggedPredicateContinuation(
+              source: source,
+              parentContext: frame.context,
+              nextState: action.nextState,
+              isAnd: action.isAnd,
+              symbol: symbol,
+              branchKey: ActionBranchKey(action),
+            );
+          }
+        }
+
+        if (!tracker.exhausted) {
+          tracker.waiters.add((source, frameContext, action.nextState));
+          var predicateKey = frameContext.predicateStack.lastOrNull;
+          if (predicateKey != null) {
+            var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+            var parentTracker = parseState.predicateTrackers[key];
+            parentTracker?.addPendingFrame();
+          }
+        } else if (tracker.canResolveFalse) {
+          if (!tracker.isAnd) {
+            _resumeLaggedPredicateContinuation(
+              source: source,
+              parentContext: frame.context,
+              nextState: action.nextState,
+              isAnd: action.isAnd,
+              symbol: symbol,
+              branchKey: ActionBranchKey(action),
+            );
+          }
+        }
+
+        if (isFirst && !tracker.matched && !tracker.exhausted) {
+          _spawnPredicateSubparse(symbol, frame);
+        }
+      case Eps():
+        if (action.isAnd) {
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: frame.context,
+            nextState: action.nextState,
+            isAnd: action.isAnd,
+            symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
+            branchKey: ActionBranchKey(action),
+          );
+        }
+      case Pattern pattern when pattern.singleToken():
+        var matches = token != null && pattern.match(token);
+        if (matches == action.isAnd) {
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: frame.context,
+            nextState: action.nextState,
+            isAnd: action.isAnd,
+            symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}"),
+            branchKey: ActionBranchKey(action),
+          );
+        }
+      case Pattern pattern:
+        throw UnsupportedError(
+          "Complex parser objects used as parameter predicates are not supported yet: ${pattern.runtimeType}",
+        );
+    }
+  }
+
+  /// Handle [TailCallAction]: tail-call optimized recursion.
+  void _processTailCallAction(Frame frame, State state, TailCallAction action) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    // Tail calls still respect argument resolution and guards, but avoid
+    // allocating a fresh caller when the recursion can be looped.
+    var resolvedCall = _resolveCallArguments(action.pattern as RuleCall, frame);
+    if (!_ruleGuardPasses(
+      action.rule,
+      frame,
+      arguments: resolvedCall.arguments,
+      argumentsKey: resolvedCall.key,
+    )) {
+      return;
+    }
+    // Tail-call optimized recursion re-enters the rule without allocating
+    // a fresh caller node. The enclosing return is unchanged, so the
+    // current caller context can be reused as a simple loop back-edge.
+    var firstState = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!];
+    if (firstState != null) {
+      _enqueue(
+        firstState,
+        frame.context.copyWith(pivot: position, minPrecedenceLevel: action.minPrecedenceLevel),
+        source: source,
+        action: action,
+      );
+    }
+  }
+
+  /// Handle [ReturnAction]: return from a rule call.
+  void _processReturnAction(Frame frame, State state, ReturnAction action) {
+    // Enforce call-site precedence gating for this return.
+    if (frame.context.minPrecedenceLevel != null &&
+        action.precedenceLevel != null &&
+        action.precedenceLevel! < frame.context.minPrecedenceLevel!) {
+      // Returned precedence is below required minimum for this call-site.
+      return;
+    }
+
+    var caller = frame.context.caller;
+
+    // Predicate returns settle the predicate tracker directly.
+    if (caller is PredicateCallerKey) {
+      assert(
+        frame.context.predicateStack.lastOrNull == caller,
+        "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
+      );
+      var key = PredicateKey(caller.pattern, caller.startPosition);
+      var tracker = parseState.predicateTrackers[key];
+      if (tracker == null) {
+        // The predicate may already have resolved in this position.
+        return;
+      }
+
+      bool isNewLongest = tracker.longestMatch == null || position > tracker.longestMatch!;
+      if (!isNewLongest) {
+        return;
+      }
+      tracker.longestMatch = position;
+      tracker.matched = true;
+
+      for (var (source, parentContext, nextState) in tracker.waiters) {
+        var predicateKey = parentContext.predicateStack.lastOrNull;
+        if (predicateKey != null) {
+          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+          var parentTracker = parseState.predicateTrackers[key];
+          if (parentTracker != null) {
+            // This child branch is no longer pending in the parent predicate.
+            parentTracker.removePendingFrame();
+          }
+        }
+
+        // AND predicates resume only on success.
+        if (tracker.isAnd) {
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: parentContext,
+            nextState: nextState,
+            isAnd: tracker.isAnd,
+            symbol: tracker.symbol,
+          );
+        }
+      }
+    }
+
+    if (caller is ConjunctionCallerKey) {
+      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
+      var tracker = parseState.conjunctionTrackers[key];
+      if (tracker != null) {
+        _finishConjunction(tracker, position, caller.isLeft, frame.context.marks);
+      }
+      return;
+    }
+
+    if (caller is NegationCallerKey) {
+      var key = NegationKey(caller.pattern, caller.startPosition);
+      var tracker = parseState.negationTrackers[key];
+      if (tracker != null) {
+        tracker.markMatchedPosition(position);
+      }
+      return;
+    }
+
+    // In single-derivation mode, replay each caller's returns once.
+    if (!isSupportingAmbiguity && !_returnedCallers.add(caller)) {
+      // Logical meaning:
+      // - in single-derivation mode we replay returns once per caller key
+      // - if add() is false, this caller was already replayed
+      // => skip duplicate resume fan-out.
+      return;
+    }
+
+    // Only caller nodes memoize return contexts and wake waiters.
+    if (caller is Caller) {
+      // Only rule-call callers memoize and replay return contexts.
+      var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
+      // Replay to waiters only when this return context is newly added.
+      if (caller.addReturn(returnContext)) {
+        // Newly discovered return context fan-outs to all queued waiters.
+        for (var (nextState, minPrecedence, parentContext, callSite) in caller.waiters) {
+          _triggerReturn(
+            caller,
+            parentContext.caller,
+            nextState,
+            minPrecedence,
+            parentContext,
+            returnContext,
+            source: ParseNodeKey(state.id, position, caller),
+            action: action,
+            callSite: callSite,
+          );
+        }
+      }
+    }
+  }
+
+  /// Handle [AcceptAction]: mark parse as accepted.
+  void _processAcceptAction(Frame frame) {
+    acceptedContexts.add(frame.context);
   }
 }

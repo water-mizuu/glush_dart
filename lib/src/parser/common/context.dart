@@ -1,9 +1,7 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/caller_key.dart";
-import "package:glush/src/parser/common/derivation_key.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:meta/meta.dart";
@@ -22,9 +20,7 @@ class Context {
     this.marks, {
     Map<String, Object?>? arguments,
     this.captures = const CaptureBindings.empty(),
-    this.derivationPath = const GlushList<DerivationKey>.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
-    this.bsrRuleSymbol,
     this.callStart,
     this.pivot,
     this.minPrecedenceLevel,
@@ -51,14 +47,8 @@ class Context {
   /// Bindings for data captured via structural labels (name:pattern).
   final CaptureBindings captures;
 
-  /// The structural history of this parse path, used to recover ambiguous derivations.
-  final GlushList<DerivationKey> derivationPath;
-
   /// The stack of active lookahead predicates currently being evaluated.
   final GlushList<PredicateCallerKey> predicateStack;
-
-  /// The symbol we are currently building a BSR/SPPF forest for.
-  final PatternSymbol? bsrRuleSymbol;
 
   /// The position in the input where the current rule call began.
   final int? callStart;
@@ -78,9 +68,7 @@ class Context {
     GlushList<Mark>? marks,
     Map<String, Object?>? arguments,
     CaptureBindings? captures,
-    GlushList<DerivationKey>? derivationPath,
     GlushList<PredicateCallerKey>? predicateStack,
-    PatternSymbol? bsrRuleSymbol,
     int? callStart,
     int? pivot,
     int? minPrecedenceLevel,
@@ -94,9 +82,7 @@ class Context {
       marks ?? this.marks,
       arguments: nextArguments,
       captures: captures ?? this.captures,
-      derivationPath: derivationPath ?? this.derivationPath,
       predicateStack: predicateStack ?? this.predicateStack,
-      bsrRuleSymbol: bsrRuleSymbol ?? this.bsrRuleSymbol,
       callStart: callStart ?? this.callStart,
       pivot: pivot ?? this.pivot,
       minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
@@ -114,9 +100,7 @@ class Context {
       nextMarks,
       arguments: _arguments,
       captures: captures,
-      derivationPath: derivationPath,
       predicateStack: predicateStack,
-      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       minPrecedenceLevel: minPrecedenceLevel,
@@ -134,9 +118,7 @@ class Context {
       marks,
       arguments: identical(nextCaller, caller) ? _arguments : arguments,
       captures: captures,
-      derivationPath: derivationPath,
       predicateStack: predicateStack,
-      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       minPrecedenceLevel: minPrecedenceLevel,
@@ -155,9 +137,7 @@ class Context {
       nextMarks,
       arguments: identical(nextCaller, caller) ? _arguments : arguments,
       captures: captures,
-      derivationPath: derivationPath,
       predicateStack: predicateStack,
-      bsrRuleSymbol: bsrRuleSymbol,
       callStart: callStart,
       pivot: pivot,
       minPrecedenceLevel: minPrecedenceLevel,
@@ -213,5 +193,4 @@ final class ContextGroup {
   final GlushList<PredicateCallerKey> predicateStack;
   final CaptureBindings captures;
   final List<GlushList<Mark>> marks = [];
-  final List<GlushList<DerivationKey>> derivationPaths = [];
 }

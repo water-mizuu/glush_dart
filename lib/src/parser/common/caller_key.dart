@@ -142,12 +142,7 @@ final class Caller extends CallerKey {
   }
 
   bool addReturn(Context context) {
-    var key = ReturnKey(
-      context.precedenceLevel,
-      context.pivot,
-      context.bsrRuleSymbol,
-      context.callStart,
-    );
+    var key = ReturnKey(context.precedenceLevel, context.pivot, context.callStart);
 
     var existing = _returns[key];
     if (existing != null) {
@@ -166,12 +161,7 @@ final class Caller extends CallerKey {
         // First occurrence: allow waiter triggering
       }
 
-      _returns[key] = existing.copyWith(
-        marks: GlushList.branched(existing.marks, context.marks),
-        derivationPath: identical(existing.derivationPath, context.derivationPath)
-            ? existing.derivationPath
-            : GlushList.branched(existing.derivationPath, context.derivationPath),
-      );
+      _returns[key] = existing.copyWith(marks: GlushList.branched(existing.marks, context.marks));
       return true;
     }
 

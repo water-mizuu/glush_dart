@@ -7,16 +7,13 @@ import "package:glush/src/parser/common/state_machine.dart";
 /// position. Each frame carries a [Context] and a list of target [State]s
 /// to be explored from that position using that context.
 class Frame {
-  Frame(this.context, {this.replay = false}) : nextStates = {};
+  Frame(this.context) : nextStates = {};
 
   /// The shared parsing context for all states in this frame.
   final Context context;
 
   /// The set of states to be processed at the current input position.
   final Set<State> nextStates;
-
-  /// Whether this frame is being replayed from history (e.g. for epsilon closure).
-  final bool replay;
 
   /// Creates a shallow copy of the frame for targeted exploration.
   Frame copy() => Frame(context);

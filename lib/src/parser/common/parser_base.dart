@@ -210,38 +210,32 @@ abstract base class GlushParserBase implements GlushParser {
       // BEFORE the work queue is processed, so that _currentFrameGroups
       // deduplication can merge their marks via GlushList.branched.
       for (var frame in positionFrames) {
-        if (!frame.replay) {
-          // Replay frames are bookkeeping-only, so they skip predicate counters.
-          if (frame.context.predicateStack.lastOrNull case PredicateCallerKey pk) {
-            // Contract note mirrors processFrame():
-            // tracker can be absent after cleanup of an exhausted predicate.
-            // Dequeued predicate-owned frame consumes one pending work unit.
-            var key = PredicateKey(pk.pattern, pk.startPosition);
-            var tracker = parseState.predicateTrackers[key];
-            if (tracker != null) {
-              tracker.removePendingFrame();
-            }
+        // Replay frames are bookkeeping-only, so they skip predicate counters.
+        if (frame.context.predicateStack.lastOrNull case PredicateCallerKey pk) {
+          // Contract note mirrors processFrame():
+          // tracker can be absent after cleanup of an exhausted predicate.
+          // Dequeued predicate-owned frame consumes one pending work unit.
+          var key = PredicateKey(pk.pattern, pk.startPosition);
+          var tracker = parseState.predicateTrackers[key];
+          if (tracker != null) {
+            tracker.removePendingFrame();
           }
-          if (frame.context.caller case ConjunctionCallerKey caller) {
-            // Decrement pending frame counter for the conjunction sub-parse.
-            var tracker =
-                parseState.conjunctionTrackers[ConjunctionKey(
-                  caller.left,
-                  caller.right,
-                  caller.startPosition,
-                )];
+        }
+        if (frame.context.caller case ConjunctionCallerKey caller) {
+          // Decrement pending frame counter for the conjunction sub-parse.
+          var tracker = parseState
+              .conjunctionTrackers[ConjunctionKey(caller.left, caller.right, caller.startPosition)];
 
-            if (tracker != null && tracker.activeFrames > 0) {
-              tracker.removePendingFrame();
-            }
+          if (tracker != null && tracker.activeFrames > 0) {
+            tracker.removePendingFrame();
           }
+        }
 
-          if (frame.context.caller case NegationCallerKey caller) {
-            parseState
-                .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-                ?.visitedPositions
-                .add(position);
-          }
+        if (frame.context.caller case NegationCallerKey caller) {
+          parseState
+              .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
+              ?.visitedPositions
+              .add(position);
         }
         currentStep.processFrameEnqueue(frame);
       }
