@@ -95,23 +95,14 @@ void main() {
     return SMParser(g);
   });
   measure("metaParser.parse(simple)", 50, () => grammar.parse("rule = 'a'\n"));
-  measure("metaParser.parse(self)", 10, () {
+  measure("metaParser.parse(self)", 30, () {
     var result = grammar.parse(metaGrammarString);
     if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;
   });
-  measure("metaParser.parse(ambiguous)", 10, () {
-    var result = grammar.parseAmbiguous(metaGrammarString);
-    if (result is! ParseSuccess &&
-        result is! ParseAmbiguousSuccess &&
-        result is! ParseAmbiguousSuccess) {
-      throw Exception("Parse failed: $result");
-    }
-    return result;
-  });
-  measure("metaParser.parse(forest)", 10, () {
+  measure("metaParser.parse(ambiguous)", 30, () {
     var result = grammar.parseAmbiguous(metaGrammarString);
     if (result is! ParseSuccess &&
         result is! ParseAmbiguousSuccess &&

@@ -128,7 +128,4 @@ final class ParseState {
 
   /// Whether the most recent step accepted the full input.
   bool get accept => _lastStep?.accept ?? false;
-
-  /// Marks from the most recent step.
-  List<Mark> get marks => _lastStep?.marks ?? const [];
 }

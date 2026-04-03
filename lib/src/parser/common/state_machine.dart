@@ -507,36 +507,30 @@ class StateMachine {
       ruleFirst[rule.symbolId!] = firstState;
       _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
 
+      var ruleBody = rule.body();
       // Pre-calculate precedence mapping for this rule's body
       var precedenceMap = <Pattern, int?>{};
-      _buildPrecedenceMap(rule.body(), null, precedenceMap);
+      _buildPrecedenceMap(ruleBody, null, precedenceMap);
 
       // Connect to first patterns
-      for (var firstStateInRange in rule.body().firstSet()) {
+      for (var firstStateInRange in ruleBody.firstSet()) {
         _connect(firstState, firstStateInRange, currentRule: rule);
       }
 
       // Connect each pair
-      for (var (a, b) in rule.body().eachPair()) {
+      for (var (a, b) in ruleBody.eachPair()) {
         _connect(_getOrCreateState(_PatternStateKey(a)), b, currentRule: rule);
       }
 
       // Mark states before returns
-      for (var lastState in rule.body().lastSet()) {
+      for (var lastState in ruleBody.lastSet()) {
         var state = _getOrCreateState(_PatternStateKey(lastState));
         var action = ReturnAction(rule, lastState, precedenceMap[lastState]);
         state.actions.add(action);
       }
-      if (rule.body().empty()) {
-        // Only add direct epsilon return if there are NO labeled epsilon paths.
-        // If a labeled epsilon path exists (e.g., a:eps in (a:eps | x)), we rely on
-        // the LabelStart -> LabelEnd path to flow through and eventually return,
-        // ensuring labels are captured.
-        var firstSet = rule.body().firstSet();
-        var hasLabeledEpsilon = firstSet.any((p) => p is LabelStart);
-        if (!hasLabeledEpsilon) {
-          firstState.actions.add(ReturnAction(rule, Eps()));
-        }
+
+      if (ruleBody.empty()) {
+        firstState.actions.add(ReturnAction(rule, Eps()));
       }
     }
   }

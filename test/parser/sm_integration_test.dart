@@ -112,7 +112,10 @@ void main() {
       var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(["S.start", "abc"]));
+      expect(
+        finalStep.acceptedContexts.expand((v) => v.marks.iterate()).toList().toShortMarks(),
+        equals(["S.start", "abc"]),
+      );
     });
 
     test("Manual NOT predicate catch-up preserves marks", () {
@@ -132,7 +135,10 @@ void main() {
       var finalStep = parseState.finish();
 
       expect(finalStep.accept, isTrue);
-      expect(finalStep.marks.toShortMarks(), equals(["S.start", "ac"]));
+      expect(
+        finalStep.acceptedContexts.expand((v) => v.marks.iterate()).toList().toShortMarks(),
+        equals(["S.start", "ac"]),
+      );
     });
 
     test("Context Deduplication fixes explosion", () {

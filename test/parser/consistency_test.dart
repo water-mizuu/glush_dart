@@ -6,17 +6,17 @@ extension on Pattern {
 }
 
 /// Compares two mark lists for logical equality.
-bool markListsEqual(List<Mark> left, List<Mark> right) {
-  if (left.length != right.length) {
-    return false;
-  }
-  for (var i = 0; i < left.length; i++) {
-    if (left[i] != right[i]) {
-      return false;
-    }
-  }
-  return true;
-}
+// bool markListsEqual(List<Mark> left, List<Mark> right) {
+//   if (left.length != right.length) {
+//     return false;
+//   }
+//   for (var i = 0; i < left.length; i++) {
+//     if (left[i] != right[i]) {
+//       return false;
+//     }
+//   }
+//   return true;
+// }
 
 /// Helper to verify that parse() results are consistent with parseAmbiguous().
 void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
@@ -45,8 +45,12 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
 
   // Verify that the standard result's marks are present in the ambiguous set.
   var found = false;
+  var evaluatedStandard = standardMarks;
+
+  print(evaluatedStandard);
   for (var path in ambigPaths) {
-    if (markListsEqual(standardMarks, path)) {
+    var evaluatedAmbig = path;
+    if (_listEquals(evaluatedStandard, evaluatedAmbig)) {
       found = true;
       break;
     }
@@ -60,6 +64,20 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
         "Standard: $standardMarks\n"
         "Ambig Paths: $ambigPaths",
   );
+}
+
+bool _listEquals<T>(List<T> left, List<T> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+
+  for (int i = 0; i < left.length; ++i) {
+    if (left[i] != right[i]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void main() {
@@ -110,10 +128,6 @@ void main() {
       var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousSuccess).forest;
       // Should have 1 result because both branches are unique and merged.
       expect(ambig.allPaths().length, 1);
-
-      // Check for ConjunctionMark structure
-      var marks = ambig.allPaths().first;
-      expect(marks.any((m) => m is ConjunctionMark), isTrue);
     });
 
     test("Predicate lookahead consistency", () {

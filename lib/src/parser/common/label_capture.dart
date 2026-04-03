@@ -30,6 +30,10 @@ final class LabelCaptureWalker {
       case Concat<Mark>(:var left, :var right):
         walk(left, active);
         walk(right, active);
+      case Conjunction<Mark>(:var left, :var right):
+        // Parallel marks occur at same span, so both are explored with same context
+        walk(left, active);
+        walk(right, active);
       case BranchedList<Mark>(:var left, :var right):
         var rest = [...active];
         walk(left, rest);

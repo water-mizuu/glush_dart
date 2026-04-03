@@ -78,7 +78,10 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
       var lastStep = parseState.finish();
       if (lastStep.accept) {
-        return ParseSuccess(ParserResult(lastStep.marks));
+        var results = lastStep.acceptedContexts.map((c) => c.marks).single;
+        var onlyPath = results.allPaths().single;
+
+        return ParseSuccess(ParserResult(onlyPath));
       } else {
         return ParseError(parseState.position);
       }
@@ -108,9 +111,9 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       var lastStep = parseState.finish();
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
-        return ParseAmbiguousSuccess(
-          results.fold(const GlushList<Mark>.empty(), GlushList.branched),
-        );
+        var branches = results.fold(const GlushList<Mark>.empty(), GlushList.branched);
+
+        return ParseAmbiguousSuccess(branches);
       } else {
         return ParseError(parseState.position);
       }

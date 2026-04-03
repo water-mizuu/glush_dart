@@ -3,7 +3,6 @@ library glush.grammar;
 
 import "dart:collection";
 
-import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 
@@ -447,70 +446,6 @@ class Grammar implements GrammarInterface {
 
   @override
   bool isEmpty() => startCall.rule.body().empty();
-
-  // DSL methods
-  Token anytoken() => Token(const AnyToken());
-
-  Token token(int codepoint) => Token(ExactToken(codepoint));
-
-  Token tokenRange(int start, int end) {
-    if (start < 0 || end < 0) {
-      throw GrammarError("only positive code points supported in range");
-    }
-    return Token(RangeToken(start, end));
-  }
-
-  Pattern str(String text) {
-    var codepoints = text.codeUnits;
-    Pattern result = token(codepoints[0]);
-    for (int i = 1; i < codepoints.length; i++) {
-      result = result >> token(codepoints[i]);
-    }
-    return result;
-  }
-
-  /// Convenience method for creating a keyword pattern with semantic action.
-  /// Transforms the string into a sequence of tokens and wraps with the callback.
-  ///
-  /// Example:
-  /// ```dart
-  /// final ifKeyword = grammar.keyword<TokenType>('if', (span, _) => TokenType.IF);
-  /// ```
-  Action<T> keyword<T>(String text, T Function(String span, List<dynamic> _) action) {
-    return str(text).withAction<T>(action);
-  }
-
-  /// Convenience method for creating a string pattern that captures the matched text.
-  /// Transforms the string into a sequence of tokens and wraps with a capture action.
-  ///
-  /// Example:
-  /// ```dart
-  /// final identifier = grammar.literal('hello');
-  /// ```
-  Action<String> literal(String text) {
-    return str(text).withAction<String>((span, _) => span);
-  }
-
-  Pattern strRange(IntRange range) {
-    if (range.start < 0 || range.end < 0) {
-      throw GrammarError("only positive code points supported in range");
-    }
-    return Token(RangeToken(range.start, range.end));
-  }
-
-  Eps eps() => Eps();
-
-  Pattern start() => StartAnchor();
-
-  Pattern eof() => EofAnchor();
-
-  Rule defRule(String name, Pattern Function() builder) {
-    var rule = Rule(name, builder);
-    rules.add(rule);
-    return rule;
-  }
-
-  Label label(String name, Pattern child) => Label(name, child);
 
   void _computeEmpty() {
     var emptyRules = <Rule>{};

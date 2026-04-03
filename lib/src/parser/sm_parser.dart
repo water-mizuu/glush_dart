@@ -139,7 +139,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       var lastStep = parseState.finish();
       // Only a final accepted step counts as a successful parse.
       if (lastStep.accept) {
-        return ParseSuccess(ParserResult(lastStep.marks));
+        var results = lastStep.acceptedContexts.map((c) => c.marks).single;
+        var onlyPath = results.allPaths().single;
+
+        return ParseSuccess(ParserResult(onlyPath));
       } else {
         return ParseError(parseState.position);
       }
@@ -179,8 +182,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.map((context) => context.marks).toList();
-        var forest = results.fold(const GlushList<Mark>.empty(), GlushList.branched);
-        return ParseAmbiguousSuccess(forest);
+        var branches = results.fold(const GlushList<Mark>.empty(), GlushList.branched);
+
+        return ParseAmbiguousSuccess(branches);
       } else {
         return ParseError(parseState.position);
       }

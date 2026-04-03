@@ -1,7 +1,22 @@
 digraph GlushList {
   node [shape=box, style=rounded];
   rankdir=TB;
-  node_0 [label="Push(ConjunctionMark([Instance of 'Push<Mark>', Instance of 'Push<Mark>'], 0))", style="filled", fillcolor="lightblue"];
-  node_0 -> node_1 [label="parent"];
-  node_1 [label="Empty", style="filled", fillcolor="lightgray"];
+  node_0 [label="Branched", style="filled", fillcolor="lightgreen"];
+  node_0 -> node_1 [label="left"];
+  node_1 [label="Branched", style="filled", fillcolor="lightgreen"];
+  node_1 -> node_2 [label="left"];
+  node_2 [label="Branched", style="filled", fillcolor="lightgreen"];
+  node_2 -> node_3 [label="left"];
+  node_3 [label="Push(ConjunctionMark([Instance of 'EmptyList<Mark>', Instance of 'EmptyList<Mark>'], 0))", style="filled", fillcolor="lightblue"];
+  node_3 -> node_4 [label="parent"];
+  node_4 [label="Empty", style="filled", fillcolor="lightgray"];
+  node_2 -> node_5 [label="right"];
+  node_5 [label="Push(ConjunctionMark([Instance of 'Push<Mark>', Instance of 'EmptyList<Mark>'], 0))", style="filled", fillcolor="lightblue"];
+  node_5 -> node_4 [label="parent"];
+  node_1 -> node_6 [label="right"];
+  node_6 [label="Push(ConjunctionMark([Instance of 'EmptyList<Mark>', Instance of 'Push<Mark>'], 0))", style="filled", fillcolor="lightblue"];
+  node_6 -> node_4 [label="parent"];
+  node_0 -> node_7 [label="right"];
+  node_7 [label="Push(ConjunctionMark([Instance of 'Push<Mark>', Instance of 'Push<Mark>'], 0))", style="filled", fillcolor="lightblue"];
+  node_7 -> node_4 [label="parent"];
 }

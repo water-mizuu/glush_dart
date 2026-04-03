@@ -20,7 +20,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
+      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -99,7 +99,7 @@ void main() {
           }
         }
       }
-      var root = forest.toList().evaluateStructure();
+      var root = forest.iterate().toList().evaluateStructure();
       print("Final result: $root");
       expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured even though epsilon");
       expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured even though epsilon");
@@ -170,7 +170,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
+      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -199,7 +199,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
+      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -291,7 +291,7 @@ void main() {
       // But they nesting level is 3 deep.
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
+      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
 
       // Root (at level 0) should have l1 and l2.
       // l1 should have l1 and l2 (at level 1).
@@ -331,7 +331,7 @@ void main() {
 
       var res = parser.parseAmbiguous("a", captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.toList().evaluateStructure();
+      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured");
       expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured");

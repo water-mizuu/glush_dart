@@ -1046,7 +1046,6 @@ final class GuardEnvironment {
   final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
 
-  late final List<Mark> marks = List<Mark>.unmodifiable(_marksForest.toList());
   final Map<String, CaptureValue?> _captureCache = {};
 
   CaptureValue? _resolveCapture(String name) {
@@ -1072,9 +1071,6 @@ final class GuardEnvironment {
     }
 
     // Stage 3: Built-in keywords
-    if (name == "marks") {
-      return marks;
-    }
     if (name == "rule") {
       return rule;
     }
@@ -2662,9 +2658,9 @@ class Label extends Pattern {
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
-    var childEmpty = child.calculateEmpty(emptyRules);
-    setEmpty(childEmpty);
-    return childEmpty;
+    (_) = child.calculateEmpty(emptyRules);
+    setEmpty(false);
+    return false;
   }
 
   @override

@@ -204,6 +204,11 @@ abstract base class GlushParserBase implements GlushParser {
       }
       var currentStep = stepsAtPosition[position]!;
 
+      // Process all frames' enqueueing first, then finalize work queue.
+      // This is critical for proper ambiguity handling: when multiple frames
+      // have the same state but different marks, they must be enqueued
+      // BEFORE the work queue is processed, so that _currentFrameGroups
+      // deduplication can merge their marks via GlushList.branched.
       for (var frame in positionFrames) {
         if (!frame.replay) {
           // Replay frames are bookkeeping-only, so they skip predicate counters.
@@ -238,8 +243,9 @@ abstract base class GlushParserBase implements GlushParser {
                 .add(position);
           }
         }
-        currentStep.processFrame(frame);
+        currentStep.processFrameEnqueue(frame);
       }
+      currentStep.processFrameFinalize();
 
       currentStep.finalize();
 

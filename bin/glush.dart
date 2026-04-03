@@ -18,7 +18,7 @@ import "package:glush/src/parser/common/tracer.dart" show FileTracer;
 // final parser = SMParserMini(grammar);
 
 const grammar = r"""
-S = (a:'' | '' | 'a') && (b:'' | '' | 'a')
+S = (a:'' | '') && ''
 """;
 
 final parser = grammar.toSMParser();
@@ -41,7 +41,7 @@ void main() async {
     return;
   }
 
-  print(paths.allPaths().map((v) => v.evaluateStructure()).toList());
+  print(paths.allPaths().map((v) => v.evaluateStructure()).join("\n"));
 
   File("another.dot")
     ..createSync(recursive: true)

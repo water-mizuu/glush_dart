@@ -48,6 +48,8 @@ void main() {
 
       var content = traceFile.readAsStringSync();
 
+      print(content);
+
       expect(content, contains("POSITION: 0"));
       expect(content, contains("POSITION: 1"));
       expect(content, contains("[* Process]"));

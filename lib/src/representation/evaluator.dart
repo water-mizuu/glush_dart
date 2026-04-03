@@ -1,6 +1,10 @@
+// ignore_for_file: must_be_immutable
+
+import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:meta/meta.dart";
 
 /// Signature for an evaluation handler.
 typedef EvaluatorHandler<T> = T Function(EvaluationContext<T> ctx);
@@ -128,7 +132,7 @@ class Evaluator<T> {
         if (node.children.isEmpty) {
           return translateToken(node);
         }
-        var it = NodeIterator(node.children);
+        var it = NodeIterator(node.children.toList());
         return evaluateChildren(it);
       }
 
@@ -160,13 +164,15 @@ class Evaluator<T> {
       // semantic node we actually want to interpret.
       var handler = _resolveHandler(label);
       if (handler != null) {
-        var childIt = node is ParseResult ? NodeIterator(node.children) : NodeIterator(const []);
+        var childIt = node is ParseResult
+            ? NodeIterator(node.children.toList())
+            : NodeIterator(const []);
 
         // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
         while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
           node = childIt.next().$2;
           childIt = node is ParseResult
-              ? NodeIterator(node.children) //
+              ? NodeIterator(node.children.toList()) //
               : NodeIterator(const []);
         }
 
@@ -231,6 +237,7 @@ sealed class ParseNode {
 }
 
 /// A node representing a raw token (leaf).
+@immutable
 class TokenResult extends ParseNode {
   TokenResult(this.span);
   @override
@@ -241,9 +248,18 @@ class TokenResult extends ParseNode {
 
   @override
   Object simple() => span;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TokenResult && runtimeType == other.runtimeType && span == other.span;
+
+  @override
+  int get hashCode => span.hashCode;
 }
 
 /// A node in the structured parse result tree
+@immutable
 class ParseResult extends ParseNode {
   ParseResult(this.children, this.span);
 
@@ -286,6 +302,30 @@ class ParseResult extends ParseNode {
       for (var (l, n) in children) {l: n.simple()},
     ];
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ParseResult &&
+          runtimeType == other.runtimeType &&
+          span == other.span &&
+          children.length == other.children.length &&
+          _childrenListEqual(children, other.children);
+
+  bool _childrenListEqual(List<(String, ParseNode)> a, List<(String, ParseNode)> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; ++i) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  @override
+  int get hashCode => Object.hash(span, Object.hashAll(children));
 }
 
 /// Evaluator that produces a structured tree of results based on labels.
@@ -351,7 +391,7 @@ class StructuredEvaluator {
           case ConjunctionMark(:var branches):
             var first = true;
             for (var branch in branches) {
-              var branchResult = evaluate(branch.toList());
+              var branchResult = evaluate(branch.allPaths().expand((v) => v).toList());
               for (var child in branchResult.children) {
                 stack.last.children.add(child);
               }
@@ -429,7 +469,7 @@ class StructuredEvaluator {
         case ConjunctionMark(:var branches):
           var first = true;
           for (var branch in branches) {
-            var branchResult = evaluateStrict(branch.toList());
+            var branchResult = evaluateStrict(branch.allPaths().expand((v) => v).toList());
             for (var child in branchResult.children) {
               stack.last.children.add(child);
             }

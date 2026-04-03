@@ -51,7 +51,7 @@ void main() {
 
     test("toList converts to standard list", () {
       var list = const GlushList<int>.empty().add(1).add(2).add(3);
-      expect(list.toList(), equals([1, 2, 3]));
+      expect(list.allPaths().first, equals([1, 2, 3]));
     });
   });
 }

@@ -50,7 +50,20 @@ sealed class GlushList<T> {
     _ => Concat<T>._(this, list),
   };
 
-  List<T> toList() => iterate().toList();
+  /// Creates a parallel combination (cartesian product) of mark forests.
+  /// Represents left and right marks both occurring at the same span.
+  static GlushList<T> conjunction<T>(GlushList<T> left, GlushList<T> right) {
+    if (left.isEmpty && right.isEmpty) {
+      return const GlushList.empty();
+    }
+    if (left.isEmpty) {
+      return right;
+    }
+    if (right.isEmpty) {
+      return left;
+    }
+    return Conjunction<T>._(left, right);
+  }
 
   static final Object _dataMarker = Object();
 
@@ -77,6 +90,9 @@ sealed class GlushList<T> {
           stack.add(_dataMarker);
           stack.add(node.parent);
         case Concat<T>():
+          stack.add(node.right);
+          stack.add(node.left);
+        case Conjunction<T>():
           stack.add(node.right);
           stack.add(node.left);
       }
@@ -117,6 +133,8 @@ sealed class GlushList<T> {
         }
         res = _count(parent, memo) * mult;
       case Concat(:var left, :var right):
+        res = _count(left, memo) * _count(right, memo);
+      case Conjunction(:var left, :var right):
         res = _count(left, memo) * _count(right, memo);
     }
     return memo[node] = res;
@@ -209,6 +227,27 @@ class Concat<T> extends GlushList<T> {
   int get hashCode => _hashCode;
 }
 
+/// Represents parallel marks at the same span from different derivations.
+/// Used in conjunctions to express cartesian products: left and right marks
+/// both occurring at the same position (their union).
+class Conjunction<T> extends GlushList<T> {
+  Conjunction._(this.left, this.right) : _hashCode = Object.hash(Conjunction, left, right);
+  final GlushList<T> left;
+  final GlushList<T> right;
+  final int _hashCode;
+
+  @override
+  bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Conjunction<T> && left == other.left && right == other.right;
+
+  @override
+  int get hashCode => _hashCode;
+}
+
 extension GlushListVisualizer<T> on GlushList<T> {
   Iterable<List<T>> allPaths() {
     return _collect(this, {});
@@ -225,39 +264,55 @@ extension GlushListVisualizer<T> on GlushList<T> {
         }
       case Push<T>():
         var data = node.data;
-        if (data is ConjunctionMark) {
-          var branchPaths = data.branches.map((b) => (b as GlushList).allPaths().toList()).toList();
-
-          Iterable<List<List<Mark>>> product(int index) sync* {
-            if (index == branchPaths.length) {
-              yield [];
-              return;
-            }
-            for (var path in branchPaths[index]) {
-              for (var rest in product(index + 1)) {
-                yield [path.cast<Mark>(), ...rest];
-              }
-            }
-          }
-
-          var productResults = product(0).toList();
-          for (var pPath in _collect(node.parent, visiting)) {
-            for (var bPaths in productResults) {
-              var substituted =
-                  ConjunctionMark(bPaths.map(GlushList.fromList).toList(), data.position) as T;
-              yield [...pPath, substituted];
-            }
-          }
-        } else {
-          for (var pPath in _collect(node.parent, visiting)) {
-            yield [...pPath, data];
-          }
+        for (var pPath in _collect(node.parent, visiting)) {
+          yield [...pPath, data];
         }
       case Concat<T>():
         // Concat is rare but we handle it lazily
         for (var l in _collect(node.left, visiting)) {
           for (var r in _collect(node.right, visiting)) {
             yield [...l, ...r];
+          }
+        }
+      case Conjunction<T>():
+        // Parallel represents cartesian product at same span.
+        // Enumerate all (left, right) path combinations and emit as ConjunctionMark.
+        if (T == Mark || T.toString().contains("Mark")) {
+          for (var leftPath in _collect(node.left, visiting)) {
+            for (var rightPath in _collect(node.right, visiting)) {
+              // For nested Parallel, flatten the structure by merging ConjunctionMark branches
+              List<GlushList<Mark>> branches = [];
+
+              // Extract branches from left path (may contain nested ConjunctionMark)
+              if (leftPath.length == 1 && leftPath[0] is ConjunctionMark) {
+                var conjMark = leftPath[0] as ConjunctionMark;
+                branches.addAll(conjMark.branches);
+              } else {
+                // For non-nested case, convert the path sequence into a GlushList
+                branches.add(GlushList.fromList(leftPath.cast<Mark>()));
+              }
+
+              // Extract branches from right path (may contain nested ConjunctionMark)
+              if (rightPath.length == 1 && rightPath[0] is ConjunctionMark) {
+                var conjMark = rightPath[0] as ConjunctionMark;
+                branches.addAll(conjMark.branches);
+              } else {
+                // For non-nested case, convert the path sequence into a GlushList
+                branches.add(GlushList.fromList(rightPath.cast<Mark>()));
+              }
+
+              // Create a ConjunctionMark with all flattened branches
+              // The branches now contain the actual mark sequences from each branch
+              var conjMark = ConjunctionMark(branches, 0) as T;
+              yield [conjMark];
+            }
+          }
+        } else {
+          // For non-Mark types, just concatenate
+          for (var l in _collect(node.left, visiting)) {
+            for (var r in _collect(node.right, visiting)) {
+              yield [...l, ...r];
+            }
           }
         }
     }
@@ -310,6 +365,16 @@ extension GlushListVisualizer<T> on GlushList<T> {
         buildGraph(node.parent, buf);
       } else if (node is Concat<T>) {
         buf.writeln('  $nodeId [label="Concat", style="filled", fillcolor="lightyellow"];');
+        generateNodeId(node.left);
+        generateNodeId(node.right);
+        var leftId = nodeIds[node.left]!;
+        var rightId = nodeIds[node.right]!;
+        buf.writeln('  $nodeId -> $leftId [label="left"];');
+        buf.writeln('  $nodeId -> $rightId [label="right"];');
+        buildGraph(node.left, buf);
+        buildGraph(node.right, buf);
+      } else if (node is Conjunction<T>) {
+        buf.writeln('  $nodeId [label="Parallel", style="filled", fillcolor="lightcyan"];');
         generateNodeId(node.left);
         generateNodeId(node.right);
         var leftId = nodeIds[node.left]!;
@@ -372,6 +437,10 @@ extension GlushListVisualizer<T> on GlushList<T> {
       _visualize(node.parent, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
     } else if (node is Concat<T>) {
       buffer.writeln("Concat");
+      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
+      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
+    } else if (node is Conjunction<T>) {
+      buffer.writeln("Parallel");
       _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
       _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
     } else if (node is BranchedList<T>) {

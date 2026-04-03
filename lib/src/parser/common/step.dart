@@ -140,10 +140,13 @@ class Step {
     GlushList<Mark> right,
     List<(ParseNodeKey? source, Context, State)> targetWaiters,
   ) {
-    var conMark = ConjunctionMark([left, right], endPosition);
+    // Create a Parallel node representing the cartesian product of left and right marks
+    // at the same span. This captures all combinations of parallel marks.
+    var conjunctionResult = GlushList.conjunction(left, right);
 
     for (var (source, parentContext, nextState) in targetWaiters) {
-      var nextMarks = parentContext.marks.add(conMark);
+      // Add the parallel result to the parent marks.
+      var nextMarks = parentContext.marks.addList(conjunctionResult);
       var nextContext = parentContext.copyWith(pivot: endPosition, marks: nextMarks);
 
       if (isSupportingAmbiguity && source != null) {
@@ -575,14 +578,6 @@ class Step {
   }
 
   bool get accept => acceptedContexts.isNotEmpty;
-
-  List<Mark> get marks {
-    // No accept state means no valid mark stream.
-    if (acceptedContexts.isEmpty) {
-      return [];
-    }
-    return acceptedContexts.first.marks.toList();
-  }
 
   /// Enqueue an active parser configuration for this step.
   ///
@@ -1617,6 +1612,56 @@ class Step {
         }
       }
       _process(Frame(context, replay: frame.replay), state);
+    }
+  }
+
+  /// Enqueue a frame without processing the work queue.
+  /// Use this with processFrameFinalize() for batching.
+  void processFrameEnqueue(Frame frame) {
+    GlushProfiler.increment("parser.frames.processed");
+    for (var state in frame.nextStates) {
+      parseState.tracer.onProcessState(frame, state);
+      _enqueue(state, frame.context);
+    }
+  }
+
+  /// Process all accumulated work from previous processFrameEnqueue() calls.
+  /// This must be called after all frames at a position have been enqueued.
+  void processFrameFinalize() {
+    // Track if we're in replay mode - frames added during finalize phase are not replay
+    while (_workQueue.isNotEmpty) {
+      var (key, state) = _workQueue.removeFirst();
+      var context = _currentFrameGroups.remove(key);
+      if (context == null) {
+        // This can happen if the queue outlived its accompanying context group
+        // during complex transitions or duplicates in the work queue.
+        continue;
+      }
+
+      // Handle tracker bookkeeping - these checks need to happen before processing
+      if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
+        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+        var tracker = parseState.predicateTrackers[key];
+        if (tracker != null) {
+          tracker.removePendingFrame();
+        }
+      }
+      if (context.caller case ConjunctionCallerKey c) {
+        var key = ConjunctionKey(c.left, c.right, c.startPosition);
+        var tracker = parseState.conjunctionTrackers[key];
+        if (tracker != null && tracker.activeFrames > 0) {
+          tracker.removePendingFrame();
+        }
+      }
+
+      if (context.caller case NegationCallerKey caller) {
+        parseState
+            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)] //
+            ?.visitedPositions
+            .add(position);
+      }
+
+      _process(Frame(context), state);
     }
   }
 }
