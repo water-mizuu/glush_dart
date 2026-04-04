@@ -85,22 +85,7 @@ void main() {
       var res = parser.parseAmbiguous("", captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
       var forest = success.forest;
-      var paths = forest.allPaths();
-      print("Forest allPaths: ${paths.length}");
-      for (var (i, path) in paths.indexed) {
-        print("  Path $i has ${path.length} marks:");
-        for (var mark in path) {
-          if (mark is ConjunctionMark) {
-            print(
-              "    - ConjunctionMark @ ${mark.position}: left=${mark.left.runtimeType}, right=${mark.right.runtimeType}",
-            );
-          } else {
-            print("    - ${mark.runtimeType}");
-          }
-        }
-      }
       var root = forest.iterate().toList().evaluateStructure();
-      print("Final result: $root");
       expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured even though epsilon");
       expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured even though epsilon");
       expect(root.span, equals(""));

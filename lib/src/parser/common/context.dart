@@ -34,7 +34,8 @@ class Context {
          predicateStack,
          _mapHashCode(arguments),
        ),
-       isSimple = predicateStack.isEmpty && captures.isEmpty && callStart == null && arguments.isEmpty;
+       isSimple =
+           predicateStack.isEmpty && captures.isEmpty && callStart == null && arguments.isEmpty;
 
   final int _hash;
 

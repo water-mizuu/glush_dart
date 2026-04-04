@@ -87,7 +87,7 @@ final class ConjunctionCallerKey extends CallerKey {
       isLeft == other.isLeft;
 
   @override
-  int get hashCode => Object.hash(left, right, startPosition, isLeft);
+  int get hashCode => Object.hash(uid, isLeft);
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
@@ -98,9 +98,9 @@ class Caller extends CallerKey {
     this.pattern,
     this.startPosition,
     this.minPrecedenceLevel,
-    Map<String, Object?> arguments,
+    this.arguments,
     this.uid,
-  ) : arguments = Map<String, Object?>.unmodifiable(arguments);
+  );
 
   final Rule rule;
   final Pattern pattern;
@@ -180,7 +180,7 @@ class Caller extends CallerKey {
     }
 
     var (existingContext, existingMarks) = existing;
-    if (existingMarks == marks) {
+    if (identical(existingMarks, marks)) {
       return false;
     }
 

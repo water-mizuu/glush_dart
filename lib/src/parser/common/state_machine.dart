@@ -138,8 +138,7 @@ final class MarkAction implements StateAction {
   ///   [name] - The name of the mark
   ///   [pattern] - The pattern being marked
   ///   [nextState] - The state to transition to after marking
-  MarkAction(this.name, this.pattern, this.nextState)
-    : _hash = Object.hash(MarkAction, name, pattern, nextState);
+  const MarkAction(this.name, this.pattern, this.nextState);
 
   /// The name of this mark.
   final String name;
@@ -149,19 +148,6 @@ final class MarkAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is MarkAction &&
-          name == other.name &&
-          pattern == other.pattern &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 }
 
 /// Action to consume a token and transition to the next state.
@@ -171,23 +157,13 @@ final class TokenAction implements StateAction {
   /// Parameters:
   ///   [pattern] - The token pattern to consume
   ///   [nextState] - The state to transition to after consuming the token
-  TokenAction(this.pattern, this.nextState) : _hash = Object.hash(TokenAction, pattern, nextState);
+  const TokenAction(this.pattern, this.nextState);
 
   /// The token pattern to consume.
   final Pattern pattern;
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TokenAction && pattern == other.pattern && nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => "Token($pattern)";
@@ -210,8 +186,7 @@ final class BoundaryAction implements StateAction {
   ///   [kind] - The type of boundary (start or eof)
   ///   [pattern] - The boundary pattern
   ///   [nextState] - The state to transition to if boundary matches
-  BoundaryAction(this.kind, this.pattern, this.nextState)
-    : _hash = Object.hash(BoundaryAction, kind, pattern, nextState);
+  const BoundaryAction(this.kind, this.pattern, this.nextState);
 
   /// The type of boundary being checked.
   final BoundaryKind kind;
@@ -221,19 +196,6 @@ final class BoundaryAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BoundaryAction &&
-          kind == other.kind &&
-          pattern == other.pattern &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 }
 
 /// Convert a [RuleCall] to a human-readable description.
@@ -269,8 +231,7 @@ final class LabelStartAction implements StateAction {
   ///   [name] - The name of the label
   ///   [pattern] - The starting pattern
   ///   [nextState] - The state to transition to
-  LabelStartAction(this.name, this.pattern, this.nextState)
-    : _hash = Object.hash(LabelStartAction, name, pattern, nextState);
+  const LabelStartAction(this.name, this.pattern, this.nextState);
 
   /// The name of the label.
   final String name;
@@ -280,19 +241,6 @@ final class LabelStartAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is LabelStartAction &&
-          name == other.name &&
-          pattern == other.pattern &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 }
 
 /// Action to mark the end of a labeled capture group.
@@ -303,8 +251,7 @@ final class LabelEndAction implements StateAction {
   ///   [name] - The name of the label
   ///   [pattern] - The ending pattern
   ///   [nextState] - The state to transition to
-  LabelEndAction(this.name, this.pattern, this.nextState)
-    : _hash = Object.hash(LabelEndAction, name, pattern, nextState);
+  const LabelEndAction(this.name, this.pattern, this.nextState);
 
   /// The name of the label.
   final String name;
@@ -314,19 +261,6 @@ final class LabelEndAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is LabelEndAction &&
-          name == other.name &&
-          pattern == other.pattern &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 }
 
 /// Action to match a previously captured label group by name.
@@ -336,24 +270,13 @@ final class BackreferenceAction implements StateAction {
   /// Parameters:
   ///   [name] - The name of the label to reference
   ///   [nextState] - The state to transition to if match succeeds
-  BackreferenceAction(this.name, this.nextState)
-    : _hash = Object.hash(BackreferenceAction, name, nextState);
+  const BackreferenceAction(this.name, this.nextState);
 
   /// The name of the label being referenced.
   final String name;
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BackreferenceAction && name == other.name && nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 }
 
 /// Action to consume a parameter value during parsing.
@@ -364,8 +287,7 @@ final class ParameterAction implements StateAction {
   ///   [name] - The name of the parameter
   ///   [pattern] - The parameter pattern
   ///   [nextState] - The state to transition to
-  ParameterAction(this.name, this.pattern, this.nextState)
-    : _hash = Object.hash(ParameterAction, name, pattern, nextState);
+  const ParameterAction(this.name, this.pattern, this.nextState);
 
   /// The name of the parameter.
   final String name;
@@ -375,19 +297,6 @@ final class ParameterAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ParameterAction &&
-          name == other.name &&
-          pattern == other.pattern &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => "Parameter($name)";
@@ -400,24 +309,13 @@ final class ParameterCallAction implements StateAction {
   /// Parameters:
   ///   [pattern] - The parameterized call pattern
   ///   [nextState] - The state to transition to after the call returns
-  ParameterCallAction(this.pattern, this.nextState)
-    : _hash = Object.hash(ParameterCallAction, pattern, nextState);
+  const ParameterCallAction(this.pattern, this.nextState);
 
   /// The parameterized call pattern.
   final ParameterCallPattern pattern;
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ParameterCallAction && pattern == other.pattern && nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => "ParameterCall($pattern)";
@@ -478,8 +376,7 @@ final class CallAction implements StateAction {
   ///   [pattern] - The rule call pattern
   ///   [returnState] - The state to return to when the rule completes
   ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
-  CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel])
-    : _hash = Object.hash(CallAction, rule, pattern, returnState, minPrecedenceLevel);
+  const CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel]);
 
   /// The rule being called.
   final Rule rule;
@@ -492,20 +389,6 @@ final class CallAction implements StateAction {
 
   /// Optional minimum precedence level for the call.
   final int? minPrecedenceLevel;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is CallAction &&
-          rule == other.rule &&
-          pattern == other.pattern &&
-          returnState == other.returnState &&
-          minPrecedenceLevel == other.minPrecedenceLevel;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => switch (pattern) {
@@ -528,8 +411,7 @@ final class TailCallAction implements StateAction {
   ///   [rule] - The rule to tail-call
   ///   [pattern] - The rule call pattern
   ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
-  TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel])
-    : _hash = Object.hash(TailCallAction, rule, pattern, minPrecedenceLevel);
+  const TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel]);
 
   /// The rule being tail-called.
   final Rule rule;
@@ -539,19 +421,6 @@ final class TailCallAction implements StateAction {
 
   /// Optional minimum precedence level for the call.
   final int? minPrecedenceLevel;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TailCallAction &&
-          rule == other.rule &&
-          pattern == other.pattern &&
-          minPrecedenceLevel == other.minPrecedenceLevel;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => switch (pattern) {
@@ -571,8 +440,7 @@ final class ReturnAction implements StateAction {
   ///   [rule] - The rule being returned from
   ///   [lastPattern] - The last pattern matched before returning
   ///   [precedenceLevel] - Optional precedence level for the return
-  ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel])
-    : _hash = Object.hash(ReturnAction, rule, lastPattern, precedenceLevel);
+  const ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel]);
 
   /// The rule this return belongs to.
   final Rule rule;
@@ -582,19 +450,6 @@ final class ReturnAction implements StateAction {
 
   /// Optional precedence level associated with the return.
   final int? precedenceLevel;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ReturnAction &&
-          rule == other.rule &&
-          lastPattern == other.lastPattern &&
-          precedenceLevel == other.precedenceLevel;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => precedenceLevel != null
@@ -611,8 +466,7 @@ final class AcceptAction implements StateAction {
 /// Predicate action for lookahead assertions (AND/NOT predicates)
 /// Does not consume input - purely a condition check
 final class PredicateAction implements StateAction {
-  PredicateAction({required this.isAnd, required this.symbol, required this.nextState})
-    : _hash = Object.hash(PredicateAction, isAnd, symbol, nextState);
+  const PredicateAction({required this.isAnd, required this.symbol, required this.nextState});
 
   // Marker type: true for AND (&), false for NOT (!)
   final bool isAnd;
@@ -622,19 +476,6 @@ final class PredicateAction implements StateAction {
 
   // Next state after successful predicate check
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is PredicateAction &&
-          isAnd == other.isAnd &&
-          symbol == other.symbol &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() =>
@@ -651,8 +492,11 @@ final class ConjunctionAction implements StateAction {
   ///   [leftSymbol] - The left pattern symbol
   ///   [rightSymbol] - The right pattern symbol
   ///   [nextState] - The state to transition to if both patterns match
-  ConjunctionAction({required this.leftSymbol, required this.rightSymbol, required this.nextState})
-    : _hash = Object.hash(ConjunctionAction, leftSymbol, rightSymbol, nextState);
+  const ConjunctionAction({
+    required this.leftSymbol,
+    required this.rightSymbol,
+    required this.nextState,
+  });
 
   /// The left operand symbol.
   final PatternSymbol leftSymbol;
@@ -662,19 +506,6 @@ final class ConjunctionAction implements StateAction {
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ConjunctionAction &&
-          leftSymbol == other.leftSymbol &&
-          rightSymbol == other.rightSymbol &&
-          nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
@@ -687,24 +518,13 @@ final class NegationAction implements StateAction {
   /// Parameters:
   ///   [symbol] - The pattern symbol to negate
   ///   [nextState] - The state to transition to if negation succeeds
-  NegationAction({required this.symbol, required this.nextState})
-    : _hash = Object.hash(NegationAction, symbol, nextState);
+  const NegationAction({required this.symbol, required this.nextState});
 
   /// The symbol being negated.
   final PatternSymbol symbol;
 
   /// The next state after this transition.
   final State nextState;
-
-  final int _hash;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NegationAction && symbol == other.symbol && nextState == other.nextState;
-
-  @override
-  int get hashCode => _hash;
 
   @override
   String toString() => "Neg($symbol)";
