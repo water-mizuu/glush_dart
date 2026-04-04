@@ -1,5 +1,3 @@
-import "package:glush/src/core/list.dart";
-import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:meta/meta.dart";
 
@@ -12,7 +10,7 @@ final class GuardCacheKey {
   GuardCacheKey(
     this.rule,
     this.guard,
-    this.marks,
+    // this.marks,
     this.callArgumentsKey,
     this.position,
     this.callStart,
@@ -21,7 +19,7 @@ final class GuardCacheKey {
         GuardCacheKey,
         rule,
         guard,
-        marks,
+        // marks,
         callArgumentsKey,
         position,
         callStart,
@@ -30,7 +28,7 @@ final class GuardCacheKey {
 
   final Rule rule;
   final GuardExpr guard;
-  final GlushList<Mark> marks;
+  // final GlushList<Mark> marks;
   final CallArgumentsKey callArgumentsKey;
   final int position;
   final int? callStart;

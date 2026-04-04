@@ -338,6 +338,7 @@ sealed class CallArgumentValue {
   String format();
 
   void collectRules(Set<Rule> rules);
+  void collectReferredNames(Set<String> names);
 
   /// Rewrite any nested pattern values before the argument is resolved.
   ///
@@ -367,6 +368,9 @@ final class _CallArgumentLiteralValue extends CallArgumentValue {
   void collectRules(Set<Rule> rules) {}
 
   @override
+  void collectReferredNames(Set<String> names) {}
+
+  @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
 }
 
@@ -386,6 +390,11 @@ final class _CallArgumentReferenceValue extends CallArgumentValue {
 
   @override
   void collectRules(Set<Rule> rules) {}
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    names.add(name);
+  }
 
   @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
@@ -411,6 +420,9 @@ final class _CallArgumentRuleValue extends CallArgumentValue {
   }
 
   @override
+  void collectReferredNames(Set<String> names) {}
+
+  @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
 }
 
@@ -432,6 +444,9 @@ final class _CallArgumentPatternValue extends CallArgumentValue {
   void collectRules(Set<Rule> rules) {
     pattern.collectRules(rules);
   }
+
+  @override
+  void collectReferredNames(Set<String> names) {}
 
   @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
@@ -465,6 +480,11 @@ final class _CallArgumentUnaryValue extends CallArgumentValue {
   }
 
   @override
+  void collectReferredNames(Set<String> names) {
+    operand.collectReferredNames(names);
+  }
+
+  @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
       CallArgumentValue.unary(operator, operand.transformPatterns(transform));
 }
@@ -488,6 +508,11 @@ final class _CallArgumentMemberValue extends CallArgumentValue {
   @override
   void collectRules(Set<Rule> rules) {
     target.collectRules(rules);
+  }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    target.collectReferredNames(names);
   }
 
   @override
@@ -578,6 +603,12 @@ final class _CallArgumentBinaryValue extends CallArgumentValue {
   }
 
   @override
+  void collectReferredNames(Set<String> names) {
+    left.collectReferredNames(names);
+    right.collectReferredNames(names);
+  }
+
+  @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) =>
       CallArgumentValue.binary(
         left.transformPatterns(transform),
@@ -623,6 +654,9 @@ final class _CallArgumentCallableValue extends CallArgumentValue {
 
   @override
   void collectRules(Set<Rule> rules) {}
+
+  @override
+  void collectReferredNames(Set<String> names) {}
 
   @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
@@ -922,6 +956,9 @@ final class _CallArgumentCurrentRuleValue extends CallArgumentValue {
   void collectRules(Set<Rule> rules) {}
 
   @override
+  void collectReferredNames(Set<String> names) {}
+
+  @override
   CallArgumentValue transformPatterns(Pattern Function(Pattern pattern) transform) => this;
 }
 
@@ -955,6 +992,13 @@ final class _CallArgumentListValue extends CallArgumentValue {
   void collectRules(Set<Rule> rules) {
     for (var value in values) {
       value.collectRules(rules);
+    }
+  }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    for (var value in values) {
+      value.collectReferredNames(names);
     }
   }
 
@@ -996,6 +1040,13 @@ final class _CallArgumentMapValue extends CallArgumentValue {
   void collectRules(Set<Rule> rules) {
     for (var value in values.values) {
       value.collectRules(rules);
+    }
+  }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    for (var value in values.values) {
+      value.collectReferredNames(names);
     }
   }
 
@@ -1113,6 +1164,7 @@ sealed class GuardValue {
   factory GuardValue.rule() = _GuardRuleValue;
 
   Object? evaluate(GuardEnvironment env);
+  void collectReferredNames(Set<String> names);
 
   GuardExpr eq(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.eq);
@@ -1138,6 +1190,7 @@ sealed class GuardExpr {
   factory GuardExpr.expression(CallArgumentValue value) = _GuardExpressionExpr;
 
   bool evaluate(GuardEnvironment env);
+  void collectReferredNames(Set<String> names);
 
   GuardExpr and(GuardExpr other) => GuardAnd(this, other);
   GuardExpr or(GuardExpr other) => GuardOr(this, other);
@@ -1159,6 +1212,9 @@ final class _GuardLiteralValue extends GuardValue {
 
   @override
   Object? evaluate(GuardEnvironment env) => value;
+
+  @override
+  void collectReferredNames(Set<String> names) {}
 }
 
 final class _GuardArgumentValue extends GuardValue {
@@ -1168,6 +1224,11 @@ final class _GuardArgumentValue extends GuardValue {
 
   @override
   Object? evaluate(GuardEnvironment env) => env.resolve(name);
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    names.add(name);
+  }
 }
 
 final class _GuardNameValue extends GuardValue {
@@ -1177,6 +1238,11 @@ final class _GuardNameValue extends GuardValue {
 
   @override
   Object? evaluate(GuardEnvironment env) => env.resolve(name);
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    names.add(name);
+  }
 }
 
 final class _GuardRuleValue extends GuardValue {
@@ -1184,6 +1250,9 @@ final class _GuardRuleValue extends GuardValue {
 
   @override
   Object? evaluate(GuardEnvironment env) => env.rule;
+
+  @override
+  void collectReferredNames(Set<String> names) {}
 }
 
 final class _GuardLiteralExpr extends GuardExpr {
@@ -1193,6 +1262,9 @@ final class _GuardLiteralExpr extends GuardExpr {
 
   @override
   bool evaluate(GuardEnvironment env) => value;
+
+  @override
+  void collectReferredNames(Set<String> names) {}
 }
 
 enum _GuardComparisonKind { eq, ne, gt, gte, lt, lte }
@@ -1218,6 +1290,12 @@ final class _GuardComparison extends GuardExpr {
       _GuardComparisonKind.lte => comparison != null && comparison <= 0,
     };
   }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    left.collectReferredNames(names);
+    right.collectReferredNames(names);
+  }
 }
 
 final class GuardAnd extends GuardExpr {
@@ -1228,6 +1306,12 @@ final class GuardAnd extends GuardExpr {
 
   @override
   bool evaluate(GuardEnvironment env) => left.evaluate(env) && right.evaluate(env);
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    left.collectReferredNames(names);
+    right.collectReferredNames(names);
+  }
 }
 
 final class GuardOr extends GuardExpr {
@@ -1238,6 +1322,12 @@ final class GuardOr extends GuardExpr {
 
   @override
   bool evaluate(GuardEnvironment env) => left.evaluate(env) || right.evaluate(env);
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    left.collectReferredNames(names);
+    right.collectReferredNames(names);
+  }
 }
 
 final class GuardNot extends GuardExpr {
@@ -1247,6 +1337,11 @@ final class GuardNot extends GuardExpr {
 
   @override
   bool evaluate(GuardEnvironment env) => !child.evaluate(env);
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    child.collectReferredNames(names);
+  }
 }
 
 final class GuardValueExpr extends GuardExpr {
@@ -1262,6 +1357,11 @@ final class GuardValueExpr extends GuardExpr {
       null => false,
       _ => true,
     };
+  }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    value.collectReferredNames(names);
   }
 }
 
@@ -1284,6 +1384,11 @@ final class _GuardExpressionExpr extends GuardExpr {
       return evaluated;
     }
     throw Exception("if guard must evaluate to a boolean");
+  }
+
+  @override
+  void collectReferredNames(Set<String> names) {
+    value.collectReferredNames(names);
   }
 }
 
@@ -1524,6 +1629,7 @@ sealed class Pattern {
       LabelStart() => "las",
       LabelEnd() => "lae",
       Backreference() => "bac",
+      IfCond() => "if",
     };
   }
 
@@ -1560,6 +1666,7 @@ sealed class Pattern {
       LabelStart(:var name) => name,
       LabelEnd(:var name) => name,
       Backreference(:var name) => name,
+      IfCond() => "",
     };
   }
 
@@ -1579,6 +1686,10 @@ sealed class Pattern {
   /// Consumes input.
   /// Example: ident & neg(keyword) matches an identifier that is not a keyword.
   Neg neg() => Neg(this);
+
+  /// Inline guard — succeeds only if the condition evaluates to true.
+  /// If the condition is false, the branch fails without consuming input.
+  IfCond when(GuardExpr condition) => IfCond(condition, this);
 }
 
 /// Sealed class hierarchy for token choice — replaces the former dynamic field.
@@ -2245,6 +2356,49 @@ class Neg extends Pattern {
   @override
   String toString() => "neg($pattern)";
 }
+
+/// Inline guard pattern - matches child pattern only if condition is true.
+class IfCond extends Pattern {
+  IfCond(this.condition, Pattern p) : pattern = p.consume();
+  final GuardExpr condition;
+  Pattern pattern;
+
+  @override
+  IfCond copy() => IfCond(condition, pattern.copy());
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    // Guards require semantic evaluation and are extracted as rules during normalization.
+    pattern.calculateEmpty(emptyRules);
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => pattern.isStatic();
+
+  @override
+  Set<Pattern> firstSet() => pattern.firstSet();
+
+  @override
+  Set<Pattern> lastSet() => pattern.lastSet();
+
+  @override
+  Iterable<(Pattern, Pattern)> eachPair() sync* {
+    yield* pattern.eachPair();
+  }
+
+  @override
+  void collectRules(Set<Rule> rules) {
+    pattern.collectRules(rules);
+  }
+
+  @override
+  String toString() => "if($condition, $pattern)";
+}
+
+/// Top-level helper for inline guards.
+IfCond if_(GuardExpr condition, Pattern pattern) => IfCond(condition, pattern);
 
 extension type RuleName(String symbol) {}
 

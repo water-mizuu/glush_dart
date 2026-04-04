@@ -131,6 +131,7 @@ class Grammar implements GrammarInterface {
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
+        IfCond(:var pattern) => [pattern.symbolId!],
       };
     }
   }
@@ -250,6 +251,27 @@ class Grammar implements GrammarInterface {
       return pattern;
     }
 
+    if (pattern is IfCond) {
+      pattern.pattern = _normalizePattern(pattern.pattern, seen);
+      var child = pattern.pattern;
+
+      var parameterNames = <String>{};
+      _collectParameterNames(child, parameterNames);
+      pattern.condition.collectReferredNames(parameterNames);
+
+      var sortedNames = parameterNames.toList()..sort();
+      var syntheticName = "if\$${_syntheticRuleCounter++}";
+      var syntheticRule = Rule(syntheticName, () => child).guardedBy(pattern.condition);
+      rules.add(syntheticRule);
+
+      if (sortedNames.isEmpty) {
+        return syntheticRule.call();
+      }
+      return syntheticRule.call(
+        arguments: {for (var name in sortedNames) name: CallArgumentValue.reference(name)},
+      );
+    }
+
     // Traditional discovery of children to continue walk
     switch (pattern) {
       case Seq seq:
@@ -367,6 +389,9 @@ class Grammar implements GrammarInterface {
         _collectParameterNames(child, names);
       case Prec(:var child):
         _collectParameterNames(child, names);
+      case IfCond(:var condition, :var pattern):
+        condition.collectReferredNames(names);
+        _collectParameterNames(pattern, names);
       case Rule():
         break;
       default:
@@ -415,6 +440,8 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
+      case IfCond ifCond:
+        _collectPatternsFromPattern(ifCond.pattern, patterns);
       case Token() ||
           Marker() ||
           StartAnchor() ||
@@ -588,6 +615,7 @@ class GrammarAdapter implements GrammarInterface {
         Rule rule => [rule.body().symbolId!],
         RuleCall(:var rule) => [rule.symbolId!],
         And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
+        IfCond(:var pattern) => [pattern.symbolId!],
       };
     }
   }
@@ -634,6 +662,8 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
+      case IfCond ifCond:
+        _collectPatternsFromPattern(ifCond.pattern, patterns);
       case Token() ||
           Marker() ||
           StartAnchor() ||

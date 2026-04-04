@@ -1056,7 +1056,40 @@ class GrammarFileParser {
     }
 
     if (type == _TokenType.lparen) {
-      _advance();
+      _advance(); // consume (
+
+      // Check for inline guard syntax: (if (expr) pattern)
+      if (_peek().type == _TokenType.identifier && _peek().value == "if") {
+        if (tokenIndex + 1 < _tokens.length && _tokens[tokenIndex + 1].type == _TokenType.lparen) {
+          _advance(); // consume if
+          _advance(); // consume (
+          var guard = _parseExpression();
+          if (_peek().type != _TokenType.rparen) {
+            throw GrammarFileParseError(
+              'Expected ")" after inline guard condition',
+              line: _peek().line,
+              column: _peek().column,
+            );
+          }
+          _advance(); // consume )
+
+          // Parse the pattern that the guard protects
+          var pattern = _parseSequence();
+
+          if (_peek().type != _TokenType.rparen) {
+            throw GrammarFileParseError(
+              'Expected ")" to close inline guard pattern',
+              line: _peek().line,
+              column: _peek().column,
+            );
+          }
+          _advance(); // consume final )
+
+          return IfPattern(guard, pattern);
+        }
+      }
+
+      // Regular grouped pattern: (pattern)
       var pattern = _parsePattern();
       if (_peek().type != _TokenType.rparen) {
         throw GrammarFileParseError('Expected ")"', line: _peek().line, column: _peek().column);

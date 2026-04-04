@@ -485,7 +485,16 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case Action() || Alt() || Seq() || Rule() || Prec() || Label() || Opt() || Plus() || Star():
+      case IfCond() ||
+          Action() ||
+          Alt() ||
+          Seq() ||
+          Rule() ||
+          Prec() ||
+          Label() ||
+          Opt() ||
+          Plus() ||
+          Star():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError("Unexpected pattern type in _connect: ${terminal.runtimeType}");
     }
@@ -814,6 +823,7 @@ class StateMachine {
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       And() || Not() || Neg() => false,
+      IfCond(:var pattern) => _isDefinitelyNonEmpty(pattern),
       Action(:var child) ||
       Prec(:var child) ||
       Plus(:var child) ||

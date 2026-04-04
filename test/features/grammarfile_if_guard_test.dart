@@ -75,5 +75,56 @@ void main() {
       expect(parser.recognize("abc!"), isTrue);
       expect(parser.parse("abc!"), isA<ParseSuccess>());
     });
+
+    test("inline guards in parentheses work as semantic predicates", () {
+      const grammarText = r'''
+        start = (if (position == 0) '') "hello"
+      ''';
+
+      var parser = grammarText.toSMParserMini();
+      expect(parser.recognize("hello"), isTrue);
+      expect(parser.recognize("world"), isFalse);
+    });
+
+    test("inline guards in alternation dispatch based on position", () {
+      const grammarText = r'''
+        start = (if (position == 0) '') "a" | (if (position > 0) '') "b"
+      ''';
+
+      var parser = grammarText.toSMParserMini();
+      // At position 0, first branch matches
+      expect(parser.recognize("a"), isTrue);
+      expect(parser.recognize("b"), isFalse);
+    });
+
+    test("inline guard rejects when condition is false", () {
+      const grammarText = r'''
+        start = (if (position > 10) '') "text"
+      ''';
+
+      var parser = grammarText.toSMParserMini();
+      // Guard always fails at position 0
+      expect(parser.recognize("text"), isFalse);
+    });
+
+    test("inline guard with negation (!condition)", () {
+      const grammarText = r'''
+        start = (if (!false) '') "yes"
+      ''';
+
+      var parser = grammarText.toSMParserMini();
+      // Negation of false is true, so should match
+      expect(parser.recognize("yes"), isTrue);
+    });
+
+    test("inline guards in sequence with captures", () {
+      const grammarText = r'''
+        start = capture:"x" (if (capture.length == 1) '') "y"
+      ''';
+
+      var parser = grammarText.toSMParser();
+      expect(parser.recognize("xy"), isTrue);
+      expect(parser.recognize("y"), isFalse);
+    });
   });
 }

@@ -333,7 +333,6 @@ class Step {
     var cacheKey = GuardCacheKey(
       subjectRule,
       guard,
-      frame.marks,
       argumentsKey,
       position,
       frame.context.callStart,
