@@ -1,7 +1,7 @@
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/common/context.dart";
-import "package:glush/src/parser/common/state_machine.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// A [Frame] represents a set of parser states that share the same context.
 ///

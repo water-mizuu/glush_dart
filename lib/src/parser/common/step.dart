@@ -11,7 +11,6 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
-import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/branch_key.dart";
@@ -20,6 +19,7 @@ import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
 import "package:glush/src/parser/key/guard_cache_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// Single parsing step at one input position.
 ///

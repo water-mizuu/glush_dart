@@ -36,9 +36,9 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_derivation.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parser_base.dart";
-import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:glush/src/representation/evaluator.dart";
 
 /// Main parser implementation using a state machine-based LR-like algorithm.

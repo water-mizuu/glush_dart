@@ -1,5 +1,5 @@
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/parser/common/state_machine.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Base class for all actions that can occur in a state.

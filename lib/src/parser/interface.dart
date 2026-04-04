@@ -2,8 +2,8 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parse_state.dart";
-import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 
 abstract interface class GlushParser {
   StateMachine get stateMachine;

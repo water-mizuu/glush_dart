@@ -3,9 +3,9 @@ import "dart:io";
 
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/frame.dart";
-import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
+import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// Interface for tracing parser execution.
 abstract class ParseTracer {

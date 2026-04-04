@@ -3,124 +3,8 @@ library glush.state_machine;
 
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/key/state_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
-import "package:meta/meta.dart";
-
-/// Key for identifying states in the state machine.
-///
-/// Used to distinguish different types of states in the state machine.
-/// Each state type has its own key class for pattern matching.
-@immutable
-sealed class StateKey {
-  const StateKey();
-}
-
-/// Key for the initial/start state of the state machine.
-final class _InitStateKey extends StateKey {
-  const _InitStateKey();
-
-  /// Check equality with another object.
-  @override
-  bool operator ==(Object other) => other is _InitStateKey;
-
-  /// Get hash code for use in collections.
-  @override
-  int get hashCode => (_InitStateKey).hashCode;
-
-  /// Human-readable string representation.
-  @override
-  String toString() => ":init";
-}
-
-/// Key for states corresponding to grammar patterns.
-///
-/// Maps a [Pattern] (token, rule reference, etc.) to its state.
-final class _PatternStateKey extends StateKey {
-  const _PatternStateKey(this.pattern);
-
-  /// The grammar pattern this state represents.
-  final Pattern pattern;
-
-  /// Check equality based on the pattern.
-  @override
-  bool operator ==(Object other) => other is _PatternStateKey && other.pattern == pattern;
-
-  /// Get hash code based on the pattern.
-  @override
-  int get hashCode => pattern.hashCode;
-
-  /// Use pattern's string representation.
-  @override
-  String toString() => pattern.toString();
-}
-
-/// Key for states in parameter string matching chains.
-///
-/// Used to build chains of states that consume parameter string characters one by one.
-final class _ParamStringStateKey extends StateKey {
-  const _ParamStringStateKey(this.text, this.index, this.nextState);
-
-  /// The parameter string being matched.
-  final String text;
-
-  /// Current position in the string.
-  final int index;
-
-  /// The state to transition to after matching this character.
-  final State nextState;
-
-  /// Check equality based on text, index, and next state.
-  @override
-  bool operator ==(Object other) =>
-      other is _ParamStringStateKey &&
-      other.text == text &&
-      other.index == index &&
-      other.nextState == nextState;
-
-  /// Hash based on all three components.
-  @override
-  int get hashCode => Object.hash(text, index, nextState);
-}
-
-/// Key for states in parameter predicate matching chains.
-///
-/// Used to build chains that check parameter predicates character by character.
-final class _ParamPredicateStateKey extends StateKey {
-  const _ParamPredicateStateKey(this.text, this.index);
-
-  /// The parameter text being checked.
-  final String text;
-
-  /// Current position in the text.
-  final int index;
-
-  /// Check equality based on text and index.
-  @override
-  bool operator ==(Object other) =>
-      other is _ParamPredicateStateKey && other.text == text && other.index == index;
-
-  /// Hash based on text and index.
-  @override
-  int get hashCode => Object.hash(text, index);
-}
-
-/// Key for the terminal state of a parameter predicate chain.
-///
-/// Represents the end of a predicate matching sequence.
-final class _ParamPredicateEndStateKey extends StateKey {
-  const _ParamPredicateEndStateKey(this.text);
-
-  /// The parameter text that was fully matched.
-  final String text;
-
-  /// Check equality based on text.
-  @override
-  bool operator ==(Object other) => other is _ParamPredicateEndStateKey && other.text == text;
-
-  /// Hash based on text.
-  @override
-  int get hashCode => text.hashCode;
-}
 
 /// State in the state machine.
 ///
@@ -169,11 +53,11 @@ class StateMachine {
   /// Parameters:
   ///   [grammar] - The grammar interface to compile
   StateMachine(this.grammar) {
-    var initState = _getOrCreateState(const _InitStateKey());
+    var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
 
     // Mark the state after start call as accepting
-    var startState = _getOrCreateState(_PatternStateKey(grammar.startCall));
+    var startState = _getOrCreateState(PatternStateKey(grammar.startCall));
     startState.actions.add(const AcceptAction());
 
     if (grammar.isEmpty()) {
@@ -191,7 +75,7 @@ class StateMachine {
       );
       rules.add(rule.symbolId!);
 
-      var firstState = _getOrCreateState(_PatternStateKey(rule));
+      var firstState = _getOrCreateState(PatternStateKey(rule));
       ruleFirst[rule.symbolId!] = firstState;
       _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
 
@@ -207,12 +91,12 @@ class StateMachine {
 
       // Connect each pair
       for (var (a, b) in ruleBody.eachPair()) {
-        _connect(_getOrCreateState(_PatternStateKey(a)), b, currentRule: rule);
+        _connect(_getOrCreateState(PatternStateKey(a)), b, currentRule: rule);
       }
 
       // Mark states before returns
       for (var lastState in ruleBody.lastSet()) {
-        var state = _getOrCreateState(_PatternStateKey(lastState));
+        var state = _getOrCreateState(PatternStateKey(lastState));
         var action = ReturnAction(rule, lastState, precedenceMap[lastState]);
         state.actions.add(action);
       }
@@ -284,8 +168,8 @@ class StateMachine {
   /// Get the initial/start state of the state machine.
   ///
   /// Returns:
-  ///   The state marked as the initial state (created with [_InitStateKey])
-  State get startState => _stateMapping[const _InitStateKey()]!;
+  ///   The state marked as the initial state (created with [InitStateKey])
+  State get startState => _stateMapping[const InitStateKey()]!;
 
   /// Get or create a chain of states for matching a parameter string.
   ///
@@ -311,7 +195,7 @@ class StateMachine {
 
     var tail = nextState;
     for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(_ParamStringStateKey(text, i, nextState));
+      var state = _getOrCreateState(ParamStringStateKey(text, i, nextState));
       if (state.actions.isEmpty) {
         state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
@@ -339,7 +223,7 @@ class StateMachine {
       return state;
     }
 
-    var terminal = _getOrCreateState(_ParamPredicateEndStateKey(text));
+    var terminal = _getOrCreateState(ParamPredicateEndStateKey(text));
     if (terminal.actions.isEmpty) {
       terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
     }
@@ -350,7 +234,7 @@ class StateMachine {
 
     var tail = terminal;
     for (var i = text.codeUnits.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(_ParamPredicateStateKey(text, i));
+      var state = _getOrCreateState(ParamPredicateStateKey(text, i));
       if (state.actions.isEmpty) {
         state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
       }
@@ -382,16 +266,16 @@ class StateMachine {
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = TokenAction(terminal, nextState);
         state.actions.add(action);
       case Conj():
         if (terminal.singleToken()) {
-          var nextState = _getOrCreateState(_PatternStateKey(terminal));
+          var nextState = _getOrCreateState(PatternStateKey(terminal));
           var action = TokenAction(terminal, nextState);
           state.actions.add(action);
         } else {
-          var nextState = _getOrCreateState(_PatternStateKey(terminal));
+          var nextState = _getOrCreateState(PatternStateKey(terminal));
           // Complex conjunction: use sub-parse rendezvous
           var action = ConjunctionAction(
             leftSymbol: _extractSymbol(terminal.left),
@@ -401,17 +285,17 @@ class StateMachine {
           state.actions.add(action);
         }
       case StartAnchor() || EofAnchor():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
         var action = BoundaryAction(kind, terminal, nextState);
         state.actions.add(action);
       case Marker():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = MarkAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case And():
         // Positive lookahead: create predicate action
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         switch (terminal.pattern) {
           case RuleCall(:var rule):
             state.actions.add(
@@ -428,7 +312,7 @@ class StateMachine {
         }
       case Not():
         // Negative lookahead: create predicate action
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         switch (terminal.pattern) {
           case RuleCall(:var rule):
             state.actions.add(
@@ -445,7 +329,7 @@ class StateMachine {
         }
       case Neg():
         // Span-level negation: create negation action
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = NegationAction(
           symbol: (terminal.pattern as RuleCall).rule.symbolId!,
           nextState: nextState,
@@ -458,28 +342,28 @@ class StateMachine {
           var action = TailCallAction(terminal.rule, terminal, minPrecedenceLevel);
           state.actions.add(action);
         } else {
-          var returnState = _getOrCreateState(_PatternStateKey(terminal));
+          var returnState = _getOrCreateState(PatternStateKey(terminal));
           var action = CallAction(terminal.rule, terminal, returnState, minPrecedenceLevel);
           state.actions.add(action);
         }
       case LabelStart():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelStartAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case LabelEnd():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelEndAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case Backreference():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = BackreferenceAction(terminal.name, nextState);
         state.actions.add(action);
       case ParameterRefPattern():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = ParameterAction(terminal.name, terminal, nextState);
         state.actions.add(action);
       case ParameterCallPattern():
-        var nextState = _getOrCreateState(_PatternStateKey(terminal));
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = ParameterCallAction(terminal, nextState);
         state.actions.add(action);
       case Eps():
@@ -890,15 +774,15 @@ String _toDot(StateMachine machine) {
     String label = "S${state.id}";
 
     var key = entry.key;
-    if (key is _InitStateKey) {
+    if (key is InitStateKey) {
       label = "init";
-    } else if (key is _PatternStateKey) {
+    } else if (key is PatternStateKey) {
       label = key.pattern.toString();
-    } else if (key is _ParamStringStateKey) {
+    } else if (key is ParamStringStateKey) {
       label = "param_str[${key.index}]";
-    } else if (key is _ParamPredicateStateKey) {
+    } else if (key is ParamPredicateStateKey) {
       label = "param_pred[${key.index}]";
-    } else if (key is _ParamPredicateEndStateKey) {
+    } else if (key is ParamPredicateEndStateKey) {
       label = "param_pred_end";
     }
 
