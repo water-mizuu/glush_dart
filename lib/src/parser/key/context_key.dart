@@ -6,10 +6,7 @@ import "package:meta/meta.dart";
 @immutable
 sealed class ContextKey {
   static ContextKey create(State state, Context context) {
-    if (context.predicateStack.isEmpty &&
-        context.captures.isEmpty &&
-        context.callStart == null &&
-        context.arguments.isEmpty) {
+    if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
       return IntContextKey(
         (context.caller.uid << 32) | (state.id << 8) | (context.minPrecedenceLevel ?? 0xFF),
       );
@@ -33,7 +30,8 @@ final class IntContextKey implements ContextKey {
 
 /// A full context key for complex paths (predicates, captures, or BSR rules).
 final class ComplexContextKey implements ContextKey {
-  ComplexContextKey(this.state, this.context) : _hash = Object.hash(ComplexContextKey, state, context);
+  ComplexContextKey(this.state, this.context)
+    : _hash = Object.hash(ComplexContextKey, state, context);
 
   final int _hash;
   final State state;

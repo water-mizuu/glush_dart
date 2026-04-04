@@ -3,12 +3,12 @@ import "package:meta/meta.dart";
 /// Key for grouping return contexts by metadata, excluding marks.
 @immutable
 sealed class ReturnKey {
-  static int getPackedId(int? precedenceLevel, int? pivot, int? callStart) {
-    return (pivot ?? 0) << 32 | (precedenceLevel ?? 0xFFFF) << 16 | (callStart ?? 0xFFFF);
+  static int getPackedId(int? precedenceLevel, int? position, int? callStart) {
+    return (position ?? 0) << 32 | (precedenceLevel ?? 0xFFFF) << 16 | (callStart ?? 0xFFFF);
   }
 
-  static ReturnKey create(int? precedenceLevel, int? pivot, int? callStart) {
-    return IntReturnKey(getPackedId(precedenceLevel, pivot, callStart));
+  static ReturnKey create(int? precedenceLevel, int? position, int? callStart) {
+    return IntReturnKey(getPackedId(precedenceLevel, position, callStart));
   }
 }
 
@@ -26,11 +26,11 @@ final class IntReturnKey implements ReturnKey {
 
 @immutable
 final class ComplexReturnKey implements ReturnKey {
-  ComplexReturnKey(this.precedenceLevel, this.pivot, this.callStart)
-    : _hash = Object.hash(ComplexReturnKey, precedenceLevel, pivot, callStart);
+  ComplexReturnKey(this.precedenceLevel, this.position, this.callStart)
+    : _hash = Object.hash(ComplexReturnKey, precedenceLevel, position, callStart);
 
   final int? precedenceLevel;
-  final int? pivot;
+  final int? position;
   final int? callStart;
   final int _hash;
 
@@ -40,7 +40,7 @@ final class ComplexReturnKey implements ReturnKey {
       other is ComplexReturnKey &&
           _hash == other._hash &&
           precedenceLevel == other.precedenceLevel &&
-          pivot == other.pivot &&
+          position == other.position &&
           callStart == other.callStart;
 
   @override

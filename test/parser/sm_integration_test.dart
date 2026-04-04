@@ -76,7 +76,7 @@ void main() {
 
     test("NOT Predicate Catch-up and Sub-parse", () {
       // The NOT lookahead must stay parked until Target exhausts on the next
-      // token, then resume the outer parse at the original pivot.
+      // token, then resume the outer parse at the original position.
       var parser =
           """
         S = !Target 'a' 'c'

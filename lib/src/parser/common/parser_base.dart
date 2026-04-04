@@ -1,6 +1,4 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
-import "dart:collection";
-
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/common/context.dart";
@@ -18,9 +16,9 @@ abstract base class GlushParserBase implements GlushParser {
   @override
   List<Frame> get initialFrames;
 
-  /// Bucket frames by their pivot position into the global work queue.
+  /// Bucket frames by their [Context.position] into the global work queue.
   ///
-  /// The parser may hold frames from multiple pivots simultaneously when calls
+  /// The parser may hold frames from multiple [Context.position]s simultaneously when calls
   /// and predicates create lagging continuations.
   void _enqueueFramesForPosition(
     ParseState parseState,
@@ -28,7 +26,7 @@ abstract base class GlushParserBase implements GlushParser {
     List<Frame> frames,
   ) {
     for (var frame in frames) {
-      workQueue.addFrame(frame.context.pivot ?? 0, frame);
+      workQueue.addFrame(frame.context.position, frame);
     }
   }
 
@@ -64,7 +62,7 @@ abstract base class GlushParserBase implements GlushParser {
             }
 
             if (!tracker.isAnd) {
-              var targetPosition = parentContext.pivot ?? 0;
+              var targetPosition = parentContext.position;
               var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
               if (parentContext.predicateStack.lastOrNull case var pk?) {
                 var key = PredicateKey(pk.pattern, pk.startPosition);
@@ -133,7 +131,7 @@ abstract base class GlushParserBase implements GlushParser {
               for (var (context, nextState, marks) in tracker.unconstrainedWaiters) {
                 workQueue.addFrame(
                   j,
-                  Frame(context.copyWith(pivot: j), marks)..nextStates.add(nextState),
+                  Frame(context.copyWith(position: j), marks)..nextStates.add(nextState),
                 );
               }
             }
@@ -166,7 +164,7 @@ abstract base class GlushParserBase implements GlushParser {
   /// Core single-token processing pipeline.
   ///
   /// High-level sequence:
-  /// 1) Append token to history (for lagging pivot replay)
+  /// 1) Append token to history (for lagging [Context.position] replay)
   /// 2) Run a position-ordered work queue up to `currentPosition`
   /// 3) For each position: process frames, finalize token transitions
   /// 4) Cascadely run exhaustion checks for predicates and negations
@@ -257,7 +255,7 @@ abstract base class GlushParserBase implements GlushParser {
       if (nextQueuedPosition == null || nextQueuedPosition > currentPosition) {
         // Logical meaning:
         // - either there is no queued work left, or
-        // - the next queued pivot is strictly after `currentPosition`
+        // - the next queued position is strictly after `currentPosition`
         // => there is no more work that could still produce predicate matches
         // at/before this boundary, so exhaustion checks are safe now.
         _checkExhaustedPredicates(parseState, workQueue, currentPosition);
@@ -275,30 +273,67 @@ abstract base class GlushParserBase implements GlushParser {
       currentStep.requeued.clear();
     }
 
-    return stepsAtPosition[currentPosition] ??
-        (Step(
-          parseState,
-          token,
-          currentPosition,
-          isSupportingAmbiguity: isSupportingAmbiguity,
-          captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-        )..finalize());
+    var steps = stepsAtPosition[currentPosition];
+    if (steps != null) {
+      return steps;
+    }
+
+    var step = Step(
+      parseState,
+      token,
+      currentPosition,
+      isSupportingAmbiguity: isSupportingAmbiguity,
+      captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+    );
+    step.finalize();
+    return step;
   }
 }
 
 final class _PositionWorkQueue {
-  final SplayTreeMap<int, List<Frame>> _framesByPosition = SplayTreeMap();
+  final List<(int position, Frame frame)> _heap = [];
 
-  bool get isEmpty => _framesByPosition.isEmpty;
-  bool get isNotEmpty => _framesByPosition.isNotEmpty;
+  bool get isEmpty => _heap.isEmpty;
+  bool get isNotEmpty => _heap.isNotEmpty;
 
-  int? get firstKeyOrNull => _framesByPosition.firstKey();
+  int? get firstKeyOrNull => _heap.isEmpty ? null : _heap.first.$1;
 
   List<Frame> removeFirst() {
-    return _framesByPosition.remove(_framesByPosition.firstKey())!;
+    if (_heap.isEmpty) {
+      return const [];
+    }
+
+    int minPos = _heap.first.$1;
+    List<Frame> framesAtMin = [];
+
+    // Extract all frames at minimum position
+    int i = 0;
+    while (i < _heap.length && _heap[i].$1 == minPos) {
+      framesAtMin.add(_heap[i].$2);
+      i++;
+    }
+
+    // Remove extracted elements and maintain heap invariant
+    _heap.removeRange(0, i);
+
+    return framesAtMin;
   }
 
   void addFrame(int position, Frame frame) {
-    (_framesByPosition[position] ??= []).add(frame);
+    _heap.add((position, frame));
+    _siftUp(_heap.length - 1);
+  }
+
+  void _siftUp(int index) {
+    while (index > 0) {
+      int parent = (index - 1) >> 1;
+      if (_heap[parent].$1 <= _heap[index].$1) {
+        break;
+      }
+      var temp = _heap[parent];
+      _heap[parent] = _heap[index];
+      _heap[index] = temp;
+      index = parent;
+    }
   }
 }

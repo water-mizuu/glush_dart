@@ -3,6 +3,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/state_machine.dart";
+import "package:glush/src/parser/common/step.dart" show Step;
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:meta/meta.dart";
 
@@ -20,22 +21,21 @@ class Context {
     this.arguments = const <String, Object?>{},
     this.captures = const CaptureBindings.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
-    this.callStart,
-    this.pivot,
+    this.callStart = 0,
+    this.position = 0,
     this.minPrecedenceLevel,
     this.precedenceLevel,
   }) : _hash = Object.hash(
          caller,
          callStart,
-         pivot,
+         position,
          minPrecedenceLevel,
          precedenceLevel,
          captures,
          predicateStack,
          _mapHashCode(arguments),
        ),
-       isSimple =
-           predicateStack.isEmpty && captures.isEmpty && callStart == null && arguments.isEmpty;
+       isSimple = predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty;
 
   final int _hash;
 
@@ -55,10 +55,22 @@ class Context {
   final GlushList<PredicateCallerKey> predicateStack;
 
   /// The position in the input where the current rule call began.
-  final int? callStart;
+  final int callStart;
 
-  /// The input position of the last successful rule completion (for BSR/SPPF).
-  final int? pivot;
+  /// Where this parse path has advanced to in the input.
+  ///
+  /// This is distinct from the position:
+  /// - [Step.position]: the global current position the parser is processing
+  /// - [Context.position]: how far THIS FRAME has consumed input
+  ///
+  /// These can differ when:
+  /// - A frame is "lagging" (deferred sub-parse, predicate) and hasn't caught up yet
+  /// - Multiple parse paths are interleaved (some at position 10, their frames
+  ///   at [Context.position] 7)
+  ///
+  /// Lagging frames use Step.parseState.historyByPosition to retrieve tokens
+  /// from their [Context.position] rather than the current Step.position.
+  final int position;
 
   /// The current minimum precedence level allowed for rule expansion.
   final int? minPrecedenceLevel;
@@ -73,7 +85,7 @@ class Context {
     CaptureBindings? captures,
     GlushList<PredicateCallerKey>? predicateStack,
     int? callStart,
-    int? pivot,
+    int? position,
     int? minPrecedenceLevel,
     int? precedenceLevel,
   }) {
@@ -83,7 +95,7 @@ class Context {
       captures: captures ?? this.captures,
       predicateStack: predicateStack ?? this.predicateStack,
       callStart: callStart ?? this.callStart,
-      pivot: pivot ?? this.pivot,
+      position: position ?? this.position,
       minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
       precedenceLevel: precedenceLevel ?? this.precedenceLevel,
     );
@@ -101,7 +113,7 @@ class Context {
       captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
-      pivot: pivot,
+      position: position,
       minPrecedenceLevel: minPrecedenceLevel,
       precedenceLevel: precedenceLevel,
     );
@@ -114,7 +126,7 @@ class Context {
           hashCode == other.hashCode &&
           caller == other.caller &&
           callStart == other.callStart &&
-          pivot == other.pivot &&
+          position == other.position &&
           minPrecedenceLevel == other.minPrecedenceLevel &&
           precedenceLevel == other.precedenceLevel &&
           captures == other.captures &&

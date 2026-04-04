@@ -6,7 +6,6 @@ import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/state_machine.dart";
-import "package:glush/src/parser/common/waiters.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:meta/meta.dart";
 
@@ -16,7 +15,7 @@ sealed class CallerKey {
   const CallerKey();
 
   int get uid;
-  int? get startPosition;
+  int get startPosition;
 }
 
 /// Represents the root call context (top-level parse, not a rule call).
@@ -138,40 +137,38 @@ class Caller extends CallerKey {
     Ref<GlushList<Mark>> callerMarks,
     ParseNodeKey node,
   ) {
-    var waiter = (next, minPrecedence, callerContext, callerMarks, node);
+    var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
     var data = _waiterData;
 
     if (data == null) {
-      _waiterData = _SingleWaiter(waiter);
+      _waiterData = waiter;
       return true;
     }
 
-    switch (data) {
-      case _SingleWaiter(:var existing):
-        if (existing.$1 == next &&
-            existing.$2 == minPrecedence &&
-            existing.$3 == callerContext &&
-            existing.$4 == callerMarks) {
-          return false;
-        }
-        _waiterData = _ManyWaiters([existing, waiter]);
-        return true;
-      case _ManyWaiters(:var waiters):
-        for (var existing in waiters) {
-          if (existing.$1 == next &&
-              existing.$2 == minPrecedence &&
-              existing.$3 == callerContext &&
-              existing.$4 == callerMarks) {
-            return false;
-          }
-        }
-        waiters.add(waiter);
-        return true;
+    _WaiterData? prev;
+    _WaiterData? head = data;
+    while (head != null) {
+      if (head.nextState == next &&
+          head.minPrecedence == minPrecedence &&
+          head.parentContext == callerContext &&
+          head.parentMarks == callerMarks) {
+        return false;
+      }
+
+      prev = head;
+      head = head.next;
     }
+
+    prev!.next = waiter;
+    return true;
   }
 
   bool addReturn(Context context, GlushList<Mark> marks) {
-    var packedId = ReturnKey.getPackedId(context.precedenceLevel, context.pivot, context.callStart);
+    var packedId = ReturnKey.getPackedId(
+      context.precedenceLevel,
+      context.position,
+      context.callStart,
+    );
     var existing = _returnsInt[packedId];
 
     if (existing == null) {
@@ -184,7 +181,7 @@ class Caller extends CallerKey {
       return false;
     }
 
-    if (context.pivot == context.callStart) {
+    if (context.position == context.callStart) {
       if (!_cyclicInt.add(packedId)) {
         return false;
       }
@@ -197,8 +194,8 @@ class Caller extends CallerKey {
 
   Iterable<(Context, GlushList<Mark>)> get returns => _returnsInt.values;
 
-  bool isCyclic(int? precedenceLevel, int? pivot, int? callStart) {
-    return _cyclicInt.contains(ReturnKey.getPackedId(precedenceLevel, pivot, callStart));
+  bool isCyclic(int? precedenceLevel, int? position, int? callStart) {
+    return _cyclicInt.contains(ReturnKey.getPackedId(precedenceLevel, position, callStart));
   }
 
   Iterable<WaiterInfo> get waiters {
@@ -206,32 +203,52 @@ class Caller extends CallerKey {
     if (data == null) {
       return const [];
     }
-    return switch (data) {
-      _SingleWaiter(:var existing) => [existing],
-      _ManyWaiters(:var waiters) => waiters,
-    };
+
+    List<WaiterInfo> infos = [];
+    _WaiterData? head = data;
+    while (head != null) {
+      infos.add(WaiterInfo(head));
+      head = head.next;
+    }
+    return infos;
   }
 }
 
-sealed class _WaiterData {}
+class _WaiterData {
+  _WaiterData(
+    this.nextState,
+    this.minPrecedence,
+    this.parentContext,
+    this.parentMarks,
+    this.callSite,
+  );
 
-final class _SingleWaiter extends _WaiterData {
-  _SingleWaiter(this.existing);
-  final WaiterInfo existing;
+  final State nextState;
+  final int? minPrecedence;
+  final Context parentContext;
+  final Ref<GlushList<Mark>> parentMarks;
+  final ParseNodeKey callSite;
+
+  _WaiterData? next;
 }
 
-final class _ManyWaiters extends _WaiterData {
-  _ManyWaiters(this.waiters);
-  final List<WaiterInfo> waiters;
+extension type const WaiterInfo(_WaiterData _) {
+  State get nextState => _.nextState;
+  int? get minPrecedence => _.minPrecedence;
+  Context get parentContext => _.parentContext;
+  Ref<GlushList<Mark>> get parentMarks => _.parentMarks;
+  ParseNodeKey get callSite => _.callSite;
 }
 
 /// Represents a negation caller key, used to track negation calls in the parse tree.
 final class NegationCallerKey implements CallerKey {
   NegationCallerKey(this.pattern, this.startPosition)
     : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
-  final PatternSymbol pattern;
+
   @override
   final int startPosition;
+
+  final PatternSymbol pattern;
 
   @override
   final int uid;
