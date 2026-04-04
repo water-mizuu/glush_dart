@@ -1,4 +1,4 @@
-import "package:glush/src/parser/common/caller_key.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 import "package:meta/meta.dart";
 
 /// Identifies a parser continuation point uniquely.

@@ -33,8 +33,10 @@ void main() async {
   }
   state.finish();
 
-  var paths = state.lastStep?.acceptedContexts.values
-      .fold(const GlushList<Mark>.empty(), GlushList<Mark>.branched);
+  var paths = state.lastStep?.acceptedContexts.values.fold(
+    const GlushList<Mark>.empty(),
+    GlushList<Mark>.branched,
+  );
 
   if (paths == null) {
     return;

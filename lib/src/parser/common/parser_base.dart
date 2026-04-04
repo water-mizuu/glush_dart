@@ -3,8 +3,6 @@ import "dart:collection";
 
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/parser/common/action_key.dart";
-import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
@@ -12,6 +10,8 @@ import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/key/action_key.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 
 abstract base class GlushParserBase implements GlushParser {
   /// Initial frames for a fresh parse session.

@@ -123,12 +123,8 @@ sealed class GlushList<T> {
         if (right != null) {
           res += _count(right, memo);
         }
-      case Push(:var parent, :var data):
-        int mult = 1;
-        if (data is ConjunctionMark) {
-          mult = _count(data.left, memo) * _count(data.right, memo);
-        }
-        res = _count(parent, memo) * mult;
+      case Push(:var parent):
+        res = _count(parent, memo);
       case Concat(:var left, :var right):
         res = _count(left, memo) * _count(right, memo);
       case Conjunction(:var left, :var right):

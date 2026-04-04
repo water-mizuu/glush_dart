@@ -5,9 +5,9 @@ import "package:glush/src/core/patterns.dart";
 import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
-import "package:glush/src/parser/common/return_key.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/waiters.dart";
+import "package:glush/src/parser/key/return_key.dart";
 import "package:meta/meta.dart";
 
 /// Strongly typed key to identify a call site in the parsing state machine.

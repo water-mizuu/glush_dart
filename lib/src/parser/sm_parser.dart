@@ -31,7 +31,6 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_derivation.dart";
@@ -39,6 +38,7 @@ import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/representation/evaluator.dart";
 
 /// Main parser implementation using a state machine-based LR-like algorithm.
@@ -124,9 +124,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails at some position
   @override
-  ParseOutcome parse(String input) {
+  ParseOutcome parse(String input, {bool? captureTokensAsMarks}) {
     return GlushProfiler.measure("parser.parse", () {
-      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+      var parseState = createParseState(
+        captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+      );
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);

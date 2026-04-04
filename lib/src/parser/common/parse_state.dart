@@ -3,15 +3,15 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common/action_key.dart";
-import "package:glush/src/parser/common/caller_cache_key.dart";
-import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/key/action_key.dart";
+import "package:glush/src/parser/key/caller_cache_key.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 
 /// Stateful cursor for manual state-machine parsing.
 final class ParseState {

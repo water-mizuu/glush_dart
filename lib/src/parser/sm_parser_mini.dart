@@ -3,13 +3,13 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common/caller_key.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/common/state_machine.dart";
 import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 
 /// Minimal version of [SMParser] that only supports recognize, parse, and parseAmbiguous.
