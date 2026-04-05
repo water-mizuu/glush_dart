@@ -17,18 +17,17 @@ final class MarkAction implements StateAction {
   ///
   /// Parameters:
   ///   [name] - The name of the mark
-  ///   [pattern] - The pattern being marked
   ///   [nextState] - The state to transition to after marking
-  const MarkAction(this.name, this.pattern, this.nextState);
+  const MarkAction(this.name, this.nextState);
 
   /// The name of this mark.
   final String name;
 
-  /// The pattern associated with this mark.
-  final Pattern pattern;
-
   /// The next state after this transition.
   final State nextState;
+
+  @override
+  String toString() => "Mark($name)";
 }
 
 /// Action to consume a token and transition to the next state.
@@ -65,44 +64,19 @@ final class BoundaryAction implements StateAction {
   ///
   /// Parameters:
   ///   [kind] - The type of boundary (start or eof)
-  ///   [pattern] - The boundary pattern
   ///   [nextState] - The state to transition to if boundary matches
-  const BoundaryAction(this.kind, this.pattern, this.nextState);
+  const BoundaryAction(this.kind, this.nextState);
 
   /// The type of boundary being checked.
   final BoundaryKind kind;
 
-  /// The boundary pattern.
-  final Pattern pattern;
-
   /// The next state after this transition.
   final State nextState;
+
+  @override
+  String toString() => "Boundary(${kind.name})";
 }
 
-/// Convert a [RuleCall] to a human-readable description.
-///
-/// Includes precedence level if present or provided.
-///
-/// Parameters:
-///   [call] - The rule call to describe
-///   [minPrecedenceLevel] - Optional minimum precedence level override
-///
-/// Returns:
-///   A string like "ruleName" or "ruleName^5" for precedenced calls
-String _describeRuleCall(RuleCall call, [int? minPrecedenceLevel]) {
-  var description = call.toString();
-  if (description.startsWith("<") && description.endsWith(">")) {
-    description = description.substring(1, description.length - 1);
-  }
-  var prec = minPrecedenceLevel ?? call.minPrecedenceLevel;
-  if (prec == null) {
-    return description;
-  }
-  if (description.contains("^")) {
-    return description;
-  }
-  return "$description^$prec";
-}
 
 /// Action to mark the start of a labeled capture group.
 final class LabelStartAction implements StateAction {
@@ -158,15 +132,11 @@ final class ParameterAction implements StateAction {
   ///
   /// Parameters:
   ///   [name] - The name of the parameter
-  ///   [pattern] - The parameter pattern
   ///   [nextState] - The state to transition to
-  const ParameterAction(this.name, this.pattern, this.nextState);
+  const ParameterAction(this.name, this.nextState);
 
   /// The name of the parameter.
   final String name;
-
-  /// The parameter pattern.
-  final Pattern pattern;
 
   /// The next state after this transition.
   final State nextState;
@@ -180,18 +150,31 @@ final class ParameterCallAction implements StateAction {
   /// Create a parameter call action.
   ///
   /// Parameters:
-  ///   [pattern] - The parameterized call pattern
+  ///   [targetParameter] - The name of the parameter invoking the rule
+  ///   [arguments] - Dynamically bound parameter scope elements
   ///   [nextState] - The state to transition to after the call returns
-  const ParameterCallAction(this.pattern, this.nextState);
+  ///   [minPrecedenceLevel] - Minimum precedence filter for the call
+  const ParameterCallAction(
+    this.targetParameter,
+    this.arguments,
+    this.nextState,
+    this.minPrecedenceLevel,
+  );
 
-  /// The parameterized call pattern.
-  final ParameterCallPattern pattern;
+  /// The parameter executing the call.
+  final String targetParameter;
+
+  /// The arguments passed scoped locally to the parameterized call.
+  final Map<String, CallArgumentValue> arguments;
 
   /// The next state after this transition.
   final State nextState;
 
+  /// Minimum precedence filter for the call expansion.
+  final int? minPrecedenceLevel;
+
   @override
-  String toString() => "ParameterCall($pattern)";
+  String toString() => "ParameterCall($targetParameter)";
 }
 
 /// Action to consume one character from a parameter string.
@@ -245,17 +228,17 @@ final class CallAction implements StateAction {
   /// Create a call action.
   ///
   /// Parameters:
-  ///   [rule] - The rule to call
-  ///   [pattern] - The rule call pattern
+  ///   [ruleSymbol] - The symbol of the rule to call
+  ///   [arguments] - Explicit mapping of parameter expressions
   ///   [returnState] - The state to return to when the rule completes
   ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
-  const CallAction(this.rule, this.pattern, this.returnState, [this.minPrecedenceLevel]);
+  const CallAction(this.ruleSymbol, this.arguments, this.returnState, [this.minPrecedenceLevel]);
 
-  /// The rule being called.
-  final Rule rule;
+  /// The rule symbol being called.
+  final PatternSymbol ruleSymbol;
 
-  /// The rule call pattern.
-  final Pattern pattern;
+  /// Dynamically scoped parameterized arguments matching.
+  final Map<String, CallArgumentValue> arguments;
 
   /// The state to return to after the call completes.
   final State returnState;
@@ -265,8 +248,8 @@ final class CallAction implements StateAction {
 
   @override
   String toString() => minPrecedenceLevel != null
-      ? "CallAction(${rule.name}^$minPrecedenceLevel)"
-      : "CallAction(${rule.name})";
+      ? "CallAction(${ruleSymbol.symbol}^$minPrecedenceLevel)"
+      : "CallAction(${ruleSymbol.symbol})";
 }
 
 /// Action for tail-call optimization of recursive rules.
@@ -277,28 +260,24 @@ final class TailCallAction implements StateAction {
   /// Create a tail call action.
   ///
   /// Parameters:
-  ///   [rule] - The rule to tail-call
-  ///   [pattern] - The rule call pattern
+  ///   [ruleSymbol] - The rule symbol to tail-call
+  ///   [arguments] - Explicit mapping of parameter expressions
   ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
-  const TailCallAction(this.rule, this.pattern, [this.minPrecedenceLevel]);
+  const TailCallAction(this.ruleSymbol, this.arguments, [this.minPrecedenceLevel]);
 
   /// The rule being tail-called.
-  final Rule rule;
+  final PatternSymbol ruleSymbol;
 
-  /// The rule call pattern.
-  final Pattern pattern;
+  /// Dynamically scoped parameterized arguments matching.
+  final Map<String, CallArgumentValue> arguments;
 
   /// Optional minimum precedence level for the call.
   final int? minPrecedenceLevel;
 
   @override
-  String toString() => switch (pattern) {
-    RuleCall() => "TailCallAction(${_describeRuleCall(pattern as RuleCall, minPrecedenceLevel)})",
-    _ =>
-      minPrecedenceLevel != null
-          ? "TailCallAction(${rule.name}^$minPrecedenceLevel)"
-          : "TailCallAction(${rule.name})",
-  };
+  String toString() => minPrecedenceLevel != null
+      ? "TailCallAction(${ruleSymbol.symbol}^$minPrecedenceLevel)"
+      : "TailCallAction(${ruleSymbol.symbol})";
 }
 
 /// Action to return from a rule call and pop the call stack.
@@ -306,24 +285,20 @@ final class ReturnAction implements StateAction {
   /// Create a return action.
   ///
   /// Parameters:
-  ///   [rule] - The rule being returned from
-  ///   [lastPattern] - The last pattern matched before returning
+  ///   [ruleSymbol] - The rule being returned from
   ///   [precedenceLevel] - Optional precedence level for the return
-  const ReturnAction(this.rule, this.lastPattern, [this.precedenceLevel]);
+  const ReturnAction(this.ruleSymbol, [this.precedenceLevel]);
 
   /// The rule this return belongs to.
-  final Rule rule;
-
-  /// The last pattern matched.
-  final Pattern lastPattern;
+  final PatternSymbol ruleSymbol;
 
   /// Optional precedence level associated with the return.
   final int? precedenceLevel;
 
   @override
   String toString() => precedenceLevel != null
-      ? "ReturnAction(${rule.name}, prec: $precedenceLevel)"
-      : "ReturnAction(${rule.name})";
+      ? "ReturnAction(${ruleSymbol.symbol}, prec: $precedenceLevel)"
+      : "ReturnAction(${ruleSymbol.symbol})";
 }
 
 /// Action to accept the input and complete parsing successfully.

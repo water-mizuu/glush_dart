@@ -42,8 +42,8 @@ S = 'a' | 'b'
         var ca2 = a2 as CallAction;
         print("    Original returnState: ${ca1.returnState.id}");
         print("    Imported returnState: ${ca2.returnState.id}");
-        print("    Original rule: ${ca1.rule.name}");
-        print("    Imported rule: ${ca2.rule.name}");
+        print("    Original rule: ${ca1.ruleSymbol.symbol}");
+        print("    Imported rule: ${ca2.ruleSymbol.symbol}");
       } else if (a1 is AcceptAction) {
         print("    (no state reference)");
       }

@@ -82,6 +82,7 @@ class StateMachine {
         /* */ "rule.symbolId must be assigned before compilation.",
       );
       rules.add(rule.symbolId!);
+      allRules[rule.symbolId!] = rule;
 
       var firstState = _getOrCreateState(PatternStateKey(rule));
       ruleFirst[rule.symbolId!] = firstState;
@@ -105,12 +106,12 @@ class StateMachine {
       // Mark states before returns
       for (var lastState in ruleBody.lastSet()) {
         var state = _getOrCreateState(PatternStateKey(lastState));
-        var action = ReturnAction(rule, lastState, precedenceMap[lastState]);
+        var action = ReturnAction(rule.symbolId!, precedenceMap[lastState]);
         state.actions.add(action);
       }
 
       if (ruleBody.empty()) {
-        firstState.actions.add(ReturnAction(rule, Eps()));
+        firstState.actions.add(ReturnAction(rule.symbolId!));
       }
     }
   }
@@ -127,11 +128,15 @@ class StateMachine {
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
   final Map<PatternSymbol, State> ruleFirst = {};
+
+  /// All rules (including synthetic ones) indexed by their symbol.
+  final Map<PatternSymbol, Rule> allRules = {};
   List<State>? _cachedStates;
-  late final List<State> _initialStates;
+  List<State> _initialStates = [];
   final Map<(String, State), State> _parameterStringChains = {};
   final Map<String, State> _parameterPredicateChains = {};
-  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps());
+  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps())
+    ..symbolId = const PatternSymbol("_parameter_predicate");
 
   final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
@@ -250,7 +255,7 @@ class StateMachine {
 
     var terminal = _getOrCreateState(ParamPredicateEndStateKey(text));
     if (terminal.actions.isEmpty) {
-      terminal.actions.add(ReturnAction(_parameterPredicateRule, Eps()));
+      terminal.actions.add(ReturnAction(_parameterPredicateRule.symbolId!));
     }
 
     if (text.isEmpty) {
@@ -306,11 +311,11 @@ class StateMachine {
       case StartAnchor() || EofAnchor():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
-        var action = BoundaryAction(kind, terminal, nextState);
+        var action = BoundaryAction(kind, nextState);
         state.actions.add(action);
       case Marker():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = MarkAction(terminal.name, terminal, nextState);
+        var action = MarkAction(terminal.name, nextState);
         state.actions.add(action);
       case And():
         // Positive lookahead: create predicate action
@@ -358,11 +363,20 @@ class StateMachine {
         if (currentRule != null &&
             minPrecedenceLevel == null &&
             (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
-          var action = TailCallAction(terminal.rule, terminal, minPrecedenceLevel);
+          var action = TailCallAction(
+            terminal.rule.symbolId!,
+            terminal.arguments,
+            minPrecedenceLevel,
+          );
           state.actions.add(action);
         } else {
           var returnState = _getOrCreateState(PatternStateKey(terminal));
-          var action = CallAction(terminal.rule, terminal, returnState, minPrecedenceLevel);
+          var action = CallAction(
+            terminal.rule.symbolId!,
+            terminal.arguments,
+            returnState,
+            minPrecedenceLevel,
+          );
           state.actions.add(action);
         }
       case LabelStart():
@@ -379,11 +393,16 @@ class StateMachine {
         state.actions.add(action);
       case ParameterRefPattern():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = ParameterAction(terminal.name, terminal, nextState);
+        var action = ParameterAction(terminal.name, nextState);
         state.actions.add(action);
       case ParameterCallPattern():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = ParameterCallAction(terminal, nextState);
+        var action = ParameterCallAction(
+          terminal.name,
+          terminal.arguments,
+          nextState,
+          terminal.minPrecedenceLevel,
+        );
         state.actions.add(action);
       case Eps():
         // Epsilon doesn't create transitions
@@ -764,21 +783,21 @@ String _toDot(StateMachine machine) {
 
   // Collect all unique rules that have return actions
   // This allows us to create per-rule return nodes
-  var returnRules = <Rule>{};
+  var returnRules = <PatternSymbol>{};
   for (var state in machine._stateMapping.values) {
     for (var action in state.actions) {
       if (action is ReturnAction) {
-        returnRules.add(action.rule);
+        returnRules.add(action.ruleSymbol);
       }
     }
   }
 
   // Create rule-specific return nodes for visualization
   // Each rule gets its own return node to make control flow clearer
-  for (var rule in returnRules) {
-    var returnNodeId = "__return_${rule.name}__";
+  for (var symbol in returnRules) {
+    var returnNodeId = "__return_${symbol.symbol}__";
     buffer.writeln(
-      '  "$returnNodeId" [shape=box, label="return ${rule.name}", style=filled, fillcolor=lightgray];',
+      '  "$returnNodeId" [shape=box, label="return ${symbol.symbol}", style=filled, fillcolor=lightgray];',
     );
   }
 
@@ -841,23 +860,23 @@ String _toDot(StateMachine machine) {
       else if (action is CallAction) {
         var toStateId = "S${action.returnState.id}";
         var ruleDisplay = action.minPrecedenceLevel != null
-            ? "${action.rule.name}^${action.minPrecedenceLevel}"
-            : action.rule.name;
+            ? "${action.ruleSymbol.symbol}^${action.minPrecedenceLevel}"
+            : action.ruleSymbol.symbol;
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="call $ruleDisplay", style=bold];');
       }
       // TailCallAction: optimized recursive call (loops back to same state)
       else if (action is TailCallAction) {
         var ruleDisplay = action.minPrecedenceLevel != null
-            ? "${action.rule.name}^${action.minPrecedenceLevel}"
-            : action.rule.name;
+            ? "${action.ruleSymbol.symbol}^${action.minPrecedenceLevel}"
+            : action.ruleSymbol.symbol;
         buffer.writeln(
           '  "$fromStateId" -> "$fromStateId" [label="tail call $ruleDisplay", style=bold];',
         );
       }
       // ReturnAction: return from a subroutine to the rule's return node
       else if (action is ReturnAction) {
-        var returnNodeId = "__return_${action.rule.name}__";
-        var labelStr = action.rule.name.toString();
+        var returnNodeId = "__return_${action.ruleSymbol.symbol}__";
+        var labelStr = action.ruleSymbol.symbol;
         if (action.precedenceLevel != null) {
           labelStr = "$labelStr (prec: ${action.precedenceLevel})";
         }
@@ -900,7 +919,7 @@ String _toDot(StateMachine machine) {
       else if (action is ParameterCallAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="param call ${_dotEscape(action.pattern.toString())}"];',
+          '  "$fromStateId" -> "$toStateId" [label="param call ${_dotEscape(action.arguments.toString())}"];',
         );
       }
       // ParameterStringAction: match one character from a parameter string

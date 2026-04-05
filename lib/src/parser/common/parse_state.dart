@@ -22,7 +22,10 @@ final class ParseState {
     required this.captureTokensAsMarks,
     this.tracer = const NullTracer(),
   }) : frames = initialFrames,
-       rulesByName = {for (var rule in parser.grammar.rules) rule.name.symbol: rule} {
+       rulesByName = {
+         for (var rule in parser.grammar.rules) rule.symbolId!.symbol: rule,
+         for (var rule in parser.stateMachine.allRules.values) rule.symbolId!.symbol: rule,
+       } {
     tracer.onStart(parser.stateMachine);
   }
 

@@ -429,27 +429,44 @@ class Step {
     return buffer.toString();
   }
 
-  ({Map<String, Object?> arguments, CallArgumentsKey key}) _resolveCallArguments(
-    RuleCall call,
+  ({Map<String, Object?> arguments, CallArgumentsKey key}) _resolveCallArgumentValues(
+    Map<String, CallArgumentValue> args,
     Frame frame,
+    Rule targetRule,
   ) {
-    if (call.arguments.isEmpty) {
-      return (arguments: frame.context.arguments, key: StringCallArgumentsKey(call.argumentsKey));
+    if (args.isEmpty) {
+      return (arguments: frame.context.arguments, key: const EmptyCallArgumentsKey());
     }
 
-    // Resolve arguments in the caller's environment so references can inherit
-    // values, rules, or captures from the surrounding parse context.
     var callerRule = switch (frame.context.caller) {
       Caller(:var rule) => rule,
-      _ => call.rule,
+      _ => targetRule,
     };
     var callerArguments = frame.context.arguments;
     var env = _buildGuardEnvironment(rule: callerRule, frame: frame, arguments: callerArguments);
-    return call.resolveArgumentsAndKey(env);
+
+    var resolved = <String, Object?>{};
+    var resolvedValues = <Object?>[];
+
+    // Ensure deterministic ordering for the composite key
+    var sortedNames = args.keys.toList()..sort();
+    for (var name in sortedNames) {
+      var value = args[name]!.resolve(env);
+      resolved[name] = value;
+      resolvedValues.add(value);
+    }
+
+    var key = switch (resolvedValues.length) {
+      0 => const EmptyCallArgumentsKey(),
+      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
+    };
+
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
   }
 
   ({Map<String, Object?> arguments, CallArgumentsKey key})? _resolveParameterCallArguments(
-    ParameterCallPattern pattern,
+    String targetName,
+    Map<String, CallArgumentValue> callArgs,
     Frame frame,
     Rule rule,
   ) {
@@ -459,12 +476,27 @@ class Step {
     };
     var callerArguments = frame.context.arguments;
     var env = _buildGuardEnvironment(rule: callerRule, frame: frame, arguments: callerArguments);
-    return pattern.resolveArgumentsAndKey(env);
+
+    var resolved = <String, Object?>{};
+    var resolvedValues = <Object?>[];
+
+    var sortedNames = callArgs.keys.toList()..sort();
+    for (var name in sortedNames) {
+      var value = callArgs[name]!.resolve(env);
+      resolved[name] = value;
+      resolvedValues.add(value);
+    }
+
+    var key = switch (resolvedValues.length) {
+      0 => const EmptyCallArgumentsKey(),
+      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
+    };
+
+    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
   }
 
   void _seedRuleCall({
     required Rule targetRule,
-    required Pattern callPattern,
     required Map<String, Object?> callArguments,
     required CallArgumentsKey callArgumentsKey,
     required StateAction action,
@@ -499,7 +531,6 @@ class Step {
         GlushProfiler.incrementMiss("parser.callers.cache");
         caller = parseState.callersInt[packedId] = Caller(
           targetRule,
-          callPattern,
           position,
           minPrecedenceLevel,
           callArguments,
@@ -517,7 +548,6 @@ class Step {
         GlushProfiler.incrementMiss("parser.callers.cache");
         caller = parseState.callersComplex[key] = Caller(
           targetRule,
-          callPattern,
           position,
           minPrecedenceLevel,
           callArguments,
@@ -1263,13 +1293,11 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
     // Static rule call (GLL).
     // Resolves arguments and initiates rule expansion via GSS.
-    Pattern callPattern = action.pattern;
-    var call = callPattern as RuleCall;
-    var resolvedCall = _resolveCallArguments(call, frame);
+    var targetRule = parseState.rulesByName[action.ruleSymbol.symbol]!;
+    var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
 
     _seedRuleCall(
-      targetRule: action.rule,
-      callPattern: callPattern,
+      targetRule: targetRule,
       callArguments: resolvedCall.arguments,
       callArgumentsKey: resolvedCall.key,
       action: action,
@@ -1318,10 +1346,9 @@ class Step {
         _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
       case RuleCall callValue:
         // Parameter resolves to a rule call: expansion occurs at the current position.
-        var resolvedCall = _resolveCallArguments(callValue, frame);
+        var resolvedCall = _resolveCallArgumentValues(callValue.arguments, frame, callValue.rule);
         _seedRuleCall(
           targetRule: callValue.rule,
-          callPattern: callValue,
           callArguments: resolvedCall.arguments,
           callArgumentsKey: resolvedCall.key,
           action: action,
@@ -1335,7 +1362,6 @@ class Step {
         // Parameter is a raw rule reference.
         _seedRuleCall(
           targetRule: rule,
-          callPattern: rule,
           callArguments: const {},
           callArgumentsKey: const EmptyCallArgumentsKey(),
           action: action,
@@ -1371,64 +1397,55 @@ class Step {
     // Rule call via a parameter reference ($paramName(args)).
     // Resolves the rule and merges call-site arguments with rule-defined ones.
     var arguments = frame.context.arguments;
-    if (!arguments.containsKey(action.pattern.name)) {
-      throw StateError("Missing argument '${action.pattern.name}' for parameter reference.");
+    if (!arguments.containsKey(action.targetParameter)) {
+      throw StateError("Missing argument '${action.targetParameter}' for parameter reference.");
     }
 
-    var value = arguments[action.pattern.name];
+    var value = arguments[action.targetParameter];
     switch (value) {
       case RuleCall callValue:
         // Merge rule-provided arguments with the dynamic call-site arguments.
         var mergedArguments = <String, CallArgumentValue>{
           ...callValue.arguments,
-          ...action.pattern.arguments,
+          ...action.arguments,
         };
-        var syntheticCall = RuleCall(
-          callValue.name,
-          callValue.rule,
-          arguments: mergedArguments,
-          minPrecedenceLevel: callValue.minPrecedenceLevel ?? action.pattern.minPrecedenceLevel,
-        );
-        var resolvedCall = _resolveCallArguments(syntheticCall, frame);
+        var resolvedCall = _resolveCallArgumentValues(mergedArguments, frame, callValue.rule);
         _seedRuleCall(
-          targetRule: syntheticCall.rule,
-          callPattern: syntheticCall,
+          targetRule: callValue.rule,
           callArguments: resolvedCall.arguments,
           callArgumentsKey: resolvedCall.key,
           action: action,
           returnState: action.nextState,
-          minPrecedenceLevel: syntheticCall.minPrecedenceLevel,
+          minPrecedenceLevel: callValue.minPrecedenceLevel ?? action.minPrecedenceLevel,
           frame: frame,
           source: source,
           currentState: state,
         );
       case Rule rule:
         // Parameter as a raw rule. We apply the call arguments to it.
-        var syntheticCall = RuleCall(
-          rule.name.symbol,
+        var resolvedCall = _resolveParameterCallArguments(
+          action.targetParameter,
+          action.arguments,
+          frame,
           rule,
-          arguments: action.pattern.arguments,
-          minPrecedenceLevel: action.pattern.minPrecedenceLevel,
         );
-        var resolvedCall = _resolveParameterCallArguments(action.pattern, frame, rule);
         if (resolvedCall == null) {
           return;
         }
         _seedRuleCall(
           targetRule: rule,
-          callPattern: syntheticCall,
           callArguments: resolvedCall.arguments,
           callArgumentsKey: resolvedCall.key,
           action: action,
           returnState: action.nextState,
-          minPrecedenceLevel: action.pattern.minPrecedenceLevel,
+          minPrecedenceLevel: action.minPrecedenceLevel,
           frame: frame,
           source: source,
           currentState: state,
         );
       default:
         throw UnsupportedError(
-          "Unsupported parameter call value for ${action.pattern.name}: ${value.runtimeType}",
+          "Unsupported parameter call value for ${action.targetParameter}: ${value.runtimeType}",
         );
     }
   }
@@ -1618,9 +1635,10 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
     // Tail calls still respect argument resolution and guards, but avoid
     // allocating a fresh caller when the recursion can be looped.
-    var resolvedCall = _resolveCallArguments(action.pattern as RuleCall, frame);
+    var targetRule = parseState.rulesByName[action.ruleSymbol.symbol]!;
+    var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
     if (!_ruleGuardPasses(
-      action.rule,
+      targetRule,
       frame,
       arguments: resolvedCall.arguments,
       argumentsKey: resolvedCall.key,
@@ -1629,7 +1647,7 @@ class Step {
     }
     // Tail-call optimized recursion re-enters the rule without allocating
     // a fresh caller node. Use direct trampolining to avoid queue overhead.
-    var firstState = parseState.parser.stateMachine.ruleFirst[action.rule.symbolId!];
+    var firstState = parseState.parser.stateMachine.ruleFirst[action.ruleSymbol];
     if (firstState != null) {
       var tailContext = frame.context.copyWith(
         position: position,
@@ -1680,14 +1698,16 @@ class Step {
       if (hasTailOnlyPath && nextTailCall != null && state.actions.length == 1) {
         // Single tail call action - jump to it directly
         var tailCall = nextTailCall;
-        var resolvedCall = _resolveCallArguments(
-          tailCall.pattern as RuleCall,
+        var targetRule = parseState.rulesByName[tailCall.ruleSymbol.symbol]!;
+        var resolvedCall = _resolveCallArgumentValues(
+          tailCall.arguments,
           Frame(context, marks),
+          targetRule,
         );
 
         // Validate guard for the tail call
         if (!_ruleGuardPasses(
-          tailCall.rule,
+          targetRule,
           Frame(context, marks),
           arguments: resolvedCall.arguments,
           argumentsKey: resolvedCall.key,
@@ -1696,7 +1716,7 @@ class Step {
         }
 
         // Jump to the tail-called rule's entry state
-        var nextFirstState = parseState.parser.stateMachine.ruleFirst[tailCall.rule.symbolId!];
+        var nextFirstState = parseState.parser.stateMachine.ruleFirst[tailCall.ruleSymbol];
         if (nextFirstState == null) {
           return;
         }

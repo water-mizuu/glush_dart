@@ -51,7 +51,9 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
     },
     ParameterCallAction() => {
       "type": "parameterCall",
-      "pattern": action.pattern.toJson(),
+      "target": action.targetParameter,
+      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
+      "minPrecedenceLevel": action.minPrecedenceLevel,
       "nextState": stateIdMap[action.nextState],
     },
     ParameterStringAction() => {
@@ -67,20 +69,20 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
     },
     CallAction() => {
       "type": "call",
-      "ruleName": action.rule.name.symbol,
-      "pattern": action.pattern,
+      "ruleName": action.ruleSymbol.symbol,
+      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
       "returnState": stateIdMap[action.returnState],
     },
     TailCallAction() => {
       "type": "tailCall",
-      "ruleName": action.rule.name.symbol,
-      "pattern": action.pattern.toJson(),
+      "ruleName": action.ruleSymbol.symbol,
+      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
     },
     ReturnAction() => {
       "type": "return",
-      "ruleName": action.rule.name.symbol,
+      "ruleName": action.ruleSymbol.symbol,
       "precedenceLevel": action.precedenceLevel,
     },
     AcceptAction() => {"type": "accept"},
@@ -118,25 +120,23 @@ StateAction _deserializeAction(
     ),
     "mark" => MarkAction(
       json["name"]! as String,
-      Marker(json["name"]! as String),
-      stateMap[json["nextState"]]!,
+      stateMap[(json["nextState"]! as int)]!,
     ),
     "boundary" => BoundaryAction(
       json["kind"] == "start" ? BoundaryKind.start : BoundaryKind.eof,
-      json["kind"] == "start" ? StartAnchor() : EofAnchor(),
       stateMap[json["nextState"]]!,
     ),
     "labelStart" => LabelStartAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "labelEnd" => LabelEndAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "backreference" => BackreferenceAction(json["name"]! as String, stateMap[json["nextState"]]!),
-    "parameter" => ParameterAction(
-      json["name"]! as String,
-      ParameterRefPattern(json["name"]! as String),
-      stateMap[json["nextState"]]!,
-    ),
+    "parameter" => ParameterAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "parameterCall" => ParameterCallAction(
-      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap) as ParameterCallPattern,
-      stateMap[json["nextState"]]!,
+      json["target"]! as String,
+      (json["arguments"]! as Map<String, Object?>).map(
+        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+      ),
+      stateMap[(json["nextState"]! as int)]!,
+      json["minPrecedenceLevel"] as int?,
     ),
     "parameterString" => ParameterStringAction(
       json["codeUnit"]! as int,
@@ -148,31 +148,38 @@ StateAction _deserializeAction(
       nextState: stateMap[json["nextState"]]!,
     ),
     "call" => CallAction(
-      ruleMap[json["ruleName"]]!,
-      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
-      stateMap[json["returnState"]]!,
+      PatternSymbol(json["ruleName"]! as String),
+      (json["arguments"]! as Map<String, Object?>).map(
+        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+      ),
+      stateMap[(json["returnState"]! as int)]!,
       json["minPrecedenceLevel"] as int?,
     ),
     "tailCall" => TailCallAction(
-      ruleMap[json["ruleName"]]!,
-      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
+      PatternSymbol(json["ruleName"]! as String),
+      (json["arguments"]! as Map<String, Object?>).map(
+        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+      ),
       json["minPrecedenceLevel"] as int?,
     ),
-    "return" => ReturnAction(ruleMap[json["ruleName"]]!, Eps(), json["precedenceLevel"] as int?),
+    "return" => ReturnAction(
+      PatternSymbol(json["ruleName"]! as String),
+      json["precedenceLevel"] as int?,
+    ),
     "accept" => const AcceptAction(),
     "predicate" => PredicateAction(
       isAnd: json["isAnd"]! as bool,
       symbol: PatternSymbol(json["symbol"]! as String),
-      nextState: stateMap[json["nextState"]]!,
+      nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     "conjunction" => ConjunctionAction(
       leftSymbol: PatternSymbol(json["leftSymbol"]! as String),
       rightSymbol: PatternSymbol(json["rightSymbol"]! as String),
-      nextState: stateMap[json["nextState"]]!,
+      nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     "negation" => NegationAction(
       symbol: PatternSymbol(json["symbol"]! as String),
-      nextState: stateMap[json["nextState"]]!,
+      nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     _ => throw UnsupportedError("Unknown action type: $type"),
   };
@@ -196,7 +203,7 @@ extension StateMachineExport on StateMachine {
     }).toList();
 
     var initialStateIds = initialStates.map((s) => s.id).toList();
-    var rulesJson = grammar.rules
+    var rulesJson = allRules.values
         .map(
           (rule) => {
             "symbolId": rule.symbolId!.symbol,
@@ -300,6 +307,7 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
   // Create and initialize machine
   var machine = StateMachine.empty(grammar);
   machine.ruleFirst.addAll(ruleFirstMapping);
+  machine.allRules.addAll(ruleMap.map((name, rule) => MapEntry(rule.symbolId!, rule)));
 
   var rulesData = data["rules"]! as List<Object?>;
   for (var ruleData in rulesData.cast<Map<String, Object?>>()) {

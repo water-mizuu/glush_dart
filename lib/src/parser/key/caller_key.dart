@@ -94,7 +94,6 @@ final class ConjunctionCallerKey extends CallerKey {
 class Caller extends CallerKey {
   Caller(
     this.rule,
-    this.pattern,
     this.startPosition,
     this.minPrecedenceLevel,
     this.arguments,
@@ -102,7 +101,6 @@ class Caller extends CallerKey {
   );
 
   final Rule rule;
-  final Pattern pattern;
   final int? minPrecedenceLevel;
   final Map<String, Object?> arguments;
 
@@ -123,12 +121,11 @@ class Caller extends CallerKey {
       other is Caller &&
           runtimeType == other.runtimeType &&
           rule == other.rule &&
-          pattern == other.pattern &&
           startPosition == other.startPosition &&
           minPrecedenceLevel == other.minPrecedenceLevel;
 
   @override
-  int get hashCode => Object.hash(rule, pattern, startPosition, minPrecedenceLevel);
+  int get hashCode => Object.hash(rule, startPosition, minPrecedenceLevel);
 
   bool addWaiter(
     State next,
