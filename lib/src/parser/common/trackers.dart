@@ -46,6 +46,9 @@ class PredicateTracker {
 
   /// True when the predicate can no longer succeed and has not matched.
   bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
+
+  @override
+  String toString() => "pred($symbol @ $startPosition)";
 }
 
 /// Tracks one consuming conjunction sub-parse (intersection) for `(left, right, startPosition)`.
@@ -79,6 +82,9 @@ class ConjunctionTracker {
   }
 
   bool get isExhausted => activeFrames == 0;
+
+  @override
+  String toString() => "conj($leftSymbol & $rightSymbol @ $startPosition)";
 }
 
 /// Tracks one negation sub-parse for a specific `(pattern, startPosition)`.
@@ -137,4 +143,7 @@ class NegationTracker {
 
   /// True when the negation sub-parse is fully exhausted.
   bool get isExhausted => activeFrames == 0;
+
+  @override
+  String toString() => "neg($symbol @ $startPosition)";
 }

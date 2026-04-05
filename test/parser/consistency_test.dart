@@ -1,23 +1,6 @@
 import "package:glush/glush.dart";
 import "package:test/test.dart";
 
-extension on Pattern {
-  Pattern operator /(Pattern other) => Alt(this, Seq(not(), other));
-}
-
-/// Compares two mark lists for logical equality.
-// bool markListsEqual(List<Mark> left, List<Mark> right) {
-//   if (left.length != right.length) {
-//     return false;
-//   }
-//   for (var i = 0; i < left.length; i++) {
-//     if (left[i] != right[i]) {
-//       return false;
-//     }
-//   }
-//   return true;
-// }
-
 /// Helper to verify that parse() results are consistent with parseAmbiguous().
 void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
   var parser = SMParserMini(g);
@@ -172,7 +155,7 @@ void main() {
           "rule",
           () => Label("name", name()) >> Token.char("=") >> Label("body", body()),
         );
-        file = Rule("file", () => (Label("left", file()) >> Label("right", rule())) / rule());
+        file = Rule("file", () => (Label("left", file()) >> Label("right", rule())) | rule());
         return file;
       });
 

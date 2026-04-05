@@ -118,10 +118,7 @@ StateAction _deserializeAction(
       TokenChoice.fromJson(json["choice"]! as Map<String, Object?>),
       stateMap[json["nextState"]]!,
     ),
-    "mark" => MarkAction(
-      json["name"]! as String,
-      stateMap[(json["nextState"]! as int)]!,
-    ),
+    "mark" => MarkAction(json["name"]! as String, stateMap[(json["nextState"]! as int)]!),
     "boundary" => BoundaryAction(
       json["kind"] == "start" ? BoundaryKind.start : BoundaryKind.eof,
       stateMap[json["nextState"]]!,

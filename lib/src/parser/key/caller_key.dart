@@ -33,6 +33,9 @@ final class RootCallerKey extends CallerKey {
 
   @override
   bool operator ==(Object other) => other is RootCallerKey;
+
+  @override
+  String toString() => "root";
 }
 
 /// Caller key for a lookahead predicate sub-parse.
@@ -56,6 +59,9 @@ final class PredicateCallerKey extends CallerKey {
 
   @override
   int get hashCode => Object.hash(pattern, startPosition);
+
+  @override
+  String toString() => "pred($pattern @ $startPosition)";
 }
 
 /// Caller key for a conjunction sub-parse branch.
@@ -87,6 +93,9 @@ final class ConjunctionCallerKey extends CallerKey {
 
   @override
   int get hashCode => Object.hash(uid, isLeft);
+
+  @override
+  String toString() => "conj(${isLeft ? 'L' : 'R'}:$left & $right @ $startPosition)";
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
@@ -97,12 +106,14 @@ class Caller extends CallerKey {
     this.startPosition,
     this.minPrecedenceLevel,
     this.arguments,
+    this.predicateStack,
     this.uid,
   );
 
   final Rule rule;
   final int? minPrecedenceLevel;
   final Map<String, Object?> arguments;
+  final GlushList<PredicateCallerKey> predicateStack;
 
   @override
   final int startPosition;
@@ -122,10 +133,19 @@ class Caller extends CallerKey {
           runtimeType == other.runtimeType &&
           rule == other.rule &&
           startPosition == other.startPosition &&
-          minPrecedenceLevel == other.minPrecedenceLevel;
+          minPrecedenceLevel == other.minPrecedenceLevel &&
+          predicateStack == other.predicateStack;
 
   @override
-  int get hashCode => Object.hash(rule, startPosition, minPrecedenceLevel);
+  int get hashCode => Object.hash(rule, startPosition, minPrecedenceLevel, predicateStack);
+
+  @override
+  String toString() {
+    var args = arguments.isEmpty ? "" : " args:$arguments";
+    var prec = minPrecedenceLevel == null ? "" : " prec:$minPrecedenceLevel";
+    var stack = predicateStack.isEmpty ? "" : " stack:$predicateStack";
+    return "rule(${rule.name.symbol} @ $startPosition$args$prec$stack)";
+  }
 
   bool addWaiter(
     State next,
