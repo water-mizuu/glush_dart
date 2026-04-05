@@ -110,15 +110,11 @@ final class LabelStartAction implements StateAction {
   ///
   /// Parameters:
   ///   [name] - The name of the label
-  ///   [pattern] - The starting pattern
   ///   [nextState] - The state to transition to
-  const LabelStartAction(this.name, this.pattern, this.nextState);
+  const LabelStartAction(this.name, this.nextState);
 
   /// The name of the label.
   final String name;
-
-  /// The pattern at label start.
-  final Pattern pattern;
 
   /// The next state after this transition.
   final State nextState;
@@ -130,15 +126,11 @@ final class LabelEndAction implements StateAction {
   ///
   /// Parameters:
   ///   [name] - The name of the label
-  ///   [pattern] - The ending pattern
   ///   [nextState] - The state to transition to
-  const LabelEndAction(this.name, this.pattern, this.nextState);
+  const LabelEndAction(this.name, this.nextState);
 
   /// The name of the label.
   final String name;
-
-  /// The pattern at label end.
-  final Pattern pattern;
 
   /// The next state after this transition.
   final State nextState;

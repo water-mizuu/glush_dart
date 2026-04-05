@@ -17,4 +17,5 @@ export "src/parser/sm_parser.dart";
 export "src/parser/sm_parser_mini.dart";
 export "src/parser/state_machine/state_actions.dart";
 export "src/parser/state_machine/state_machine.dart";
+export "src/parser/state_machine/state_machine_export.dart";
 export "src/representation/evaluator.dart";

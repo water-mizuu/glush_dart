@@ -26,6 +26,7 @@
 /// can coexist, enabling proper handling of predicates without backtracking.
 library glush.sm_parser;
 
+import "package:glush/glush.dart" show StateMachine;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
@@ -39,6 +40,7 @@ import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
+import "package:glush/src/parser/state_machine/state_machine_export.dart";
 import "package:glush/src/representation/evaluator.dart";
 
 /// Main parser implementation using a state machine-based LR-like algorithm.
@@ -66,6 +68,28 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     : stateMachine = StateMachine(grammar);
 
   SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+
+  /// Create a parser from an imported state machine JSON.
+  ///
+  /// Quickly reconstructs a parser from a previously exported state machine
+  /// without requiring grammar recompilation. Useful for production environments
+  /// where fast startup is needed.
+  ///
+  /// Parameters:
+  ///   [jsonString] - The exported state machine JSON from [StateMachine.exportToJson]
+  ///   [grammar] - The grammar interface associated with this machine
+  ///   [captureTokensAsMarks] - Whether to capture tokens as marks during parsing
+  ///
+  /// Returns:
+  ///   An SMParser ready for immediate use
+  factory SMParser.fromImported(
+    String jsonString, [
+    GrammarInterface? grammar,
+  ]) {
+    var stateMachine = importFromJson(jsonString, grammar);
+    return SMParser.fromStateMachine(stateMachine);
+  }
+
   static final Context _initialContext = Context(const RootCallerKey());
 
   /// The state machine constructed from the grammar.

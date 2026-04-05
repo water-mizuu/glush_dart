@@ -203,7 +203,7 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
     case Pattern(:var symbolId):
       buffer.write("p");
       _writeCanonicalString(buffer, symbolId?.symbol ?? value.runtimeType.toString());
-    case List<dynamic> items:
+    case List<Object?> items:
       buffer
         ..write("l")
         ..write(items.length)
@@ -240,7 +240,7 @@ Object? normalizeSemanticValue(Object? value) {
     CallArgumentValue argument => normalizeSemanticValue(argument.resolveData()),
     PatternClosureValue closure => closure,
     CaptureValue capture => capture,
-    List<dynamic> items => [for (var item in items) normalizeSemanticValue(item)],
+    List<Object?> items => [for (var item in items) normalizeSemanticValue(item)],
     Map<String, Object?> items => {
       for (var entry in items.entries) entry.key: normalizeSemanticValue(entry.value),
     },
@@ -263,13 +263,13 @@ String _formatCallArgument(Object? value) {
     _GuardArgumentValue(:var name) => name,
     _GuardNameValue(:var name) => name,
     _GuardRuleValue() => "rule",
-    List<dynamic> items => _formatObjectList(items),
+    List<Object?> items => _formatObjectList(items),
     Map<String, Object?> items => _formatObjectMap(items),
     _ => value.toString(),
   };
 }
 
-String _formatObjectList(List<dynamic> items) {
+String _formatObjectList(List<Object?> items) {
   // Lists are formatted recursively because nested call arguments can carry
   // structured parser data, not just scalars.
   var buffer = StringBuffer();
@@ -333,6 +333,45 @@ sealed class CallArgumentValue {
   factory CallArgumentValue.list(List<CallArgumentValue> values) = _CallArgumentListValue;
   factory CallArgumentValue.map(Map<String, CallArgumentValue> values) = _CallArgumentMapValue;
 
+  factory CallArgumentValue.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
+    var type = json["type"]! as String;
+    return switch (type) {
+      "lit" => CallArgumentValue.literal(json["value"]),
+      "ref" => CallArgumentValue.reference(json["name"]! as String),
+      "rul" => CallArgumentValue.rule(ruleMap[json["ruleName"]]!),
+      "pat" => CallArgumentValue.pattern(
+        Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
+      ),
+      "una" => CallArgumentValue.unary(
+        ExpressionUnaryOperator.values.firstWhere((e) => e.symbol == json["op"]),
+        CallArgumentValue.fromJson(json["operand"]! as Map<String, Object?>, ruleMap),
+      ),
+      "mem" => CallArgumentValue.member(
+        CallArgumentValue.fromJson(json["target"]! as Map<String, Object?>, ruleMap),
+        json["member"]! as String,
+      ),
+      "bin" => CallArgumentValue.binary(
+        CallArgumentValue.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
+        ExpressionBinaryOperator.values.firstWhere((e) => e.symbol == json["op"]),
+        CallArgumentValue.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      ),
+      "cur" => CallArgumentValue.currentRule(),
+      "lis" => CallArgumentValue.list(
+        (json["values"]! as List<Object?>)
+            .map((v) => CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap))
+            .toList(),
+      ),
+      "map" => CallArgumentValue.map(
+        (json["values"]! as Map<String, Object?>).map(
+          (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+        ),
+      ),
+      _ => throw UnsupportedError("Unknown call argument type: $type"),
+    };
+  }
+
+  Map<String, Object?> toJson();
+
   Object? resolve(GuardEnvironment env);
   Object? resolveData();
   String format();
@@ -354,6 +393,9 @@ final class _CallArgumentLiteralValue extends CallArgumentValue {
   const _CallArgumentLiteralValue(this.value);
 
   final Object? value;
+
+  @override
+  Map<String, Object?> toJson() => {"type": "lit", "value": value};
 
   @override
   Object? resolve(GuardEnvironment env) => value;
@@ -378,6 +420,9 @@ final class _CallArgumentReferenceValue extends CallArgumentValue {
   const _CallArgumentReferenceValue(this.name);
 
   final String name;
+
+  @override
+  Map<String, Object?> toJson() => {"type": "ref", "name": name};
 
   @override
   Object? resolve(GuardEnvironment env) => env.resolve(name) ?? this;
@@ -406,6 +451,9 @@ final class _CallArgumentRuleValue extends CallArgumentValue {
   final Rule rule;
 
   @override
+  Map<String, Object?> toJson() => {"type": "rul", "ruleName": rule.name.symbol};
+
+  @override
   Object? resolve(GuardEnvironment env) => rule;
 
   @override
@@ -430,6 +478,9 @@ final class _CallArgumentPatternValue extends CallArgumentValue {
   const _CallArgumentPatternValue(this.pattern);
 
   final Pattern pattern;
+
+  @override
+  Map<String, Object?> toJson() => {"type": "pat", "pattern": pattern.toJson()};
 
   @override
   Object? resolve(GuardEnvironment env) => _resolvePatternValue(pattern, env);
@@ -458,6 +509,13 @@ final class _CallArgumentUnaryValue extends CallArgumentValue {
 
   final ExpressionUnaryOperator operator;
   final CallArgumentValue operand;
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "una",
+    "op": operator.symbol,
+    "operand": operand.toJson(),
+  };
 
   @override
   Object? resolve(GuardEnvironment env) {
@@ -496,6 +554,9 @@ final class _CallArgumentMemberValue extends CallArgumentValue {
   final String member;
 
   @override
+  Map<String, Object?> toJson() => {"type": "mem", "target": target.toJson(), "member": member};
+
+  @override
   Object? resolve(GuardEnvironment env) =>
       _resolveMemberValue(_materializeResolvedValue(target.resolve(env), env), member);
 
@@ -526,6 +587,14 @@ final class _CallArgumentBinaryValue extends CallArgumentValue {
   final CallArgumentValue left;
   final ExpressionBinaryOperator operator;
   final CallArgumentValue right;
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "bin",
+    "left": left.toJson(),
+    "op": operator.symbol,
+    "right": right.toJson(),
+  };
 
   @override
   Object? resolve(GuardEnvironment env) {
@@ -644,6 +713,9 @@ final class _CallArgumentCallableValue extends CallArgumentValue {
   final PatternClosureValue callable;
 
   @override
+  Map<String, Object?> toJson() => {"type": "cal", "callable": callable.toJson()};
+
+  @override
   Object? resolve(GuardEnvironment env) => callable;
 
   @override
@@ -680,6 +752,12 @@ final class PatternClosureValue {
     }
     return PatternClosureValue(body, environment.mergeWith(arguments));
   }
+
+  Map<String, Object?> toJson() => {
+    "body": body.toJson(),
+    "ruleName": environment.rule.name.symbol,
+    "arguments": environment.arguments,
+  };
 
   Pattern materialize([GuardEnvironment? currentEnvironment]) {
     var merged = currentEnvironment == null ? environment : environment.merge(currentEnvironment);
@@ -870,7 +948,7 @@ CallArgumentValue _callArgumentValueFromResolvedObject(Object? value) {
     Rule rule => CallArgumentValue.rule(rule),
     Pattern pattern => CallArgumentValue.pattern(pattern),
     PatternClosureValue callable => CallArgumentValue.callable(callable),
-    List<dynamic> items => CallArgumentValue.list(
+    List<Object?> items => CallArgumentValue.list(
       items.map(_callArgumentValueFromResolvedObject).toList(),
     ),
     Map<String, Object?> items => CallArgumentValue.map({
@@ -944,6 +1022,9 @@ final class _CallArgumentCurrentRuleValue extends CallArgumentValue {
   const _CallArgumentCurrentRuleValue();
 
   @override
+  Map<String, Object?> toJson() => {"type": "cur"};
+
+  @override
   Object? resolve(GuardEnvironment env) => env.rule;
 
   @override
@@ -966,6 +1047,12 @@ final class _CallArgumentListValue extends CallArgumentValue {
   const _CallArgumentListValue(this.values);
 
   final List<CallArgumentValue> values;
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "lis",
+    "values": values.map((v) => v.toJson()).toList(),
+  };
 
   @override
   Object? resolve(GuardEnvironment env) {
@@ -1011,6 +1098,12 @@ final class _CallArgumentMapValue extends CallArgumentValue {
   const _CallArgumentMapValue(this.values);
 
   final Map<String, CallArgumentValue> values;
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "map",
+    "values": values.map((k, v) => MapEntry(k, v.toJson())),
+  };
 
   @override
   Object? resolve(GuardEnvironment env) {
@@ -1497,6 +1590,66 @@ sealed class Pattern {
     return result;
   }
 
+  factory Pattern.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
+    var type = json["type"]! as String;
+    Pattern pattern = switch (type) {
+      "tok" => Token.fromJson(json),
+      "mar" => Marker(json["name"]! as String),
+      "bos" => StartAnchor(),
+      "eof" => EofAnchor(),
+      "eps" => Eps(),
+      "alt" => Alt(
+        Pattern.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
+        Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      ),
+      "seq" => Seq(
+        Pattern.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
+        Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      ),
+      "con" => Conj(
+        Pattern.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
+        Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      ),
+      "and" => And(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "not" => Not(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "neg" => Neg(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "rca" => RuleCall(
+        json["name"]! as String,
+        ruleMap[json["ruleName"]]!,
+        minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
+      ),
+      "par" => ParameterRefPattern(json["name"]! as String),
+      "pac" => ParameterCallPattern(
+        json["name"]! as String,
+        minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
+      ),
+      "act" => Action(
+        Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap),
+        (span, results) => throw UnsupportedError("Cannot deserialize action callback"),
+      ),
+      "pre" => Prec(
+        json["precedenceLevel"]! as int,
+        Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap),
+      ),
+      "opt" => Opt(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "plu" => Plus(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "sta" => Star(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      "lab" => Label(
+        json["name"]! as String,
+        Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap),
+      ),
+      "las" => LabelStart(json["name"]! as String),
+      "lae" => LabelEnd(json["name"]! as String),
+      "bac" => Backreference(json["name"]! as String),
+      _ => throw UnsupportedError("Unknown pattern type: $type"),
+    };
+    if (json["symbolId"] != null) {
+      pattern._symbolId = PatternSymbol(json["symbolId"]! as String);
+    }
+    return pattern;
+  }
+  Map<String, Object?> toJson() => {"type": _symbolPrefix, "symbolId": _symbolId?.symbol};
+
   /// Symbol ID assigned by the grammar this pattern belongs to.
   /// Initially null, assigned during Grammar.finalize()
   PatternSymbol? _symbolId;
@@ -1592,7 +1745,7 @@ sealed class Pattern {
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
   ///   - childResults: list of evaluated semantic values from children
-  Action<T> withAction<T>(T Function(String span, List<dynamic> childResults) callback) {
+  Action<T> withAction<T>(T Function(String span, List<Object?> childResults) callback) {
     return Action<T>(this, callback);
   }
 
@@ -1692,9 +1845,23 @@ sealed class Pattern {
   IfCond when(GuardExpr condition) => IfCond(condition, this);
 }
 
-/// Sealed class hierarchy for token choice — replaces the former dynamic field.
+/// Sealed class hierarchy for token choice — replaces the former Object? field.
 sealed class TokenChoice {
   const TokenChoice(this.capturesAsMark);
+  factory TokenChoice.fromJson(Map<String, Object?> json) {
+    var type = json["type"]! as String;
+    return switch (type) {
+      "any" => const AnyToken(),
+      "exact" => ExactToken(json["value"]! as int),
+      "range" => RangeToken(json["start"]! as int, json["end"]! as int),
+      "less" => LessToken(json["bound"]! as int),
+      "greater" => GreaterToken(json["bound"]! as int),
+      _ => throw UnsupportedError("Unknown token choice type: $type"),
+    };
+  }
+
+  Map<String, Object?> toJson();
+
   final bool capturesAsMark;
   bool matches(int? value);
 }
@@ -1708,6 +1875,9 @@ final class AnyToken extends TokenChoice {
 
   @override
   String toString() => "any";
+
+  @override
+  Map<String, Object?> toJson() => {"type": "any"};
 }
 
 /// Matches an exact code-point value
@@ -1720,6 +1890,9 @@ final class ExactToken extends TokenChoice {
 
   @override
   String toString() => String.fromCharCode(value);
+
+  @override
+  Map<String, Object?> toJson() => {"type": "exact", "value": value};
 }
 
 /// Matches a code-point within an inclusive range
@@ -1733,6 +1906,9 @@ final class RangeToken extends TokenChoice {
 
   @override
   String toString() => "$start..$end";
+
+  @override
+  Map<String, Object?> toJson() => {"type": "range", "start": start, "end": end};
 }
 
 /// Matches a code-point <= bound
@@ -1745,6 +1921,9 @@ final class LessToken extends TokenChoice {
 
   @override
   String toString() => "less($bound)";
+
+  @override
+  Map<String, Object?> toJson() => {"type": "less", "bound": bound};
 }
 
 /// Matches a code-point >= bound
@@ -1757,11 +1936,18 @@ final class GreaterToken extends TokenChoice {
 
   @override
   String toString() => "greater($bound)";
+
+  @override
+  Map<String, Object?> toJson() => {"type": "greater", "bound": bound};
 }
 
 /// Single token pattern
 class Token extends Pattern {
   Token(this.choice);
+
+  factory Token.fromJson(Map<String, Object?> json) {
+    return Token(TokenChoice.fromJson(json["choice"]! as Map<String, Object?>));
+  }
   Token.char(String char) //
     : assert(char.length == 1, "Character patterns should have only one value!"),
       assert(
@@ -1781,6 +1967,9 @@ class Token extends Pattern {
   bool match(int? token) => choice.matches(token);
 
   bool get capturesAsMark => choice.capturesAsMark;
+
+  @override
+  Map<String, Object?> toJson() => {"type": "tok", "choice": choice.toJson()};
 
   @override
   Pattern invert() {
@@ -1824,6 +2013,8 @@ class Token extends Pattern {
 class Marker extends Pattern {
   Marker(this.name);
   final String name;
+  @override
+  Map<String, Object?> toJson() => {"type": "mar", "name": name};
 
   @override
   Marker copy() => Marker(name);
@@ -1872,6 +2063,9 @@ class Eps extends Pattern {
   Eps copy() => Eps();
 
   @override
+  Map<String, Object?> toJson() => {"type": "eps"};
+
+  @override
   String toString() => "eps";
 }
 
@@ -1898,6 +2092,9 @@ final class StartAnchor extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Map<String, Object?> toJson() => {"type": "bos"};
+
+  @override
   String toString() => "^";
 }
 
@@ -1922,6 +2119,9 @@ final class EofAnchor extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Map<String, Object?> toJson() => {"type": "eof"};
 
   @override
   String toString() => r"$";
@@ -1980,6 +2180,9 @@ class Alt extends Pattern {
     left.collectRules(rules);
     right.collectRules(rules);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "alt", "left": left.toJson(), "right": right.toJson()};
 
   @override
   String toString() => "alt($left, $right)";
@@ -2047,6 +2250,9 @@ class Seq extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "seq", "left": left.toJson(), "right": right.toJson()};
+
+  @override
   String toString() => "seq($left, $right)";
 }
 
@@ -2084,6 +2290,9 @@ class Opt extends Pattern {
   void collectRules(Set<Rule> rules) {
     child.collectRules(rules);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "opt", "child": child.toJson()};
 
   @override
   String toString() => "opt($child)";
@@ -2131,6 +2340,9 @@ class Star extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "star", "child": child.toJson()};
+
+  @override
   String toString() => "star($child)";
 }
 
@@ -2174,6 +2386,9 @@ class Plus extends Pattern {
   void collectRules(Set<Rule> rules) {
     child.collectRules(rules);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "plu", "child": child.toJson()};
 
   @override
   String toString() => "plus($child)";
@@ -2223,6 +2438,9 @@ class Conj extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "con", "left": left.toJson(), "right": right.toJson()};
+
+  @override
   String toString() => "conj($left, $right)";
 }
 
@@ -2265,6 +2483,9 @@ class And extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "and", "child": pattern.toJson()};
+
+  @override
   String toString() => "and($pattern)";
 }
 
@@ -2305,6 +2526,9 @@ class Not extends Pattern {
   void collectRules(Set<Rule> rules) {
     pattern.collectRules(rules);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "not", "child": pattern.toJson()};
 
   @override
   String toString() => "not($pattern)";
@@ -2354,6 +2578,9 @@ class Neg extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "neg", "child": pattern.toJson()};
+
+  @override
   String toString() => "neg($pattern)";
 }
 
@@ -2392,6 +2619,13 @@ class IfCond extends Pattern {
   void collectRules(Set<Rule> rules) {
     pattern.collectRules(rules);
   }
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "if",
+    "condition": condition.toString(), // TODO: Better serialization for GuardExpr if needed
+    "child": pattern.toJson(),
+  };
 
   @override
   String toString() => "if($condition, $pattern)";
@@ -2492,6 +2726,9 @@ class Rule extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "rul", "name": name.symbol};
+
+  @override
   String toString() => "<$name>";
 }
 
@@ -2515,6 +2752,15 @@ class RuleCall extends Pattern {
   /// with precedenceLevel >= minPrecedenceLevel will match.
   /// This implements EXPR^N syntax where N is the minimum precedence level.
   final int? minPrecedenceLevel;
+
+  @override
+  Map<String, Object?> toJson() => {
+    ...super.toJson(),
+    "name": name,
+    "ruleName": rule.name.symbol,
+    "arguments": arguments.map((k, v) => MapEntry(k, v.toJson())),
+    "minPrecedenceLevel": minPrecedenceLevel,
+  };
 
   @override
   RuleCall copy() =>
@@ -2621,6 +2867,9 @@ class ParameterRefPattern extends Pattern {
   void collectRules(Set<Rule> rules) {}
 
   @override
+  Map<String, Object?> toJson() => {"type": "par", "name": name};
+
+  @override
   String toString() => "param($name)";
 }
 
@@ -2642,6 +2891,14 @@ class ParameterCallPattern extends Pattern {
   final String argumentsKey;
   final List<String> _argumentNames;
   final int? minPrecedenceLevel;
+
+  @override
+  Map<String, Object?> toJson() => {
+    ...super.toJson(),
+    "name": name,
+    "arguments": arguments.map((k, v) => MapEntry(k, v.toJson())),
+    "minPrecedenceLevel": minPrecedenceLevel,
+  };
 
   @override
   ParameterCallPattern copy() =>
@@ -2709,7 +2966,7 @@ class ParameterCallPattern extends Pattern {
 class Action<T> extends Pattern {
   Action(this.child, this.callback);
   Pattern child;
-  final T Function(String span, List<dynamic> childResults) callback;
+  final T Function(String span, List<Object?> childResults) callback;
 
   @override
   Action<T> copy() => Action<T>(child.copy(), callback);
@@ -2744,6 +3001,9 @@ class Action<T> extends Pattern {
 
   @override
   bool match(int? token) => child.match(token);
+
+  @override
+  Map<String, Object?> toJson() => {"type": "act", "child": child.toJson()};
 
   @override
   String toString() => "action($child)";
@@ -2791,6 +3051,13 @@ class Prec extends Pattern {
 
   @override
   bool match(int? token) => child.match(token);
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "pre",
+    "precedenceLevel": precedenceLevel,
+    "child": child.toJson(),
+  };
 
   @override
   String toString() => "[$precedenceLevel] $child";
@@ -2846,6 +3113,9 @@ class Label extends Pattern {
   }
 
   @override
+  Map<String, Object?> toJson() => {"type": "lab", "name": name, "child": child.toJson()};
+
+  @override
   String toString() => "$name:($child)";
 }
 
@@ -2870,6 +3140,9 @@ class LabelStart extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Map<String, Object?> toJson() => {"type": "las", "name": name};
 
   @override
   String toString() => "label_start($name)";
@@ -2898,6 +3171,9 @@ class LabelEnd extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Map<String, Object?> toJson() => {"type": "lae", "name": name};
+
+  @override
   String toString() => "label_end($name)";
 }
 
@@ -2922,6 +3198,9 @@ class Backreference extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Map<String, Object?> toJson() => {"type": "bac", "name": name};
 
   @override
   String toString() => "(\\$name)";

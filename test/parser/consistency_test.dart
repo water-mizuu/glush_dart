@@ -47,7 +47,6 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
   var found = false;
   var evaluatedStandard = standardMarks;
 
-  print(evaluatedStandard);
   for (var path in ambigPaths) {
     var evaluatedAmbig = path;
     if (_listEquals(evaluatedStandard, evaluatedAmbig)) {

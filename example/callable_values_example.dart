@@ -20,7 +20,7 @@ void main() {
 
     outer = Rule("outer", () {
       return (box() >> Token.char("c")).withAction((_, results) {
-        var closure = results.first as PatternClosureValue;
+        var closure = results.first! as PatternClosureValue;
         return CallArgumentValue.map({
           "direct": CallArgumentValue.callable(closure),
           "nested": CallArgumentValue.list([

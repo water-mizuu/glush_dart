@@ -17,6 +17,12 @@ class State {
 
   @override
   String toString() => "State($id)";
+
+  @override
+  bool operator ==(Object other) => other is State && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 /// A compiled state machine that represents a PEG grammar as a finite state automaton.
@@ -141,6 +147,23 @@ class StateMachine {
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
+  }
+
+  /// Initialize from exported JSON data.
+  ///
+  /// This method sets up the state machine from pre-compiled data without needing
+  /// StateKey objects. Used internally by importFromJson.
+  ///
+  /// Parameters:
+  ///   [initialStates] - The initial states for parsing
+  ///   [allStates] - All states in the compiled machine
+  void initializeFromJson(List<State> initialStates, List<State> allStates) {
+    _initialStates = initialStates;
+    _cachedStates = allStates;
+    // Populate state mapping using InitStateKey for first state
+    if (initialStates.isNotEmpty) {
+      _stateMapping[const InitStateKey()] = initialStates[0];
+    }
   }
 
   /// Get or create a state with the given key.
@@ -348,11 +371,11 @@ class StateMachine {
         }
       case LabelStart():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = LabelStartAction(terminal.name, terminal, nextState);
+        var action = LabelStartAction(terminal.name, nextState);
         state.actions.add(action);
       case LabelEnd():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = LabelEndAction(terminal.name, terminal, nextState);
+        var action = LabelEndAction(terminal.name, nextState);
         state.actions.add(action);
       case Backreference():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
