@@ -951,9 +951,9 @@ class Step {
     var token = _getTokenFor(frame);
 
     // Token actions fire only when an input token matches the expected pattern.
-    if (token != null && action.pattern.match(token)) {
+    if (token != null && action.choice.matches(token)) {
       var newMarks = frame.marks;
-      var pattern = action.pattern;
+      var pattern = action.choice;
 
       // Terminal capture logic: some patterns (like literal strings)
       // naturally want to be captured as marks.

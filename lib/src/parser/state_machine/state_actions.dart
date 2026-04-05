@@ -36,18 +36,18 @@ final class TokenAction implements StateAction {
   /// Create a token action.
   ///
   /// Parameters:
-  ///   [pattern] - The token pattern to consume
+  ///   [choice] - The token choice to consume
   ///   [nextState] - The state to transition to after consuming the token
-  const TokenAction(this.pattern, this.nextState);
+  const TokenAction(this.choice, this.nextState);
 
-  /// The token pattern to consume.
-  final Pattern pattern;
+  /// The token choice to consume.
+  final TokenChoice choice;
 
   /// The next state after this transition.
   final State nextState;
 
   @override
-  String toString() => "Token($pattern)";
+  String toString() => "Token($choice)";
 }
 
 /// Kinds of input boundaries that can be checked.
@@ -264,13 +264,9 @@ final class CallAction implements StateAction {
   final int? minPrecedenceLevel;
 
   @override
-  String toString() => switch (pattern) {
-    RuleCall() => "CallAction(${_describeRuleCall(pattern as RuleCall, minPrecedenceLevel)})",
-    _ =>
-      minPrecedenceLevel != null
-          ? "CallAction(${rule.name}^$minPrecedenceLevel)"
-          : "CallAction(${rule.name})",
-  };
+  String toString() => minPrecedenceLevel != null
+      ? "CallAction(${rule.name}^$minPrecedenceLevel)"
+      : "CallAction(${rule.name})";
 }
 
 /// Action for tail-call optimization of recursive rules.

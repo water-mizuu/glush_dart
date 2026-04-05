@@ -5,10 +5,12 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/key/state_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
+import "package:meta/meta.dart";
 
 /// State in the state machine.
 ///
 /// Each state contains a list of actions (transitions) that can be taken from it.
+@immutable
 class State {
   const State(this.id, this.actions);
 
@@ -290,23 +292,17 @@ class StateMachine {
     switch (terminal) {
       case Token():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = TokenAction(terminal, nextState);
+        var action = TokenAction(terminal.choice, nextState);
         state.actions.add(action);
       case Conj():
-        if (terminal.singleToken()) {
-          var nextState = _getOrCreateState(PatternStateKey(terminal));
-          var action = TokenAction(terminal, nextState);
-          state.actions.add(action);
-        } else {
-          var nextState = _getOrCreateState(PatternStateKey(terminal));
-          // Complex conjunction: use sub-parse rendezvous
-          var action = ConjunctionAction(
-            leftSymbol: _extractSymbol(terminal.left),
-            rightSymbol: _extractSymbol(terminal.right),
-            nextState: nextState,
-          );
-          state.actions.add(action);
-        }
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
+        // Complex conjunction: use sub-parse rendezvous
+        var action = ConjunctionAction(
+          leftSymbol: _extractSymbol(terminal.left),
+          rightSymbol: _extractSymbol(terminal.right),
+          nextState: nextState,
+        );
+        state.actions.add(action);
       case StartAnchor() || EofAnchor():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
@@ -838,7 +834,7 @@ String _toDot(StateMachine machine) {
       if (action is TokenAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="token ${_dotEscape(action.pattern.toString())}"];',
+          '  "$fromStateId" -> "$toStateId" [label="token ${_dotEscape(action.choice.toString())}"];',
         );
       }
       // CallAction: enter a subroutine (rule call)
