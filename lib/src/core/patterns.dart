@@ -1248,6 +1248,17 @@ final class GuardEnvironment {
 sealed class GuardValue {
   const GuardValue();
 
+  factory GuardValue.fromJson(Map<String, Object?> json) {
+    var type = json["type"]! as String;
+    return switch (type) {
+      "gvl" => GuardValue.literal(json["value"]),
+      "gva" => GuardValue.argument(json["name"]! as String),
+      "gvn" => GuardValue.name(json["name"]! as String),
+      "gvr" => GuardValue.rule(),
+      _ => throw FormatException("Unknown guard value type: $type"),
+    };
+  }
+
   // Guard values are typed separately from call arguments so expression
   // evaluation can tell runtime data, rule references, and the special `rule`
   // symbol apart.
@@ -1258,6 +1269,8 @@ sealed class GuardValue {
 
   Object? evaluate(GuardEnvironment env);
   void collectReferredNames(Set<String> names);
+
+  Map<String, Object?> toJson();
 
   GuardExpr eq(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.eq);
@@ -1276,6 +1289,30 @@ sealed class GuardValue {
 sealed class GuardExpr {
   const GuardExpr();
 
+  factory GuardExpr.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
+    var type = json["type"]! as String;
+    return switch (type) {
+      "gel" => GuardExpr.literal(json["value"]! as bool),
+      "gev" => GuardExpr.value(GuardValue.fromJson(json["value"]! as Map<String, Object?>)),
+      "gee" => GuardExpr.expression(
+        CallArgumentValue.fromJson(json["value"]! as Map<String, Object?>, ruleMap),
+      ),
+      "gec" => _GuardComparison(
+        GuardValue.fromJson(json["left"]! as Map<String, Object?>),
+        GuardValue.fromJson(json["right"]! as Map<String, Object?>),
+        _GuardComparisonKind.values.byName(json["kind"]! as String),
+      ),
+      "gea" =>
+        GuardExpr.fromJson(json["left"]! as Map<String, Object?>, ruleMap) &
+            GuardExpr.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      "geo" =>
+        GuardExpr.fromJson(json["left"]! as Map<String, Object?>, ruleMap) |
+            GuardExpr.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
+      "gen" => GuardNot(GuardExpr.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
+      _ => throw FormatException("Unknown guard expr type: $type"),
+    };
+  }
+
   // Guard expressions are a tiny boolean AST that the runtime can evaluate
   // directly inside the state machine.
   factory GuardExpr.literal(bool value) = _GuardLiteralExpr;
@@ -1284,6 +1321,8 @@ sealed class GuardExpr {
 
   bool evaluate(GuardEnvironment env);
   void collectReferredNames(Set<String> names);
+
+  Map<String, Object?> toJson();
 
   GuardExpr and(GuardExpr other) => GuardAnd(this, other);
   GuardExpr or(GuardExpr other) => GuardOr(this, other);
@@ -1308,6 +1347,9 @@ final class _GuardLiteralValue extends GuardValue {
 
   @override
   void collectReferredNames(Set<String> names) {}
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gvl", "value": value};
 }
 
 final class _GuardArgumentValue extends GuardValue {
@@ -1322,6 +1364,9 @@ final class _GuardArgumentValue extends GuardValue {
   void collectReferredNames(Set<String> names) {
     names.add(name);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gva", "name": name};
 }
 
 final class _GuardNameValue extends GuardValue {
@@ -1336,6 +1381,9 @@ final class _GuardNameValue extends GuardValue {
   void collectReferredNames(Set<String> names) {
     names.add(name);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gvn", "name": name};
 }
 
 final class _GuardRuleValue extends GuardValue {
@@ -1346,6 +1394,9 @@ final class _GuardRuleValue extends GuardValue {
 
   @override
   void collectReferredNames(Set<String> names) {}
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gvr"};
 }
 
 final class _GuardLiteralExpr extends GuardExpr {
@@ -1358,6 +1409,9 @@ final class _GuardLiteralExpr extends GuardExpr {
 
   @override
   void collectReferredNames(Set<String> names) {}
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gel", "value": value};
 }
 
 enum _GuardComparisonKind { eq, ne, gt, gte, lt, lte }
@@ -1389,6 +1443,14 @@ final class _GuardComparison extends GuardExpr {
     left.collectReferredNames(names);
     right.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {
+    "type": "gec",
+    "left": left.toJson(),
+    "right": right.toJson(),
+    "kind": kind.name,
+  };
 }
 
 final class GuardAnd extends GuardExpr {
@@ -1405,6 +1467,9 @@ final class GuardAnd extends GuardExpr {
     left.collectReferredNames(names);
     right.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gea", "left": left.toJson(), "right": right.toJson()};
 }
 
 final class GuardOr extends GuardExpr {
@@ -1421,6 +1486,9 @@ final class GuardOr extends GuardExpr {
     left.collectReferredNames(names);
     right.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "geo", "left": left.toJson(), "right": right.toJson()};
 }
 
 final class GuardNot extends GuardExpr {
@@ -1435,6 +1503,9 @@ final class GuardNot extends GuardExpr {
   void collectReferredNames(Set<String> names) {
     child.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gen", "child": child.toJson()};
 }
 
 final class GuardValueExpr extends GuardExpr {
@@ -1456,6 +1527,9 @@ final class GuardValueExpr extends GuardExpr {
   void collectReferredNames(Set<String> names) {
     value.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gev", "value": value.toJson()};
 }
 
 final class _GuardExpressionExpr extends GuardExpr {
@@ -1483,6 +1557,9 @@ final class _GuardExpressionExpr extends GuardExpr {
   void collectReferredNames(Set<String> names) {
     value.collectReferredNames(names);
   }
+
+  @override
+  Map<String, Object?> toJson() => {"type": "gee", "value": value.toJson()};
 }
 
 int? _compareNumbers(Object? left, Object? right) {
@@ -1615,12 +1692,27 @@ sealed class Pattern {
       "neg" => Neg(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
       "rca" => RuleCall(
         json["name"]! as String,
-        ruleMap[json["ruleName"]]!,
+        ruleMap[json["ruleName"]] ??
+            (throw StateError(
+              "Rule '${json["ruleName"]}' not found in ruleMap. Keys are: ${ruleMap.keys.toList()}",
+            )),
+        arguments:
+            (json["arguments"] as Map<String, Object?>?)?.map(
+              (k, v) =>
+                  MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+            ) ??
+            const {},
         minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
       ),
       "par" => ParameterRefPattern(json["name"]! as String),
       "pac" => ParameterCallPattern(
         json["name"]! as String,
+        arguments:
+            (json["arguments"] as Map<String, Object?>?)?.map(
+              (k, v) =>
+                  MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
+            ) ??
+            const {},
         minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
       ),
       "act" => Action(

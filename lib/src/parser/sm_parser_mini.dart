@@ -11,6 +11,7 @@ import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 import "package:glush/src/parser/state_machine/state_machine.dart";
+import "package:glush/src/parser/state_machine/state_machine_export.dart";
 
 /// Minimal version of [SMParser] that only supports recognize, parse, and parseAmbiguous.
 ///
@@ -22,6 +23,23 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
     : stateMachine = StateMachine(grammar);
 
   SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+
+  /// Create a parser from an imported state machine JSON.
+  ///
+  /// Quickly reconstructs a mini parser from a previously exported state machine
+  /// without requiring grammar recompilation.
+  ///
+  /// Parameters:
+  ///   [jsonString] - The exported state machine JSON from [StateMachine.exportToJson]
+  ///   [grammar] - Optional minimal grammar interface
+  ///
+  /// Returns:
+  ///   An SMParserMini ready for immediate use
+  factory SMParserMini.fromImported(String jsonString, [GrammarInterface? grammar]) {
+    var stateMachine = importFromJson(jsonString, grammar);
+    return SMParserMini.fromStateMachine(stateMachine);
+  }
+
   static final Context _initialContext = Context(const RootCallerKey());
 
   @override

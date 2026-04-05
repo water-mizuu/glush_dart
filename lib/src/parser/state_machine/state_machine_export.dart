@@ -16,7 +16,7 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
   return switch (action) {
     TokenAction() => {
       "type": "token",
-      "pattern": action.pattern.toJson(),
+      "choice": action.choice.toJson(),
       "nextState": stateIdMap[action.nextState],
     },
     MarkAction() => {
@@ -49,7 +49,11 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "name": action.name,
       "nextState": stateIdMap[action.nextState],
     },
-    ParameterCallAction() => {"type": "parameterCall", "nextState": stateIdMap[action.nextState]},
+    ParameterCallAction() => {
+      "type": "parameterCall",
+      "pattern": action.pattern.toJson(),
+      "nextState": stateIdMap[action.nextState],
+    },
     ParameterStringAction() => {
       "type": "parameterString",
       "codeUnit": action.codeUnit,
@@ -64,12 +68,14 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
     CallAction() => {
       "type": "call",
       "ruleName": action.rule.name.symbol,
+      "pattern": action.pattern,
       "minPrecedenceLevel": action.minPrecedenceLevel,
       "returnState": stateIdMap[action.returnState],
     },
     TailCallAction() => {
       "type": "tailCall",
       "ruleName": action.rule.name.symbol,
+      "pattern": action.pattern.toJson(),
       "minPrecedenceLevel": action.minPrecedenceLevel,
     },
     ReturnAction() => {
@@ -107,7 +113,7 @@ StateAction _deserializeAction(
   var type = json["type"]! as String;
   return switch (type) {
     "token" => TokenAction(
-      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
+      TokenChoice.fromJson(json["choice"]! as Map<String, Object?>),
       stateMap[json["nextState"]]!,
     ),
     "mark" => MarkAction(
@@ -129,7 +135,7 @@ StateAction _deserializeAction(
       stateMap[json["nextState"]]!,
     ),
     "parameterCall" => ParameterCallAction(
-      ParameterCallPattern("_placeholder"),
+      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap) as ParameterCallPattern,
       stateMap[json["nextState"]]!,
     ),
     "parameterString" => ParameterStringAction(
@@ -143,21 +149,13 @@ StateAction _deserializeAction(
     ),
     "call" => CallAction(
       ruleMap[json["ruleName"]]!,
-      RuleCall(
-        json["ruleName"]! as String,
-        ruleMap[json["ruleName"]]!,
-        minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
-      ),
+      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
       stateMap[json["returnState"]]!,
       json["minPrecedenceLevel"] as int?,
     ),
     "tailCall" => TailCallAction(
       ruleMap[json["ruleName"]]!,
-      RuleCall(
-        json["ruleName"]! as String,
-        ruleMap[json["ruleName"]]!,
-        minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
-      ),
+      Pattern.fromJson(json["pattern"]! as Map<String, Object?>, ruleMap),
       json["minPrecedenceLevel"] as int?,
     ),
     "return" => ReturnAction(ruleMap[json["ruleName"]]!, Eps(), json["precedenceLevel"] as int?),
@@ -198,7 +196,15 @@ extension StateMachineExport on StateMachine {
     }).toList();
 
     var initialStateIds = initialStates.map((s) => s.id).toList();
-    var rulesJson = rules.map((symbol) => symbol.symbol).toList();
+    var rulesJson = grammar.rules
+        .map(
+          (rule) => {
+            "symbolId": rule.symbolId!.symbol,
+            "name": rule.name.symbol,
+            if (rule.guard != null) "guard": rule.guard!.toJson(),
+          },
+        )
+        .toList();
 
     var ruleFirstJson = <String, int>{};
     ruleFirst.forEach((symbol, state) {
@@ -245,9 +251,15 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
     }
   } else {
     // Collect all rule names and create stubs
-    var rulesData = (data["rules"]! as List<Object?>).cast<String>();
-    for (var ruleId in rulesData) {
-      ruleMap[ruleId] = Rule(ruleId, () => Eps());
+    var rulesData = data["rules"]! as List<Object?>;
+    for (var serializedRule in rulesData.cast<Map<String, Object?>>()) {
+      var name = serializedRule["name"]! as String;
+      var rule = Rule(name, () => Eps());
+      rule.symbolId = PatternSymbol(serializedRule["symbolId"]! as String);
+      if (serializedRule.containsKey("guard")) {
+        rule.guard = GuardExpr.fromJson(serializedRule["guard"]! as Map<String, Object?>, ruleMap);
+      }
+      ruleMap[name] = rule;
     }
 
     var startSymbol = PatternSymbol(data["startSymbol"]! as String);
@@ -289,9 +301,9 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
   var machine = StateMachine.empty(grammar);
   machine.ruleFirst.addAll(ruleFirstMapping);
 
-  var rulesData = (data["rules"]! as List<Object?>).cast<String>();
-  for (var ruleId in rulesData) {
-    machine.rules.add(PatternSymbol(ruleId));
+  var rulesData = data["rules"]! as List<Object?>;
+  for (var ruleData in rulesData.cast<Map<String, Object?>>()) {
+    machine.rules.add(PatternSymbol(ruleData["symbolId"]! as String));
   }
 
   // Initialize from imported data

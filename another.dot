@@ -1,9 +1,5 @@
 digraph GlushList {
   node [shape=box, style=rounded];
   rankdir=TB;
-  node_0 [label="Push(LabelEnd(S.2, 1))", style="filled", fillcolor="lightblue"];
-  node_0 -> node_1 [label="parent"];
-  node_1 [label="Push(LabelStart(S.2, 0))", style="filled", fillcolor="lightblue"];
-  node_1 -> node_2 [label="parent"];
-  node_2 [label="Empty", style="filled", fillcolor="lightgray"];
+  node_0 [label="Empty", style="filled", fillcolor="lightgray"];
 }

@@ -1,3 +1,5 @@
+// ignore_for_file: comment_references
+
 /// State machine-based parser implementation.
 ///
 /// This module implements the core parsing engine for the Glush parser generator.
@@ -82,10 +84,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// Returns:
   ///   An SMParser ready for immediate use
-  factory SMParser.fromImported(
-    String jsonString, [
-    GrammarInterface? grammar,
-  ]) {
+  factory SMParser.fromImported(String jsonString, [GrammarInterface? grammar]) {
     var stateMachine = importFromJson(jsonString, grammar);
     return SMParser.fromStateMachine(stateMachine);
   }
