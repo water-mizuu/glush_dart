@@ -24,7 +24,7 @@ S = 'a' | 'b'
 
   //Export and import
   var jsonString = machine1.exportToJson();
-  var jsonData = json.decode(jsonString);
+  var jsonData = json.decode(jsonString) as Map<String, Object?>;
   print("JSON export:");
   print("  initialStates: ${jsonData['initialStates']}");
   print("  ruleFirst: ${jsonData['ruleFirst']}");

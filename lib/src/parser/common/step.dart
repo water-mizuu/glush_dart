@@ -112,13 +112,30 @@ class Step {
       );
       // A requeued predicate frame is still live work for that tracker.
       var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
-      parseState.predicateTrackers[key]?.addPendingFrame();
+      var tracker = parseState.predicateTrackers[key];
+      tracker?.addPendingFrame();
+      if (tracker != null) {
+        parseState.tracer.onTrackerUpdate(
+          "Predicate",
+          tracker.toString(),
+          tracker.activeFrames,
+          "requeue",
+        );
+      }
     }
 
     if (frame.context.caller case ConjunctionCallerKey caller) {
-      parseState
-          .conjunctionTrackers[ConjunctionKey(caller.left, caller.right, caller.startPosition)]
-          ?.addPendingFrame();
+      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
+      var tracker = parseState.conjunctionTrackers[key];
+      tracker?.addPendingFrame();
+      if (tracker != null) {
+        parseState.tracer.onTrackerUpdate(
+          "Conjunction",
+          tracker.toString(),
+          tracker.activeFrames,
+          "requeue",
+        );
+      }
     }
   }
 
@@ -182,7 +199,7 @@ class Step {
   }) {
     var marks = parentMarks;
 
-    parseState.tracer.onMessage("Predicate matched: $symbol (AND: $isAnd)");
+    parseState.tracer.onPredicateResumed(symbol, position, isAnd: isAnd);
 
     requeue(Frame(parentContext, marks)..nextStates.add(nextState));
   }
@@ -523,7 +540,7 @@ class Step {
     Caller? caller;
     var isNewCaller = false;
 
-    if (isSimpleCall) {
+    if (isSimpleCall && frame.context.predicateStack.isEmpty) {
       var packedId = (position << 32) | (targetRule.uid << 8) | (minPrecedenceLevel ?? 0xFF);
       caller = parseState.callersInt[packedId];
       if (caller == null) {
@@ -534,6 +551,7 @@ class Step {
           position,
           minPrecedenceLevel,
           callArguments,
+          frame.context.predicateStack,
           parseState.callerCounter++,
         );
         GlushProfiler.increment("parser.callers.cache_assign");
@@ -541,7 +559,13 @@ class Step {
         GlushProfiler.incrementHit("parser.callers.cache");
       }
     } else {
-      var key = ComplexCallerCacheKey(targetRule, position, minPrecedenceLevel, callArgumentsKey);
+      var key = ComplexCallerCacheKey(
+        targetRule,
+        position,
+        minPrecedenceLevel,
+        callArgumentsKey,
+        frame.context.predicateStack,
+      );
       caller = parseState.callersComplex[key];
       if (caller == null) {
         isNewCaller = true;
@@ -551,6 +575,7 @@ class Step {
           position,
           minPrecedenceLevel,
           callArguments,
+          frame.context.predicateStack,
           parseState.callerCounter++,
         );
         GlushProfiler.increment("parser.callers.cache_assign");
@@ -711,11 +736,29 @@ class Step {
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
       var pKey = PredicateKey(pk.pattern, pk.startPosition);
-      parseState.predicateTrackers[pKey]?.addPendingFrame();
+      var tracker = parseState.predicateTrackers[pKey];
+      tracker?.addPendingFrame();
+      if (tracker != null) {
+        parseState.tracer.onTrackerUpdate(
+          "Predicate",
+          tracker.toString(),
+          tracker.activeFrames,
+          "enqueue",
+        );
+      }
     }
     if (nextContext.caller case ConjunctionCallerKey con) {
-      parseState.conjunctionTrackers[ConjunctionKey(con.left, con.right, con.startPosition)]
-          ?.addPendingFrame();
+      var key = ConjunctionKey(con.left, con.right, con.startPosition);
+      var tracker = parseState.conjunctionTrackers[key];
+      tracker?.addPendingFrame();
+      if (tracker != null) {
+        parseState.tracer.onTrackerUpdate(
+          "Conjunction",
+          tracker.toString(),
+          tracker.activeFrames,
+          "enqueue",
+        );
+      }
     }
 
     // Initialize group and store initial marks.
@@ -798,6 +841,7 @@ class Step {
       return;
     }
     parseState.tracer.onRuleReturn(caller.rule, position, caller);
+
     // Fast paths for the common case where one/both mark streams are empty.
     // This avoids building branched wrappers for right-recursive call returns.
     // Continous mark streams must be concatenated, not branched.
@@ -895,13 +939,25 @@ class Step {
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
+          parseState.tracer.onTrackerUpdate(
+            "Predicate",
+            tracker.toString(),
+            tracker.activeFrames,
+            "process",
+          );
         }
       }
       if (context.caller case ConjunctionCallerKey c) {
-        var tracker =
-            parseState.conjunctionTrackers[ConjunctionKey(c.left, c.right, c.startPosition)];
+        var key = ConjunctionKey(c.left, c.right, c.startPosition);
+        var tracker = parseState.conjunctionTrackers[key];
         if (tracker != null && tracker.activeFrames > 0) {
           tracker.removePendingFrame();
+          parseState.tracer.onTrackerUpdate(
+            "Conjunction",
+            tracker.toString(),
+            tracker.activeFrames,
+            "process",
+          );
         }
       }
 
@@ -948,6 +1004,12 @@ class Step {
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
+          parseState.tracer.onTrackerUpdate(
+            "Predicate",
+            tracker.toString(),
+            tracker.activeFrames,
+            "processBatch",
+          );
         }
       }
       if (context.caller case ConjunctionCallerKey c) {
@@ -955,6 +1017,12 @@ class Step {
         var tracker = parseState.conjunctionTrackers[key];
         if (tracker != null && tracker.activeFrames > 0) {
           tracker.removePendingFrame();
+          parseState.tracer.onTrackerUpdate(
+            "Conjunction",
+            tracker.toString(),
+            tracker.activeFrames,
+            "processBatch",
+          );
         }
       }
 
@@ -1779,6 +1847,12 @@ class Step {
           if (parentTracker != null) {
             // This child branch is no longer pending in the parent predicate.
             parentTracker.removePendingFrame();
+            parseState.tracer.onTrackerUpdate(
+              "Predicate",
+              parentTracker.toString(),
+              parentTracker.activeFrames,
+              "childMatched",
+            );
           }
         }
 

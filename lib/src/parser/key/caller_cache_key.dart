@@ -1,4 +1,6 @@
+import "package:glush/src/core/list.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/key/caller_key.dart";
 import "package:meta/meta.dart";
 
 /// Cache key for memoizing rule call sites (Callers).
@@ -9,12 +11,23 @@ sealed class CallerCacheKey {
     int startPosition,
     int? minPrecedenceLevel,
     CallArgumentsKey callArgumentsKey,
+    GlushList<PredicateCallerKey> predicateStack,
   ) {
-    if (callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty) {
+    if (callArgumentsKey is StringCallArgumentsKey &&
+        callArgumentsKey.key.isEmpty &&
+        predicateStack.isEmpty) {
       // Bit-pack: StartPos (31) | RuleUID (24) | MinPrec (8)
-      return IntCallerCacheKey((startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF));
+      return IntCallerCacheKey(
+        (startPosition << 32) | (rule.uid << 8) | (minPrecedenceLevel ?? 0xFF),
+      );
     }
-    return ComplexCallerCacheKey(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
+    return ComplexCallerCacheKey(
+      rule,
+      startPosition,
+      minPrecedenceLevel,
+      callArgumentsKey,
+      predicateStack,
+    );
   }
 }
 
@@ -37,12 +50,20 @@ final class ComplexCallerCacheKey implements CallerCacheKey {
     this.startPosition,
     this.minPrecedenceLevel,
     this.callArgumentsKey,
-  ) : _hash = Object.hash(rule, startPosition, minPrecedenceLevel, callArgumentsKey);
+    this.predicateStack,
+  ) : _hash = Object.hash(
+        rule,
+        startPosition,
+        minPrecedenceLevel,
+        callArgumentsKey,
+        predicateStack,
+      );
 
   final Rule rule;
   final int startPosition;
   final int? minPrecedenceLevel;
   final CallArgumentsKey callArgumentsKey;
+  final GlushList<PredicateCallerKey> predicateStack;
   final int _hash;
 
   @override
@@ -53,7 +74,8 @@ final class ComplexCallerCacheKey implements CallerCacheKey {
           rule == other.rule &&
           startPosition == other.startPosition &&
           minPrecedenceLevel == other.minPrecedenceLevel &&
-          callArgumentsKey == other.callArgumentsKey;
+          callArgumentsKey == other.callArgumentsKey &&
+          predicateStack == other.predicateStack;
 
   @override
   int get hashCode => _hash;

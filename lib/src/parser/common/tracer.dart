@@ -16,6 +16,8 @@ abstract class ParseTracer {
   void onEnqueue(State state, int targetPosition, String reason);
   void onRuleCall(Rule rule, int position, CallerKey caller);
   void onRuleReturn(Rule rule, int position, CallerKey caller);
+  void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd});
+  void onTrackerUpdate(String type, String key, int activeFrames, String action);
   void onMessage(String message);
   void finalize();
 }
@@ -86,6 +88,7 @@ class FileTracer implements ParseTracer {
       var states = frame.nextStates.map((s) => s.toString()).join(", ");
       _sink.writeln("  Frame $i:");
       _sink.writeln("    States:  {$states}");
+      _sink.writeln("    States:  {$states}");
       _sink.writeln(
         "    Context: caller=${frame.context.caller}, marks=${frame.marks.iterate().toList().length}",
       );
@@ -122,6 +125,16 @@ class FileTracer implements ParseTracer {
   }
 
   @override
+  void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd}) {
+    _sink.writeln("    ! Predicate matched: $symbol (AND: $isAnd) at pos $position");
+  }
+
+  @override
+  void onTrackerUpdate(String type, String key, int activeFrames, String action) {
+    _sink.writeln("  [T Tracker] $type($key) -> $action (activeFrames: $activeFrames)");
+  }
+
+  @override
   void onMessage(String message) {
     _sink.writeln("    ! $message");
   }
@@ -135,22 +148,37 @@ class FileTracer implements ParseTracer {
 /// A no-op tracer.
 class NullTracer implements ParseTracer {
   const NullTracer();
+
   @override
   void onStart(StateMachine sm) {}
+
   @override
   void onStepStart(int position, int? token, List<Frame> frames) {}
+
   @override
   void onProcessState(Frame frame, State state) {}
+
   @override
   void onAction(StateAction action, String result) {}
+
   @override
   void onEnqueue(State state, int targetPosition, String reason) {}
+
   @override
   void onRuleCall(Rule rule, int position, CallerKey caller) {}
+
   @override
   void onRuleReturn(Rule rule, int position, CallerKey caller) {}
+
+  @override
+  void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd}) {}
+
+  @override
+  void onTrackerUpdate(String type, String key, int activeFrames, String action) {}
+
   @override
   void onMessage(String message) {}
+
   @override
   void finalize() {}
 }

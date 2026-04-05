@@ -248,7 +248,7 @@ Object? normalizeSemanticValue(Object? value) {
   };
 }
 
-String _formatCallArgument(Object? value) {
+String _formatCallArgument<T>(T value) {
   // Formatting mirrors the semantic tags above so debug output and memoization
   // strings stay readable and deterministic.
   return switch (value) {
@@ -269,7 +269,7 @@ String _formatCallArgument(Object? value) {
   };
 }
 
-String _formatObjectList(List<Object?> items) {
+String _formatObjectList<T>(List<T> items) {
   // Lists are formatted recursively because nested call arguments can carry
   // structured parser data, not just scalars.
   var buffer = StringBuffer();
@@ -2715,7 +2715,7 @@ class IfCond extends Pattern {
   @override
   Map<String, Object?> toJson() => {
     "type": "if",
-    "condition": condition.toString(), // TODO: Better serialization for GuardExpr if needed
+    "condition": condition.toJson(),
     "child": pattern.toJson(),
   };
 

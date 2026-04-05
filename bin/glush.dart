@@ -6,15 +6,16 @@ import "package:glush/glush.dart";
 import "package:glush/src/parser/common/tracer.dart" show FileTracer;
 
 const grammar = r"""
-test = !(a | a) 'b'
-a = 'a'
+S = $3 &(S S S) S S S 
+  | $2 &(S S) S S
+  | $1 's'
 """;
 
 final parser = grammar.toSMParser();
 
 void main(List<String> args) async {
   // Default behavior: parse and output
-  const input = "b";
+  const input = "sssss";
 
   var tracer = FileTracer("another.log");
   var state = parser.createParseState(isSupportingAmbiguity: true, tracer: tracer);
@@ -36,7 +37,18 @@ void main(List<String> args) async {
     return;
   }
 
-  print(paths.allPaths().map((v) => v.evaluateStructure()).join("\n"));
+  var evaluator = Evaluator<String>({
+    "S.3": (ctx) => "(${ctx.next()}${ctx.next()}${ctx.next()})",
+    "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
+    "S.1": (ctx) => "s",
+  });
+
+  for (var (i, path) in paths.allPaths().indexed) {
+    var tree = path.evaluateStructure();
+    var evaluated = evaluator.evaluate(tree);
+
+    print("$i: $evaluated");
+  }
 
   File("another.dot")
     ..createSync(recursive: true)

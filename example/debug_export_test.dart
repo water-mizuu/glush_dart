@@ -28,19 +28,21 @@ S = 'a' | 'b'
   // Export
   var jsonString = machine.exportToJson();
   print("Exported JSON:");
-  var data = json.decode(jsonString);
+  var data = json.decode(jsonString) as Map<String, Object?>;
   print("  Version: ${data['version']}");
-  print("  States: ${(data['states'] as List).length}");
+  print("  States: ${(data['states']! as List<Object?>).length}");
   print("  Initial state IDs: ${data['initialStates']}");
   print("  Rules: ${data['rules']}");
   print("  Rule first: ${data['ruleFirst']}\n");
 
   // Export states detail
   print("State details:");
-  for (var stateData in data["states"] as List) {
-    print("  State ${stateData['id']}: ${(stateData['actions'] as List).length} actions");
-    for (var action in stateData["actions"] as List) {
-      print("    - ${action['type']}");
+  for (var stateDataRaw in data["states"]! as List<Object?>) {
+    var stateData = stateDataRaw! as Map<String, Object?>;
+    print("  State ${stateData['id']}: ${(stateData['actions']! as List).length} actions");
+    for (var action in stateData["actions"]! as List<Object?>) {
+      var typeRaw = action! as Map<String, Object?>;
+      print("    - ${typeRaw['type']}");
     }
   }
   print("");

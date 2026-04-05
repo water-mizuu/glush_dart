@@ -1,3 +1,5 @@
+// ignore_for_file: comment_references
+
 import "package:glush/glush.dart" show SMParser;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
