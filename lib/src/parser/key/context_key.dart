@@ -6,7 +6,7 @@ import "package:meta/meta.dart";
 @immutable
 sealed class ContextKey {
   static ContextKey create(State state, Context context) {
-    if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
+    if (context.isSimple) {
       return IntContextKey(
         (context.caller.uid << 32) | (state.id << 8) | (context.minPrecedenceLevel ?? 0xFF),
       );
