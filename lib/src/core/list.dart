@@ -323,20 +323,20 @@ extension GlushListVisualizer<T> on GlushList<T> {
     }
 
     void buildGraph(GlushList<T> node, StringBuffer buf) {
-      if (visited.contains(node)) {
+      if (node is EmptyList<T> || visited.contains(node)) {
         return;
       }
       visited.add(node);
       generateNodeId(node);
       var nodeId = nodeIds[node]!;
-      if (node is EmptyList<T>) {
-        buf.writeln('  $nodeId [label="Empty", style="filled", fillcolor="lightgray"];');
-      } else if (node is Push<T>) {
+      if (node is Push<T>) {
         buf.writeln(
           '  $nodeId [label="Push(${_escapeDot(node.data.toString())})", style="filled", fillcolor="lightblue"];',
         );
         generateNodeId(node.parent);
-        buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
+        if (!node.parent.isEmpty) {
+          buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
+        }
         buildGraph(node.parent, buf);
       } else if (node is Concat<T>) {
         buf.writeln('  $nodeId [label="Concat", style="filled", fillcolor="lightyellow"];');

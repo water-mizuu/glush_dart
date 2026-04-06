@@ -6,16 +6,15 @@ import "package:glush/glush.dart";
 import "package:glush/src/parser/common/tracer.dart" show FileTracer;
 
 const grammar = r"""
-S = $3 &(S S S) S S S 
-  | $2 &(S S) S S
+S = $2  S  S
   | $1 's'
 """;
 
 final parser = grammar.toSMParser();
 
-void main(List<String> args) async {
+void main() {
   // Default behavior: parse and output
-  const input = "sssss";
+  const input = "sss";
 
   var tracer = FileTracer("another.log");
   var state = parser.createParseState(isSupportingAmbiguity: true, tracer: tracer);
@@ -24,24 +23,13 @@ void main(List<String> args) async {
   }
   state.finish();
 
-  var paths = state.lastStep?.acceptedContexts.values.fold(
-    const GlushList<Mark>.empty(),
-    GlushList<Mark>.branched,
-  );
-
-  print("DEBUG: paths = $paths, isNull = ${paths == null}");
-  print("DEBUG: accepted contexts = ${state.lastStep?.acceptedContexts}");
-
+  var paths = state.forest;
   if (!state.accept || paths == null) {
     print("DEBUG: paths is null, returning");
     return;
   }
 
-  var evaluator = Evaluator<String>({
-    "S.3": (ctx) => "(${ctx.next()}${ctx.next()}${ctx.next()})",
-    "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
-    "S.1": (ctx) => "s",
-  });
+  var evaluator = Evaluator<String>({"S.2": (ctx) => "(${ctx()}${ctx()})", "S.1": (ctx) => "s"});
 
   for (var (i, path) in paths.allPaths().indexed) {
     var tree = path.evaluateStructure();

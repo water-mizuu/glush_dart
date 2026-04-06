@@ -60,9 +60,9 @@ void main() {
       tree,
       "bc",
       Evaluator<Object?>({
-        "start": (ctx) => ctx<Object?>("outer"),
+        "start": (ctx) => ctx<Object>("outer"),
         "outer": (ctx) {
-          var closure = ctx<Object?>("box")! as PatternClosureValue;
+          var closure = ctx<Object>("box") as PatternClosureValue;
           return CallArgumentValue.map({
             "direct": CallArgumentValue.callable(closure),
             "nested": CallArgumentValue.list([

@@ -91,6 +91,11 @@ final class ParseState {
     return step;
   }
 
+  GlushList<Mark>? get forest => _lastStep
+      ?.acceptedContexts
+      .values //
+      .fold<GlushList<Mark>>(const GlushList.empty(), GlushList.branched);
+
   Step? get lastStep => _lastStep;
   StateMachine get stateMachine => parser.stateMachine;
   GrammarInterface get grammar => parser.grammar;

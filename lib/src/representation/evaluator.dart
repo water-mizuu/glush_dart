@@ -25,10 +25,15 @@ class EvaluationContext<T> {
   /// Evaluates a child with the given [label].
   ///
   /// Throws if the label is not found in the current node.
-  R call<R>(String label) {
+  R call<R extends Object>([String? label]) {
     if (node is! ParseResult) {
       throw StateError('Cannot access label "$label" on leaf node');
     }
+
+    if (label == null) {
+      return next() as R;
+    }
+
     var matches = (node as ParseResult).get(label);
     if (matches.isEmpty) {
       throw StateError('No child with label "$label" found in ${node.span}');
