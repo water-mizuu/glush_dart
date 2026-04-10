@@ -18,8 +18,8 @@ import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
 import "package:glush/src/parser/key/guard_cache_key.dart";
-import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/key/return_key.dart";
+import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// Single parsing step at one input position.
@@ -841,19 +841,15 @@ class Step {
       return;
     }
     parseState.tracer.onRuleReturn(caller.rule, position, caller);
-    
+
     var packedId = ReturnKey.getPackedId(
       returnContext.precedenceLevel,
       returnContext.position,
       returnContext.callStart,
     );
-    
+
     // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
-    var returnProxy = LazyGlushList.ruleReturn(
-      () => caller.getReturnMarks(packedId),
-      caller,
-      packedId,
-    );
+    var returnProxy = caller.getLazyReturnProxy(packedId, () => caller.getReturnMarks(packedId));
 
     // Fast paths for the common case where one/both mark streams are empty.
     var nextMarks = parentMarks.addList(returnProxy);

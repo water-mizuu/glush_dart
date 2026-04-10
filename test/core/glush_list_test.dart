@@ -51,17 +51,19 @@ void main() {
 
     test("toList converts to standard list", () {
       var list = const GlushList<int>.empty().add(1).add(2).add(3);
-      expect(list.allPaths().first, equals([1, 2, 3]));
+      expect(list.allMarkPaths().first, equals([1, 2, 3]));
     });
   });
 
   group("LazyGlushList", () {
     test("LazyGlushList defers evaluation and memoizes", () {
       var callCount = 0;
-      var lazy = const LazyGlushList<int>.empty().add(ClosureVal(() {
-        callCount++;
-        return 1;
-      }));
+      var lazy = const LazyGlushList<int>.empty().add(
+        ClosureVal(() {
+          callCount++;
+          return 1;
+        }),
+      );
 
       expect(callCount, equals(0));
       var evaluated = lazy.evaluate();
@@ -74,13 +76,13 @@ void main() {
     });
 
     test("Complex lazy structure evaluation", () {
-      var l1 = const LazyGlushList<int>.empty().add(ConstantLazyVal(1));
-      var l2 = const LazyGlushList<int>.empty().add(ConstantLazyVal(2));
+      var l1 = const LazyGlushList<int>.empty().add(const ConstantLazyVal(1));
+      var l2 = const LazyGlushList<int>.empty().add(const ConstantLazyVal(2));
       var branched = LazyGlushList.branched(l1, l2);
-      var concat = branched.addList(const LazyGlushList<int>.empty().add(ConstantLazyVal(3)));
+      var concat = branched.addList(const LazyGlushList<int>.empty().add(const ConstantLazyVal(3)));
 
       var evaluated = concat.evaluate();
-      var paths = evaluated.allPaths().toList();
+      var paths = evaluated.allMarkPaths().toList();
       expect(paths.length, equals(2));
       expect(paths[0], equals([1, 3]));
       expect(paths[1], equals([2, 3]));
@@ -90,7 +92,10 @@ void main() {
       LazyGlushList<int> list = const LazyGlushList<int>.empty();
       // 5000 nodes deep should be enough to trigger overflow if recursive
       for (var i = 0; i < 5000; i++) {
-        list = LazyGlushList.branched(list, const LazyGlushList<int>.empty().add(ConstantLazyVal(i)));
+        list = LazyGlushList.branched(
+          list,
+          const LazyGlushList<int>.empty().add(ConstantLazyVal(i)),
+        );
       }
       expect(list.isEmpty, isFalse);
     });

@@ -359,7 +359,12 @@ void main() {
       });
 
       var parser = SMParser(grammar);
-      var derivations = parser.parseAmbiguous("a").ambiguousSuccess()?.forest.allPaths().toList();
+      var derivations = parser
+          .parseAmbiguous("a")
+          .ambiguousSuccess()
+          ?.forest
+          .allMarkPaths()
+          .toList();
       expect(derivations, isNotEmpty);
     });
   });

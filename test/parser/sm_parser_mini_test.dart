@@ -38,7 +38,7 @@ void main() {
       expect(outcome, isA<ParseAmbiguousSuccess>());
       var success = outcome as ParseAmbiguousSuccess;
       // Depending on GlushList implementation, count completions
-      expect(success.forest.allPaths().toList(), isNotEmpty);
+      expect(success.forest.allMarkPaths().toList(), isNotEmpty);
     });
   });
 

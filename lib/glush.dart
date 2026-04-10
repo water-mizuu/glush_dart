@@ -4,6 +4,7 @@ export "src/compiler/parser.dart";
 export "src/core/errors.dart";
 export "src/core/grammar.dart";
 export "src/core/list.dart";
+export "src/core/list_mark_extensions.dart";
 export "src/core/mark.dart";
 export "src/core/patterns.dart";
 export "src/core/profiling.dart";

@@ -13,7 +13,7 @@ void main() {
       var result = parser.parseAmbiguous("abc");
       expect(result, isA<ParseAmbiguousSuccess>());
       var success = result as ParseAmbiguousSuccess;
-      expect(success.forest.allPaths().length, equals(1));
+      expect(success.forest.allMarkPaths().length, equals(1));
     });
 
     test("Shared Forest prevents exponential explosion", () {
@@ -31,7 +31,7 @@ void main() {
       var success = result as ParseAmbiguousSuccess;
 
       // For N=5, the number of derivations is the 4th Catalan number = 14
-      var paths = success.forest.allPaths();
+      var paths = success.forest.allMarkPaths();
       expect(paths.length, equals(14));
     });
 
@@ -52,7 +52,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
       var success = result as ParseAmbiguousSuccess;
 
-      var paths = success.forest.allPaths().map((p) => p.toShortMarks()).toList();
+      var paths = success.forest.allMarkPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
       expect(paths[0].join(), equals("expr.addn+expr.muln*n"));
     });
@@ -69,7 +69,7 @@ void main() {
       var result = parser.parseAmbiguous("abc", captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousSuccess>());
       var success = result as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(paths.length, equals(1));
       expect(paths.single.toShortMarks().join(), equals("abc"));
     });
@@ -88,7 +88,7 @@ void main() {
       expect(successResult, isA<ParseAmbiguousSuccess>());
 
       var success = successResult as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(paths.length, equals(1));
       expect(paths.single.toShortMarks().join(), equals("ac"));
 

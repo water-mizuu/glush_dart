@@ -20,7 +20,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
+      var root = success.forest.allMarkPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -52,7 +52,7 @@ void main() {
       // So if 'left' has 2 ways to match 'aa', then tracker.leftCompletions[2] has 2 mark lists.
       // Cartesian product results in 2 ConjunctionMarks.
 
-      var paths = success.forest.allPaths();
+      var paths = success.forest.allMarkPaths();
       expect(paths.length, equals(2));
 
       var results = paths.map((p) => p.evaluateStructure()).toList();
@@ -155,7 +155,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
+      var root = success.forest.allMarkPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -184,7 +184,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
+      var root = success.forest.allMarkPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty);
       expect(root.get("l2"), isNotEmpty);
@@ -276,7 +276,7 @@ void main() {
       // But they nesting level is 3 deep.
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
+      var root = success.forest.allMarkPaths().map((v) => v.evaluateStructure()).single;
 
       // Root (at level 0) should have l1 and l2.
       // l1 should have l1 and l2 (at level 1).
@@ -316,7 +316,7 @@ void main() {
 
       var res = parser.parseAmbiguous("a", captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allPaths().map((v) => v.evaluateStructure()).single;
+      var root = success.forest.allMarkPaths().map((v) => v.evaluateStructure()).single;
 
       expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured");
       expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured");

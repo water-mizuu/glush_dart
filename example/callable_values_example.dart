@@ -38,7 +38,7 @@ void main() {
   var fluentResult = fluentParser.parseAmbiguous("bc", captureTokensAsMarks: true);
   print("Fluent result: $fluentResult");
   if (fluentResult case ParseAmbiguousSuccess(:var forest)) {
-    print("Fluent marks: ${forest.allPaths().first}");
+    print("Fluent marks: ${forest.allMarkPaths().first}");
   }
 
   const grammarText = r"""
@@ -52,7 +52,7 @@ void main() {
   var dslResult = dslParser.parseAmbiguous("bc", captureTokensAsMarks: true);
   print("DSL result: $dslResult");
   if (dslResult case ParseAmbiguousSuccess(:var forest)) {
-    var tree = forest.allPaths().first;
+    var tree = forest.allMarkPaths().first;
     print("DSL marks: $tree");
 
     var boxRule = Rule("box", () => Eps());

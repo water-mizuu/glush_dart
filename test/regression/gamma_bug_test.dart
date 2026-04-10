@@ -52,7 +52,7 @@ void evaluateGamma3(Grammar grammar) {
   var parser = SMParser(grammar);
   var derivationCount = parser.countAllParses(testInput);
   var derivations =
-      parser.parseAmbiguous(testInput).ambiguousSuccess()?.forest.allPaths().toList() ?? [];
+      parser.parseAmbiguous(testInput).ambiguousSuccess()?.forest.allMarkPaths().toList() ?? [];
 
   var result = parser.parseAmbiguous(testInput);
   test("Grammar ${counter++}", () {

@@ -99,7 +99,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       var lastStep = parseState.finish();
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.values.first;
-        var onlyPath = results.evaluate().allPaths().first;
+        var onlyPath = results.evaluate().allMarkPaths().first;
 
         return ParseSuccess(ParserResult(onlyPath));
       } else {

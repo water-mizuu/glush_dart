@@ -9,10 +9,10 @@ Glush is a **push-based CFG / CSG (context-sensitive)** parsing toolkit for Dart
 
 Traditional parsers (LL, LR, PEG) often force you to refactor your grammar into a specific shape, losing clarity and intent. Glush liberates you from these constraints:
 
--   🚀 **Ambiguity is First-Class**: Parse any context-free grammar, even highly ambiguous ones. Obtain all possible derivations in a Shared Packed Parse Forest (SPPF).
--   🧠 **Context-Sensitive (CSG) Logic**: Rules can take parameters and use `if (guard)` expressions for sophisticated data-driven parsing.
--   ⚡ **Push-Based Performance**: Hybrid architecture using a push-based state-machine transition model. It optimizes for deterministic paths while maintaining generalized power where needed.
--   💎 **Ergonomic Evaluation**: Stop indexing children by position (`children[0][1]`). Use the label-driven `Evaluator<T>` API to pull data by name.
+- 🚀 **Ambiguity is First-Class**: Parse any context-free grammar, even highly ambiguous ones. Obtain all possible derivations in a Shared Packed Parse Forest (SPPF).
+- 🧠 **Context-Sensitive (CSG) Logic**: Rules can take parameters and use `if (guard)` expressions for sophisticated data-driven parsing.
+- ⚡ **Push-Based Performance**: Hybrid architecture using a push-based state-machine transition model. It optimizes for deterministic paths while maintaining generalized power where needed.
+- 💎 **Ergonomic Evaluation**: Stop indexing children by position (`children[0][1]`). Use the label-driven `Evaluator<T>` API to pull data by name.
 
 ---
 
@@ -32,12 +32,13 @@ import 'package:glush/glush.dart';
 
 void main() {
   final parser = r'''
-    expr = 1 | $add left:expr '+' right:expr
-         | 2 | $num [0-9]+;
+    expr =
+       1 | $add left:expr '+' right:expr
+       2 | $num [0-9]+;
   '''.toSMParser();
 
   final outcome = parser.parse('1 + 2 + 3');
-  
+
   if (outcome is ParseSuccess) {
     // 1. Convert marks to a structured tree
     final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks);
@@ -61,29 +62,29 @@ Glush uses a powerful string-based DSL that supports virtually every modern pars
 
 ### 🧩 Pattern Operators
 
-| Operator | Syntax | Description |
-| :--- | :--- | :--- |
-| **Sequence** | `A B` | Matches `A` followed by `B`. |
-| **Choice** | `A \| B` | Matches either `A` or `B` (Generalized). |
-| **Conjunction** | `A && B` | Matches if **both** `A` and `B` match the same span. |
-| **Lookahead** | `&A` / `!A` | Positive or Negative lookahead. Doesn't consume input. |
-| **Negation** | `~A` | Matches if `A` specifically **does not** match. |
-| **Repetition** | `*`, `+`, `?` | Zero-or-more, one-or-more, or optional. |
-| **Possessive** | `*!`, `+!` | Deterministic repetition (won't backtrack once matched). |
-| **Literals** | `'abc'`, `"abc"` | Exact string matching. |
-| **Ranges** | `[a-z]`, `[0-9A-F]` | Character class matching. |
-| **Wildcard** | `.` | Matches any single character. |
-| **Terminals** | `^` (Start), `$` (EOF) | Matches the beginning or end of input. |
+| Operator        | Syntax                 | Description                                              |
+| :-------------- | :--------------------- | :------------------------------------------------------- |
+| **Sequence**    | `A B`                  | Matches `A` followed by `B`.                             |
+| **Choice**      | `A \| B`               | Matches either `A` or `B` (Generalized).                 |
+| **Conjunction** | `A && B`               | Matches if **both** `A` and `B` match the same span.     |
+| **Lookahead**   | `&A` / `!A`            | Positive or Negative lookahead. Doesn't consume input.   |
+| **Negation**    | `~A`                   | Matches if `A` specifically **does not** match.          |
+| **Repetition**  | `*`, `+`, `?`          | Zero-or-more, one-or-more, or optional.                  |
+| **Possessive**  | `*!`, `+!`             | Deterministic repetition (won't backtrack once matched). |
+| **Literals**    | `'abc'`, `"abc"`       | Exact string matching.                                   |
+| **Ranges**      | `[a-z]`, `[0-9A-F]`    | Character class matching.                                |
+| **Wildcard**    | `.`                    | Matches any single character.                            |
+| **Terminals**   | `^` (Start), `$` (EOF) | Matches the beginning or end of input.                   |
 
 ### 🏷️ Metadata & Organization
 
-| Feature | Syntax | Description |
-| :--- | :--- | :--- |
-| **Label** | `id:Pattern` | Assigns an identifier to a pattern for the Evaluator API. |
-| **Mark** | `$id` | Emits a semantic marker in the output stream. |
-| **Group** | `( ... )` | Standard grouping for operator precedence. |
-| **Precedence** | `expr ^ N` | Forces an expression to match at precedence level `N`. |
-| **Associativity** | `N \| Alt` | Defines an alternative starting at precedence level `N`. |
+| Feature           | Syntax       | Description                                               |
+| :---------------- | :----------- | :-------------------------------------------------------- |
+| **Label**         | `id:Pattern` | Assigns an identifier to a pattern for the Evaluator API. |
+| **Mark**          | `$id`        | Emits a semantic marker in the output stream.             |
+| **Group**         | `( ... )`    | Standard grouping for operator precedence.                |
+| **Precedence**    | `expr ^ N`   | Forces an expression to match at precedence level `N`.    |
+| **Associativity** | `N \| Alt`   | Defines an alternative starting at precedence level `N`.  |
 
 ---
 
@@ -96,12 +97,12 @@ Glush is unique in its support for **parameterized rules** and **guards**. This 
 ```dart
 final grammar = r'''
   element = openTag body closeTag(tag);
-  
+
   openTag = '<' tag:name '>';
-  
+
   # Parameters are passed down the call stack
   closeTag(open) = '</' close:name '>' if (open == close) '';
-  
+
   name = [a-z]+;
   body = [^<]*;
 '''.toSMParser();
@@ -125,7 +126,7 @@ final parser = r'''
 final outcome = parser.parseAmbiguous('sss');
 
 if (outcome is ParseAmbiguousSuccess) {
-  for (var path in outcome.forest.allPaths()) {
+  for (var path in outcome.forest.allMarkPaths()) {
     print(path.evaluateStructure()); // Prints each unique derivation tree
   }
 }
@@ -142,13 +143,13 @@ final evaluator = Evaluator<MyNode>({
   'rule_name': (ctx) {
     // Read labeled children by name
     final name = ctx<String>('name_label');
-    
+
     // Read the current text span
     final text = ctx.span;
-    
+
     // Check for optional matches
     if (ctx.optional('opt_label') case var value?) { ... }
-    
+
     return MyNode(name, text);
   },
 });
@@ -167,6 +168,7 @@ final evaluator = Evaluator<MyNode>({
 ## 📡 Roadmap & Status
 
 Glush is actively maintained and currently powering several internal DSL projects. We are currently focusing on:
+
 - [ ] Stabilizing the Forest/BSR hygiene for complex lookaheads.
 - [ ] Improved error reporting with "expected" token suggestions.
 - [ ] Code generation backend for even faster execution.

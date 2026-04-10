@@ -38,7 +38,7 @@ S = $1 (S) | $2 's'
     );
 
     if (result is ParseAmbiguousSuccess) {
-      var paths = result.forest.allPaths().toList();
+      var paths = result.forest.allMarkPaths().toList();
       // Should have paths representing different derivations
       expect(paths.length, greaterThan(0), reason: "Should have at least one derivation");
       expect(
@@ -80,7 +80,7 @@ S = $1 (S) | $2 's'
     expect(result, isA<ParseAmbiguousSuccess>());
 
     if (result is ParseAmbiguousSuccess) {
-      var paths = result.forest.allPaths().toList();
+      var paths = result.forest.allMarkPaths().toList();
       print(paths);
       // Should have a reasonable number of paths, not exponential explosion
       expect(paths.length, greaterThan(0));

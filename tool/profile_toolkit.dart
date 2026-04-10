@@ -127,7 +127,7 @@ void _profileForest() {
   _runProfile("parse-ambiguous", () {
     var outcome = parser.parseAmbiguous("alpha:beta", captureTokensAsMarks: true);
     if (outcome case ParseAmbiguousSuccess(:var forest)) {
-      const StructuredEvaluator().evaluate(forest.allPaths().single);
+      const StructuredEvaluator().evaluate(forest.allMarkPaths().single);
     }
   });
 }

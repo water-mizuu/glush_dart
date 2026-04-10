@@ -19,7 +19,7 @@ void main() {
       expect(res, isA<ParseAmbiguousSuccess>());
 
       var success = res as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(
         paths.length,
         equals(1),
@@ -46,7 +46,7 @@ void main() {
       expect(res, isA<ParseAmbiguousSuccess>());
 
       var success = res as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(
         paths.length,
         equals(1),
@@ -75,7 +75,7 @@ void main() {
       expect(res, isA<ParseAmbiguousSuccess>());
 
       var success = res as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(
         paths.length,
         equals(2),
@@ -118,7 +118,7 @@ void main() {
       expect(res, isA<ParseAmbiguousSuccess>());
 
       var success = res as ParseAmbiguousSuccess;
-      var paths = success.forest.allPaths().toList();
+      var paths = success.forest.allMarkPaths().toList();
       expect(
         paths.length,
         equals(3),

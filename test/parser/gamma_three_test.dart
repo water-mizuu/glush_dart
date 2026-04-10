@@ -19,7 +19,7 @@ void main() {
     var derivationCount = parser.countAllParses(testInput);
     var result = parser.parseAmbiguous(testInput);
     expect(result, isA<ParseAmbiguousSuccess>());
-    var derivations = result.ambiguousSuccess()!.forest.allPaths().toList();
+    var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();
 
     expect(derivations.length, equals(derivationCount));
     // ssss should have 11 parse trees
@@ -38,7 +38,7 @@ void main() {
     const testInput = "bbbbbb";
     var result = parser.parseAmbiguous(testInput);
     expect(result, isA<ParseAmbiguousSuccess>());
-    var derivations = result.ambiguousSuccess()!.forest.allPaths().toList();
+    var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();
 
     var evaluator = Evaluator({
       "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",

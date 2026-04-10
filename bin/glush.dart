@@ -31,7 +31,7 @@ void main() {
 
   var evaluator = Evaluator<String>({"S.2": (ctx) => "(${ctx()}${ctx()})", "S.1": (ctx) => "s"});
 
-  for (var (i, path) in paths.allPaths().indexed) {
+  for (var (i, path) in paths.allMarkPaths().indexed) {
     var tree = path.evaluateStructure();
     var evaluated = evaluator.evaluate(tree);
 

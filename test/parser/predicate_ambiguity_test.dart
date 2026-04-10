@@ -19,7 +19,7 @@ void main() {
 
     // We expect only ONE result, because the predicate ambiguity should be collapsed.
     // If we get TWO results, it means the predicate leaked its ambiguity.
-    expect(success.forest.allPaths().length, equals(1));
+    expect(success.forest.allMarkPaths().length, equals(1));
   });
 
   test("Negative predicates do not multiply branches", () {
@@ -36,7 +36,7 @@ void main() {
     expect(outcome, isA<ParseAmbiguousSuccess>());
     var success = outcome as ParseAmbiguousSuccess;
 
-    expect(success.forest.allPaths().length, equals(1));
+    expect(success.forest.allMarkPaths().length, equals(1));
   });
 
   test("", () {
@@ -174,7 +174,7 @@ one = 5 | S 's' | 's'*! # wat
 
     switch (ambiguousParser.parseAmbiguous("${input.trim()}\n")) {
       case ParseAmbiguousSuccess result:
-        expect(result.forest.allPaths().length, equals(1));
+        expect(result.forest.allMarkPaths().length, equals(1));
       case ParseError error:
         error.displayError(input);
       case _:
@@ -182,7 +182,7 @@ one = 5 | S 's' | 's'*! # wat
     }
     switch (unambiguousParser.parseAmbiguous("${input.trim()}\n")) {
       case ParseAmbiguousSuccess result:
-        expect(result.forest.allPaths().length, equals(1));
+        expect(result.forest.allMarkPaths().length, equals(1));
       case ParseError error:
         error.displayError(input);
       case _:

@@ -39,7 +39,9 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      var val = evaluator.evaluate(const StructuredEvaluator().evaluate(forest.allPaths().first));
+      var val = evaluator.evaluate(
+        const StructuredEvaluator().evaluate(forest.allMarkPaths().first),
+      );
       expect(val, equals("(n + (n * (n ^ n)))"));
     });
 
@@ -50,7 +52,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      var paths = forest.allPaths();
+      var paths = forest.allMarkPaths();
       expect(paths.length, equals(4));
     });
 
@@ -61,7 +63,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
       if (result case ParseAmbiguousSuccess(:var forest)) {
         // Paths: (A, A), (A, B), (B, A), (B, B) = 4 paths
-        expect(forest.allPaths().length, equals(4));
+        expect(forest.allMarkPaths().length, equals(4));
       }
     });
 
@@ -72,7 +74,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      var marksConcat = forest.allPaths().single.toStringList().join(" ");
+      var marksConcat = forest.allMarkPaths().single.toStringList().join(" ");
       expect(marksConcat, contains("S.OPT"));
       expect(marksConcat, contains("END"));
     });
@@ -97,7 +99,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      var marks = forest.allPaths().first.toMarkStrings();
+      var marks = forest.allMarkPaths().first.toMarkStrings();
       expect(marks, contains("S.M"));
       expect(marks, contains("M"));
     });
@@ -116,7 +118,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      expect(forest.allPaths().length, equals(2));
+      expect(forest.allMarkPaths().length, equals(2));
     });
 
     test("9. Predicate Interactions", () {

@@ -1,9 +1,6 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
-import "dart:collection";
-
-import "package:glush/src/core/mark.dart";
 import "package:meta/meta.dart";
 
 /// Abstract base class for managing parse alternatives as a tree structure.
@@ -320,13 +317,6 @@ sealed class LazyGlushList<T> {
     return _LazyInterner.conjunction<T>(left, right);
   }
 
-  /// Wraps a Rule Return. Used for lazy span deduplication (SPPF-like).
-  static LazyGlushList<T> ruleReturn<T>(
-    LazyGlushList<T> Function() provider,
-    Object owner,
-    int packedId,
-  ) => _LazyInterner.ruleReturn<T>(provider, owner, packedId);
-
   /// Creates a lazy list from a standard Dart list by wrapping each element
   /// in a thunk that returns the pre-existing value.
   static LazyGlushList<T> fromList<T>(List<T> values) {
@@ -370,60 +360,26 @@ sealed class LazyGlushList<T> {
   }
 }
 
-/// Global cache for interning lazy nodes to ensure A == B iff identical(A, B).
+/// Simple factory methods for lazy node allocation without interning.
 ///
-/// Uses identity-based (fast) map lookups for LazyGlushList keys since they are
-/// already interned—identical trees produce identical object instances.
+/// Interning is essential only for LazyReturn (identity-compared in Caller.addReturn),
+/// which is managed directly on Caller._lazyReturns. All other node types just allocate freely
+/// since their evaluation redundancy is bounded and they're never identity-compared in critical paths.
 class _LazyInterner {
-  /// Identity-based cache for push operations: parent -> val -> LazyPush
-  /// Using HashMap with identical() equality instead of structural ==.
-  static final Expando<Map<Object, LazyPush<Object?>>> _push = Expando();
-
-  /// Identity-based cache for branched operations: left -> right -> LazyBranched
-  static final Expando<Map<Object, LazyBranched<Object?>>> _branched = Expando();
-
-  /// Identity-based cache for concat operations: left -> right -> LazyConcat
-  static final Expando<Map<Object, LazyConcat<Object?>>> _concat = Expando();
-
-  /// Identity-based cache for conjunction operations: left -> right -> LazyConjunction
-  static final Expando<Map<Object, LazyConjunction<Object?>>> _conjunction = Expando();
-
   static LazyGlushList<T> push<T>(LazyGlushList<T> parent, LazyVal<T> val) {
-    // For LazyVal, we keep structural equality since ConstantLazyVal needs value comparison.
-    // Only the outer Expando lookup is identity-based on parent.
-    var parentCache = _push[parent] ??= HashMap.identity();
-    return (parentCache[val] ??= LazyPush<T>._(parent, val)) as LazyGlushList<T>;
+    return LazyPush<T>._(parent, val);
   }
 
   static LazyGlushList<T> branched<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    var leftCache = _branched[left] ??= HashMap.identity();
-    return (leftCache[right] ??= LazyBranched<T>._(left, right)) as LazyGlushList<T>;
+    return LazyBranched<T>._(left, right);
   }
 
   static LazyGlushList<T> concat<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    var leftCache = _concat[left] ??= HashMap.identity();
-    return (leftCache[right] ??= LazyConcat<T>._(left, right)) as LazyGlushList<T>;
+    return LazyConcat<T>._(left, right);
   }
 
   static LazyGlushList<T> conjunction<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    var leftCache = _conjunction[left] ??= HashMap.identity();
-    return (leftCache[right] ??= LazyConjunction<T>._(left, right)) as LazyGlushList<T>;
-  }
-
-  /// Cache for LazyReturn proxies: owner -> packedId -> LazyReturn
-  /// Stores LazyReturn directly by int packedId to avoid boxed-int allocation
-  /// and Expando overhead. Since owner (Caller) manages return state by packedId anyway,
-  /// this is more efficient than the previous two-level boxed-int approach.
-  static final Expando<Map<int, LazyReturn<Object?>>> _returns = Expando();
-
-  static LazyGlushList<T> ruleReturn<T>(
-    LazyGlushList<T> Function() provider,
-    Object owner,
-    int packedId,
-  ) {
-    var cache = _returns[owner] ??= {};
-    // Store LazyReturn directly keyed by int (no boxing), making lookups O(1) without type overhead.
-    return (cache[packedId] ??= LazyReturn<T>._(provider)) as LazyGlushList<T>;
+    return LazyConjunction<T>._(left, right);
   }
 }
 
@@ -508,7 +464,7 @@ class LazyConjunction<T> extends _LazyBase<T> {
 }
 
 class LazyReturn<T> extends _LazyBase<T> {
-  LazyReturn._(this.provider);
+  LazyReturn(this.provider);
   final LazyGlushList<T> Function() provider;
 
   @override
@@ -525,12 +481,6 @@ class LazyReturn<T> extends _LazyBase<T> {
 abstract class LazyVal<T> {
   const LazyVal();
   T evaluate();
-
-  @override
-  bool operator ==(Object other);
-
-  @override
-  int get hashCode;
 }
 
 /// A [LazyVal] that simply returns a pre-existing constant value.
@@ -540,13 +490,6 @@ class ConstantLazyVal<T> extends LazyVal<T> {
 
   @override
   T evaluate() => value;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is ConstantLazyVal<T> && value == other.value;
-
-  @override
-  int get hashCode => value.hashCode;
 
   @override
   String toString() => value.toString();
@@ -559,12 +502,6 @@ class ClosureVal<T> extends LazyVal<T> {
 
   @override
   T evaluate() => thunk();
-
-  @override
-  bool operator ==(Object other) => identical(this, other);
-
-  @override
-  int get hashCode => identityHashCode(thunk);
 }
 
 /// A lazy node wrapping an already evaluated [GlushList].
@@ -580,7 +517,7 @@ class LazyEvaluated<T> extends LazyGlushList<T> {
 }
 
 extension GlushListVisualizer<T> on GlushList<T> {
-  Iterable<List<T>> allPaths() {
+  Iterable<List<T>> allMarkPaths() {
     return _collect(this, {});
   }
 
@@ -605,19 +542,9 @@ extension GlushListVisualizer<T> on GlushList<T> {
           }
         }
       case Conjunction<T>():
-        if (T == Mark || T.toString().contains("Mark")) {
-          for (var leftPath in _collect(node.left, visiting)) {
-            for (var rightPath in _collect(node.right, visiting)) {
-              var leftList = LazyGlushList.fromList(leftPath.cast<Mark>());
-              var rightList = LazyGlushList.fromList(rightPath.cast<Mark>());
-              yield [ConjunctionMark(leftList, rightList, 0) as T];
-            }
-          }
-        } else {
-          for (var l in _collect(node.left, visiting)) {
-            for (var r in _collect(node.right, visiting)) {
-              yield [...l, ...r];
-            }
+        for (var l in _collect(node.left, visiting)) {
+          for (var r in _collect(node.right, visiting)) {
+            yield [...l, ...r];
           }
         }
     }
@@ -747,52 +674,10 @@ extension GlushListVisualizer<T> on GlushList<T> {
   }
 }
 
-extension ListMarkExtractor on List<Mark> {
-  List<String> toStringList() {
-    var result = <String>[];
-    String? currentStringMark;
-    for (var mark in this) {
-      if (mark is NamedMark) {
-        if (currentStringMark != null) {
-          result.add(currentStringMark);
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-      } else if (mark is LabelStartMark) {
-        if (currentStringMark != null) {
-          result.add(currentStringMark);
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-      } else if (mark is StringMark) {
-        currentStringMark = (currentStringMark ?? "") + mark.value;
-      }
-    }
-    if (currentStringMark != null) {
-      result.add(currentStringMark);
-    }
-    return result;
-  }
-
-  List<String> toMarkStrings() {
-    var result = <String>[];
-    for (var mark in this) {
-      if (mark is NamedMark) {
-        result.add(mark.name);
-      } else if (mark is LabelStartMark) {
-        result.add(mark.name);
-      } else if (mark is StringMark) {
-        result.add(mark.value);
-      }
-    }
-    return result;
-  }
-}
-
 extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
   static final Expando<List<List<Object?>>> _pathCache = Expando();
 
-  Iterable<List<T>> allPaths() {
+  Iterable<List<T>> allMarkPaths() {
     return _collectLazy(this, const {});
   }
 
@@ -828,23 +713,13 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
         }
       }
     } else if (node is LazyConjunction<T>) {
-      if (T == Mark || T.toString().contains("Mark")) {
-        for (var leftPath in _collectLazy(node.left, newStack)) {
-          for (var rightPath in _collectLazy(node.right, newStack)) {
-            var leftList = LazyGlushList.fromList(leftPath.cast<Mark>());
-            var rightList = LazyGlushList.fromList(rightPath.cast<Mark>());
-            results.add([ConjunctionMark(leftList, rightList, 0) as T]);
-          }
-        }
-      } else {
-        for (var l in _collectLazy(node.left, newStack)) {
-          for (var r in _collectLazy(node.right, newStack)) {
-            results.add([...l, ...r]);
-          }
+      for (var l in _collectLazy(node.left, newStack)) {
+        for (var r in _collectLazy(node.right, newStack)) {
+          results.add([...l, ...r]);
         }
       }
     } else if (node is LazyEvaluated<T>) {
-      results.addAll(node.list.allPaths());
+      results.addAll(node.list.allMarkPaths());
     } else if (node is LazyReturn<T>) {
       results.addAll(_collectLazy(node.provider(), newStack));
     }

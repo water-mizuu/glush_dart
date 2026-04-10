@@ -1,0 +1,150 @@
+/// GlushList extensions for Mark-specific operations.
+///
+/// This library provides Mark-specific operations on GlushList and LazyGlushList,
+/// keeping the core list.dart library free from glush-specific dependencies.
+library glush.list_mark_extensions;
+
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
+
+/// Extension methods for List<Mark> to extract and format marks.
+extension ListMarkExtractor on List<Mark> {
+  /// Converts the mark list to a list of strings, merging consecutive StringMarks.
+  List<String> toStringList() {
+    var result = <String>[];
+    String? currentStringMark;
+    for (var mark in this) {
+      if (mark is NamedMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
+      } else if (mark is LabelStartMark) {
+        if (currentStringMark != null) {
+          result.add(currentStringMark);
+          currentStringMark = null;
+        }
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        currentStringMark = (currentStringMark ?? "") + mark.value;
+      }
+    }
+    if (currentStringMark != null) {
+      result.add(currentStringMark);
+    }
+    return result;
+  }
+
+  /// Extracts the string values from marks.
+  List<String> toMarkStrings() {
+    var result = <String>[];
+    for (var mark in this) {
+      if (mark is NamedMark) {
+        result.add(mark.name);
+      } else if (mark is LabelStartMark) {
+        result.add(mark.name);
+      } else if (mark is StringMark) {
+        result.add(mark.value);
+      }
+    }
+    return result;
+  }
+}
+
+/// Extension methods for GlushList<Mark> to handle conjunctions.
+extension GlushListMarkExtensions on GlushList<Mark> {
+  /// Collects all paths through the GlushList, creating ConjunctionMarks for parallel branches.
+  /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
+  Iterable<List<Mark>> allMarkPaths() {
+    return _collectMarkPaths(this, {});
+  }
+
+  Iterable<List<Mark>> _collectMarkPaths(
+    GlushList<Mark> node,
+    Set<GlushList<Mark>> visiting,
+  ) sync* {
+    switch (node) {
+      case EmptyList<Mark>():
+        yield const [];
+      case BranchedList<Mark>():
+        yield* _collectMarkPaths(node.left, visiting);
+        if (node.right != null) {
+          yield* _collectMarkPaths(node.right!, visiting);
+        }
+      case Push<Mark>():
+        var data = node.data;
+        for (var pPath in _collectMarkPaths(node.parent, visiting)) {
+          yield [...pPath, data];
+        }
+      case Concat<Mark>():
+        for (var l in _collectMarkPaths(node.left, visiting)) {
+          for (var r in _collectMarkPaths(node.right, visiting)) {
+            yield [...l, ...r];
+          }
+        }
+      case Conjunction<Mark>():
+        // For Mark conjunctions, expand all combinations into separate paths.
+        // Don't wrap in ConjunctionMark - let the combinations expand naturally.
+        for (var leftPath in _collectMarkPaths(node.left, visiting)) {
+          for (var rightPath in _collectMarkPaths(node.right, visiting)) {
+            yield [...leftPath, ...rightPath];
+          }
+        }
+    }
+  }
+}
+
+/// Extension methods for LazyGlushList<Mark> to handle lazy conjunctions.
+extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
+  /// Collects all paths through the LazyGlushList, creating ConjunctionMarks for parallel branches.
+  /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
+  Iterable<List<Mark>> allMarkPaths() {
+    return _collectLazyMarkPaths(this, {});
+  }
+
+  Iterable<List<Mark>> _collectLazyMarkPaths(
+    LazyGlushList<Mark> node,
+    Set<LazyGlushList<Mark>> stack,
+  ) {
+    if (stack.contains(node)) {
+      return const [];
+    }
+
+    var results = <List<Mark>>[];
+    var newStack = {...stack, node};
+
+    if (node is LazyEmpty<Mark>) {
+      results.add(const []);
+    } else if (node is LazyPush<Mark>) {
+      for (var pPath in _collectLazyMarkPaths(node.parent, newStack)) {
+        results.add([...pPath, node.val.evaluate()]);
+      }
+    } else if (node is LazyBranched<Mark>) {
+      results.addAll(_collectLazyMarkPaths(node.left, newStack));
+      results.addAll(_collectLazyMarkPaths(node.right, newStack));
+    } else if (node is LazyConcat<Mark>) {
+      for (var l in _collectLazyMarkPaths(node.left, newStack)) {
+        for (var r in _collectLazyMarkPaths(node.right, newStack)) {
+          results.add([...l, ...r]);
+        }
+      }
+    } else if (node is LazyConjunction<Mark>) {
+      // For Mark conjunctions, expand all combinations into separate paths.
+      // Don't wrap in ConjunctionMark - let the combinations expand naturally.
+      for (var leftPath in _collectLazyMarkPaths(node.left, newStack)) {
+        for (var rightPath in _collectLazyMarkPaths(node.right, newStack)) {
+          var leftList = LazyGlushList.fromList(leftPath);
+          var rightList = LazyGlushList.fromList(rightPath);
+          results.add([ConjunctionMark(leftList, rightList, 0)]);
+        }
+      }
+    } else if (node is LazyEvaluated<Mark>) {
+      results.addAll(node.list.allMarkPaths());
+    } else if (node is LazyReturn<Mark>) {
+      results.addAll(_collectLazyMarkPaths(node.provider(), newStack));
+    }
+
+    return results;
+  }
+}

@@ -28,7 +28,7 @@
 //     "num": (ctx) => ctx.span.trim(),
 //   });
 //   if (ambiguousResult is ParseAmbiguousSuccess) {
-//     for (var result in ambiguousResult.forest.allPaths()) {
+//     for (var result in ambiguousResult.forest.allMarkPaths()) {
 //       var tree = result.evaluateStructure();
 //       print(evaluator.evaluate(tree));
 //     }
@@ -59,7 +59,7 @@
 
 //     print(length);
 //     print("=" * 30);
-//     for (var markList in result.forest.allPaths()) {
+//     for (var markList in result.forest.allMarkPaths()) {
 //       var tree = markList.evaluateStructure();
 //       var evaluated = evaluator.evaluate(tree);
 //       print(evaluated);
@@ -81,7 +81,7 @@
 //   var result = parser.parseAmbiguous("abc");
 //   print(result);
 //   if (result case ParseAmbiguousSuccess result) {
-//     print(result.forest.allPaths().toList());
+//     print(result.forest.allMarkPaths().toList());
 //   }
 // }
 
@@ -317,7 +317,7 @@
 //   switch (result) {
 //     case ParseAmbiguousSuccess result:
 //       var output = StringBuffer()..writeln("Evaluated Meta Grammar Paths:");
-//       for (var path in result.forest.allPaths().take(1)) {
+//       for (var path in result.forest.allMarkPaths().take(1)) {
 //         var tree = path.evaluateStructure();
 //         var evaluated = evaluator.evaluate(tree);
 //         output.writeln(evaluated);
@@ -355,7 +355,7 @@
 //   for (var input in ["<book>Hello</book>", "<book>Hello</author></book>"]) {
 //     switch (parser.parseAmbiguous(input)) {
 //       case ParseAmbiguousSuccess result:
-//         print("$input -> dataDriven ok: ${result.forest.allPaths().length}");
+//         print("$input -> dataDriven ok: ${result.forest.allMarkPaths().length}");
 //       case ParseError error:
 //         error.displayError(input);
 //       case _:
@@ -377,13 +377,13 @@
 //     var result = parser.parseAmbiguous(input);
 //     print(result);
 //     if (result case ParseAmbiguousSuccess result) {
-//       print(result.forest.allPaths().map((v) => v.evaluateStructure()).toList());
+//       print(result.forest.allMarkPaths().map((v) => v.evaluateStructure()).toList());
 //     }
 //     Timeline.finishSync();
 //   }
 //   // print(
 //   //   (parser.parseAmbiguous("sss") as ParseAmbiguousForestSuccess).forest
-//   //       .allPaths()
+//   //       .allMarkPaths()
 //   //       .map((v) => v.evaluateStructure())
 //   //       .toList(),
 //   // );
@@ -434,7 +434,7 @@
 
 //   var input = r"""ssssssssssssssss""".trim();
 //   var result = parser.parseAmbiguous(input).ambiguousSuccess()!;
-//   var trees = result.forest.allPaths().toList();
+//   var trees = result.forest.allMarkPaths().toList();
 //   print("Extracted ${trees.length} trees.");
 
 //   for (var i = 0; i < trees.length; i++) {

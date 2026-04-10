@@ -31,7 +31,7 @@ Set<String> _marksTrees(SMParser parser, String input) {
   expect(result, isA<ParseAmbiguousSuccess>());
   var forest = (result as ParseAmbiguousSuccess).forest;
   return {
-    for (final path in forest.allPaths())
+    for (final path in forest.allMarkPaths())
       _canonicalNode(const StructuredEvaluator().evaluate(path)),
   };
 }
@@ -142,7 +142,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var tree = const StructuredEvaluator().evaluate(
-        (result as ParseAmbiguousSuccess).forest.allPaths().single,
+        (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
       );
 
       var item = tree["item"].single as ParseResult;
@@ -166,7 +166,7 @@ void main() {
       var result = parser.parseAmbiguous("if if a else a", captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousSuccess>());
 
-      var trees = (result as ParseAmbiguousSuccess).forest.allPaths().map(
+      var trees = (result as ParseAmbiguousSuccess).forest.allMarkPaths().map(
         (path) => const StructuredEvaluator().evaluate(path),
       );
       var canonicalTrees = {for (final tree in trees) _canonicalNode(tree)};
@@ -186,7 +186,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var tree = const StructuredEvaluator().evaluate(
-        (result as ParseAmbiguousSuccess).forest.allPaths().single,
+        (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
       );
 
       expect(tree["look"], isEmpty);
@@ -239,7 +239,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var forest = (result as ParseAmbiguousSuccess).forest;
-      var paths = forest.allPaths().toList();
+      var paths = forest.allMarkPaths().toList();
 
       var trees = paths.map((path) => const StructuredEvaluator().evaluate(path)).toList();
       expect(trees, isNotEmpty);
@@ -259,7 +259,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var tree = const StructuredEvaluator().evaluate(
-        (result as ParseAmbiguousSuccess).forest.allPaths().single,
+        (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
       );
 
       var pair = tree["start.pair"].single as ParseResult;

@@ -16,7 +16,7 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
 
   var standardMarks = (result as ParseSuccess).result.rawMarks;
   var ambigForest = (ambigResult as ParseAmbiguousSuccess).forest;
-  var ambigPaths = ambigForest.allPaths().toList();
+  var ambigPaths = ambigForest.evaluate().allMarkPaths().toList();
 
   if (!isAmbiguous) {
     expect(
@@ -49,17 +49,23 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
 }
 
 bool _marksEqual(Object? left, Object? right) {
-  if (identical(left, right)) return true;
+  if (identical(left, right)) {
+    return true;
+  }
   if (left is ConjunctionMark && right is ConjunctionMark) {
-    if (left.position != right.position) return false;
+    if (left.position != right.position) {
+      return false;
+    }
     // ConjunctionMark holds LazyGlushList fields compared by identity.
     // Do a semantic comparison via the evaluated path strings instead.
-    var leftL = left.left.allPaths().map((p) => p.toString()).toSet();
-    var rightL = right.left.allPaths().map((p) => p.toString()).toSet();
-    if (leftL.length != rightL.length || !leftL.containsAll(rightL)) return false;
+    var leftL = left.left.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
+    var rightL = right.left.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
+    if (leftL.length != rightL.length || !leftL.containsAll(rightL)) {
+      return false;
+    }
 
-    var leftR = left.right.allPaths().map((p) => p.toString()).toSet();
-    var rightR = right.right.allPaths().map((p) => p.toString()).toSet();
+    var leftR = left.right.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
+    var rightR = right.right.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
     return leftR.length == rightR.length && leftR.containsAll(rightR);
   }
   return left == right;
@@ -96,7 +102,7 @@ void main() {
       var parser = SMParserMini(g);
       var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
       expect(
-        ambig.allPaths().length,
+        ambig.allMarkPaths().length,
         2,
         reason: "Expected 2 parallel derivations for Choice(a, a) with distinct markers",
       );
@@ -126,7 +132,7 @@ void main() {
       var parser = SMParserMini(g);
       var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousSuccess).forest;
       // Should have 1 result because both branches are unique and merged.
-      expect(ambig.allPaths().length, 1);
+      expect(ambig.allMarkPaths().length, 1);
     });
 
     test("Predicate lookahead consistency", () {
@@ -150,7 +156,7 @@ void main() {
 
       // Combinations: (A,C), (A,D), (B,C), (B,D)
       // Total 4 paths.
-      var paths = ambig.allPaths().toList();
+      var paths = ambig.allMarkPaths().toList();
       expect(
         paths.length,
         4,

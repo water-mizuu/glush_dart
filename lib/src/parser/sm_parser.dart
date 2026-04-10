@@ -165,7 +165,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       // Only a final accepted step counts as a successful parse.
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.values.first;
-        var onlyPath = results.evaluate().allPaths().first;
+        var onlyPath = results.evaluate().allMarkPaths().first;
 
         return ParseSuccess(ParserResult(onlyPath));
       } else {

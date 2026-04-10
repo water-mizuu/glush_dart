@@ -123,6 +123,7 @@ class Caller extends CallerKey {
 
   final Map<int, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Set<int> _cyclicInt = {};
+  final Map<int, LazyReturn<Mark>> _lazyReturns = {};
 
   _WaiterData? _waiterData;
 
@@ -206,10 +207,10 @@ class Caller extends CallerKey {
 
     var merged = LazyGlushList.branched(existingMarks, marks);
     _returnsInt[packedId] = (existingContext, merged);
-    
+
     // STRICT SPAN DEDUPLICATION:
     // With LazyReturn proxies, we only need to trigger a return to waiters ONCE
-    // per span. Waiters will receive a proxy that eventually evaluates to the 
+    // per span. Waiters will receive a proxy that eventually evaluates to the
     // merged (branched) result of all ambiguious returns for this span.
     return false;
   }
@@ -237,6 +238,19 @@ class Caller extends CallerKey {
       head = head.next;
     }
     return infos;
+  }
+
+  /// Get or create the LazyReturn proxy for a given packedId.
+  /// Ensures identical(ruleReturn(id1), ruleReturn(id1)) == true for the same id,
+  /// enabling critical identity-based dedup in addReturn().
+  LazyReturn<Mark> getLazyReturn(int packedId, LazyGlushList<Mark> Function() provider) {
+    return _lazyReturns[packedId] ??= LazyReturn(provider);
+  }
+
+  /// Get or create a lazy return proxy representing the evolving results of this rule span.
+  /// Used by the parser to build lazy mark forests with interned rule return nodes.
+  LazyGlushList<Mark> getLazyReturnProxy(int packedId, LazyGlushList<Mark> Function() provider) {
+    return getLazyReturn(packedId, provider);
   }
 }
 
