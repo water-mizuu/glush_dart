@@ -1,7 +1,7 @@
 import "dart:math" show max;
 
-import "package:glush/src/core/list.dart" show GlushList;
-import "package:glush/src/core/mark.dart" show LabelStartMark, Mark, NamedMark, StringMark;
+import "package:glush/src/core/list.dart";
+import "package:glush/src/core/mark.dart";
 
 /// Sealed result type returned by parser.parse().
 sealed class ParseOutcome {
@@ -80,7 +80,7 @@ final class ParseSuccess implements ParseOutcome {
 /// Returned when parsing succeeds with an ambiguous forest.
 final class ParseAmbiguousSuccess implements ParseOutcome {
   const ParseAmbiguousSuccess(this.forest);
-  final GlushList<Mark> forest;
+  final LazyGlushList<Mark> forest;
 
   @override
   ParseError? error() => null;

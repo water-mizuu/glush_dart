@@ -55,7 +55,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
   @override
   List<Frame> get initialFrames {
-    var initialFrame = Frame(_initialContext, const GlushList.empty());
+    var initialFrame = Frame(_initialContext, const LazyGlushList<Mark>.empty());
     initialFrame.nextStates.addAll(stateMachine.initialStates);
     return [initialFrame];
   }
@@ -99,7 +99,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       var lastStep = parseState.finish();
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.values.first;
-        var onlyPath = results.allPaths().first;
+        var onlyPath = results.evaluate().allPaths().first;
 
         return ParseSuccess(ParserResult(onlyPath));
       } else {
@@ -131,7 +131,10 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
       var lastStep = parseState.finish();
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.values.toList();
-        var branches = results.fold(const GlushList<Mark>.empty(), GlushList.branched);
+        var branches = results.fold<LazyGlushList<Mark>>(
+          const LazyGlushList.empty(),
+          LazyGlushList.branched,
+        );
 
         return ParseAmbiguousSuccess(branches);
       } else {

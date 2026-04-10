@@ -9,7 +9,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 ///
 /// Contains the derivation source, the parent context to resume in,
 /// and the next state to transition to.
-typedef Waiter = (ParseNodeKey?, Context, State, GlushList<Mark>);
+typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 
 /// Tracks one lookahead sub-parse for a specific `(pattern, startPosition)`.
 ///
@@ -66,8 +66,8 @@ class ConjunctionTracker {
   final PatternSymbol rightSymbol;
   final int startPosition;
 
-  final Map<int, List<GlushList<Mark>>> leftCompletions = {};
-  final Map<int, List<GlushList<Mark>>> rightCompletions = {};
+  final Map<int, List<LazyGlushList<Mark>>> leftCompletions = {};
+  final Map<int, List<LazyGlushList<Mark>>> rightCompletions = {};
   int activeFrames = 0;
 
   final List<Waiter> waiters = [];
@@ -107,14 +107,14 @@ class NegationTracker {
   final Set<int> visitedPositions = <int>{};
 
   /// Map of end positions j to waiters that should resume if A does NOT match j.
-  final Map<int, List<(Context, State, GlushList<Mark>)>> waiters = {};
+  final Map<int, List<(Context, State, LazyGlushList<Mark>)>> waiters = {};
 
   /// Waiters with no specific target j — fire at every visited position
   /// that A did NOT match.
-  final List<(Context, State, GlushList<Mark>)> unconstrainedWaiters = [];
+  final List<(Context, State, LazyGlushList<Mark>)> unconstrainedWaiters = [];
 
   /// Add a waiter for a specific end position.
-  void addWaiter(int endPosition, (Context, State, GlushList<Mark>) waiter) {
+  void addWaiter(int endPosition, (Context, State, LazyGlushList<Mark>) waiter) {
     (waiters[endPosition] ??= []).add(waiter);
   }
 

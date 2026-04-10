@@ -94,7 +94,8 @@ final class ParseState {
   GlushList<Mark>? get forest => _lastStep
       ?.acceptedContexts
       .values //
-      .fold<GlushList<Mark>>(const GlushList.empty(), GlushList.branched);
+      .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched)
+      .evaluate();
 
   Step? get lastStep => _lastStep;
   StateMachine get stateMachine => parser.stateMachine;

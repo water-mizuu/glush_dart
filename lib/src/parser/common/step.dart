@@ -19,6 +19,7 @@ import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
 import "package:glush/src/parser/key/guard_cache_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
+import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// Single parsing step at one input position.
@@ -85,7 +86,7 @@ class Step {
   final Set<CallerKey> _returnedCallers = {};
 
   /// Deduplication set for uniquely identifying accepted parse contexts and their marks.
-  final Map<Context, GlushList<Mark>> acceptedContexts = {};
+  final Map<Context, LazyGlushList<Mark>> acceptedContexts = {};
 
   /// Frames that were delayed or diverted (e.g. for sub-parses).
   final List<Frame> requeued = [];
@@ -144,7 +145,7 @@ class Step {
     ConjunctionTracker tracker,
     int endPosition,
     bool isLeft,
-    GlushList<Mark> marks,
+    LazyGlushList<Mark> marks,
   ) {
     if (isLeft) {
       tracker.leftCompletions.putIfAbsent(endPosition, () => []).add(marks);
@@ -166,13 +167,13 @@ class Step {
   void _triggerConjunctionReturn(
     ConjunctionTracker tracker,
     int endPosition,
-    GlushList<Mark> left,
-    GlushList<Mark> right,
-    List<(ParseNodeKey? source, Context, State, GlushList<Mark>)> targetWaiters,
+    LazyGlushList<Mark> left,
+    LazyGlushList<Mark> right,
+    List<(ParseNodeKey? source, Context, State, LazyGlushList<Mark>)> targetWaiters,
   ) {
     // Create a Parallel node representing the cartesian product of left and right marks
     // at the same span. This captures all combinations of parallel marks.
-    var conjunctionResult = GlushList.conjunction(left, right);
+    var conjunctionResult = LazyGlushList.conjunction(left, right);
 
     for (var (_, parentContext, nextState, parentMarks) in targetWaiters) {
       // Add the parallel result to the parent marks.
@@ -191,7 +192,7 @@ class Step {
   void _resumeLaggedPredicateContinuation({
     required ParseNodeKey? source,
     required Context parentContext,
-    required GlushList<Mark> parentMarks,
+    required LazyGlushList<Mark> parentMarks,
     required State nextState,
     required bool isAnd,
     required PatternSymbol symbol,
@@ -230,7 +231,7 @@ class Step {
         callStart: position,
         position: position,
       ),
-      const GlushList<Mark>.empty(),
+      const LazyGlushList<Mark>.empty(),
     );
   }
 
@@ -267,7 +268,7 @@ class Step {
           position: position,
           predicateStack: frame.context.predicateStack,
         ),
-        const GlushList<Mark>.empty(),
+        const LazyGlushList<Mark>.empty(),
       );
     }
 
@@ -283,7 +284,7 @@ class Step {
           position: position,
           predicateStack: frame.context.predicateStack,
         ),
-        const GlushList<Mark>.empty(),
+        const LazyGlushList<Mark>.empty(),
       );
     }
   }
@@ -308,7 +309,7 @@ class Step {
         position: position,
         predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
       ),
-      const GlushList<Mark>.empty(),
+      const LazyGlushList<Mark>.empty(),
     );
   }
 
@@ -407,8 +408,9 @@ class Step {
     );
   }
 
-  CaptureValue? _extractLabelCapture(GlushList<Mark> marks, String target) {
-    var cacheKey = (marks, target);
+  CaptureValue? _extractLabelCapture(LazyGlushList<Mark> marks, String target) {
+    var concreteMarks = marks.evaluate();
+    var cacheKey = (concreteMarks, target);
     if (parseState.labelCaptureCache.containsKey(cacheKey)) {
       GlushProfiler.incrementHit("parser.capture.cache");
       return parseState.labelCaptureCache[cacheKey];
@@ -419,7 +421,7 @@ class Step {
     // earliest capture as the canonical one for this forest.
     var capture = GlushProfiler.measure("parser.capture.resolve", () {
       var walker = LabelCaptureWalker(target);
-      walker.walk(marks, []);
+      walker.walk(concreteMarks, []);
       var resolved = walker.best;
       if (resolved != null) {
         resolved = CaptureValue(
@@ -606,14 +608,14 @@ class Step {
             minPrecedenceLevel: minPrecedenceLevel,
             arguments: callArguments,
           ),
-          const GlushList<Mark>.empty(),
+          const LazyGlushList<Mark>.empty(),
           source: source,
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     } else if (isNewWaiter) {
-      for (var (returnContext, returnMarks) in caller.returns) {
+      for (var (returnContext, _) in caller.returns) {
         _triggerReturn(
           caller,
           frame.context.caller,
@@ -622,8 +624,7 @@ class Step {
           frame.context,
           frame.marks,
           returnContext,
-          returnMarks,
-          source: ParseNodeKey(currentState.id, position, caller),
+          source: ParseNodeKey(currentState.id, position, frame.context.caller),
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
@@ -651,7 +652,7 @@ class Step {
         callStart: position,
         position: position,
       ),
-      const GlushList<Mark>.empty(),
+      const LazyGlushList<Mark>.empty(),
     );
   }
 
@@ -670,7 +671,7 @@ class Step {
   void _enqueue(
     State state,
     Context context,
-    GlushList<Mark> marks, {
+    LazyGlushList<Mark> marks, {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
@@ -825,9 +826,8 @@ class Step {
     State nextState,
     int? minPrecedence,
     Context parentContext,
-    GlushList<Mark> parentMarks,
-    Context returnContext,
-    GlushList<Mark> returnMarks, {
+    LazyGlushList<Mark> parentMarks,
+    Context returnContext, {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
@@ -841,13 +841,22 @@ class Step {
       return;
     }
     parseState.tracer.onRuleReturn(caller.rule, position, caller);
+    
+    var packedId = ReturnKey.getPackedId(
+      returnContext.precedenceLevel,
+      returnContext.position,
+      returnContext.callStart,
+    );
+    
+    // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
+    var returnProxy = LazyGlushList.ruleReturn(
+      () => caller.getReturnMarks(packedId),
+      caller,
+      packedId,
+    );
 
     // Fast paths for the common case where one/both mark streams are empty.
-    // This avoids building branched wrappers for right-recursive call returns.
-    // Continous mark streams must be concatenated, not branched.
-    // Branching is for alternative derivations (same span), while rule returns
-    // represent a sequence (prefix + call result).
-    var nextMarks = parentMarks.addList(returnMarks);
+    var nextMarks = parentMarks.addList(returnProxy);
 
     CaptureBindings mergedCaptures;
     if (parentContext.captures.isEmpty) {
@@ -967,7 +976,7 @@ class Step {
             ?.visitedPositions
             .add(position);
       }
-      _process(Frame(context, marks), state);
+      _enqueue(state, context, marks);
     }
   }
 
@@ -1059,7 +1068,7 @@ class Step {
 
       // Capture policy controls whether consumed chars become human-readable StringMarks.
       if (shouldCapture) {
-        newMarks = newMarks.add(StringMark(String.fromCharCode(token), position));
+        newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
       // BATTERIZED next-position fast path calculation
@@ -1119,7 +1128,7 @@ class Step {
     if (token != null && token == action.codeUnit) {
       var newMarks = frame.marks;
       if (captureTokensAsMarks) {
-        newMarks = newMarks.add(StringMark(String.fromCharCode(action.codeUnit), position));
+        newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
 
       // BATTERIZED next-position fast path calculation
@@ -1168,8 +1177,13 @@ class Step {
 
     // Emit a named mark at the current position.
     // Used for user-defined annotations.
-    var mark = NamedMark(action.name, position);
-    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+    _enqueue(
+      action.nextState,
+      frameContext,
+      frame.marks.add(NamedMarkVal(action.name, position)),
+      source: source,
+      action: action,
+    );
   }
 
   /// Handle [LabelStartAction]: begin a labeled capture group.
@@ -1178,8 +1192,13 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
     // Begin a labelled span (capture start).
-    var mark = LabelStartMark(action.name, position);
-    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+    _enqueue(
+      action.nextState,
+      frameContext,
+      frame.marks.add(LabelStartVal(action.name, position)),
+      source: source,
+      action: action,
+    );
   }
 
   /// Handle [LabelEndAction]: end a labeled capture group.
@@ -1189,8 +1208,13 @@ class Step {
 
     // End a labelled span (capture end).
     // This allows the parser to extract the text covered by the label.
-    var mark = LabelEndMark(action.name, position);
-    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+    _enqueue(
+      action.nextState,
+      frameContext,
+      frame.marks.add(LabelEndVal(action.name, position)),
+      source: source,
+      action: action,
+    );
   }
 
   /// Handle [BackreferenceAction]: create an expanding mark for backref.
@@ -1198,8 +1222,13 @@ class Step {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    var mark = ExpandingMark(action.name, position);
-    _enqueue(action.nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+    _enqueue(
+      action.nextState,
+      frameContext,
+      frame.marks.add(ExpandingMarkVal(action.name, position)),
+      source: source,
+      action: action,
+    );
   }
 
   /// Handle [PredicateAction]: lookahead predicate (&pattern or !pattern).
@@ -1737,7 +1766,7 @@ class Step {
   void _tailCallTrampoline(
     State currentState,
     Context currentContext,
-    GlushList<Mark> currentMarks,
+    LazyGlushList<Mark> currentMarks,
     ParseNodeKey source,
     StateAction action,
   ) {
@@ -1914,7 +1943,6 @@ class Step {
             parentContext,
             parentMarks.value,
             returnContext,
-            frame.marks,
             source: ParseNodeKey(state.id, position, caller),
             action: action,
             callSite: callSite,
@@ -1928,7 +1956,7 @@ class Step {
   void _processAcceptAction(Frame frame) {
     var previousMarks = acceptedContexts[frame.context];
     if (previousMarks != null) {
-      acceptedContexts[frame.context] = GlushList.branched(previousMarks, frame.marks);
+      acceptedContexts[frame.context] = LazyGlushList.branched(previousMarks, frame.marks);
     } else {
       acceptedContexts[frame.context] = frame.marks;
     }

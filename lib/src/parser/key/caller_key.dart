@@ -121,7 +121,7 @@ class Caller extends CallerKey {
   @override
   final int uid;
 
-  final Map<int, (Context, GlushList<Mark>)> _returnsInt = {};
+  final Map<int, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Set<int> _cyclicInt = {};
 
   _WaiterData? _waiterData;
@@ -151,7 +151,7 @@ class Caller extends CallerKey {
     State next,
     int? minPrecedence,
     Context callerContext,
-    Ref<GlushList<Mark>> callerMarks,
+    Ref<LazyGlushList<Mark>> callerMarks,
     ParseNodeKey node,
   ) {
     var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
@@ -180,7 +180,7 @@ class Caller extends CallerKey {
     return true;
   }
 
-  bool addReturn(Context context, GlushList<Mark> marks) {
+  bool addReturn(Context context, LazyGlushList<Mark> marks) {
     var packedId = ReturnKey.getPackedId(
       context.precedenceLevel,
       context.position,
@@ -204,12 +204,21 @@ class Caller extends CallerKey {
       }
     }
 
-    var merged = GlushList.branched(existingMarks, marks);
+    var merged = LazyGlushList.branched(existingMarks, marks);
     _returnsInt[packedId] = (existingContext, merged);
-    return true;
+    
+    // STRICT SPAN DEDUPLICATION:
+    // With LazyReturn proxies, we only need to trigger a return to waiters ONCE
+    // per span. Waiters will receive a proxy that eventually evaluates to the 
+    // merged (branched) result of all ambiguious returns for this span.
+    return false;
   }
 
-  Iterable<(Context, GlushList<Mark>)> get returns => _returnsInt.values;
+  LazyGlushList<Mark> getReturnMarks(int packedId) {
+    return _returnsInt[packedId]?.$2 ?? const LazyGlushList.empty();
+  }
+
+  Iterable<(Context, LazyGlushList<Mark>)> get returns => _returnsInt.values;
 
   bool isCyclic(int? precedenceLevel, int? position, int? callStart) {
     return _cyclicInt.contains(ReturnKey.getPackedId(precedenceLevel, position, callStart));
@@ -243,7 +252,7 @@ class _WaiterData {
   final State nextState;
   final int? minPrecedence;
   final Context parentContext;
-  final Ref<GlushList<Mark>> parentMarks;
+  final Ref<LazyGlushList<Mark>> parentMarks;
   final ParseNodeKey callSite;
 
   _WaiterData? next;
@@ -253,7 +262,7 @@ extension type const WaiterInfo(_WaiterData _) {
   State get nextState => _.nextState;
   int? get minPrecedence => _.minPrecedence;
   Context get parentContext => _.parentContext;
-  Ref<GlushList<Mark>> get parentMarks => _.parentMarks;
+  Ref<LazyGlushList<Mark>> get parentMarks => _.parentMarks;
   ParseNodeKey get callSite => _.callSite;
 }
 

@@ -174,9 +174,9 @@ final class ContextGroup {
   final Context context;
 
   /// Optimized mark merging: avoids List allocation and final fold.
-  GlushList<Mark> mergedMarks = const GlushList<Mark>.empty();
+  LazyGlushList<Mark> mergedMarks = const LazyGlushList<Mark>.empty();
 
-  void addMarks(GlushList<Mark> marks) {
-    mergedMarks = mergedMarks.isEmpty ? marks : GlushList.branched(mergedMarks, marks);
+  void addMarks(LazyGlushList<Mark> marks) {
+    mergedMarks = mergedMarks.isEmpty ? marks : LazyGlushList.branched(mergedMarks, marks);
   }
 }

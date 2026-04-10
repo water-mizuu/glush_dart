@@ -132,8 +132,8 @@ final class ConjunctionMark implements Mark {
     : _hash = Object.hash(ConjunctionMark, left, right, position);
 
   /// The parallel mark streams from each branch of the conjunction.
-  final GlushList<Mark> left;
-  final GlushList<Mark> right;
+  final LazyGlushList<Mark> left;
+  final LazyGlushList<Mark> right;
 
   final int position;
   final int _hash;
@@ -219,4 +219,104 @@ extension MarkListExtension on List<Mark> {
 
     return result;
   }
+}
+
+class NamedMarkVal extends LazyVal<Mark> {
+  const NamedMarkVal(this.name, this.position);
+  final String name;
+  final int position;
+
+  @override
+  Mark evaluate() => NamedMark(name, position);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NamedMarkVal && name == other.name && position == other.position;
+
+  @override
+  int get hashCode => Object.hash(NamedMarkVal, name, position);
+
+  @override
+  String toString() => "NamedMark($name, $position)";
+}
+
+class StringMarkVal extends LazyVal<Mark> {
+  const StringMarkVal(this.value, this.position);
+  final String value;
+  final int position;
+
+  @override
+  Mark evaluate() => StringMark(value, position);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StringMarkVal && value == other.value && position == other.position;
+
+  @override
+  int get hashCode => Object.hash(StringMarkVal, value, position);
+
+  @override
+  String toString() => "StringMark($value, $position)";
+}
+
+class LabelStartVal extends LazyVal<Mark> {
+  const LabelStartVal(this.name, this.position);
+  final String name;
+  final int position;
+
+  @override
+  Mark evaluate() => LabelStartMark(name, position);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelStartVal && name == other.name && position == other.position;
+
+  @override
+  int get hashCode => Object.hash(LabelStartVal, name, position);
+
+  @override
+  String toString() => "LabelStart($name, $position)";
+}
+
+class LabelEndVal extends LazyVal<Mark> {
+  const LabelEndVal(this.name, this.position);
+  final String name;
+  final int position;
+
+  @override
+  Mark evaluate() => LabelEndMark(name, position);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LabelEndVal && name == other.name && position == other.position;
+
+  @override
+  int get hashCode => Object.hash(LabelEndVal, name, position);
+
+  @override
+  String toString() => "LabelEnd($name, $position)";
+}
+
+class ExpandingMarkVal extends LazyVal<Mark> {
+  const ExpandingMarkVal(this.name, this.position);
+  final String name;
+  final int position;
+
+  @override
+  Mark evaluate() => ExpandingMark(name, position);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ExpandingMarkVal && name == other.name && position == other.position;
+
+  @override
+  int get hashCode => Object.hash(ExpandingMarkVal, name, position);
+
+  @override
+  String toString() => "ExpandingMark($name, $position)";
 }

@@ -15,7 +15,7 @@ class Frame {
   final Context context;
 
   /// The accumulated results for this parse path.
-  final GlushList<Mark> marks;
+  final LazyGlushList<Mark> marks;
 
   /// The set of states to be processed at the current input position.
   final Set<State> nextStates;

@@ -94,7 +94,7 @@ abstract base class GlushParserBase implements GlushParser {
     int position,
     State state,
     Context context,
-    GlushList<Mark> marks,
+    LazyGlushList<Mark> marks,
   ) {
     var frame = Frame(context, marks)..nextStates.add(state);
     workQueue.addFrame(position, frame);

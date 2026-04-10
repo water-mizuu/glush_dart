@@ -1167,7 +1167,7 @@ GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment
 final class GuardEnvironment {
   GuardEnvironment({
     required this.rule,
-    GlushList<Mark> marks = const GlushList<Mark>.empty(),
+    LazyGlushList<Mark> marks = const LazyGlushList<Mark>.empty(),
     this.arguments = const <String, Object?>{},
     this.values = const <String, Object?>{},
     CallArgumentsKey? valuesKey,
@@ -1182,12 +1182,12 @@ final class GuardEnvironment {
                : StringCallArgumentsKey(_formatObjectMap(values)));
 
   final Rule rule;
-  final GlushList<Mark> _marksForest;
+  final LazyGlushList<Mark> _marksForest;
   final Map<String, Object?> arguments;
   final Map<String, Object?> values;
   final CallArgumentsKey valuesKey;
   final Object? Function(String name)? valueResolver;
-  final CaptureValue? Function(GlushList<Mark>, String)? captureResolver;
+  final CaptureValue? Function(LazyGlushList<Mark>, String)? captureResolver;
   final Map<String, Rule> rulesByName;
 
   final Map<String, CaptureValue?> _captureCache = {};

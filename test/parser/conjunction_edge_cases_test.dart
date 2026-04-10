@@ -85,7 +85,7 @@ void main() {
       var res = parser.parseAmbiguous("", captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
       var forest = success.forest;
-      var root = forest.iterate().toList().evaluateStructure();
+      var root = forest.evaluate().iterate().toList().evaluateStructure();
       expect(root.get("l1"), isNotEmpty, reason: "l1 should be captured even though epsilon");
       expect(root.get("l2"), isNotEmpty, reason: "l2 should be captured even though epsilon");
       expect(root.span, equals(""));

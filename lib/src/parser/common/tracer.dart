@@ -90,7 +90,7 @@ class FileTracer implements ParseTracer {
       _sink.writeln("    States:  {$states}");
       _sink.writeln("    States:  {$states}");
       _sink.writeln(
-        "    Context: caller=${frame.context.caller}, marks=${frame.marks.iterate().toList().length}",
+        "    Context: caller=${frame.context.caller}, marks=${frame.marks.evaluate().iterate().toList().length}",
       );
     }
     _sink.writeln("=" * 80 + "\n");
@@ -100,7 +100,7 @@ class FileTracer implements ParseTracer {
   void onProcessState(Frame frame, State state) {
     _sink.writeln("  [* Process] $state");
     _sink.writeln(
-      "      Context: caller=${frame.context.caller}, marks=${frame.marks.iterate().toList().length}",
+      "      Context: caller=${frame.context.caller}, marks=${frame.marks.evaluate().iterate().toList().length}",
     );
   }
 

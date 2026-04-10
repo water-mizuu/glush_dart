@@ -113,7 +113,7 @@ void main() {
 
       expect(finalStep.accept, isTrue);
       expect(
-        finalStep.acceptedContexts.values.expand((v) => v.iterate()).toList().toShortMarks(),
+        finalStep.acceptedContexts.values.expand((v) => v.evaluate().iterate()).toList().toShortMarks(),
         equals(["S.start", "abc"]),
       );
     });
@@ -136,7 +136,7 @@ void main() {
 
       expect(finalStep.accept, isTrue);
       expect(
-        finalStep.acceptedContexts.values.expand((v) => v.iterate()).toList().toShortMarks(),
+        finalStep.acceptedContexts.values.expand((v) => v.evaluate().iterate()).toList().toShortMarks(),
         equals(["S.start", "ac"]),
       );
     });

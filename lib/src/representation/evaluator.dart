@@ -394,13 +394,13 @@ class StructuredEvaluator {
             throw UnsupportedError("Marks has not been expanded.");
 
           case ConjunctionMark(:var left, :var right):
-            var leftResult = evaluate(left.allPaths().expand((v) => v).toList());
+            var leftResult = evaluate(left.evaluate().allPaths().expand((v) => v).toList());
             for (var child in leftResult.children) {
               stack.last.children.add(child);
             }
             stack.last.addToken(leftResult.span);
 
-            var rightResult = evaluate(right.allPaths().expand((v) => v).toList());
+            var rightResult = evaluate(right.evaluate().allPaths().expand((v) => v).toList());
             for (var child in rightResult.children) {
               stack.last.children.add(child);
             }
@@ -471,13 +471,13 @@ class StructuredEvaluator {
           throw UnsupportedError("Marks has not been expanded.");
 
         case ConjunctionMark(:var left, :var right):
-          var leftResult = evaluateStrict(left.allPaths().expand((v) => v).toList());
+          var leftResult = evaluateStrict(left.evaluate().allPaths().expand((v) => v).toList());
           for (var child in leftResult.children) {
             stack.last.children.add(child);
           }
           stack.last.addToken(leftResult.span);
 
-          var rightResult = evaluateStrict(right.allPaths().expand((v) => v).toList());
+          var rightResult = evaluateStrict(right.evaluate().allPaths().expand((v) => v).toList());
           for (var child in rightResult.children) {
             stack.last.children.add(child);
           }

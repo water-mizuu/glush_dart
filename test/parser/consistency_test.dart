@@ -48,13 +48,30 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
   );
 }
 
+bool _marksEqual(Object? left, Object? right) {
+  if (identical(left, right)) return true;
+  if (left is ConjunctionMark && right is ConjunctionMark) {
+    if (left.position != right.position) return false;
+    // ConjunctionMark holds LazyGlushList fields compared by identity.
+    // Do a semantic comparison via the evaluated path strings instead.
+    var leftL = left.left.allPaths().map((p) => p.toString()).toSet();
+    var rightL = right.left.allPaths().map((p) => p.toString()).toSet();
+    if (leftL.length != rightL.length || !leftL.containsAll(rightL)) return false;
+
+    var leftR = left.right.allPaths().map((p) => p.toString()).toSet();
+    var rightR = right.right.allPaths().map((p) => p.toString()).toSet();
+    return leftR.length == rightR.length && leftR.containsAll(rightR);
+  }
+  return left == right;
+}
+
 bool _listEquals<T>(List<T> left, List<T> right) {
   if (left.length != right.length) {
     return false;
   }
 
   for (int i = 0; i < left.length; ++i) {
-    if (left[i] != right[i]) {
+    if (!_marksEqual(left[i], right[i])) {
       return false;
     }
   }
