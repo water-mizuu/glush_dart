@@ -56,6 +56,7 @@ enum _TokenType {
   ampersand, // &
   doubleAmpersand, // &&
   bang, // !
+  tilde, // ~
   equalEqual, // ==
   bangEqual, // !=
   lesserEqual, // <=
@@ -161,6 +162,7 @@ class _Tokenizer {
         "}": _TokenType.rbrace,
         r"$": _TokenType.dollar,
         "!": _TokenType.bang,
+        "~": _TokenType.tilde,
         "<": _TokenType.lesser,
         ">": _TokenType.greater,
         ".": _TokenType.dot,
@@ -642,7 +644,7 @@ class GrammarFileParser {
       return ExpressionUnaryNode(ExpressionUnaryOperator.logicalNot, _parseUnary());
     }
 
-    if (_peek().type == _TokenType.minus) {
+    if (_peek().type case _TokenType.minus || _TokenType.tilde) {
       _advance();
       return ExpressionUnaryNode(ExpressionUnaryOperator.negate, _parseUnary());
     }
@@ -1192,10 +1194,6 @@ class GrammarFileParser {
   bool _isAtEnd() => _peek().type == _TokenType.eof;
 
   bool _isRuleDeclarationAhead() {
-    if (_peek().type != _TokenType.identifier) {
-      return false;
-    }
-
     var nextIndex = tokenIndex + 1;
     if (nextIndex >= _tokens.length) {
       return false;

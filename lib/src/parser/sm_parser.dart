@@ -227,7 +227,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
   }
 
-  Object? evaluateParseTreeWith<T>(Object? tree, String input, Evaluator<T> evaluator) {
+  Object? evaluateParseTreeWith<T extends Object>(
+    Object? tree,
+    String input,
+    Evaluator<T> evaluator,
+  ) {
     if (tree is ParseNode) {
       return evaluator.evaluate(tree);
     }

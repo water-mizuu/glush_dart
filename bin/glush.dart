@@ -17,13 +17,13 @@ file = $rules left:file _ right:rule
 # Allow trailing trivia after a rule body so line comments behave
 # like whitespace instead of becoming the next token stream.
 rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
-      | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
+     | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
 
 choice = $rest left:choice _ (prec:number _)? '|' _ right:branch
-        | $first ((prec:number _)? '|' _)? body:branch
+       | $first ((prec:number _)? '|' _)? body:branch
 
 branch = $cond "if" _ "(" _ cond:argExpr _ ")"_ body:seq
-        | $none body:seq
+       | $none body:seq
 
 seq = $seq left:seq _ &isContinuation right:conj
     | conj
@@ -32,8 +32,8 @@ conj = $conj left:conj _ "&&" _ right:prefix
       | prefix
 
 prefix = $and '&' atom:rep
-        | $not '!' atom:rep
-        | rep
+       | $not '!' atom:rep
+       | rep
 
 rep = $rep atom:primary kind:repKind
     | primary
@@ -53,12 +53,16 @@ primary = $group '(' _ inner:choice _ ')'
         | $any '.'
 
 # Helpers
-isContinuation = ident !(_ [=])
+isContinuation = ident !(_ [=]) !isRuleDeclarationAhead
                 | literal | charRange
                 | '[' | '(' | '.' | '!' | '&'
 
+isRuleDeclarationAhead = !$ balancedParenthesis? _ "="
+balancedParenthesis = "(" balancedParenthesis ")"
+                    | !")" .
+
 params = $params left:params _ ',' _ right:param
-        | $param  right:param
+       | $param  right:param
 
 param = ident
 
@@ -74,30 +78,30 @@ argExpr =
       2 | $argAnd  left:argExpr^2 _ '&&' _ right:argExpr^3
 
       # Equality & Relational Operations
-      3 | $argEq   left:argExpr^5 _ '==' _ right:argExpr^5
-      3 | $argNeq  left:argExpr^5 _ '!=' _ right:argExpr^5
-      4 | $argLt   left:argExpr^5 _ '<'  _ right:argExpr^5
-      4 | $argLte  left:argExpr^5 _ '<=' _ right:argExpr^5
-      4 | $argGt   left:argExpr^5 _ '>'  _ right:argExpr^5
-      4 | $argGte  left:argExpr^5 _ '>=' _ right:argExpr^5
+      3 | $eq   left:argExpr^5 _ '==' _ right:argExpr^5
+      3 | $neq  left:argExpr^5 _ '!=' _ right:argExpr^5
+      4 | $lt   left:argExpr^5 _ '<'  _ right:argExpr^5
+      4 | $lte  left:argExpr^5 _ '<=' _ right:argExpr^5
+      4 | $gt   left:argExpr^5 _ '>'  _ right:argExpr^5
+      4 | $gte  left:argExpr^5 _ '>=' _ right:argExpr^5
 
       # Arithmetic Operations
-      6 | $argAdd  left:argExpr^6  _ '+' _ right:argExpr^7
-      6 | $argSub  left:argExpr^6  _ '-' _ right:argExpr^7
-      7 | $argMul  left:argExpr^7 _ '*' _ right:argExpr^8
-      7 | $argDiv  left:argExpr^7 _ '/' _ right:argExpr^8
-      7 | $argMod  left:argExpr^7 _ '%' _ right:argExpr^8
+      6 | $add  left:argExpr^6  _ '+' _ right:argExpr^7
+      6 | $sub  left:argExpr^6  _ '-' _ right:argExpr^7
+      7 | $mul  left:argExpr^7 _ '*' _ right:argExpr^8
+      7 | $div  left:argExpr^7 _ '/' _ right:argExpr^8
+      7 | $mod  left:argExpr^7 _ '%' _ right:argExpr^8
 
       # Unary Operations (Prefix)
-      10 | $argNot  '!' _ right:argExpr^10
-      10 | $argNeg  '-' _ right:argExpr^10
-      10 | $argPos  '+' _ right:argExpr^10
+      10 | $not  '!' _ right:argExpr^10
+      10 | $neg  '-' _ right:argExpr^10
+      10 | $pos  '+' _ right:argExpr^10
 
       # Atomic Values
-      20 | $argInt  number
-      20 | $argStr  literal
-      20 | $argIdent ident
-      20 | $argGroup '(' _ expr:argExpr^0 _ ')'
+      20 | $int  number
+      20 | $str  literal
+      20 | $ident ident
+      20 | $group '(' _ expr:argExpr^0 _ ')'
 
 # Terminals
 ident = [A-Za-z$_] [A-Za-z$_0-9]*!
@@ -108,7 +112,7 @@ number = [0-9]+
 
 _ = $ws (plain_ws | comment | newline)*!
 comment = '#' (!newline .)* (newline | eof)
-plain_ws = [ \t]+!
+plain_ws() = [ \t]+!
 newline = [\n\r]+!
 """;
 
@@ -116,10 +120,10 @@ final parser = grammar.toSMParser();
 
 void main() {
   // Default behavior: parse and output
-  const input = "sss";
+  const input = grammar;
 
   var tracer = FileTracer("another.log");
-  var state = parser.createParseState(isSupportingAmbiguity: true, tracer: tracer);
+  var state = parser.createParseState(tracer: tracer);
   for (int code in input.codeUnits) {
     state.processToken(code);
   }
@@ -134,16 +138,8 @@ void main() {
     print("DEBUG: paths is null, returning");
     return;
   }
-  print(paths.countDerivations());
 
-  var evaluator = Evaluator<String>({"S.2": (ctx) => "(${ctx()}${ctx()})", "S.1": (ctx) => "s"});
-
-  for (var (i, path) in paths.allMarkPaths().indexed) {
-    var tree = path.evaluateStructure();
-    var evaluated = evaluator.evaluate(tree);
-
-    print("$i: $evaluated");
-  }
+  print(r"(~\d)+".toSMParserMini().parseAmbiguous("abc"));
 
   File("another.dot")
     ..createSync(recursive: true)

@@ -59,7 +59,7 @@ void main() {
     var value = dslParser.evaluateParseTreeWith(
       tree,
       "bc",
-      Evaluator<Object?>({
+      Evaluator<Object>({
         "start": (ctx) => ctx<Object>("outer"),
         "outer": (ctx) {
           var closure = ctx<Object>("box") as PatternClosureValue;

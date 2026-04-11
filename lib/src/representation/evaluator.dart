@@ -7,12 +7,12 @@ import "package:glush/src/core/profiling.dart";
 import "package:meta/meta.dart";
 
 /// Signature for an evaluation handler.
-typedef EvaluatorHandler<T> = Object? Function(EvaluationContext<T> ctx);
+typedef EvaluatorHandler<T extends Object> = Object? Function(EvaluationContext<T> ctx);
 
 /// A context object passed to evaluation handlers.
 ///
 /// This provides a clean API for accessing children and text content.
-class EvaluationContext<T> {
+class EvaluationContext<T extends Object> {
   EvaluationContext(this.evaluator, this.node, this.it);
   final Evaluator<T> evaluator;
 
@@ -106,7 +106,7 @@ class EvaluationContext<T> {
 ///   "num": (ctx) => int.parse(ctx.span),
 /// });
 /// ```
-class Evaluator<T> {
+class Evaluator<T extends Object> {
   Evaluator(this.handlers);
 
   /// Map of label names to their corresponding handlers.
@@ -183,11 +183,11 @@ class Evaluator<T> {
 
         var ctx = EvaluationContext(this, node, childIt);
 
-        return normalizeSemanticValue(handler.call(ctx)) as T;
+        return normalizeSemanticValue(handler.call(ctx))! as T;
       }
 
       if (!it.hasNext) {
-        return normalizeSemanticValue(evaluate(first.$2)) as T;
+        return normalizeSemanticValue(evaluate(first.$2))! as T;
       }
       current = it.next();
     }
