@@ -24,8 +24,8 @@ sealed class GlushList<T> {
       return left;
     }
 
-    // Deduplicate structurally equal alternatives
-    if (left == right) {
+    // Identity-based dedup avoids recursive structural comparison.
+    if (identical(left, right)) {
       return left;
     }
 
@@ -150,47 +150,24 @@ class EmptyList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => true;
-
-  @override
-  bool operator ==(Object other) => identical(this, other) || other is EmptyList<T>;
-
-  @override
-  int get hashCode => _hashCode;
-
-  static final int _hashCode = Object.hash(EmptyList, 0);
 }
 
 class BranchedList<T> extends GlushList<T> {
-  BranchedList._(this.left, [this.right])
-    : _isEmpty = left.isEmpty && (right?.isEmpty ?? true),
-      _hashCode = Object.hash(BranchedList, left, right);
+  BranchedList._(this.left, [this.right]) : _isEmpty = left.isEmpty && (right?.isEmpty ?? true);
 
   final GlushList<T> left;
   final GlushList<T>? right;
-  final int _hashCode;
 
   final bool _isEmpty;
 
   @override
   bool get isEmpty => _isEmpty;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BranchedList<T> &&
-          _hashCode == other._hashCode &&
-          left == other.left &&
-          right == other.right;
-
-  @override
-  int get hashCode => _hashCode;
 }
 
 class Push<T> extends GlushList<T> {
-  Push._(this.parent, this.data) : _lastOrNull = data, _hashCode = Object.hash(Push, parent, data);
+  const Push._(this.parent, this.data) : _lastOrNull = data;
   final GlushList<T> parent;
   final T data;
-  final int _hashCode;
 
   final T? _lastOrNull;
 
@@ -199,60 +176,25 @@ class Push<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => false;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Push<T> &&
-          _hashCode == other._hashCode &&
-          parent == other.parent &&
-          data == other.data;
-
-  @override
-  int get hashCode => _hashCode;
 }
 
 class Concat<T> extends GlushList<T> {
-  Concat._(this.left, this.right) : _hashCode = Object.hash(Concat, left, right);
+  const Concat._(this.left, this.right);
   final GlushList<T> left;
   final GlushList<T> right;
-  final int _hashCode;
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Concat<T> &&
-          _hashCode == other._hashCode &&
-          left == other.left &&
-          right == other.right;
-
-  @override
-  int get hashCode => _hashCode;
 }
 
 /// Represents parallel marks at the same span from different derivations.
 class Conjunction<T> extends GlushList<T> {
-  Conjunction._(this.left, this.right) : _hashCode = Object.hash(Conjunction, left, right);
+  const Conjunction._(this.left, this.right);
   final GlushList<T> left;
   final GlushList<T> right;
-  final int _hashCode;
 
   @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Conjunction<T> &&
-          _hashCode == other._hashCode &&
-          left == other.left &&
-          right == other.right;
-
-  @override
-  int get hashCode => _hashCode;
 }
 
 /// A lazy version of [GlushList] where all operations are thunks.

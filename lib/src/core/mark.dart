@@ -230,14 +230,6 @@ class NamedMarkVal extends LazyVal<Mark> {
   Mark evaluate() => NamedMark(name, position);
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NamedMarkVal && name == other.name && position == other.position;
-
-  @override
-  int get hashCode => Object.hash(NamedMarkVal, name, position);
-
-  @override
   String toString() => "NamedMark($name, $position)";
 }
 
@@ -248,14 +240,6 @@ class StringMarkVal extends LazyVal<Mark> {
 
   @override
   Mark evaluate() => StringMark(value, position);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is StringMarkVal && value == other.value && position == other.position;
-
-  @override
-  int get hashCode => Object.hash(StringMarkVal, value, position);
 
   @override
   String toString() => "StringMark($value, $position)";
@@ -270,14 +254,6 @@ class LabelStartVal extends LazyVal<Mark> {
   Mark evaluate() => LabelStartMark(name, position);
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is LabelStartVal && name == other.name && position == other.position;
-
-  @override
-  int get hashCode => Object.hash(LabelStartVal, name, position);
-
-  @override
   String toString() => "LabelStart($name, $position)";
 }
 
@@ -290,14 +266,6 @@ class LabelEndVal extends LazyVal<Mark> {
   Mark evaluate() => LabelEndMark(name, position);
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is LabelEndVal && name == other.name && position == other.position;
-
-  @override
-  int get hashCode => Object.hash(LabelEndVal, name, position);
-
-  @override
   String toString() => "LabelEnd($name, $position)";
 }
 
@@ -308,14 +276,6 @@ class ExpandingMarkVal extends LazyVal<Mark> {
 
   @override
   Mark evaluate() => ExpandingMark(name, position);
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ExpandingMarkVal && name == other.name && position == other.position;
-
-  @override
-  int get hashCode => Object.hash(ExpandingMarkVal, name, position);
 
   @override
   String toString() => "ExpandingMark($name, $position)";

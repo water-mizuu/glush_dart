@@ -101,6 +101,24 @@ class Context {
     );
   }
 
+  /// Fast-path for the common case where only the position advances.
+  /// Avoids recomputing the full hash when nothing else changes.
+  Context advancePosition(int newPosition) {
+    if (newPosition == position) {
+      return this;
+    }
+    return Context(
+      caller,
+      arguments: arguments,
+      captures: captures,
+      predicateStack: predicateStack,
+      callStart: callStart,
+      position: newPosition,
+      minPrecedenceLevel: minPrecedenceLevel,
+      precedenceLevel: precedenceLevel,
+    );
+  }
+
   /// Creates a copy of this context for a rule call.
   Context withCaller(CallerKey nextCaller, {Map<String, Object?>? arguments}) {
     if (identical(nextCaller, caller) && arguments == null) {
@@ -173,10 +191,45 @@ final class ContextGroup {
   final State state;
   final Context context;
 
-  /// Optimized mark merging: avoids List allocation and final fold.
-  LazyGlushList<Mark> mergedMarks = const LazyGlushList<Mark>.empty();
+  /// Batch mark accumulation: stored in a list, merged into a balanced tree on access.
+  LazyGlushList<Mark>? _single;
+  List<LazyGlushList<Mark>>? _batch;
+
+  LazyGlushList<Mark> get mergedMarks {
+    if (_batch case var batch?) {
+      return _buildBalanced(batch, 0, batch.length);
+    }
+    return _single ?? const LazyGlushList<Mark>.empty();
+  }
 
   void addMarks(LazyGlushList<Mark> marks) {
-    mergedMarks = mergedMarks.isEmpty ? marks : LazyGlushList.branched(mergedMarks, marks);
+    if (_single == null && _batch == null) {
+      _single = marks;
+      return;
+    }
+    if (_batch == null) {
+      _batch = [_single!, marks];
+      _single = null;
+    } else {
+      _batch!.add(marks);
+    }
+  }
+
+  static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int start, int end) {
+    var len = end - start;
+    if (len == 0) {
+      return const LazyGlushList<Mark>.empty();
+    }
+    if (len == 1) {
+      return items[start];
+    }
+    if (len == 2) {
+      return LazyGlushList.branched(items[start], items[start + 1]);
+    }
+    var mid = start + (len >> 1);
+    return LazyGlushList.branched(
+      _buildBalanced(items, start, mid),
+      _buildBalanced(items, mid, end),
+    );
   }
 }

@@ -178,7 +178,7 @@ class Step {
     for (var (_, parentContext, nextState, parentMarks) in targetWaiters) {
       // Add the parallel result to the parent marks.
       var nextMarks = parentMarks.addList(conjunctionResult);
-      var nextContext = parentContext.copyWith(position: endPosition);
+      var nextContext = parentContext.advancePosition(endPosition);
 
       requeue(Frame(nextContext, nextMarks)..nextStates.add(nextState));
     }
@@ -1081,13 +1081,13 @@ class Step {
         } else {
           _nextFrameGroupsInt[packedId] = ContextGroup(
             action.nextState,
-            frameContext.copyWith(position: position + 1),
+            frameContext.advancePosition(position + 1),
           )..addMarks(newMarks);
         }
       } else {
         var complexKey = ComplexContextKey(
           action.nextState,
-          frameContext.copyWith(position: position + 1),
+          frameContext.advancePosition(position + 1),
         );
         var nextGroup = _nextFrameGroupsComplex[complexKey];
         if (nextGroup != null) {
@@ -1095,7 +1095,7 @@ class Step {
         } else {
           _nextFrameGroupsComplex[complexKey] = ContextGroup(
             action.nextState,
-            frameContext.copyWith(position: position + 1),
+            frameContext.advancePosition(position + 1),
           )..addMarks(newMarks);
         }
       }
@@ -1142,14 +1142,14 @@ class Step {
           GlushProfiler.incrementMiss("parser.context.dedup");
           nextGroup = _nextFrameGroupsInt[packedId] = ContextGroup(
             action.nextState,
-            frameContext.copyWith(position: position + 1),
+            frameContext.advancePosition(position + 1),
           );
         }
         nextGroup.addMarks(newMarks);
       } else {
         var complexKey = ComplexContextKey(
           action.nextState,
-          frameContext.copyWith(position: position + 1),
+          frameContext.advancePosition(position + 1),
         );
         var nextGroup = _nextFrameGroupsComplex[complexKey];
         if (nextGroup != null) {
@@ -1158,7 +1158,7 @@ class Step {
           GlushProfiler.incrementMiss("parser.context.dedup");
           nextGroup = _nextFrameGroupsComplex[complexKey] = ContextGroup(
             action.nextState,
-            frameContext.copyWith(position: position + 1),
+            frameContext.advancePosition(position + 1),
           );
         }
         nextGroup.addMarks(newMarks);

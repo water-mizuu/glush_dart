@@ -15,29 +15,35 @@ void main() {
       expect(result, equals([1, 2]));
     });
 
-    test("Structural equality works", () {
+    test("Identity-based lists are distinct instances", () {
       var l1 = const GlushList<int>.empty().add(1).add(2);
       var l2 = const GlushList<int>.empty().add(1).add(2);
-      expect(l1, equals(l2));
-      expect(l1.hashCode, equals(l2.hashCode));
-      // They might not be identical without interning, which is fine now.
+      // After removing structural equality, non-identical instances are not equal.
+      expect(identical(l1, l2), isFalse);
+      // But their contents are equivalent.
+      expect(l1.iterate().toList(), equals(l2.iterate().toList()));
     });
 
-    test("FragmentList creation and equality", () {
+    test("FragmentList creation and value equivalence", () {
       var l1 = const GlushList<int>.empty().add(1).add(2);
       expect(l1 is Push, isTrue);
 
       var l2 = const GlushList<int>.empty().add(1).add(2);
-      expect(l1, equals(l2));
+      // Identity-based: distinct instances, same content.
+      expect(l1.iterate().toList(), equals(l2.iterate().toList()));
     });
 
-    test("BranchedList deduplicates alternatives structurally", () {
+    test("BranchedList deduplicates alternatives by identity", () {
       var l1 = const GlushList<int>.empty().add(1);
-      var l2 = const GlushList<int>.empty().add(1);
-      var branched = GlushList.branched(l1, l2);
-
-      expect(branched, equals(l1));
+      // Same instance used twice => identity dedup collapses to l1
+      var branched = GlushList.branched(l1, l1);
+      expect(identical(branched, l1), isTrue);
       expect(branched is! BranchedList, isTrue);
+
+      // Different instances with same content => NOT deduped
+      var l2 = const GlushList<int>.empty().add(1);
+      var branched2 = GlushList.branched(l1, l2);
+      expect(branched2 is BranchedList, isTrue);
     });
 
     test("Concat joins two lists", () {
