@@ -40,13 +40,18 @@ final class RootCallerKey extends CallerKey {
 
 /// Caller key for a lookahead predicate sub-parse.
 final class PredicateCallerKey extends CallerKey {
-  PredicateCallerKey(this.pattern, this.startPosition)
-    : uid = -((pattern.hashCode.abs() << 24) | (startPosition & 0xFFFFFF));
+  PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd, this.name})
+    : uid = -((pattern.hashCode.abs() << 24) |
+          (startPosition & 0x7FFFFF) |
+          (isAnd ? 0x800000 : 0) ^
+          (name?.hashCode ?? 0));
 
   @override
   final int startPosition;
 
   final PatternSymbol pattern;
+  final bool isAnd;
+  final String? name;
 
   @override
   final int uid;
@@ -55,13 +60,19 @@ final class PredicateCallerKey extends CallerKey {
   bool operator ==(Object other) =>
       other is PredicateCallerKey &&
       pattern == other.pattern &&
-      startPosition == other.startPosition;
+      startPosition == other.startPosition &&
+      isAnd == other.isAnd &&
+      name == other.name;
 
   @override
-  int get hashCode => Object.hash(pattern, startPosition);
+  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
 
   @override
-  String toString() => "pred($pattern @ $startPosition)";
+  String toString() {
+    var desc = name != null ? "($name:$pattern)" : "($pattern)";
+    var prefix = isAnd ? "&" : "!";
+    return "pred($prefix$desc @ $startPosition)";
+  }
 }
 
 /// Caller key for a conjunction sub-parse branch.

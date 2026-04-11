@@ -112,7 +112,12 @@ class Step {
         "Invariant violation in requeue: predicate stack lookup implies non-empty stack.",
       );
       // A requeued predicate frame is still live work for that tracker.
-      var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+      var key = PredicateKey(
+        predicateKey.pattern,
+        predicateKey.startPosition,
+        isAnd: predicateKey.isAnd,
+        name: predicateKey.name,
+      );
       var tracker = parseState.predicateTrackers[key];
       tracker?.addPendingFrame();
       if (tracker != null) {
@@ -209,14 +214,19 @@ class Step {
   ///
   /// Predicates are lookahead-only, so their entry states are spawned in a
   /// separate sub-parse that can resolve later and wake parked continuations.
-  void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame) {
+  void _spawnPredicateSubparse(
+    PatternSymbol symbol,
+    Frame frame, {
+    required bool isAnd,
+    String? name,
+  }) {
     var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
     // Missing entry states indicates invalid predicate target symbol.
     if (entryState == null) {
       // Predicates must map to rule entries in the state machine.
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
     }
-    var predicateKey = PredicateCallerKey(symbol, position);
+    var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd, name: name);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
     parseState.tracer.onMessage("Spawning sub-parse for predicate: $symbol");
@@ -635,10 +645,11 @@ class Step {
     required String text,
     required Frame frame,
     required bool isAnd,
+    String? name,
   }) {
     var entryState = parseState.parser.stateMachine.parameterPredicateEntry(text);
     var syntheticSymbol = -1; // Synthetic symbols for predicates are now represented as -1
-    var newPredicateKey = PredicateCallerKey(syntheticSymbol, position);
+    var newPredicateKey = PredicateCallerKey(syntheticSymbol, position, isAnd: isAnd, name: name);
     var nextStack = frame.context.predicateStack.add(newPredicateKey);
 
     _enqueue(
@@ -735,7 +746,7 @@ class Step {
     _activeContextKeysComplex.add(key);
 
     if (nextContext.predicateStack.lastOrNull case var pk?) {
-      var pKey = PredicateKey(pk.pattern, pk.startPosition);
+      var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
       var tracker = parseState.predicateTrackers[pKey];
       tracker?.addPendingFrame();
       if (tracker != null) {
@@ -902,7 +913,12 @@ class Step {
     nextFrame.nextStates.add(nextGroup.state);
 
     if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-      var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+      var key = PredicateKey(
+        predicateKey.pattern,
+        predicateKey.startPosition,
+        isAnd: predicateKey.isAnd,
+        name: predicateKey.name,
+      );
       var tracker = parseState.predicateTrackers[key];
       if (tracker != null) {
         tracker.addPendingFrame();
@@ -939,7 +955,7 @@ class Step {
       var context = group.context;
 
       if (context.predicateStack.lastOrNull case var pk?) {
-        var pKey = PredicateKey(pk.pattern, pk.startPosition);
+        var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
@@ -1004,7 +1020,7 @@ class Step {
       var context = group.context;
 
       if (context.predicateStack.lastOrNull case var pk?) {
-        var pKey = PredicateKey(pk.pattern, pk.startPosition);
+        var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
@@ -1233,7 +1249,7 @@ class Step {
     // Lookahead predicate (&pattern or !pattern).
     // Spawns a sub-parse that must complete before this path can continue.
     var symbol = action.symbol;
-    var subParseKey = PredicateKey(symbol, position);
+    var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd);
     var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
 
     // Use a tracker to coordinate results from the sub-parse.
@@ -1280,7 +1296,12 @@ class Step {
       var predicateKey = frameContext.predicateStack.lastOrNull;
       if (predicateKey != null) {
         // Register dependency: the parent predicate depends on this child's completion.
-        var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+        var key = PredicateKey(
+          predicateKey.pattern,
+          predicateKey.startPosition,
+          isAnd: predicateKey.isAnd,
+          name: predicateKey.name,
+        );
         parseState.predicateTrackers[key]?.addPendingFrame();
       }
     } else if (tracker.canResolveFalse) {
@@ -1300,7 +1321,7 @@ class Step {
 
     // Seed the sub-parse if this is the first time we've reached this predicate.
     if (isFirst && !tracker.matched && !tracker.exhausted) {
-      _spawnPredicateSubparse(symbol, frame);
+      _spawnPredicateSubparse(symbol, frame, isAnd: action.isAnd);
     }
   }
 
@@ -1471,6 +1492,10 @@ class Step {
         if (token != null && pattern.match(token)) {
           _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
         }
+      case bool matches:
+        if (matches) {
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
+        }
       case Pattern pattern:
         throw UnsupportedError(
           "Complex parser objects used as parameters are not supported yet: ${pattern.runtimeType}",
@@ -1573,7 +1598,12 @@ class Step {
           return;
         }
         var predicateSymbol = -1;
-        var subParseKey = PredicateKey(predicateSymbol, position);
+        var subParseKey = PredicateKey(
+          predicateSymbol,
+          position,
+          isAnd: action.isAnd,
+          name: action.name,
+        );
         var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
         var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
           predicateSymbol,
@@ -1609,7 +1639,12 @@ class Step {
           tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
           var predicateKey = frameContext.predicateStack.lastOrNull;
           if (predicateKey != null) {
-            var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+            var key = PredicateKey(
+              predicateKey.pattern,
+              predicateKey.startPosition,
+              isAnd: predicateKey.isAnd,
+              name: predicateKey.name,
+            );
             var parentTracker = parseState.predicateTrackers[key];
             parentTracker?.addPendingFrame();
           }
@@ -1617,7 +1652,12 @@ class Step {
 
         if (isFirst && !tracker.matched && !tracker.exhausted) {
           // Seed a synthetic state machine to probe the parameter string.
-          _spawnParameterPredicateSubparse(text: text, frame: frame, isAnd: action.isAnd);
+          _spawnParameterPredicateSubparse(
+            text: text,
+            frame: frame,
+            isAnd: action.isAnd,
+            name: action.name,
+          );
         }
       case Rule rule:
       case RuleCall(rule: var rule):
@@ -1633,7 +1673,7 @@ class Step {
           throw StateError("Predicate rule must have a symbol id.");
         }
 
-        var subParseKey = PredicateKey(symbol, position);
+        var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd, name: action.name);
         var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
         if (isFirst) {
           parseState.predicateTrackers[subParseKey] = PredicateTracker(
@@ -1667,7 +1707,12 @@ class Step {
           tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
           var predicateKey = frameContext.predicateStack.lastOrNull;
           if (predicateKey != null) {
-            var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+            var key = PredicateKey(
+              predicateKey.pattern,
+              predicateKey.startPosition,
+              isAnd: predicateKey.isAnd,
+              name: predicateKey.name,
+            );
             var parentTracker = parseState.predicateTrackers[key];
             parentTracker?.addPendingFrame();
           }
@@ -1686,7 +1731,7 @@ class Step {
         }
 
         if (isFirst && !tracker.matched && !tracker.exhausted) {
-          _spawnPredicateSubparse(symbol, frame);
+          _spawnPredicateSubparse(symbol, frame, isAnd: action.isAnd, name: action.name);
         }
       case Eps():
         if (action.isAnd) {
@@ -1702,6 +1747,18 @@ class Step {
         }
       case Pattern pattern when pattern.singleToken():
         var matches = token != null && pattern.match(token);
+        if (matches == action.isAnd) {
+          _resumeLaggedPredicateContinuation(
+            source: source,
+            parentContext: frame.context,
+            parentMarks: frame.marks,
+            nextState: action.nextState,
+            isAnd: action.isAnd,
+            symbol: -1,
+            branchKey: ActionBranchKey(action),
+          );
+        }
+      case bool matches:
         if (matches == action.isAnd) {
           _resumeLaggedPredicateContinuation(
             source: source,
@@ -1849,7 +1906,12 @@ class Step {
         frame.context.predicateStack.lastOrNull == caller,
         "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
       );
-      var key = PredicateKey(caller.pattern, caller.startPosition);
+      var key = PredicateKey(
+        caller.pattern,
+        caller.startPosition,
+        isAnd: caller.isAnd,
+        name: caller.name,
+      );
       var tracker = parseState.predicateTrackers[key];
       if (tracker == null) {
         // The predicate may already have resolved in this position.
@@ -1866,7 +1928,12 @@ class Step {
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
         var predicateKey = parentContext.predicateStack.lastOrNull;
         if (predicateKey != null) {
-          var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+          var key = PredicateKey(
+            predicateKey.pattern,
+            predicateKey.startPosition,
+            isAnd: predicateKey.isAnd,
+            name: predicateKey.name,
+          );
           var parentTracker = parseState.predicateTrackers[key];
           if (parentTracker != null) {
             // This child branch is no longer pending in the parent predicate.

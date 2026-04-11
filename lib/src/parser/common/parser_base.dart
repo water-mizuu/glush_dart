@@ -53,7 +53,12 @@ abstract base class GlushParserBase implements GlushParser {
           for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
             var predicateKey = parentContext.predicateStack.lastOrNull;
             if (predicateKey != null) {
-              var key = PredicateKey(predicateKey.pattern, predicateKey.startPosition);
+              var key = PredicateKey(
+                predicateKey.pattern,
+                predicateKey.startPosition,
+                isAnd: predicateKey.isAnd,
+                name: predicateKey.name,
+              );
               var parentTracker = parseState.predicateTrackers[key];
               if (parentTracker != null) {
                 parentTracker.removePendingFrame();
@@ -65,7 +70,12 @@ abstract base class GlushParserBase implements GlushParser {
               var targetPosition = parentContext.position;
               var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
               if (parentContext.predicateStack.lastOrNull case var pk?) {
-                var key = PredicateKey(pk.pattern, pk.startPosition);
+                var key = PredicateKey(
+                  pk.pattern,
+                  pk.startPosition,
+                  isAnd: pk.isAnd,
+                  name: pk.name,
+                );
                 var parentTracker = parseState.predicateTrackers[key];
                 if (parentTracker != null) {
                   parentTracker.addPendingFrame();
@@ -223,7 +233,7 @@ abstract base class GlushParserBase implements GlushParser {
           // Contract note mirrors processFrame():
           // tracker can be absent after cleanup of an exhausted predicate.
           // Dequeued predicate-owned frame consumes one pending work unit.
-          var key = PredicateKey(pk.pattern, pk.startPosition);
+          var key = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
           var tracker = parseState.predicateTrackers[key];
           if (tracker != null) {
             tracker.removePendingFrame();
@@ -248,7 +258,6 @@ abstract base class GlushParserBase implements GlushParser {
         currentStep.processFrameEnqueue(frame);
       }
       currentStep.processFrameFinalize();
-
       currentStep.finalize();
 
       var nextQueuedPosition = workQueue.firstKeyOrNull;

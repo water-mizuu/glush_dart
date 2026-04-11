@@ -4,19 +4,29 @@ import "package:meta/meta.dart";
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 @immutable
 class PredicateKey {
-  const PredicateKey(this.pattern, this.startPosition);
+  const PredicateKey(this.pattern, this.startPosition, {required this.isAnd, this.name});
   final PatternSymbol pattern;
   final int startPosition;
+  final bool isAnd;
+  final String? name;
 
   @override
   bool operator ==(Object other) =>
-      other is PredicateKey && pattern == other.pattern && startPosition == other.startPosition;
+      other is PredicateKey &&
+      pattern == other.pattern &&
+      startPosition == other.startPosition &&
+      isAnd == other.isAnd &&
+      name == other.name;
 
   @override
-  int get hashCode => Object.hash(pattern, startPosition);
+  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
 
   @override
-  String toString() => "pred($pattern @ $startPosition)";
+  String toString() {
+    var desc = name != null ? "($name:$pattern)" : "($pattern)";
+    var prefix = isAnd ? "&" : "!";
+    return "pred($prefix$desc @ $startPosition)";
+  }
 }
 
 /// Partner-end rendezvous for negations (!pattern).
