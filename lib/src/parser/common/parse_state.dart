@@ -23,8 +23,12 @@ final class ParseState {
     this.tracer = const NullTracer(),
   }) : frames = initialFrames,
        rulesByName = {
-         for (var rule in parser.grammar.rules) rule.symbolId!.symbol: rule,
-         for (var rule in parser.stateMachine.allRules.values) rule.symbolId!.symbol: rule,
+         for (var rule in parser.grammar.rules) rule.name!: rule,
+         for (var rule in parser.stateMachine.allRules.values) rule.name!: rule,
+       },
+       rulesById = {
+         for (var rule in parser.grammar.rules) rule.symbolId!: rule,
+         for (var rule in parser.stateMachine.allRules.values) rule.symbolId!: rule,
        } {
     tracer.onStart(parser.stateMachine);
   }
@@ -43,7 +47,8 @@ final class ParseState {
   final Map<int, Caller> callersInt = {};
   final Map<ComplexCallerCacheKey, Caller> callersComplex = {};
 
-  final Map<String, Rule> rulesByName;
+  final Map<RuleName, Rule> rulesByName;
+  final Map<int, Rule> rulesById;
   final Map<(GlushList<Mark>, String), CaptureValue?> labelCaptureCache = {};
 
   int position = 0;

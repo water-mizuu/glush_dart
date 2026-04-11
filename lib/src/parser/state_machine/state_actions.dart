@@ -77,7 +77,6 @@ final class BoundaryAction implements StateAction {
   String toString() => "Boundary(${kind.name})";
 }
 
-
 /// Action to mark the start of a labeled capture group.
 final class LabelStartAction implements StateAction {
   /// Create a label start action.
@@ -248,8 +247,8 @@ final class CallAction implements StateAction {
 
   @override
   String toString() => minPrecedenceLevel != null
-      ? "CallAction(${ruleSymbol.symbol}^$minPrecedenceLevel)"
-      : "CallAction(${ruleSymbol.symbol})";
+      ? "CallAction($ruleSymbol^$minPrecedenceLevel)"
+      : "CallAction($ruleSymbol)";
 }
 
 /// Action for tail-call optimization of recursive rules.
@@ -276,8 +275,8 @@ final class TailCallAction implements StateAction {
 
   @override
   String toString() => minPrecedenceLevel != null
-      ? "TailCallAction(${ruleSymbol.symbol}^$minPrecedenceLevel)"
-      : "TailCallAction(${ruleSymbol.symbol})";
+      ? "TailCallAction($ruleSymbol^$minPrecedenceLevel)"
+      : "TailCallAction($ruleSymbol)";
 }
 
 /// Action to return from a rule call and pop the call stack.
@@ -297,8 +296,8 @@ final class ReturnAction implements StateAction {
 
   @override
   String toString() => precedenceLevel != null
-      ? "ReturnAction(${ruleSymbol.symbol}, prec: $precedenceLevel)"
-      : "ReturnAction(${ruleSymbol.symbol})";
+      ? "ReturnAction($ruleSymbol, prec: $precedenceLevel)"
+      : "ReturnAction($ruleSymbol)";
 }
 
 /// Action to accept the input and complete parsing successfully.

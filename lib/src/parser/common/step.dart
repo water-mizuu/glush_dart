@@ -381,7 +381,7 @@ class Step {
     // position, caller arguments, and lazy access to marks/captures.
     var values = <String, Object?>{
       "rule": rule,
-      "ruleName": rule.name.symbol,
+      "ruleName": rule.name,
       "position": position,
       "callStart": frame.context.callStart,
       "minPrecedenceLevel": frame.context.minPrecedenceLevel,
@@ -395,7 +395,7 @@ class Step {
       values: values,
       valuesKey: GuardValuesKey(
         captureSignature: frame.context.captures.signature,
-        ruleName: rule.name.symbol,
+        ruleName: rule.name,
         position: position,
         callStart: frame.context.callStart,
         minPrecedenceLevel: frame.context.minPrecedenceLevel,
@@ -637,7 +637,7 @@ class Step {
     required bool isAnd,
   }) {
     var entryState = parseState.parser.stateMachine.parameterPredicateEntry(text);
-    var syntheticSymbol = PatternSymbol("_param_${isAnd ? 'and' : 'not'}_$text");
+    var syntheticSymbol = -1; // Synthetic symbols for predicates are now represented as -1
     var newPredicateKey = PredicateCallerKey(syntheticSymbol, position);
     var nextStack = frame.context.predicateStack.add(newPredicateKey);
 
@@ -1385,7 +1385,7 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
     // Static rule call (GLL).
     // Resolves arguments and initiates rule expansion via GSS.
-    var targetRule = parseState.rulesByName[action.ruleSymbol.symbol]!;
+    var targetRule = parseState.rulesById[action.ruleSymbol]!;
     var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
 
     _seedRuleCall(
@@ -1566,13 +1566,13 @@ class Step {
               parentMarks: frame.marks,
               nextState: action.nextState,
               isAnd: action.isAnd,
-              symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
+              symbol: -1,
               branchKey: ActionBranchKey(action),
             );
           }
           return;
         }
-        var predicateSymbol = PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_$text");
+        var predicateSymbol = -1;
         var subParseKey = PredicateKey(predicateSymbol, position);
         var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
         var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
@@ -1696,7 +1696,7 @@ class Step {
             parentMarks: frame.marks,
             nextState: action.nextState,
             isAnd: action.isAnd,
-            symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_eps"),
+            symbol: -1,
             branchKey: ActionBranchKey(action),
           );
         }
@@ -1709,7 +1709,7 @@ class Step {
             parentMarks: frame.marks,
             nextState: action.nextState,
             isAnd: action.isAnd,
-            symbol: PatternSymbol("_param_${action.isAnd ? 'and' : 'not'}_${pattern.runtimeType}"),
+            symbol: -1,
             branchKey: ActionBranchKey(action),
           );
         }
@@ -1727,7 +1727,7 @@ class Step {
     var source = ParseNodeKey(state.id, position, frameContext.caller);
     // Tail calls still respect argument resolution and guards, but avoid
     // allocating a fresh caller when the recursion can be looped.
-    var targetRule = parseState.rulesByName[action.ruleSymbol.symbol]!;
+    var targetRule = parseState.rulesById[action.ruleSymbol]!;
     var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
     if (!_ruleGuardPasses(
       targetRule,
@@ -1790,7 +1790,7 @@ class Step {
       if (hasTailOnlyPath && nextTailCall != null && state.actions.length == 1) {
         // Single tail call action - jump to it directly
         var tailCall = nextTailCall;
-        var targetRule = parseState.rulesByName[tailCall.ruleSymbol.symbol]!;
+        var targetRule = parseState.rulesById[tailCall.ruleSymbol]!;
         var resolvedCall = _resolveCallArgumentValues(
           tailCall.arguments,
           Frame(context, marks),

@@ -135,8 +135,7 @@ class StateMachine {
   List<State> _initialStates = [];
   final Map<(String, State), State> _parameterStringChains = {};
   final Map<String, State> _parameterPredicateChains = {};
-  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps())
-    ..symbolId = const PatternSymbol("_parameter_predicate");
+  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps())..symbolId = -1;
 
   final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
@@ -795,9 +794,9 @@ String _toDot(StateMachine machine) {
   // Create rule-specific return nodes for visualization
   // Each rule gets its own return node to make control flow clearer
   for (var symbol in returnRules) {
-    var returnNodeId = "__return_${symbol.symbol}__";
+    var returnNodeId = "__return_${symbol}__";
     buffer.writeln(
-      '  "$returnNodeId" [shape=box, label="return ${symbol.symbol}", style=filled, fillcolor=lightgray];',
+      '  "$returnNodeId" [shape=box, label="return $symbol", style=filled, fillcolor=lightgray];',
     );
   }
 
@@ -860,23 +859,23 @@ String _toDot(StateMachine machine) {
       else if (action is CallAction) {
         var toStateId = "S${action.returnState.id}";
         var ruleDisplay = action.minPrecedenceLevel != null
-            ? "${action.ruleSymbol.symbol}^${action.minPrecedenceLevel}"
-            : action.ruleSymbol.symbol;
+            ? "${action.ruleSymbol}^${action.minPrecedenceLevel}"
+            : action.ruleSymbol;
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="call $ruleDisplay", style=bold];');
       }
       // TailCallAction: optimized recursive call (loops back to same state)
       else if (action is TailCallAction) {
         var ruleDisplay = action.minPrecedenceLevel != null
-            ? "${action.ruleSymbol.symbol}^${action.minPrecedenceLevel}"
-            : action.ruleSymbol.symbol;
+            ? "${action.ruleSymbol}^${action.minPrecedenceLevel}"
+            : action.ruleSymbol;
         buffer.writeln(
           '  "$fromStateId" -> "$fromStateId" [label="tail call $ruleDisplay", style=bold];',
         );
       }
       // ReturnAction: return from a subroutine to the rule's return node
       else if (action is ReturnAction) {
-        var returnNodeId = "__return_${action.ruleSymbol.symbol}__";
-        var labelStr = action.ruleSymbol.symbol;
+        var returnNodeId = "__return_${action.ruleSymbol}__";
+        var labelStr = (machine.grammar.registry[action.ruleSymbol]! as Rule).name as String;
         if (action.precedenceLevel != null) {
           labelStr = "$labelStr (prec: ${action.precedenceLevel})";
         }

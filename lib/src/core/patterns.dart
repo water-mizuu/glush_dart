@@ -53,7 +53,7 @@ final class GuardValuesKey extends CallArgumentsKey {
   });
 
   final String captureSignature;
-  final String ruleName;
+  final RuleName ruleName;
   final int position;
   final int callStart;
   final int? minPrecedenceLevel;
@@ -110,7 +110,7 @@ final class MergedCallArgumentsKey extends CallArgumentsKey {
   int get hashCode => Object.hash(left, right);
 }
 
-extension type const PatternSymbol(String symbol) {}
+typedef PatternSymbol = int;
 
 String _callArgumentSourceKey(Map<String, CallArgumentValue> arguments) {
   // The source key is a canonical description of the call arguments so the
@@ -187,7 +187,7 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
       _writeCanonicalString(buffer, value);
     case Rule(:var name):
       buffer.write("r");
-      _writeCanonicalString(buffer, name.symbol);
+      _writeCanonicalString(buffer, name.toString());
     case PatternClosureValue(:var key):
       buffer.write("c");
       _writeCanonicalString(buffer, key);
@@ -202,7 +202,7 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
       _writeCanonicalString(buffer, argumentsKey);
     case Pattern(:var symbolId):
       buffer.write("p");
-      _writeCanonicalString(buffer, symbolId?.symbol ?? value.runtimeType.toString());
+      _writeCanonicalString(buffer, symbolId?.toString() ?? value.runtimeType.toString());
     case List<Object?> items:
       buffer
         ..write("l")
@@ -255,10 +255,10 @@ String _formatCallArgument<T>(T value) {
     null => "null",
     bool() || num() => "$value",
     String() => '"${value.replaceAll(r"\", r"\\").replaceAll('"', r'\"')}"',
-    Rule(:var name) => name.symbol,
+    Rule(:var name) => name.toString(),
     CaptureValue(:var value) => value,
     ParameterCallPattern(:var name, :var argumentsKey) => "paramcall($name:$argumentsKey)",
-    Pattern(:var symbolId) => symbolId?.symbol ?? value.toString(),
+    Pattern(:var symbolId) => symbolId?.toString() ?? value.toString(),
     _GuardLiteralValue(:var value) => _formatCallArgument(value),
     _GuardArgumentValue(:var name) => name,
     _GuardNameValue(:var name) => name,
@@ -451,7 +451,7 @@ final class _CallArgumentRuleValue extends CallArgumentValue {
   final Rule rule;
 
   @override
-  Map<String, Object?> toJson() => {"type": "rul", "ruleName": rule.name.symbol};
+  Map<String, Object?> toJson() => {"type": "rul", "ruleName": rule.name};
 
   @override
   Object? resolve(GuardEnvironment env) => rule;
@@ -460,7 +460,7 @@ final class _CallArgumentRuleValue extends CallArgumentValue {
   Object? resolveData() => rule;
 
   @override
-  String format() => rule.name.symbol;
+  String format() => rule.name.toString();
 
   @override
   void collectRules(Set<Rule> rules) {
@@ -755,7 +755,7 @@ final class PatternClosureValue {
 
   Map<String, Object?> toJson() => {
     "body": body.toJson(),
-    "ruleName": environment.rule.name.symbol,
+    "ruleName": environment.rule.name,
     "arguments": environment.arguments,
   };
 
@@ -772,7 +772,7 @@ String _patternClosureKey(Pattern body, GuardEnvironment environment) {
   var buffer = StringBuffer();
   _writeCanonicalString(buffer, body.toString());
   buffer.write("|");
-  _writeCanonicalString(buffer, environment.rule.name.symbol);
+  _writeCanonicalString(buffer, environment.rule.name.toString());
   buffer.write("|");
   _writeCanonicalValue(buffer, environment.arguments);
   buffer.write("|");
@@ -809,7 +809,7 @@ Pattern _resolvePatternValue(Pattern pattern, GuardEnvironment env) {
       name,
     )) {
       Rule rule => RuleCall(
-        rule.name.symbol,
+        rule.name.toString(),
         rule,
         arguments: {
           for (var entry in arguments.entries)
@@ -1173,7 +1173,7 @@ final class GuardEnvironment {
     CallArgumentsKey? valuesKey,
     this.valueResolver,
     this.captureResolver,
-    this.rulesByName = const <String, Rule>{},
+    this.rulesByName = const <RuleName, Rule>{},
   }) : _marksForest = marks,
        valuesKey =
            valuesKey ??
@@ -1188,7 +1188,7 @@ final class GuardEnvironment {
   final CallArgumentsKey valuesKey;
   final Object? Function(String name)? valueResolver;
   final CaptureValue? Function(LazyGlushList<Mark>, String)? captureResolver;
-  final Map<String, Rule> rulesByName;
+  final Map<RuleName, Rule> rulesByName;
 
   final Map<String, CaptureValue?> _captureCache = {};
 
@@ -1223,7 +1223,7 @@ final class GuardEnvironment {
     }
 
     // Stage 4: Captures and rule references
-    return _resolveCapture(name) ?? rulesByName[name];
+    return _resolveCapture(name) ?? rulesByName[RuleName(name)];
   }
 
   GuardEnvironment mergeWith(Map<String, Object?> additions) {
@@ -1736,28 +1736,15 @@ sealed class Pattern {
       _ => throw UnsupportedError("Unknown pattern type: $type"),
     };
     if (json["symbolId"] != null) {
-      pattern._symbolId = PatternSymbol(json["symbolId"]! as String);
+      pattern.symbolId = json["symbolId"]! as int;
     }
     return pattern;
   }
-  Map<String, Object?> toJson() => {"type": _symbolPrefix, "symbolId": _symbolId?.symbol};
+  Map<String, Object?> toJson() => {"type": _symbolPrefix, "symbolId": symbolId};
 
   /// Symbol ID assigned by the grammar this pattern belongs to.
   /// Initially null, assigned during Grammar.finalize()
-  PatternSymbol? _symbolId;
-
-  PatternSymbol? get symbolId =>
-      (_symbolId == null) //
-      ? null
-      : PatternSymbol("$_symbolPrefix:$_symbolId:$_symbolSuffix");
-
-  set symbolId(PatternSymbol id) {
-    if ((id as String).split(":") case [_, var mid, _]) {
-      _symbolId = PatternSymbol(mid);
-      return;
-    }
-    _symbolId = id;
-  }
+  PatternSymbol? symbolId;
 
   bool? _isEmptyComputed;
   bool? _isEmpty;
@@ -1875,43 +1862,6 @@ sealed class Pattern {
       LabelEnd() => "lae",
       Backreference() => "bac",
       IfCond() => "if",
-    };
-  }
-
-  String get _symbolSuffix {
-    return switch (this) {
-      Token(:var choice) => switch (choice) {
-        AnyToken() => ".any",
-        ExactToken(:var value) => ";$value",
-        RangeToken(:var start, :var end) => "[$start,$end",
-        LessToken(:var bound) => "<$bound",
-        GreaterToken(:var bound) => ">$bound",
-      },
-      Marker(:var name) => name,
-      StartAnchor() => "",
-      EofAnchor() => "",
-      Eps() => "",
-      Alt() => "",
-      Seq() => "",
-      Conj() => "",
-      And() => "",
-      Not() => "",
-      Neg() => "",
-      Rule() => "",
-      RuleCall(minPrecedenceLevel: var prec) => prec == null ? "" : "$prec",
-      ParameterRefPattern(:var name) => name,
-      ParameterCallPattern(:var name, minPrecedenceLevel: var prec) =>
-        "$name${prec == null ? "" : prec.toString()}",
-      Action() => "",
-      Prec(precedenceLevel: var prec) => "$prec",
-      Opt() => "",
-      Plus() => "",
-      Star() => "",
-      Label(:var name) => name,
-      LabelStart(:var name) => name,
-      LabelEnd(:var name) => name,
-      Backreference(:var name) => name,
-      IfCond() => "",
     };
   }
 
@@ -2818,7 +2768,7 @@ class Rule extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "rul", "name": name.symbol};
+  Map<String, Object?> toJson() => {"type": "rul", "ruleName": name.symbol, "symbolId": symbolId};
 
   @override
   String toString() => "<$name>";
@@ -2852,6 +2802,7 @@ class RuleCall extends Pattern {
     "ruleName": rule.name.symbol,
     "arguments": arguments.map((k, v) => MapEntry(k, v.toJson())),
     "minPrecedenceLevel": minPrecedenceLevel,
+    "symbolId": symbolId,
   };
 
   @override

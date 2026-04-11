@@ -109,7 +109,7 @@ class ParseDerivationWithValue<T> {
   /// Returns null if grammar is unavailable or the symbol is not registered.
   Pattern? get pattern {
     if (grammar case var grammar?) {
-      return grammar.symbolRegistry[tree.symbol];
+      return grammar.registry[tree.symbol];
     }
     return null;
   }

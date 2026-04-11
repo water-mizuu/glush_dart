@@ -69,38 +69,38 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
     },
     CallAction() => {
       "type": "call",
-      "ruleName": action.ruleSymbol.symbol,
+      "ruleName": action.ruleSymbol,
       "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
       "returnState": stateIdMap[action.returnState],
     },
     TailCallAction() => {
       "type": "tailCall",
-      "ruleName": action.ruleSymbol.symbol,
+      "ruleName": action.ruleSymbol,
       "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
     },
     ReturnAction() => {
       "type": "return",
-      "ruleName": action.ruleSymbol.symbol,
+      "ruleName": action.ruleSymbol,
       "precedenceLevel": action.precedenceLevel,
     },
     AcceptAction() => {"type": "accept"},
     PredicateAction() => {
       "type": "predicate",
       "isAnd": action.isAnd,
-      "symbol": action.symbol.symbol,
+      "symbol": action.symbol,
       "nextState": stateIdMap[action.nextState],
     },
     ConjunctionAction() => {
       "type": "conjunction",
-      "leftSymbol": action.leftSymbol.symbol,
-      "rightSymbol": action.rightSymbol.symbol,
+      "leftSymbol": action.leftSymbol,
+      "rightSymbol": action.rightSymbol,
       "nextState": stateIdMap[action.nextState],
     },
     NegationAction() => {
       "type": "negation",
-      "symbol": action.symbol.symbol,
+      "symbol": action.symbol,
       "nextState": stateIdMap[action.nextState],
     },
   };
@@ -145,7 +145,7 @@ StateAction _deserializeAction(
       nextState: stateMap[json["nextState"]]!,
     ),
     "call" => CallAction(
-      PatternSymbol(json["ruleName"]! as String),
+      json["ruleName"]! as int,
       (json["arguments"]! as Map<String, Object?>).map(
         (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
       ),
@@ -153,29 +153,26 @@ StateAction _deserializeAction(
       json["minPrecedenceLevel"] as int?,
     ),
     "tailCall" => TailCallAction(
-      PatternSymbol(json["ruleName"]! as String),
+      json["ruleName"]! as int,
       (json["arguments"]! as Map<String, Object?>).map(
         (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
       ),
       json["minPrecedenceLevel"] as int?,
     ),
-    "return" => ReturnAction(
-      PatternSymbol(json["ruleName"]! as String),
-      json["precedenceLevel"] as int?,
-    ),
+    "return" => ReturnAction(json["ruleName"]! as int, json["precedenceLevel"] as int?),
     "accept" => const AcceptAction(),
     "predicate" => PredicateAction(
       isAnd: json["isAnd"]! as bool,
-      symbol: PatternSymbol(json["symbol"]! as String),
+      symbol: json["symbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     "conjunction" => ConjunctionAction(
-      leftSymbol: PatternSymbol(json["leftSymbol"]! as String),
-      rightSymbol: PatternSymbol(json["rightSymbol"]! as String),
+      leftSymbol: json["leftSymbol"]! as int,
+      rightSymbol: json["rightSymbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     "negation" => NegationAction(
-      symbol: PatternSymbol(json["symbol"]! as String),
+      symbol: json["symbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     _ => throw UnsupportedError("Unknown action type: $type"),
@@ -203,7 +200,7 @@ extension StateMachineExport on StateMachine {
     var rulesJson = allRules.values
         .map(
           (rule) => {
-            "symbolId": rule.symbolId!.symbol,
+            "symbolId": rule.symbolId,
             "name": rule.name.symbol,
             if (rule.guard != null) "guard": rule.guard!.toJson(),
           },
@@ -212,7 +209,7 @@ extension StateMachineExport on StateMachine {
 
     var ruleFirstJson = <String, int>{};
     ruleFirst.forEach((symbol, state) {
-      ruleFirstJson[symbol.symbol] = state.id;
+      ruleFirstJson[symbol.toString()] = state.id;
     });
 
     var export = {
@@ -221,7 +218,7 @@ extension StateMachineExport on StateMachine {
       "initialStates": initialStateIds,
       "rules": rulesJson,
       "ruleFirst": ruleFirstJson,
-      "startSymbol": grammar.startSymbol.symbol,
+      "startSymbol": grammar.startSymbol,
       "startCall": grammar.startCall.toJson(),
     };
 
@@ -259,14 +256,14 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
     for (var serializedRule in rulesData.cast<Map<String, Object?>>()) {
       var name = serializedRule["name"]! as String;
       var rule = Rule(name, () => Eps());
-      rule.symbolId = PatternSymbol(serializedRule["symbolId"]! as String);
+      rule.symbolId = serializedRule["symbolId"]! as int;
       if (serializedRule.containsKey("guard")) {
         rule.guard = GuardExpr.fromJson(serializedRule["guard"]! as Map<String, Object?>, ruleMap);
       }
       ruleMap[name] = rule;
     }
 
-    var startSymbol = PatternSymbol(data["startSymbol"]! as String);
+    var startSymbol = data["startSymbol"]! as int;
     var startCallJson = data["startCall"]! as Map<String, Object?>;
     var startCall = Pattern.fromJson(startCallJson, ruleMap) as RuleCall;
 
@@ -297,8 +294,9 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
   // Reconstruct rule-first mappings
   var ruleFirstData = data["ruleFirst"]! as Map<String, Object?>;
   var ruleFirstMapping = <PatternSymbol, State>{};
-  ruleFirstData.forEach((symbolId, stateId) {
-    ruleFirstMapping[PatternSymbol(symbolId)] = stateMap[stateId! as int]!;
+  ruleFirstData.forEach((symbolIdStr, stateId) {
+    var symbolId = int.parse(symbolIdStr);
+    ruleFirstMapping[symbolId] = stateMap[stateId! as int]!;
   });
 
   // Create and initialize machine
@@ -308,7 +306,7 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
   var rulesData = data["rules"]! as List<Object?>;
   for (var ruleData in rulesData.cast<Map<String, Object?>>()) {
-    machine.rules.add(PatternSymbol(ruleData["symbolId"]! as String));
+    machine.rules.add(ruleData["symbolId"]! as int);
   }
 
   // Initialize from imported data

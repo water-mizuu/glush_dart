@@ -11,12 +11,13 @@ typedef GrammarBuilder = Rule Function();
 // Grammar interface to avoid circular import
 sealed class GrammarInterface {
   /// Maps symbol IDs back to patterns for this grammar
-  Map<PatternSymbol, Pattern> get symbolRegistry;
+  Map<PatternSymbol, Pattern> get registry;
   Map<PatternSymbol, List<PatternSymbol>> get childrenRegistry;
 
   RuleCall get startCall;
   PatternSymbol get startSymbol;
   List<Rule> get rules;
+  Map<PatternSymbol, Rule> get allRules;
   bool isEmpty();
 }
 
@@ -39,10 +40,13 @@ class Grammar implements GrammarInterface {
   final Map<(Pattern, String), Rule> _hoistedPatternRules = {};
 
   @override
-  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> registry = {};
 
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
+  @override
+  final Map<PatternSymbol, Rule> allRules = {};
 
   @override
   PatternSymbol get startSymbol => startCall.rule.symbolId!;
@@ -96,12 +100,12 @@ class Grammar implements GrammarInterface {
     int symbolCounter = 0;
     // Assign symbol IDs to each pattern in discovery order
     for (var pattern in allPatterns) {
-      if (pattern.symbolId == null) {
-        var symbolId = "S${symbolCounter++}";
-        pattern.symbolId = PatternSymbol(symbolId);
-      }
+      pattern.symbolId ??= symbolCounter++;
       var actualSymbolId = pattern.symbolId!;
-      symbolRegistry[actualSymbolId] = pattern;
+      registry[actualSymbolId] = pattern;
+      if (pattern is Rule) {
+        allRules[actualSymbolId] = pattern;
+      }
     }
   }
 
@@ -539,8 +543,9 @@ class IntRange {
 
 class GrammarAdapter implements GrammarInterface {
   GrammarAdapter(StateMachine sm) : rules = sm.grammar.rules, startCall = sm.grammar.startCall {
-    symbolRegistry.addAll(sm.grammar.symbolRegistry);
+    registry.addAll(sm.grammar.registry);
     childrenRegistry.addAll(sm.grammar.childrenRegistry);
+    allRules.addAll(sm.grammar.allRules);
   }
 
   GrammarAdapter.withRules(this.rules, this.startCall) {
@@ -548,10 +553,13 @@ class GrammarAdapter implements GrammarInterface {
     _fillChildrenMapping();
   }
   @override
-  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> registry = {};
 
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
+
+  @override
+  final Map<PatternSymbol, Rule> allRules = {};
 
   @override
   final List<Rule> rules;
@@ -578,11 +586,14 @@ class GrammarAdapter implements GrammarInterface {
     // Assign symbol IDs to each pattern in discovery order
     for (var pattern in allPatterns) {
       if (pattern.symbolId == null) {
-        var symbolId = "S${_symbolCounter++}";
-        pattern.symbolId = PatternSymbol(symbolId);
+        var symbolId = _symbolCounter++;
+        pattern.symbolId = symbolId;
       }
       var actualSymbolId = pattern.symbolId!;
-      symbolRegistry[actualSymbolId] = pattern;
+      registry[actualSymbolId] = pattern;
+      if (pattern is Rule) {
+        allRules[actualSymbolId] = pattern;
+      }
     }
   }
 
@@ -698,13 +709,20 @@ class ShellGrammar implements GrammarInterface {
     required this.childrenRegistry,
     required this.rules,
     required this.startCall,
-  });
+  }) {
+    for (var rule in rules) {
+      allRules[rule.symbolId!] = rule;
+    }
+  }
 
   @override
-  final Map<PatternSymbol, Pattern> symbolRegistry = {};
+  final Map<PatternSymbol, Pattern> registry = {};
 
   @override
   final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
+
+  @override
+  final Map<PatternSymbol, Rule> allRules = {};
 
   @override
   final PatternSymbol startSymbol;

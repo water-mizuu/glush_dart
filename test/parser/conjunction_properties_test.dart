@@ -65,15 +65,15 @@ void main() {
     test("Associativity (A & B) & C == A & (B & C)", () {
       var grammar1 = Grammar(() {
         var a = Pattern.char("a");
-        var ambA = Rule("ambA", () => a | a);
-        var inner = Rule("inner", () => ambA & a);
-        return Rule("test", () => inner & a);
+        var ambA = Rule("ambA", () => Label("1", a) | Label("2", a));
+        var inner = Rule("inner", () => ambA & Label("3", a));
+        return Rule("test", () => inner & Label("4", a));
       });
 
       var grammar2 = Grammar(() {
         var a = Pattern.char("a");
-        var ambA = Rule("ambA", () => a | a);
-        var inner = Rule("inner", () => a & a);
+        var ambA = Rule("ambA", () => Label("1", a) | Label("2", a));
+        var inner = Rule("inner", () => Label("3", a) & Label("4", a));
         return Rule("test", () => ambA & inner);
       });
 
