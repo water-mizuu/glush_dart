@@ -404,7 +404,6 @@ class GrammarFileCompiler {
                 "eof" => CallArgumentValue.pattern(Pattern.eof()),
                 _ => CallArgumentValue.reference(name),
               },
-      GuardRuleNode() => CallArgumentValue.currentRule(),
       PatternExpr() => CallArgumentValue.pattern(_compilePattern(value, const {})),
     };
   }
@@ -433,7 +432,6 @@ class GrammarFileCompiler {
                 "eof" => Pattern.eof(),
                 _ => Pattern.string(name),
               },
-      GuardRuleNode() => Pattern.string("rule"),
       PatternExpr() => _compilePattern(value, const {}),
     };
   }

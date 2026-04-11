@@ -91,11 +91,10 @@ final class ParseState {
     return step;
   }
 
-  GlushList<Mark>? get forest => _lastStep
+  LazyGlushList<Mark>? get forest => _lastStep
       ?.acceptedContexts
       .values //
-      .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched)
-      .evaluate();
+      .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched);
 
   Step? get lastStep => _lastStep;
   StateMachine get stateMachine => parser.stateMachine;

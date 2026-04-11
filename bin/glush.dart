@@ -8,6 +8,7 @@ import "package:glush/src/parser/common/tracer.dart" show FileTracer;
 const grammar = r"""
 S = $2  S  S
   | $1 's'
+  | $3 S
 """;
 
 final parser = grammar.toSMParser();
@@ -28,6 +29,7 @@ void main() {
     print("DEBUG: paths is null, returning");
     return;
   }
+  print(paths.countDerivations());
 
   var evaluator = Evaluator<String>({"S.2": (ctx) => "(${ctx()}${ctx()})", "S.1": (ctx) => "s"});
 

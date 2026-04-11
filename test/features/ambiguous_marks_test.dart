@@ -158,5 +158,19 @@ void main() {
       expect(trees.any((t) => hasLabel(t.children, "rightMark")), isTrue);
       expect(trees.every((t) => t.span == "a"), isTrue);
     });
+
+    test("6. Cyclic Ambiguity (Regression)", () {
+      // S = S | "s"
+      var parser = 'S = S | "s"'.toSMParser();
+      var result = parser.parseAmbiguous("s", captureTokensAsMarks: true);
+
+      expect(result, isA<ParseAmbiguousSuccess>());
+      var forest = (result as ParseAmbiguousSuccess).forest;
+
+      // Should only have 1 valid path: "s"
+      // Before fixed, it might have more due to incorrect cycle-breaking to empty paths.
+      var paths = forest.allMarkPaths().toList();
+      expect(paths.length, equals(1));
+    });
   });
 }

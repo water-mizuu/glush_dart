@@ -20,7 +20,7 @@ linter:
     always_specify_types: false
     always_use_package_imports: true
     annotate_overrides: true
-    avoid_annotating_with_dynamic: false
+    avoid_annotating_with_dynamic: true
     avoid_bool_literals_in_conditional_expressions: true
     avoid_catches_without_on_clauses: true
     avoid_catching_errors: true

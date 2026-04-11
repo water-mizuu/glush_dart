@@ -106,27 +106,25 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
   Iterable<List<Mark>> _collectLazyMarkPaths(
     LazyGlushList<Mark> node,
     Set<LazyGlushList<Mark>> stack,
-  ) {
+  ) sync* {
     if (stack.contains(node)) {
-      return const [];
+      return;
     }
 
-    var results = <List<Mark>>[];
     var newStack = {...stack, node};
-
     if (node is LazyEmpty<Mark>) {
-      results.add(const []);
+      yield const [];
     } else if (node is LazyPush<Mark>) {
       for (var pPath in _collectLazyMarkPaths(node.parent, newStack)) {
-        results.add([...pPath, node.val.evaluate()]);
+        yield [...pPath, node.val.evaluate()];
       }
     } else if (node is LazyBranched<Mark>) {
-      results.addAll(_collectLazyMarkPaths(node.left, newStack));
-      results.addAll(_collectLazyMarkPaths(node.right, newStack));
+      yield* _collectLazyMarkPaths(node.left, newStack);
+      yield* _collectLazyMarkPaths(node.right, newStack);
     } else if (node is LazyConcat<Mark>) {
       for (var l in _collectLazyMarkPaths(node.left, newStack)) {
         for (var r in _collectLazyMarkPaths(node.right, newStack)) {
-          results.add([...l, ...r]);
+          yield [...l, ...r];
         }
       }
     } else if (node is LazyConjunction<Mark>) {
@@ -136,15 +134,13 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
         for (var rightPath in _collectLazyMarkPaths(node.right, newStack)) {
           var leftList = LazyGlushList.fromList(leftPath);
           var rightList = LazyGlushList.fromList(rightPath);
-          results.add([ConjunctionMark(leftList, rightList, 0)]);
+          yield [ConjunctionMark(leftList, rightList, 0)];
         }
       }
     } else if (node is LazyEvaluated<Mark>) {
-      results.addAll(node.list.allMarkPaths());
+      yield* node.list.allMarkPaths();
     } else if (node is LazyReturn<Mark>) {
-      results.addAll(_collectLazyMarkPaths(node.provider(), newStack));
+      yield* _collectLazyMarkPaths(node.provider(), newStack);
     }
-
-    return results;
   }
 }

@@ -151,7 +151,7 @@ class Context {
           predicateStack == other.predicateStack &&
           _mapEquals(arguments, other.arguments);
 
-  static bool _mapEquals(Map<dynamic, dynamic>? a, Map<dynamic, dynamic>? b) {
+  static bool _mapEquals(Map<Object?, Object?>? a, Map<Object?, Object?>? b) {
     if (identical(a, b)) {
       return true;
     }
@@ -172,7 +172,7 @@ class Context {
   @override
   int get hashCode => _hash;
 
-  static int? _mapHashCode(Map<dynamic, dynamic>? m) {
+  static int? _mapHashCode(Map<Object?, Object?>? m) {
     if (m == null || m.isEmpty) {
       return null;
     }

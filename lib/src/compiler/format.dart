@@ -350,13 +350,10 @@ class IfPattern implements PatternExpr {
   String toString() => "if ($guard) $inner";
 }
 
-/// Base class for boolean guard expressions inside `if (...)`.
-sealed class GuardExprNode {}
-
 /// Base class for guard values used inside comparisons.
 sealed class GuardValueNode implements CallArgumentValueNode {}
 
-class GuardBoolLiteralNode implements GuardExprNode, GuardValueNode {
+class GuardBoolLiteralNode implements GuardValueNode {
   // ignore: avoid_positional_boolean_parameters
   const GuardBoolLiteralNode(this.value);
   final bool value;
@@ -387,69 +384,6 @@ class GuardNameNode implements GuardValueNode {
 
   @override
   String toString() => name;
-}
-
-class GuardRuleNode implements GuardValueNode {
-  const GuardRuleNode();
-
-  @override
-  String toString() => "rule";
-}
-
-class GuardNotNode implements GuardExprNode {
-  const GuardNotNode(this.child);
-  final GuardExprNode child;
-
-  @override
-  String toString() => "!$child";
-}
-
-class GuardAndNode implements GuardExprNode {
-  const GuardAndNode(this.left, this.right);
-  final GuardExprNode left;
-  final GuardExprNode right;
-
-  @override
-  String toString() => "($left && $right)";
-}
-
-class GuardOrNode implements GuardExprNode {
-  const GuardOrNode(this.left, this.right);
-  final GuardExprNode left;
-  final GuardExprNode right;
-
-  @override
-  String toString() => "($left || $right)";
-}
-
-enum GuardComparisonKind {
-  equals("=="),
-  notEquals("!="),
-  lessThan("<"),
-  lessOrEqual("<="),
-  greaterThan(">"),
-  greaterOrEqual(">=");
-
-  const GuardComparisonKind(this.symbol);
-  final String symbol;
-}
-
-class GuardComparisonNode implements GuardExprNode {
-  const GuardComparisonNode(this.left, this.kind, this.right);
-  final GuardValueNode left;
-  final GuardComparisonKind kind;
-  final GuardValueNode right;
-
-  @override
-  String toString() => "$left ${kind.symbol} $right";
-}
-
-class GuardValueExprNode implements GuardExprNode {
-  const GuardValueExprNode(this.value);
-  final GuardValueNode value;
-
-  @override
-  String toString() => "$value";
 }
 
 /// Semantic action placeholder

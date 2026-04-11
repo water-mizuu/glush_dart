@@ -280,7 +280,7 @@ class Grammar implements GrammarInterface {
       case Alt alt:
         alt.left = _normalizePattern(alt.left, seen);
         alt.right = _normalizePattern(alt.right, seen);
-      case Action<dynamic> action:
+      case Action<Object?> action:
         action.child = _normalizePattern(action.child, seen);
       case Prec plp:
         plp.child = _normalizePattern(plp.child, seen);
@@ -428,7 +428,7 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(not.pattern, patterns);
       case Neg neg:
         _collectPatternsFromPattern(neg.pattern, patterns);
-      case Action<dynamic> action:
+      case Action<Object?> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
@@ -650,7 +650,7 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(not.pattern, patterns);
       case Neg neg:
         _collectPatternsFromPattern(neg.pattern, patterns);
-      case Action<dynamic> action:
+      case Action<Object?> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);

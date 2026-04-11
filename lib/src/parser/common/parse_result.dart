@@ -28,37 +28,54 @@ final class ParseError implements ParseOutcome, Exception {
   ParseAmbiguousSuccess? ambiguousSuccess() => null;
 
   void displayError(String input) {
-    List<String> inputRows = input.replaceAll("\r", "").split("\n");
-
-    /// Surely the string we're trying to parse is not empty.
-    if (inputRows.isEmpty) {
-      throw StateError("Huh?");
+    if (input.isEmpty) {
+      throw StateError("Input string is empty.");
+    }
+    if (position < 0 || position > input.length) {
+      throw RangeError("Error position is out of bounds.");
     }
 
-    int row = input.substring(0, position).split("\n").length;
-    int column =
-        input //
-            .substring(0, position)
-            .split("\n")
-            .last
-            .codeUnits
-            .length +
-        1;
-    List<(int, String)> displayedRows = inputRows.indexed.toList().sublist(max(row - 3, 0), row);
+    // 1. Efficiently calculate row and column in one pass (No heavy substrings/splits)
+    int row = 1;
+    int lineStartIndex = 0;
 
-    int longest = displayedRows.map((e) => e.$1.toString().length).reduce(max);
+    for (int i = 0; i < position; i++) {
+      if (input[i] == "\n") {
+        row++;
+        lineStartIndex = i + 1; // Mark where the current line started
+      }
+    }
 
+    // Column is simply the distance from the start of the line to the error,
+    // ignoring \r if we are on a Windows-style file.
+    String textBeforeErrorOnLine = input.substring(lineStartIndex, position);
+    int column = textBeforeErrorOnLine.replaceAll("\r", "").length + 1;
+
+    // 2. Prepare visual output context
+    List<String> inputRows = input.replaceAll("\r", "").split("\n");
+
+    // Grab up to 3 lines of context.
+    List<(int, String)> displayedRows = inputRows.indexed
+        .skip(max(row - 3, 0))
+        .take(3) // Ensure we only take the relevant slice
+        .toList();
+
+    int longest = displayedRows.map((e) => (e.$1 + 1).toString().length).reduce(max);
+
+    // 3. Print the formatted output
     print("Parse error at: ($row:$column)");
-    print(
-      displayedRows
-          .map(
-            (v) =>
-                " ${(v.$1 + 1).toString().padLeft(longest)} | "
-                "${v.$2}",
-          )
-          .join("\n"),
-    );
-    print("${" " * " ${''.padLeft(longest)} | ".length}${' ' * (column - 1)}^");
+
+    for (var (i, v) in displayedRows) {
+      String lineNumber = (i + 1).toString().padLeft(longest);
+      print(" $lineNumber | $v");
+    }
+
+    // Calculate exactly how many spaces the caret needs
+    // Formula: 1 starting space + length of longest line number + 3 for " | " + column - 1
+    int gutterWidth = 1 + longest + 3;
+    int caretPadding = gutterWidth + (column - 1);
+
+    print("${' ' * caretPadding}^");
   }
 }
 

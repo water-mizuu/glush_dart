@@ -237,9 +237,6 @@ class Step {
 
   /// Seed a conjunction sub-parse (both side A and side B).
   void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
-    var leftState = parseState.parser.stateMachine.ruleFirst[left];
-    var rightState = parseState.parser.stateMachine.ruleFirst[right];
-
     var leftCaller = ConjunctionCallerKey(
       left: left,
       right: right,
@@ -257,9 +254,10 @@ class Step {
     parseState.conjunctionTrackers[subParseKey]!; // Touch to ensure it exists if called from Action
 
     // Side A
-    if (leftState case var s?) {
+    var leftState = parseState.parser.stateMachine.ruleFirst[left];
+    if (leftState != null) {
       _enqueue(
-        s,
+        leftState,
         Context(
           leftCaller,
           arguments: frame.context.arguments,
@@ -273,9 +271,10 @@ class Step {
     }
 
     // Side B
-    if (rightState case var s?) {
+    var rightState = parseState.parser.stateMachine.ruleFirst[right];
+    if (rightState != null) {
       _enqueue(
-        s,
+        rightState,
         Context(
           rightCaller,
           arguments: frame.context.arguments,
@@ -849,7 +848,7 @@ class Step {
     );
 
     // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
-    var returnProxy = caller.getLazyReturnProxy(packedId, () => caller.getReturnMarks(packedId));
+    var returnProxy = caller.getLazyReturn(packedId, () => caller.getReturnMarks(packedId));
 
     // Fast paths for the common case where one/both mark streams are empty.
     var nextMarks = parentMarks.addList(returnProxy);

@@ -7,7 +7,7 @@ import "package:glush/src/core/profiling.dart";
 import "package:meta/meta.dart";
 
 /// Signature for an evaluation handler.
-typedef EvaluatorHandler<T> = T Function(EvaluationContext<T> ctx);
+typedef EvaluatorHandler<T> = Object? Function(EvaluationContext<T> ctx);
 
 /// A context object passed to evaluation handlers.
 ///

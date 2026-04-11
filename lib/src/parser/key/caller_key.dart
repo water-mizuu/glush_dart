@@ -221,10 +221,6 @@ class Caller extends CallerKey {
 
   Iterable<(Context, LazyGlushList<Mark>)> get returns => _returnsInt.values;
 
-  bool isCyclic(int? precedenceLevel, int? position, int? callStart) {
-    return _cyclicInt.contains(ReturnKey.getPackedId(precedenceLevel, position, callStart));
-  }
-
   Iterable<WaiterInfo> get waiters {
     var data = _waiterData;
     if (data == null) {
@@ -245,12 +241,6 @@ class Caller extends CallerKey {
   /// enabling critical identity-based dedup in addReturn().
   LazyReturn<Mark> getLazyReturn(int packedId, LazyGlushList<Mark> Function() provider) {
     return _lazyReturns[packedId] ??= LazyReturn(provider);
-  }
-
-  /// Get or create a lazy return proxy representing the evolving results of this rule span.
-  /// Used by the parser to build lazy mark forests with interned rule return nodes.
-  LazyGlushList<Mark> getLazyReturnProxy(int packedId, LazyGlushList<Mark> Function() provider) {
-    return getLazyReturn(packedId, provider);
   }
 }
 

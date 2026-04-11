@@ -105,5 +105,50 @@ void main() {
       }
       expect(list.isEmpty, isFalse);
     });
+
+    test("countDerivations correctly handles shared LazyReturn nodes", () {
+      var leaf = const LazyGlushList<int>.empty().add(const ConstantLazyVal(1));
+      var r1 = LazyReturn(() => leaf);
+
+      // branch1 = [1]
+      var branch1 = const LazyGlushList<int>.empty().addList(r1);
+      // branch2 = [2, 1]
+      var branch2 = const LazyGlushList<int>.empty()
+          .add(const ConstantLazyVal(2))
+          .addList(r1);
+
+      var root = LazyGlushList.branched(branch1, branch2);
+
+      expect(root.countDerivations(), equals(2));
+    });
+
+    test("countDerivations correctly handles shared LazyEvaluated nodes", () {
+      var concrete = const GlushList<int>.empty().add(1);
+      var ev = LazyEvaluated(concrete);
+
+      // branch1 = [1]
+      var branch1 = const LazyGlushList<int>.empty().addList(ev);
+      // branch2 = [2, 1]
+      var branch2 = const LazyGlushList<int>.empty()
+          .add(const ConstantLazyVal(2))
+          .addList(ev);
+
+      var root = LazyGlushList.branched(branch1, branch2);
+
+      expect(root.countDerivations(), equals(2));
+    });
+
+    test("countDerivations handles cycles by skipping cyclic paths", () {
+      late LazyGlushList<int> cyclic;
+      cyclic = LazyGlushList.branched(
+        const LazyGlushList<int>.empty().add(const ConstantLazyVal(1)),
+        LazyReturn(() => cyclic),
+      );
+
+      // Path 1: [1]
+      // Path 2: cycle back to cyclic
+      // Result should be 1 (the finite path).
+      expect(cyclic.countDerivations(), equals(1));
+    });
   });
 }

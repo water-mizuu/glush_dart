@@ -215,7 +215,7 @@ sealed class LazyGlushList<T> {
   bool get isEmpty;
 
   /// Wraps an 'add' operation in a thunk.
-  LazyGlushList<T> add(LazyVal<T> val) => _LazyInterner.push<T>(this, val);
+  LazyGlushList<T> add(LazyVal<T> val) => LazyPush<T>._(this, val);
 
   /// Wraps a 'concat' operation.
   LazyGlushList<T> addList(LazyGlushList<T> other) {
@@ -225,7 +225,7 @@ sealed class LazyGlushList<T> {
     if (isEmpty) {
       return other;
     }
-    return _LazyInterner.concat<T>(this, other);
+    return LazyConcat<T>._(this, other);
   }
 
   /// Wraps a 'branched' operation.
@@ -239,7 +239,7 @@ sealed class LazyGlushList<T> {
     if (right.isEmpty) {
       return left;
     }
-    return _LazyInterner.branched<T>(left, right);
+    return LazyBranched._(left, right);
   }
 
   /// Wraps a 'conjunction' operation.
@@ -256,7 +256,7 @@ sealed class LazyGlushList<T> {
     if (right.isEmpty) {
       return left;
     }
-    return _LazyInterner.conjunction<T>(left, right);
+    return LazyConjunction._(left, right);
   }
 
   /// Creates a lazy list from a standard Dart list by wrapping each element
@@ -290,44 +290,17 @@ sealed class LazyGlushList<T> {
       case LazyConjunction(:var left, :var right):
         res = _count(left, memo) * _count(right, memo);
       case LazyEvaluated<Object?>():
-        return node.list.countDerivations();
+        res = node.list.countDerivations();
       case LazyReturn<Object?>():
-        return _count(node.provider(), memo);
-      case _LazyBase<Object?>():
-        // This should be covered by the subclasses above, but needed for exhaustiveness
-        // of the sealed class if the compiler is strict about direct subclasses.
-        throw UnimplementedError("Unreachable: _LazyBase matched but not its subclasses");
+        res = _count(node.provider(), memo);
     }
     return memo[node] = res;
   }
 }
 
-/// Simple factory methods for lazy node allocation without interning.
-///
-/// Interning is essential only for LazyReturn (identity-compared in Caller.addReturn),
-/// which is managed directly on Caller._lazyReturns. All other node types just allocate freely
-/// since their evaluation redundancy is bounded and they're never identity-compared in critical paths.
-class _LazyInterner {
-  static LazyGlushList<T> push<T>(LazyGlushList<T> parent, LazyVal<T> val) {
-    return LazyPush<T>._(parent, val);
-  }
-
-  static LazyGlushList<T> branched<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    return LazyBranched<T>._(left, right);
-  }
-
-  static LazyGlushList<T> concat<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    return LazyConcat<T>._(left, right);
-  }
-
-  static LazyGlushList<T> conjunction<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    return LazyConjunction<T>._(left, right);
-  }
-}
-
 /// Internal base class for memoized lazy evaluation.
 // ignore: must_be_immutable
-abstract class _LazyBase<T> extends LazyGlushList<T> {
+sealed class _LazyBase<T> extends LazyGlushList<T> {
   _LazyBase();
 
   @override
@@ -492,12 +465,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
     }
   }
 
-  String visualize() {
-    var buffer = StringBuffer();
-    _visualize(this, buffer, "", true, {});
-    return buffer.toString();
-  }
-
   String toDot() {
     var buffer = StringBuffer();
     buffer.writeln("digraph GlushList {");
@@ -571,49 +538,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
         .replaceAll("\n", r"\n")
         .replaceAll("\r", r"\r");
   }
-
-  void _visualize(
-    GlushList<T> node,
-    StringBuffer buffer,
-    String prefix,
-    bool isLast,
-    Set<GlushList<T>> visited,
-  ) {
-    var connector = isLast ? "└── " : "├── ";
-    buffer.write(prefix);
-    buffer.write(connector);
-    if (visited.contains(node)) {
-      buffer.writeln("(shared ...)");
-      return;
-    }
-    visited.add(node);
-    if (node is EmptyList<T>) {
-      buffer.writeln("Empty");
-    } else if (node is Push<T>) {
-      buffer.writeln("Push(${node.data})");
-      _visualize(node.parent, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is Concat<T>) {
-      buffer.writeln("Concat");
-      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
-      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is Conjunction<T>) {
-      buffer.writeln("Parallel");
-      _visualize(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
-      _visualize(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is BranchedList<T>) {
-      buffer.writeln("Branched");
-      _visualize(
-        node.left,
-        buffer,
-        prefix + (isLast ? "    " : "│   "),
-        node.right == null,
-        visited,
-      );
-      if (node.right != null) {
-        _visualize(node.right!, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-      }
-    }
-  }
 }
 
 extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
@@ -670,50 +594,6 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
       _pathCache[node] = results;
     }
     return results;
-  }
-
-  String visualize() {
-    var buffer = StringBuffer();
-    _visualizeLazy(this, buffer, "", true, {});
-    return buffer.toString();
-  }
-
-  void _visualizeLazy(
-    LazyGlushList<T> node,
-    StringBuffer buffer,
-    String prefix,
-    bool isLast,
-    Set<LazyGlushList<T>> visited,
-  ) {
-    var connector = isLast ? "└── " : "├── ";
-    buffer.write(prefix);
-    buffer.write(connector);
-    if (visited.contains(node)) {
-      buffer.writeln("(lazy shared ...)");
-      return;
-    }
-    visited.add(node);
-
-    if (node is LazyEmpty<T>) {
-      buffer.writeln("LazyEmpty");
-    } else if (node is LazyPush<T>) {
-      buffer.writeln("LazyPush(thunk)");
-      _visualizeLazy(node.parent, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is LazyBranched<T>) {
-      buffer.writeln("LazyBranched");
-      _visualizeLazy(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
-      _visualizeLazy(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is LazyConcat<T>) {
-      buffer.writeln("LazyConcat");
-      _visualizeLazy(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
-      _visualizeLazy(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is LazyConjunction<T>) {
-      buffer.writeln("LazyParallel");
-      _visualizeLazy(node.left, buffer, prefix + (isLast ? "    " : "│   "), false, visited);
-      _visualizeLazy(node.right, buffer, prefix + (isLast ? "    " : "│   "), true, visited);
-    } else if (node is LazyEvaluated<T>) {
-      buffer.writeln("LazyEvaluated");
-    }
   }
 
   String toDot() {
