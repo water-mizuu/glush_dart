@@ -20,7 +20,7 @@ final class ParseState {
     required List<Frame> initialFrames,
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
-    this.tracer = const NullTracer(),
+    this.tracer,
   }) : frames = initialFrames,
        rulesByName = {
          for (var rule in parser.grammar.rules) rule.name!: rule,
@@ -30,19 +30,18 @@ final class ParseState {
          for (var rule in parser.grammar.rules) rule.symbolId!: rule,
          for (var rule in parser.stateMachine.allRules.values) rule.symbolId!: rule,
        } {
-    tracer.onStart(parser.stateMachine);
+    tracer?.onStart(parser.stateMachine);
   }
 
   final GlushParser parser;
   final bool isSupportingAmbiguity;
   final bool captureTokensAsMarks;
-  final ParseTracer tracer;
+  final ParseTracer? tracer;
   final List<int> historyByPosition = [];
   final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
   final Map<ConjunctionKey, ConjunctionTracker> conjunctionTrackers = {};
   final Map<NegationKey, NegationTracker> negationTrackers = {};
 
-  /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   final Map<int, Caller> callersInt = {};
   final Map<ComplexCallerCacheKey, Caller> callersComplex = {};
@@ -58,7 +57,7 @@ final class ParseState {
 
   /// Process one input code unit and advance the parser by one position.
   Step processToken(int unit) {
-    tracer.onStepStart(position, unit, frames);
+    tracer?.onStepStart(position, unit, frames);
 
     var step = GlushProfiler.measure("parser.process_token", () {
       return parser.processToken(
@@ -79,7 +78,7 @@ final class ParseState {
 
   /// Finalize the parse at end-of-input.
   Step finish() {
-    tracer.onStepStart(position, null, frames);
+    tracer?.onStepStart(position, null, frames);
 
     var step = GlushProfiler.measure("parser.finish", () {
       return parser.processToken(
@@ -92,7 +91,7 @@ final class ParseState {
       );
     });
     _lastStep = step;
-    tracer.finalize();
+    tracer?.finalize();
     return step;
   }
 

@@ -121,7 +121,7 @@ class Step {
       var tracker = parseState.predicateTrackers[key];
       tracker?.addPendingFrame();
       if (tracker != null) {
-        parseState.tracer.onTrackerUpdate(
+        parseState.tracer?.onTrackerUpdate(
           "Predicate",
           tracker.toString(),
           tracker.activeFrames,
@@ -135,7 +135,7 @@ class Step {
       var tracker = parseState.conjunctionTrackers[key];
       tracker?.addPendingFrame();
       if (tracker != null) {
-        parseState.tracer.onTrackerUpdate(
+        parseState.tracer?.onTrackerUpdate(
           "Conjunction",
           tracker.toString(),
           tracker.activeFrames,
@@ -205,7 +205,7 @@ class Step {
   }) {
     var marks = parentMarks;
 
-    parseState.tracer.onPredicateResumed(symbol, position, isAnd: isAnd);
+    parseState.tracer?.onPredicateResumed(symbol, position, isAnd: isAnd);
 
     requeue(Frame(parentContext, marks)..nextStates.add(nextState));
   }
@@ -229,7 +229,7 @@ class Step {
     var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd, name: name);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
-    parseState.tracer.onMessage("Spawning sub-parse for predicate: $symbol");
+    parseState.tracer?.onMessage("Spawning sub-parse for predicate: $symbol");
 
     _enqueue(
       entryState,
@@ -602,7 +602,7 @@ class Step {
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewCaller) {
-      parseState.tracer.onRuleCall(targetRule, position, caller);
+      parseState.tracer?.onRuleCall(targetRule, position, caller);
       var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
 
       if (firstState != null) {
@@ -695,7 +695,7 @@ class Step {
     if (targetPosition != position) {
       // Frame is lagging and will be processed when its position comes up.
       GlushProfiler.increment("parser.enqueue.requeued");
-      parseState.tracer.onEnqueue(state, targetPosition, "future position");
+      parseState.tracer?.onEnqueue(state, targetPosition, "future position");
       requeue(Frame(nextContext, marks)..nextStates.add(state));
       return;
     }
@@ -750,7 +750,7 @@ class Step {
       var tracker = parseState.predicateTrackers[pKey];
       tracker?.addPendingFrame();
       if (tracker != null) {
-        parseState.tracer.onTrackerUpdate(
+        parseState.tracer?.onTrackerUpdate(
           "Predicate",
           tracker.toString(),
           tracker.activeFrames,
@@ -763,7 +763,7 @@ class Step {
       var tracker = parseState.conjunctionTrackers[key];
       tracker?.addPendingFrame();
       if (tracker != null) {
-        parseState.tracer.onTrackerUpdate(
+        parseState.tracer?.onTrackerUpdate(
           "Conjunction",
           tracker.toString(),
           tracker.activeFrames,
@@ -786,7 +786,7 @@ class Step {
   void _process(Frame frame, State state) {
     // Iterate over all possible actions originating from the current state.
     for (var action in state.actions) {
-      parseState.tracer.onAction(action, "processing");
+      parseState.tracer?.onAction(action, "processing");
       switch (action) {
         case TokenAction():
           _processTokenAction(frame, state, action);
@@ -847,10 +847,10 @@ class Step {
         returnContext.precedenceLevel != null &&
         returnContext.precedenceLevel! < minPrecedence) {
       // Waiter's precedence threshold is not met by this return.
-      parseState.tracer.onRuleReturn(caller.rule, position, caller);
+      parseState.tracer?.onRuleReturn(caller.rule, position, caller);
       return;
     }
-    parseState.tracer.onRuleReturn(caller.rule, position, caller);
+    parseState.tracer?.onRuleReturn(caller.rule, position, caller);
 
     var packedId = ReturnKey.getPackedId(
       returnContext.precedenceLevel,
@@ -935,7 +935,7 @@ class Step {
   void processFrame(Frame frame) {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
-      parseState.tracer.onProcessState(frame, state);
+      parseState.tracer?.onProcessState(frame, state);
       _enqueue(state, frame.context, frame.marks);
     }
     while (_workQueue.isNotEmpty) {
@@ -959,7 +959,7 @@ class Step {
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
-          parseState.tracer.onTrackerUpdate(
+          parseState.tracer?.onTrackerUpdate(
             "Predicate",
             tracker.toString(),
             tracker.activeFrames,
@@ -972,7 +972,7 @@ class Step {
         var tracker = parseState.conjunctionTrackers[key];
         if (tracker != null && tracker.activeFrames > 0) {
           tracker.removePendingFrame();
-          parseState.tracer.onTrackerUpdate(
+          parseState.tracer?.onTrackerUpdate(
             "Conjunction",
             tracker.toString(),
             tracker.activeFrames,
@@ -996,7 +996,7 @@ class Step {
   void processFrameEnqueue(Frame frame) {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
-      parseState.tracer.onProcessState(frame, state);
+      parseState.tracer?.onProcessState(frame, state);
       _enqueue(state, frame.context, frame.marks);
     }
   }
@@ -1024,7 +1024,7 @@ class Step {
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
-          parseState.tracer.onTrackerUpdate(
+          parseState.tracer?.onTrackerUpdate(
             "Predicate",
             tracker.toString(),
             tracker.activeFrames,
@@ -1037,7 +1037,7 @@ class Step {
         var tracker = parseState.conjunctionTrackers[key];
         if (tracker != null && tracker.activeFrames > 0) {
           tracker.removePendingFrame();
-          parseState.tracer.onTrackerUpdate(
+          parseState.tracer?.onTrackerUpdate(
             "Conjunction",
             tracker.toString(),
             tracker.activeFrames,
@@ -1938,7 +1938,7 @@ class Step {
           if (parentTracker != null) {
             // This child branch is no longer pending in the parent predicate.
             parentTracker.removePendingFrame();
-            parseState.tracer.onTrackerUpdate(
+            parseState.tracer?.onTrackerUpdate(
               "Predicate",
               parentTracker.toString(),
               parentTracker.activeFrames,

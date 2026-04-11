@@ -167,7 +167,7 @@ abstract base class GlushParserBase implements GlushParser {
       initialFrames: initialFrames,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-      tracer: tracer ?? const NullTracer(),
+      tracer: tracer,
     );
   }
 

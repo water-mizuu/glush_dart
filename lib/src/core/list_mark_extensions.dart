@@ -4,8 +4,11 @@
 /// keeping the core list.dart library free from glush-specific dependencies.
 library glush.list_mark_extensions;
 
+import "dart:collection";
+
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/helper/diagonal.dart";
 
 /// Extension methods for List<Mark> to extract and format marks.
 extension ListMarkExtractor on List<Mark> {
@@ -78,18 +81,20 @@ extension GlushListMarkExtensions on GlushList<Mark> {
           yield [...pPath, data];
         }
       case Concat<Mark>():
-        for (var l in _collectMarkPaths(node.left, visiting)) {
-          for (var r in _collectMarkPaths(node.right, visiting)) {
-            yield [...l, ...r];
-          }
+        for (var (l, r) in diagonalize(
+          _collectMarkPaths(node.left, visiting),
+          _collectMarkPaths(node.right, visiting),
+        )) {
+          yield [...l, ...r];
         }
       case Conjunction<Mark>():
         // For Mark conjunctions, expand all combinations into separate paths.
         // Don't wrap in ConjunctionMark - let the combinations expand naturally.
-        for (var leftPath in _collectMarkPaths(node.left, visiting)) {
-          for (var rightPath in _collectMarkPaths(node.right, visiting)) {
-            yield [...leftPath, ...rightPath];
-          }
+        for (var (l, r) in diagonalize(
+          _collectMarkPaths(node.left, visiting),
+          _collectMarkPaths(node.right, visiting),
+        )) {
+          yield [...l, ...r];
         }
     }
   }
@@ -100,18 +105,15 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
   /// Collects all paths through the LazyGlushList, creating ConjunctionMarks for parallel branches.
   /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
   Iterable<List<Mark>> allMarkPaths() {
-    return _collectLazyMarkPaths(this, {});
+    return _collectLazyMarkPaths(this, HashSet());
   }
 
-  Iterable<List<Mark>> _collectLazyMarkPaths(
-    LazyGlushList<Mark> node,
-    Set<LazyGlushList<Mark>> stack,
-  ) sync* {
-    if (stack.contains(node)) {
+  Iterable<List<Mark>> _collectLazyMarkPaths(LazyGlushList<Mark> node, Set<int> stack) sync* {
+    if (stack.contains(node.hashCode)) {
       return;
     }
 
-    var newStack = {...stack, node};
+    var newStack = {...stack, node.hashCode};
     if (node is LazyEmpty<Mark>) {
       yield const [];
     } else if (node is LazyPush<Mark>) {
@@ -122,20 +124,22 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
       yield* _collectLazyMarkPaths(node.left, newStack);
       yield* _collectLazyMarkPaths(node.right, newStack);
     } else if (node is LazyConcat<Mark>) {
-      for (var l in _collectLazyMarkPaths(node.left, newStack)) {
-        for (var r in _collectLazyMarkPaths(node.right, newStack)) {
-          yield [...l, ...r];
-        }
+      for (var (l, r) in diagonalize(
+        _collectLazyMarkPaths(node.left, newStack),
+        _collectLazyMarkPaths(node.right, newStack),
+      )) {
+        yield [...l, ...r];
       }
     } else if (node is LazyConjunction<Mark>) {
       // For Mark conjunctions, expand all combinations into separate paths.
       // Don't wrap in ConjunctionMark - let the combinations expand naturally.
-      for (var leftPath in _collectLazyMarkPaths(node.left, newStack)) {
-        for (var rightPath in _collectLazyMarkPaths(node.right, newStack)) {
-          var leftList = LazyGlushList.fromList(leftPath);
-          var rightList = LazyGlushList.fromList(rightPath);
-          yield [ConjunctionMark(leftList, rightList, 0)];
-        }
+      for (var (leftPath, rightPath) in diagonalize(
+        _collectLazyMarkPaths(node.left, newStack),
+        _collectLazyMarkPaths(node.right, newStack),
+      )) {
+        var leftList = LazyGlushList.fromList(leftPath);
+        var rightList = LazyGlushList.fromList(rightPath);
+        yield [ConjunctionMark(leftList, rightList, 0)];
       }
     } else if (node is LazyEvaluated<Mark>) {
       yield* node.list.allMarkPaths();

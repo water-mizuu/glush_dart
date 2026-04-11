@@ -41,10 +41,10 @@ final class RootCallerKey extends CallerKey {
 /// Caller key for a lookahead predicate sub-parse.
 final class PredicateCallerKey extends CallerKey {
   PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd, this.name})
-    : uid = -((pattern.hashCode.abs() << 24) |
-          (startPosition & 0x7FFFFF) |
-          (isAnd ? 0x800000 : 0) ^
-          (name?.hashCode ?? 0));
+    : uid =
+          -((pattern.hashCode.abs() << 24) |
+              (startPosition & 0x7FFFFF) |
+              (isAnd ? 0x800000 : 0) ^ (name?.hashCode ?? 0));
 
   @override
   final int startPosition;
@@ -133,7 +133,6 @@ class Caller extends CallerKey {
   final int uid;
 
   final Map<int, (Context, LazyGlushList<Mark>)> _returnsInt = {};
-  final Set<int> _cyclicInt = {};
   final Map<int, LazyReturn<Mark>> _lazyReturns = {};
 
   _WaiterData? _waiterData;
@@ -210,19 +209,9 @@ class Caller extends CallerKey {
       return false;
     }
 
-    if (context.position == context.callStart) {
-      if (!_cyclicInt.add(packedId)) {
-        return false;
-      }
-    }
-
     var merged = LazyGlushList.branched(existingMarks, marks);
     _returnsInt[packedId] = (existingContext, merged);
 
-    // STRICT SPAN DEDUPLICATION:
-    // With LazyReturn proxies, we only need to trigger a return to waiters ONCE
-    // per span. Waiters will receive a proxy that eventually evaluates to the
-    // merged (branched) result of all ambiguious returns for this span.
     return false;
   }
 

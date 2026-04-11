@@ -1,6 +1,7 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
+import "package:glush/src/helper/diagonal.dart";
 import "package:meta/meta.dart";
 
 /// Abstract base class for managing parse alternatives as a tree structure.
@@ -451,16 +452,18 @@ extension GlushListVisualizer<T> on GlushList<T> {
           yield [...pPath, data];
         }
       case Concat<T>():
-        for (var l in _collect(node.left, visiting)) {
-          for (var r in _collect(node.right, visiting)) {
-            yield [...l, ...r];
-          }
+        for (var (l, r) in diagonalize(
+          _collect(node.left, visiting),
+          _collect(node.right, visiting),
+        )) {
+          yield [...l, ...r];
         }
       case Conjunction<T>():
-        for (var l in _collect(node.left, visiting)) {
-          for (var r in _collect(node.right, visiting)) {
-            yield [...l, ...r];
-          }
+        for (var (l, r) in diagonalize(
+          _collect(node.left, visiting),
+          _collect(node.right, visiting),
+        )) {
+          yield [...l, ...r];
         }
     }
   }
@@ -573,16 +576,18 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
       results.addAll(_collectLazy(node.left, newStack));
       results.addAll(_collectLazy(node.right, newStack));
     } else if (node is LazyConcat<T>) {
-      for (var l in _collectLazy(node.left, newStack)) {
-        for (var r in _collectLazy(node.right, newStack)) {
-          results.add([...l, ...r]);
-        }
+      for (var (l, r) in diagonalize(
+        _collectLazy(node.left, newStack),
+        _collectLazy(node.right, newStack),
+      )) {
+        results.add([...l, ...r]);
       }
     } else if (node is LazyConjunction<T>) {
-      for (var l in _collectLazy(node.left, newStack)) {
-        for (var r in _collectLazy(node.right, newStack)) {
-          results.add([...l, ...r]);
-        }
+      for (var (l, r) in diagonalize(
+        _collectLazy(node.left, newStack),
+        _collectLazy(node.right, newStack),
+      )) {
+        results.add([...l, ...r]);
       }
     } else if (node is LazyEvaluated<T>) {
       results.addAll(node.list.allMarkPaths());
