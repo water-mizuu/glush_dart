@@ -40,8 +40,7 @@ final class ParseState {
   final bool captureTokensAsMarks;
   final ParseTracer? tracer;
   final List<int> historyByPosition = [];
-  final Map<PredicateKey, PredicateTracker> predicateTrackers = {};
-  final Map<ConjunctionKey, ConjunctionTracker> conjunctionTrackers = {};
+  final Map<SubparseKey, SubparseTracker> trackers = {};
 
   /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   final Map<int, Caller> callersInt = {};
@@ -78,9 +77,8 @@ final class ParseState {
       frames.addAll(deferredForNext);
     }
 
-    // Track active predicates/conjunctions
-    GlushProfiler.increment("parser.predicates.active", predicateTrackers.length);
-    GlushProfiler.increment("parser.conjunctions.active", conjunctionTrackers.length);
+    // Track active trackers
+    GlushProfiler.increment("parser.trackers.active", trackers.length);
     GlushProfiler.increment("parser.callers.total", callersInt.length + callersComplex.length);
 
     position++;
@@ -106,8 +104,7 @@ final class ParseState {
     });
 
     // Record final cache statistics
-    GlushProfiler.increment("parser.cache.predicates_final", predicateTrackers.length);
-    GlushProfiler.increment("parser.cache.conjunctions_final", conjunctionTrackers.length);
+    GlushProfiler.increment("parser.cache.trackers_final", trackers.length);
 
     _lastStep = step;
     tracer?.finalize();
@@ -125,50 +122,43 @@ final class ParseState {
   bool get accept => _lastStep?.accept ?? false;
   bool get hasPendingWork => frames.isNotEmpty;
 
-  void incrementTrackers(Context context, String reason) {
-    if (context.predicateStack.lastOrNull case var pk?) {
-      var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-      var tracker = predicateTrackers[pKey];
-      if (tracker != null) {
-        tracker.addPendingFrame();
-        GlushProfiler.increment("parser.predicate_frames.added");
-        tracer?.onTrackerUpdate("Predicate", tracker.toString(), tracker.activeFrames, reason);
-      }
-    }
+  List<SubparseKey> _findActiveKeys(Context context) => [
+    if (context.predicateStack.lastOrNull case var pk?)
+      PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name),
+    if (context.caller case ConjunctionCallerKey con)
+      ConjunctionKey(con.left, con.right, con.startPosition),
+  ];
 
-    if (context.caller case ConjunctionCallerKey con) {
-      var key = ConjunctionKey(con.left, con.right, con.startPosition);
-      var tracker = conjunctionTrackers[key];
+  void incrementTrackers(Context context, String reason) {
+    for (var key in _findActiveKeys(context)) {
+      var tracker = trackers[key];
       if (tracker != null) {
         tracker.addPendingFrame();
-        GlushProfiler.increment("parser.conjunction_frames.added");
-        tracer?.onTrackerUpdate("Conjunction", tracker.toString(), tracker.activeFrames, reason);
+        GlushProfiler.increment("parser.tracker_frames.added");
+        tracer?.onTrackerUpdate(
+          tracker.runtimeType.toString(),
+          tracker.toString(),
+          tracker.activeFrames,
+          reason,
+        );
       }
     }
   }
 
   void decrementTrackers(Context context, [String? reason]) {
-    if (context.predicateStack.lastOrNull case var pk?) {
-      var key = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-      var tracker = predicateTrackers[key];
-      if (tracker != null) {
-        tracker.removePendingFrame();
-        GlushProfiler.increment("parser.predicate_frames.removed");
-        if (reason != null) {
-          tracer?.onTrackerUpdate("Predicate", tracker.toString(), tracker.activeFrames, reason);
-        }
-      }
-    }
-
-    if (context.caller case ConjunctionCallerKey caller) {
-      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
-      var tracker = conjunctionTrackers[key];
+    for (var key in _findActiveKeys(context)) {
+      var tracker = trackers[key];
       // Conjunctions might have 0 active frames if they finished early but the frame is still being processed
       if (tracker != null && tracker.activeFrames > 0) {
         tracker.removePendingFrame();
-        GlushProfiler.increment("parser.conjunction_frames.removed");
+        GlushProfiler.increment("parser.tracker_frames.removed");
         if (reason != null) {
-          tracer?.onTrackerUpdate("Conjunction", tracker.toString(), tracker.activeFrames, reason);
+          tracer?.onTrackerUpdate(
+            tracker.runtimeType.toString(),
+            tracker.toString(),
+            tracker.activeFrames,
+            reason,
+          );
         }
       }
     }

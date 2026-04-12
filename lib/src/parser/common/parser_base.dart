@@ -4,6 +4,7 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
+import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/action_key.dart";
 
@@ -37,60 +38,33 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
   ) {
     bool changed = true;
-    // Repeat until no predicate resolution can trigger further parent updates.
     while (changed) {
       changed = false;
-      var toRemove = <PredicateKey>{};
-      // Resolving one predicate can unblock another predicate in the same pass.
-      for (var entry in parseState.predicateTrackers.entries) {
-        var tracker = entry.value;
-        if (!tracker.exhausted && tracker.canResolveFalse) {
-          // No live branches remain, so the predicate failed (success for NOT).
-          tracker.exhausted = true;
-          for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
-            var predicateKey = parentContext.predicateStack.lastOrNull;
-            if (predicateKey != null) {
-              var key = PredicateKey(
-                predicateKey.pattern,
-                predicateKey.startPosition,
-                isAnd: predicateKey.isAnd,
-                name: predicateKey.name,
-              );
-              var parentTracker = parseState.predicateTrackers[key];
-              if (parentTracker != null) {
-                parentTracker.removePendingFrame();
-                changed = true;
-              }
-            }
+      var toRemove = <SubparseKey>{};
+      for (var entry in parseState.trackers.entries) {
+        if (entry.value case PredicateTracker tracker) {
+          if (!tracker.exhausted && tracker.canResolveFalse) {
+            tracker.exhausted = true;
+            for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+              parseState.decrementTrackers(parentContext, "childExhausted");
 
-            if (!tracker.isAnd) {
-              var targetPosition = parentContext.position;
-              var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
-              if (parentContext.predicateStack.lastOrNull case var pk?) {
-                var key = PredicateKey(
-                  pk.pattern,
-                  pk.startPosition,
-                  isAnd: pk.isAnd,
-                  name: pk.name,
-                );
-                var parentTracker = parseState.predicateTrackers[key];
-                if (parentTracker != null) {
-                  parentTracker.addPendingFrame();
-                }
+              if (!tracker.isAnd) {
+                var targetPosition = parentContext.position;
+                var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
+                parseState.incrementTrackers(parentContext, "resumeNotPredicate");
+                workQueue.addFrame(targetPosition, nextFrame);
               }
-              workQueue.addFrame(targetPosition, nextFrame);
             }
+            tracker.waiters.clear();
+            toRemove.add(entry.key);
+            changed = true;
+          } else if (tracker.matched || tracker.exhausted) {
+            toRemove.add(entry.key);
           }
-          tracker.waiters.clear();
-          toRemove.add(entry.key);
-          changed = true;
-        } else if (tracker.matched || tracker.exhausted) {
-          // Resolved predicates can be removed once their waiters drain.
-          toRemove.add(entry.key);
         }
       }
       for (var key in toRemove) {
-        parseState.predicateTrackers.remove(key);
+        parseState.trackers.remove(key);
       }
     }
   }

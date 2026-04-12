@@ -251,7 +251,7 @@ class Step {
     );
 
     var subParseKey = ConjunctionKey(left, right, position);
-    parseState.conjunctionTrackers[subParseKey]!; // Touch to ensure it exists if called from Action
+    parseState.trackers[subParseKey]!; // Touch to ensure it exists if called from Action
 
     // Side A
     var leftState = parseState.parser.stateMachine.ruleFirst[left];
@@ -879,44 +879,43 @@ class Step {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
-      // BATTERIZED next-position fast path calculation
-      if (frameContext.predicateStack.isEmpty &&
-          frameContext.captures.isEmpty &&
-          frameContext.arguments.isEmpty) {
-        var packedId =
-            (frameContext.caller.uid << 32) |
-            (action.nextState.id << 8) |
-            (frameContext.minPrecedenceLevel ?? 0xFF);
-        var nextGroup = _nextFrameGroupsInt[packedId];
-        if (nextGroup != null) {
-          GlushProfiler.incrementHit("parser.token_actions.frame_merge");
-          nextGroup.addMarks(newMarks);
-        } else {
-          GlushProfiler.incrementMiss("parser.token_actions.frame_merge");
-          _nextFrameGroupsInt[packedId] = ContextGroup(
-            action.nextState,
-            frameContext.advancePosition(position + 1),
-          )..addMarks(newMarks);
-        }
-      } else {
-        var complexKey = ComplexContextKey(
-          action.nextState,
-          frameContext.advancePosition(position + 1),
-        );
-        var nextGroup = _nextFrameGroupsComplex[complexKey];
-        if (nextGroup != null) {
-          GlushProfiler.incrementHit("parser.token_actions.frame_merge_complex");
-          nextGroup.addMarks(newMarks);
-        } else {
-          GlushProfiler.incrementMiss("parser.token_actions.frame_merge_complex");
-          _nextFrameGroupsComplex[complexKey] = ContextGroup(
-            action.nextState,
-            frameContext.advancePosition(position + 1),
-          )..addMarks(newMarks);
-        }
-      }
+      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
+    }
+  }
+
+  /// Internal helper to enqueue work for the next input position.
+  /// Handles both fast-path (int key) and complex (complex key) context merging.
+  void _enqueueToNextPosition(State nextState, Context context, LazyGlushList<Mark> marks) {
+    if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
+      // BATTERIZED next-position fast path calculation
+      var packedId =
+          (context.caller.uid << 32) | (nextState.id << 8) | (context.minPrecedenceLevel ?? 0xFF);
+      var nextGroup = _nextFrameGroupsInt[packedId];
+      if (nextGroup != null) {
+        GlushProfiler.incrementHit("parser.next_pos.frame_merge");
+        nextGroup.addMarks(marks);
+      } else {
+        GlushProfiler.incrementMiss("parser.next_pos.frame_merge");
+        _nextFrameGroupsInt[packedId] = ContextGroup(
+          nextState,
+          context.advancePosition(position + 1),
+        )..addMarks(marks);
+      }
+    } else {
+      var complexKey = ComplexContextKey(nextState, context.advancePosition(position + 1));
+      var nextGroup = _nextFrameGroupsComplex[complexKey];
+      if (nextGroup != null) {
+        GlushProfiler.incrementHit("parser.next_pos.frame_merge_complex");
+        nextGroup.addMarks(marks);
+      } else {
+        GlushProfiler.incrementMiss("parser.next_pos.frame_merge_complex");
+        _nextFrameGroupsComplex[complexKey] = ContextGroup(
+          nextState,
+          context.advancePosition(position + 1),
+        )..addMarks(marks);
+      }
     }
   }
 
@@ -944,31 +943,7 @@ class Step {
       if (captureTokensAsMarks) {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
-
-      // BATTERIZED next-position fast path calculation
-      if (frameContext.predicateStack.isEmpty &&
-          frameContext.captures.isEmpty &&
-          frameContext.arguments.isEmpty) {
-        var packedId =
-            (frameContext.caller.uid << 32) |
-            (action.nextState.id << 8) |
-            (frameContext.minPrecedenceLevel ?? 0xFF);
-
-        _nextFrameGroupsInt[packedId] = ContextGroup(
-          action.nextState,
-          frameContext.advancePosition(position + 1),
-        )..addMarks(newMarks);
-      } else {
-        var complexKey = ComplexContextKey(
-          action.nextState,
-          frameContext.advancePosition(position + 1),
-        );
-
-        _nextFrameGroupsComplex[complexKey] = ContextGroup(
-          action.nextState,
-          frameContext.advancePosition(position + 1),
-        )..addMarks(newMarks);
-      }
+      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     }
   }
 
@@ -1060,14 +1035,12 @@ class Step {
   }) {
     var frameContext = frame.context;
     var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
-    var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
+    var isFirst = !parseState.trackers.containsKey(subParseKey);
 
     // Use a tracker to coordinate results from the sub-parse.
-    var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
-      symbol,
-      position,
-      isAnd: isAnd,
-    );
+    var tracker =
+        (parseState.trackers[subParseKey] ??= PredicateTracker(symbol, position, isAnd: isAnd))
+            as PredicateTracker;
 
     assert(
       tracker.symbol == symbol && tracker.startPosition == position,
@@ -1098,18 +1071,7 @@ class Step {
     if (!tracker.exhausted) {
       // Still active; park continuation to catch future matches.
       tracker.waiters.add((source, frameContext, nextState, frame.marks));
-
-      var predicateKey = frameContext.predicateStack.lastOrNull;
-      if (predicateKey != null) {
-        // Register dependency: the parent predicate depends on this child's completion.
-        var key = PredicateKey(
-          predicateKey.pattern,
-          predicateKey.startPosition,
-          isAnd: predicateKey.isAnd,
-          name: predicateKey.name,
-        );
-        parseState.predicateTrackers[key]?.addPendingFrame();
-      }
+      parseState.incrementTrackers(frameContext, "childPending");
     } else if (tracker.canResolveFalse) {
       // The sub-parse already exhausted without matching; NOT waiters resume.
       if (!isAnd) {
@@ -1140,12 +1102,14 @@ class Step {
     var left = action.leftSymbol;
     var right = action.rightSymbol;
     var key = ConjunctionKey(left, right, position);
-    var isFirst = !parseState.conjunctionTrackers.containsKey(key);
-    var tracker = parseState.conjunctionTrackers[key] ??= ConjunctionTracker(
-      leftSymbol: left,
-      rightSymbol: right,
-      startPosition: position,
-    );
+    var isFirst = !parseState.trackers.containsKey(key);
+    var tracker =
+        (parseState.trackers[key] ??= ConjunctionTracker(
+              leftSymbol: left,
+              rightSymbol: right,
+              startPosition: position,
+            ))
+            as ConjunctionTracker;
 
     // Park the continuation until both sides meet at the same end position.
     var waiter = (source, frameContext, action.nextState, frame.marks);
@@ -1571,7 +1535,7 @@ class Step {
         isAnd: caller.isAnd,
         name: caller.name,
       );
-      var tracker = parseState.predicateTrackers[key];
+      var tracker = parseState.trackers[key] as PredicateTracker?;
       if (tracker == null) {
         // The predicate may already have resolved in this position.
         return;
@@ -1585,26 +1549,7 @@ class Step {
       tracker.matched = true;
 
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
-        var predicateKey = parentContext.predicateStack.lastOrNull;
-        if (predicateKey != null) {
-          var key = PredicateKey(
-            predicateKey.pattern,
-            predicateKey.startPosition,
-            isAnd: predicateKey.isAnd,
-            name: predicateKey.name,
-          );
-          var parentTracker = parseState.predicateTrackers[key];
-          if (parentTracker != null) {
-            // This child branch is no longer pending in the parent predicate.
-            parentTracker.removePendingFrame();
-            parseState.tracer?.onTrackerUpdate(
-              "Predicate",
-              parentTracker.toString(),
-              parentTracker.activeFrames,
-              "childMatched",
-            );
-          }
-        }
+        parseState.decrementTrackers(parentContext, "childMatched");
 
         // AND predicates resume only on success.
         if (tracker.isAnd) {
@@ -1622,8 +1567,8 @@ class Step {
 
     if (caller is ConjunctionCallerKey) {
       var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
-      var tracker = parseState.conjunctionTrackers[key];
-      if (tracker != null) {
+      var tracker = parseState.trackers[key];
+      if (tracker is ConjunctionTracker) {
         _finishConjunction(tracker, position, caller.isLeft, frame.marks);
       }
       return;

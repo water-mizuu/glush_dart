@@ -1,9 +1,15 @@
 import "package:glush/src/core/patterns.dart";
 import "package:meta/meta.dart";
 
+/// Base class for all sub-parse tracking keys.
+@immutable
+abstract class SubparseKey {
+  const SubparseKey();
+}
+
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 @immutable
-class PredicateKey {
+class PredicateKey extends SubparseKey {
   const PredicateKey(this.pattern, this.startPosition, {required this.isAnd, this.name});
   final PatternSymbol pattern;
   final int startPosition;
@@ -31,7 +37,7 @@ class PredicateKey {
 
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
 @immutable
-class ConjunctionKey {
+class ConjunctionKey extends SubparseKey {
   const ConjunctionKey(this.left, this.right, this.startPosition);
   final PatternSymbol left;
   final PatternSymbol right;
