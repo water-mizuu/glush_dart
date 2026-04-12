@@ -353,26 +353,3 @@ final class ConjunctionAction implements StateAction {
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
-
-/// Action to handle span negation (complement).
-///
-/// Unlike [PredicateAction], this is a consuming action that participates
-/// in the Glushkov state machine transitions. It spawns a sub-parse of the
-/// target rule and continues if that sub-parse fails to match.
-final class NegationAction extends StateAction {
-  /// Create a negation action.
-  ///
-  /// Parameters:
-  ///   [symbol] - The pattern symbol to negate
-  ///   [nextState] - The state to transition to if the pattern doesn't match
-  const NegationAction({required this.symbol, required this.nextState});
-
-  /// The negated pattern symbol.
-  final PatternSymbol symbol;
-
-  /// The next state after this transition.
-  final State nextState;
-
-  @override
-  String toString() => "Neg($symbol)";
-}

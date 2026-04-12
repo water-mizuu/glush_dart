@@ -98,11 +98,6 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "rightSymbol": action.rightSymbol,
       "nextState": stateIdMap[action.nextState],
     },
-    NegationAction() => {
-      "type": "negation",
-      "symbol": action.symbol,
-      "nextState": stateIdMap[action.nextState],
-    },
   };
 }
 
@@ -169,10 +164,6 @@ StateAction _deserializeAction(
     "conjunction" => ConjunctionAction(
       leftSymbol: json["leftSymbol"]! as int,
       rightSymbol: json["rightSymbol"]! as int,
-      nextState: stateMap[(json["nextState"]! as int)]!,
-    ),
-    "negation" => NegationAction(
-      symbol: json["symbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     _ => throw UnsupportedError("Unknown action type: $type"),

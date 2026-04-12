@@ -851,7 +851,6 @@ Pattern _resolvePatternValue(Pattern pattern, GuardEnvironment env) {
     ),
     And(:var pattern) => And(_resolvePatternValue(pattern, env)),
     Not(:var pattern) => Not(_resolvePatternValue(pattern, env)),
-    Neg(:var pattern) => Neg(_resolvePatternValue(pattern, env)),
     Action(:var child, :var callback) => Action(_resolvePatternValue(child, env), callback),
     Prec(:var child, :var precedenceLevel) => Prec(
       precedenceLevel,
@@ -1689,7 +1688,6 @@ sealed class Pattern {
       ),
       "and" => And(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
       "not" => Not(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
-      "neg" => Neg(Pattern.fromJson(json["child"]! as Map<String, Object?>, ruleMap)),
       "rca" => RuleCall(
         json["name"]! as String,
         ruleMap[json["ruleName"]] ??
@@ -1847,7 +1845,6 @@ sealed class Pattern {
       Conj() => "con",
       And() => "and",
       Not() => "not",
-      Neg() => "neg",
       Rule() => "rul",
       RuleCall() => "rca",
       ParameterRefPattern() => "par",
@@ -1876,11 +1873,6 @@ sealed class Pattern {
   /// without consuming input. Prevents matching when pattern would succeed.
   /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
   Not not() => Not(this);
-
-  /// Span-level negation (NEG) - matches if pattern does NOT match the EXACT span (i,j).
-  /// Consumes input.
-  /// Example: ident & neg(keyword) matches an identifier that is not a keyword.
-  Neg neg() => Neg(this);
 
   /// Inline guard — succeeds only if the condition evaluates to true.
   /// If the condition is false, the branch fails without consuming input.
@@ -2574,56 +2566,6 @@ class Not extends Pattern {
 
   @override
   String toString() => "not($pattern)";
-}
-
-/// Span-level negation (NEG) - matches if pattern does NOT match the EXACT span (i,j).
-class Neg extends Pattern {
-  Neg(Pattern p) : pattern = p.consume();
-  Pattern pattern;
-
-  @override
-  Neg copy() => Neg(pattern);
-
-  @override
-  Pattern invert() => pattern; // This is a simplification; ¬(¬A) = A
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    pattern.calculateEmpty(emptyRules);
-    // Negation is not zero-width, so it's only empty if it can match empty span
-    // But wait, ¬epsilon matches any non-empty span.
-    // If A matches empty, ¬A does not match empty.
-    // If A doesn't match empty, ¬A matches empty?
-    // Actually, ¬A is span-consuming, so it matches any span (i,j) that A doesn't.
-    // So yes, it can be empty if A doesn't match (i,i).
-    setEmpty(!pattern.empty());
-    return empty();
-  }
-
-  @override
-  bool isStatic() => false;
-
-  @override
-  Set<Pattern> firstSet() => {this};
-
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  Iterable<(Pattern, Pattern)> eachPair() sync* {
-    // Negations are handled by the state machine as a single unit or conjunction
-  }
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    pattern.collectRules(rules);
-  }
-
-  @override
-  Map<String, Object?> toJson() => {"type": "neg", "child": pattern.toJson()};
-
-  @override
-  String toString() => "neg($pattern)";
 }
 
 /// Inline guard pattern - matches child pattern only if condition is true.

@@ -301,14 +301,6 @@ class PredicatePattern implements PatternExpr {
   String toString() => '${isAnd ? '&' : '!'}$pattern';
 }
 
-class NegationPattern implements PatternExpr {
-  const NegationPattern(this.pattern);
-  final PatternExpr pattern;
-
-  @override
-  String toString() => "~$pattern";
-}
-
 /// Grouped pattern (e.g., (expr '+' term))
 class GroupPattern implements PatternExpr {
   const GroupPattern(this.inner);

@@ -59,8 +59,6 @@ class FileTracer implements ParseTracer {
           next = action.nextState;
         } else if (action is ConjunctionAction) {
           next = action.nextState;
-        } else if (action is NegationAction) {
-          next = action.nextState;
         }
 
         if (next != null) {

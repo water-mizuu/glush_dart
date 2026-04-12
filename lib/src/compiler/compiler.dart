@@ -296,10 +296,6 @@ class GrammarFileCompiler {
           return Not(inner);
         }
 
-      case NegationPattern():
-        var inner = _compilePattern(expr.pattern, precedenceLevels);
-        return Neg(inner);
-
       case BackslashLiteralPattern(:var char):
         return switch (char) {
           "n" => Token(const ExactToken(10)),

@@ -261,30 +261,6 @@ class Step {
     }
   }
 
-  /// Seed a negation sub-parse at the current input position.
-  void _spawnNegationSubparse(PatternSymbol symbol, Frame frame) {
-    var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
-    // Missing entry states indicates invalid negation target symbol.
-    if (entryState == null) {
-      // Negations must map to rule entries in the state machine.
-      throw StateError("Negation symbol must resolve to a rule: $symbol");
-    }
-    var newNegationKey = NegationCallerKey(symbol, position);
-
-    _enqueue(
-      entryState,
-      Context(
-        newNegationKey,
-        arguments: frame.context.arguments,
-        captures: frame.context.captures,
-        callStart: position,
-        position: position,
-        predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
-      ),
-      const LazyGlushList<Mark>.empty(),
-    );
-  }
-
   /// Retrieves the correct token for a frame based on whether it's lagging.
   ///
   /// Frames at the current [Step.position] use the current [token] directly.
@@ -745,8 +721,6 @@ class Step {
           _processPredicateAction(frame, state, action);
         case ConjunctionAction():
           _processConjunctionAction(frame, state, action);
-        case NegationAction():
-          _processNegationAction(frame, state, action);
         case CallAction():
           _processCallAction(frame, state, action);
         case ParameterAction():
@@ -1263,34 +1237,6 @@ class Step {
 
     if (isFirst) {
       _spawnConjunctionSubparse(left, right, frame);
-    }
-  }
-
-  /// Handle [NegationAction]: span negation (complement).
-  void _processNegationAction(Frame frame, State state, NegationAction action) {
-    var frameContext = frame.context;
-    // Span negation (Neg).
-    // Continues only if the sub-parse fails to match a given span.
-    var symbol = action.symbol;
-    var key = NegationKey(symbol, position);
-    var isFirst = !parseState.negationTrackers.containsKey(key);
-    var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
-
-    // Park the continuation until the negation sub-parse settles.
-    // We use unconstrainedWaiters so that the negation can match ANY position
-    // visited by the parser that the sub-parse did not end at.
-    tracker.unconstrainedWaiters.add((frameContext, action.nextState, frame.marks));
-
-    // Ensure that the next position is considered "visited" even if the sub-parse
-    // fails immediately. This allows Negation to act as a consuming terminal.
-    var inputLen = parseState.historyByPosition.length;
-    // If we have a token at the current position, the next position is a candidate.
-    if (position < inputLen) {
-      tracker.visitedPositions.add(position + 1);
-    }
-
-    if (isFirst) {
-      _spawnNegationSubparse(symbol, frame);
     }
   }
 

@@ -9,7 +9,7 @@ import "package:glush/src/parser/common/tracer.dart";
 
 final grammar = Grammar(() {
   late Rule S;
-  S = Rule("", () => Neg(Token.charRange("0", "9")).plus());
+  S = Rule("ASDF", () => (Not(Token.charRange("0", "9")) >> Token.any()).plus());
 
   return S;
 });
@@ -30,6 +30,7 @@ void main() {
     ..createSync(recursive: true)
     ..writeAsStringSync(parser.stateMachine.toDot());
 
+  print(state.accept);
   var paths = state.forest;
   if (!state.accept || paths == null) {
     print("DEBUG: paths is null, returning");

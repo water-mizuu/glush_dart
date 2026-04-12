@@ -865,11 +865,6 @@ class GrammarFileParser {
   /// Parse prefix predicates: &expr, !expr
   PatternExpr _parsePrefix() {
     var type = _peek().type;
-    if (type case _TokenType.tilde || _TokenType.minus) {
-      _advance();
-      var inner = _parseRepetition();
-      return NegationPattern(inner);
-    }
     if (type case _TokenType.ampersand || _TokenType.bang) {
       _advance();
       var inner = _parseRepetition();

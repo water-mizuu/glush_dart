@@ -282,7 +282,6 @@ class StateMachine {
   /// - **Boundaries**: Create [BoundaryAction] for start/EOF checks
   /// - **Markers**: Create [MarkAction] for semantic backref capture
   /// - **Predicates**: Create [PredicateAction] for (AND/NOT) lookahead
-  /// - **Negations**: Create [NegationAction] for (¬A) complement parsing
   /// - **Rule calls**: Create [CallAction] or [TailCallAction] for function calls
   /// - **Labels**: Create [LabelStartAction]/[LabelEndAction] for capture groups
   /// - **Backreferences**: Create [BackreferenceAction] to match captured text
@@ -350,14 +349,6 @@ class StateMachine {
           default:
             throw UnsupportedError("Invalid pattern type for predicate action");
         }
-      case Neg():
-        // Span-level negation: create negation action
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = NegationAction(
-          symbol: (terminal.pattern as RuleCall).rule.symbolId!,
-          nextState: nextState,
-        );
-        state.actions.add(action);
       case RuleCall(:var minPrecedenceLevel):
         if (currentRule != null &&
             minPrecedenceLevel == null &&
@@ -743,7 +734,7 @@ class StateMachine {
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
-      And() || Not() || Neg() => false,
+      And() || Not() => false,
       IfCond(:var pattern) => _isDefinitelyNonEmpty(pattern),
       Action(:var child) ||
       Prec(:var child) ||
@@ -948,13 +939,6 @@ String _toDot(StateMachine machine) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln(
           '  "$fromStateId" -> "$toStateId" [label="Conj ${_dotEscape(action.leftSymbol.toString())} & ${_dotEscape(action.rightSymbol.toString())}"];',
-        );
-      }
-      // NegationAction: complement (¬A) parsing
-      else if (action is NegationAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="Neg ${_dotEscape(action.symbol.toString())}"];',
         );
       }
       // AcceptAction: successful parse - connect to accept node

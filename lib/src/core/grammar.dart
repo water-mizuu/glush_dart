@@ -122,7 +122,6 @@ class Grammar implements GrammarInterface {
         LabelStart() ||
         LabelEnd() ||
         Backreference() => [],
-        Neg(:var pattern) => [pattern.symbolId!],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
@@ -203,18 +202,6 @@ class Grammar implements GrammarInterface {
       var child = pattern.pattern;
       if (child is! RuleCall) {
         var syntheticName = "pred\$${_syntheticRuleCounter++}";
-        var syntheticRule = Rule(syntheticName, () => child);
-        rules.add(syntheticRule);
-        pattern.pattern = syntheticRule.call();
-      }
-      return pattern;
-    }
-
-    if (pattern is Neg) {
-      pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      var child = pattern.pattern;
-      if (child is! RuleCall) {
-        var syntheticName = "neg\$${_syntheticRuleCounter++}";
         var syntheticRule = Rule(syntheticName, () => child);
         rules.add(syntheticRule);
         pattern.pattern = syntheticRule.call();
@@ -379,8 +366,6 @@ class Grammar implements GrammarInterface {
         _collectParameterNames(pattern, names);
       case Not(:var pattern):
         _collectParameterNames(pattern, names);
-      case Neg(:var pattern):
-        _collectParameterNames(pattern, names);
       case Opt(:var child):
         _collectParameterNames(child, names);
       case Plus(:var child):
@@ -430,8 +415,6 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
-      case Neg neg:
-        _collectPatternsFromPattern(neg.pattern, patterns);
       case Action<Object?> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
@@ -614,8 +597,6 @@ class GrammarAdapter implements GrammarInterface {
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-        //
-        Neg(:var pattern) => [pattern.symbolId!],
         Label(:var child) ||
         Action(:var child) ||
         Prec(:var child) ||
@@ -659,8 +640,6 @@ class GrammarAdapter implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
-      case Neg neg:
-        _collectPatternsFromPattern(neg.pattern, patterns);
       case Action<Object?> action:
         _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
