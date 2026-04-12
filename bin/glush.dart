@@ -5,19 +5,14 @@ import "dart:io";
 import "package:glush/glush.dart";
 import "package:glush/src/parser/common/tracer.dart";
 
-// final parser = grammar.toSMParser();
-
-final grammar = Grammar(() {
-  late Rule S;
-  S = Rule("ASDF", () => (Not(Token.charRange("0", "9")) >> Token.any()).plus());
-
-  return S;
-});
-final parser = SMParser(grammar);
+const grammar = """
+  S = [0-9]+ [0-9]
+""";
+final parser = grammar.toSMParser();
 
 void main() {
   // Default behavior: parse and output
-  const input = "abc";
+  const input = "1230";
 
   var tracer = FileTracer("another.log");
   var state = parser.createParseState(captureTokensAsMarks: true, tracer: tracer);
@@ -30,7 +25,6 @@ void main() {
     ..createSync(recursive: true)
     ..writeAsStringSync(parser.stateMachine.toDot());
 
-  print(state.accept);
   var paths = state.forest;
   if (!state.accept || paths == null) {
     print("DEBUG: paths is null, returning");

@@ -29,22 +29,6 @@ class PredicateKey {
   }
 }
 
-/// Partner-end rendezvous for negations (!pattern).
-/// Used to track where a negative lookahead began.
-@immutable
-class NegationKey {
-  const NegationKey(this.pattern, this.startPosition);
-  final PatternSymbol pattern;
-  final int startPosition;
-
-  @override
-  bool operator ==(Object other) =>
-      other is NegationKey && pattern == other.pattern && startPosition == other.startPosition;
-
-  @override
-  int get hashCode => Object.hash(pattern, startPosition);
-}
-
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
 @immutable
 class ConjunctionKey {

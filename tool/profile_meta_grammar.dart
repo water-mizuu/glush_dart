@@ -42,7 +42,7 @@ primary = $group '(' _ inner:choice _ ')'
         | $mark '$' name:ident
         | $start "start"
         | $end "eof"
-        | $call name:ident ('(' _ args:args? _ ')')? ( '^' prec:number )?
+        | $call name:ident ('(' _ args:args? _ ')')? ('^' prec:number)?
         | $lit literal
         | $range charRange
         | $any '.'

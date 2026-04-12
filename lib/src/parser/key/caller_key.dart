@@ -269,30 +269,3 @@ extension type const WaiterInfo(_WaiterData _) {
   Ref<LazyGlushList<Mark>> get parentMarks => _.parentMarks;
   ParseNodeKey get callSite => _.callSite;
 }
-
-/// Represents a negation caller key, used to track negation calls in the parse tree.
-final class NegationCallerKey implements CallerKey {
-  NegationCallerKey(this.pattern, this.startPosition)
-    : uid = -((pattern.hashCode.abs() << 12) | (startPosition & 0xFFF));
-
-  @override
-  final int startPosition;
-
-  final PatternSymbol pattern;
-
-  @override
-  final int uid;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NegationCallerKey &&
-          pattern == other.pattern &&
-          startPosition == other.startPosition;
-
-  @override
-  int get hashCode => Object.hash(pattern, startPosition);
-
-  @override
-  String toString() => "neg($pattern @ $startPosition)";
-}

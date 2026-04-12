@@ -815,7 +815,6 @@ parseState.guardResultCache.clear();
 ### Name Resolution Stages
 
 The `GuardEnvironment` provides multi-stage name resolution in [lib/src/core/patterns.dart](lib/src/core/patterns.dart#L1097):
-
 **Stage 1: Arguments**
 
 ```dart
@@ -849,15 +848,6 @@ Object? resolveBuiltin(String name) {
     "ruleName" => rule.name,
     _ => null,
   };
-}
-```
-
-**Stage 4: Custom Resolvers**
-
-```dart
-Object? resolveCustom(String name) {
-  // Application-provided custom value resolvers
-  return customResolvers[name];
 }
 ```
 

@@ -873,13 +873,6 @@ class Step {
           );
         }
       }
-
-      if (context.caller case NegationCallerKey caller) {
-        parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-            ?.visitedPositions
-            .add(position);
-      }
       _enqueue(state, context, marks);
     }
   }
@@ -911,13 +904,6 @@ class Step {
 
       var marks = group.mergedMarks;
       var context = group.context;
-
-      if (context.caller case NegationCallerKey caller) {
-        parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-            ?.visitedPositions
-            .add(position);
-      }
 
       parseState.decrementTrackers(context, "processBatch");
 
@@ -1795,15 +1781,6 @@ class Step {
       var tracker = parseState.conjunctionTrackers[key];
       if (tracker != null) {
         _finishConjunction(tracker, position, caller.isLeft, frame.marks);
-      }
-      return;
-    }
-
-    if (caller is NegationCallerKey) {
-      var key = NegationKey(caller.pattern, caller.startPosition);
-      var tracker = parseState.negationTrackers[key];
-      if (tracker != null) {
-        tracker.markMatchedPosition(position);
       }
       return;
     }
