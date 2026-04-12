@@ -8,7 +8,6 @@ import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/action_key.dart";
-import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 abstract base class GlushParserBase implements GlushParser {
@@ -26,8 +25,23 @@ abstract base class GlushParserBase implements GlushParser {
     List<Frame> frames,
   ) {
     for (var frame in frames) {
+      parseState.incrementTrackers(frame.context, "enqueue list");
       workQueue.addFrame(frame.context.position, frame);
     }
+  }
+
+  void _enqueueAt(
+    _PositionWorkQueue workQueue,
+    int position,
+    State state,
+    Context context,
+    LazyGlushList<Mark> marks, {
+    required ParseState parseState,
+  }) {
+    var nextContext = context.copyWith(position: position);
+    var frame = Frame(nextContext, marks)..nextStates.add(state);
+    parseState.incrementTrackers(nextContext, "enqueue at");
+    workQueue.addFrame(position, frame);
   }
 
   /// Detect predicates that can now be resolved as exhausted (no active frames).
@@ -98,18 +112,6 @@ abstract base class GlushParserBase implements GlushParser {
     }
   }
 
-  /// Helper to enqueue a frame at a specific future position.
-  void _enqueueAt(
-    _PositionWorkQueue workQueue,
-    int position,
-    State state,
-    Context context,
-    LazyGlushList<Mark> marks,
-  ) {
-    var frame = Frame(context, marks)..nextStates.add(state);
-    workQueue.addFrame(position, frame);
-  }
-
   /// Detect negations that are now fully exhausted and resume surviving waiters.
   void _checkExhaustedNegations(
     ParseState parseState,
@@ -123,11 +125,16 @@ abstract base class GlushParserBase implements GlushParser {
         // Negation sub-parse is done. Resume any waiter for a position j
         // that was NEVER returned by the sub-parse A.
         for (var MapEntry(key: j, value: waiters) in tracker.waiters.entries) {
-          if (!tracker.matchedPositions.contains(j)) {
-            // Surviving waiter! Resume at j.
-            for (var (context, nextState, marks) in waiters) {
-              _enqueueAt(workQueue, j, nextState, context, marks);
+          // Surviving waiter! Resume at j.
+          for (var (context, nextState, marks) in waiters) {
+            var finalMarks = marks;
+            if (parseState.captureTokensAsMarks) {
+              for (int k = tracker.startPosition; k < j; k++) {
+                var charCode = parseState.historyByPosition[k];
+                finalMarks = finalMarks.add(StringMarkVal(String.fromCharCode(charCode), k));
+              }
             }
+            _enqueueAt(workQueue, j, nextState, context, finalMarks, parseState: parseState);
           }
         }
         // Keep the tracker in place so later candidate positions can resolve
@@ -139,10 +146,17 @@ abstract base class GlushParserBase implements GlushParser {
           for (var j in tracker.visitedPositions) {
             if (!tracker.matchedPositions.contains(j)) {
               for (var (context, nextState, marks) in tracker.unconstrainedWaiters) {
-                workQueue.addFrame(
-                  j,
-                  Frame(context.copyWith(position: j), marks)..nextStates.add(nextState),
-                );
+                if (j <= tracker.startPosition) {
+                  continue; // Enforce non-zero-width Negation
+                }
+                var finalMarks = marks;
+                if (parseState.captureTokensAsMarks) {
+                  for (int k = tracker.startPosition; k < j; k++) {
+                    var charCode = parseState.historyByPosition[k];
+                    finalMarks = finalMarks.add(StringMarkVal(String.fromCharCode(charCode), k));
+                  }
+                }
+                _enqueueAt(workQueue, j, nextState, context, finalMarks, parseState: parseState);
               }
             }
           }
@@ -200,7 +214,8 @@ abstract base class GlushParserBase implements GlushParser {
     while (workQueue.isNotEmpty) {
       var position = workQueue.firstKeyOrNull!;
       // Work queue is sorted; once position exceeds current token, stop.
-      if (position > currentPosition) {
+      // If token is null (EOF), we drain the entire queue to finalize results.
+      if (token != null && position > currentPosition) {
         break;
       }
 
@@ -208,13 +223,13 @@ abstract base class GlushParserBase implements GlushParser {
 
       if (stepsAtPosition[position] == null) {
         // Build one Step object per position lazily on first visit.
-        var positionToken = (position == currentPosition)
-            ? token
-            : parseState.historyByPosition[position];
-
         stepsAtPosition[position] = Step(
           parseState,
-          positionToken,
+          position == currentPosition
+              ? token
+              : (position < parseState.historyByPosition.length
+                    ? parseState.historyByPosition[position]
+                    : null),
           position,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
@@ -222,39 +237,16 @@ abstract base class GlushParserBase implements GlushParser {
       }
       var currentStep = stepsAtPosition[position]!;
 
+      // Update all active negations at this position.
+      for (var tracker in parseState.negationTrackers.values) {
+        if (position >= tracker.startPosition) {
+          tracker.visitedPositions.add(position);
+        }
+      }
+
       // Process all frames' enqueueing first, then finalize work queue.
-      // This is critical for proper ambiguity handling: when multiple frames
-      // have the same state but different marks, they must be enqueued
-      // BEFORE the work queue is processed, so that _currentFrameGroups
-      // deduplication can merge their marks via GlushList.branched.
       for (var frame in positionFrames) {
-        // Replay frames are bookkeeping-only, so they skip predicate counters.
-        if (frame.context.predicateStack.lastOrNull case PredicateCallerKey pk) {
-          // Contract note mirrors processFrame():
-          // tracker can be absent after cleanup of an exhausted predicate.
-          // Dequeued predicate-owned frame consumes one pending work unit.
-          var key = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-          var tracker = parseState.predicateTrackers[key];
-          if (tracker != null) {
-            tracker.removePendingFrame();
-          }
-        }
-        if (frame.context.caller case ConjunctionCallerKey caller) {
-          // Decrement pending frame counter for the conjunction sub-parse.
-          var tracker = parseState
-              .conjunctionTrackers[ConjunctionKey(caller.left, caller.right, caller.startPosition)];
-
-          if (tracker != null && tracker.activeFrames > 0) {
-            tracker.removePendingFrame();
-          }
-        }
-
-        if (frame.context.caller case NegationCallerKey caller) {
-          parseState
-              .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-              ?.visitedPositions
-              .add(position);
-        }
+        parseState.decrementTrackers(frame.context, "process position queue");
         currentStep.processFrameEnqueue(frame);
       }
       currentStep.processFrameFinalize();
@@ -262,27 +254,37 @@ abstract base class GlushParserBase implements GlushParser {
 
       var nextQueuedPosition = workQueue.firstKeyOrNull;
       if (nextQueuedPosition == null || nextQueuedPosition > currentPosition) {
-        // Logical meaning:
-        // - either there is no queued work left, or
-        // - the next queued position is strictly after `currentPosition`
-        // => there is no more work that could still produce predicate matches
-        // at/before this boundary, so exhaustion checks are safe now.
         _checkExhaustedPredicates(parseState, workQueue, currentPosition);
         _checkExhaustedNegations(parseState, workQueue, currentPosition);
       }
 
-      if (position < currentPosition) {
-        // Earlier positions can unlock future work after their token step ends.
-        // Earlier positions may generate future-position token transitions.
-        _enqueueFramesForPosition(parseState, workQueue, currentStep.nextFrames);
-        currentStep.nextFrames.clear();
+      // Neutral transfer: decrement from Step storage, increment into Global queue.
+      for (var frame in currentStep.nextFrames) {
+        parseState.decrementTrackers(frame.context, "transfer next");
+        _enqueueFramesForPosition(parseState, workQueue, [frame]);
       }
+      currentStep.nextFrames.clear();
 
-      _enqueueFramesForPosition(parseState, workQueue, currentStep.requeued);
+      for (var frame in currentStep.requeued) {
+        parseState.decrementTrackers(frame.context, "transfer requeue");
+        _enqueueFramesForPosition(parseState, workQueue, [frame]);
+      }
       currentStep.requeued.clear();
     }
 
     var steps = stepsAtPosition[currentPosition];
+
+    // Harvest all lingerframes enqueued for future positions (e.g. by negations)
+    // and store them in ParseState's buffer.
+    while (workQueue.isNotEmpty) {
+      var futurePos = workQueue.firstKeyOrNull!;
+      var futureFrames = workQueue.removeFirst();
+      for (var frame in futureFrames) {
+        parseState.decrementTrackers(frame.context, "transfer futureWork");
+        parseState.enqueueAt(futurePos, frame);
+      }
+    }
+
     if (steps != null) {
       return steps;
     }

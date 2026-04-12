@@ -3,19 +3,24 @@
 import "dart:io";
 
 import "package:glush/glush.dart";
+import "package:glush/src/parser/common/tracer.dart";
 
-const grammar = r"""
-  S = s:(S) | 's'
-""";
+// final parser = grammar.toSMParser();
 
-final parser = grammar.toSMParser();
+final grammar = Grammar(() {
+  late Rule S;
+  S = Rule("", () => Neg(Token.charRange("0", "9")).plus());
+
+  return S;
+});
+final parser = SMParser(grammar);
 
 void main() {
   // Default behavior: parse and output
-  const input = "s";
+  const input = "abc";
 
-  // var tracer = FileTracer("another.log");
-  var state = parser.createParseState(captureTokensAsMarks: true);
+  var tracer = FileTracer("another.log");
+  var state = parser.createParseState(captureTokensAsMarks: true, tracer: tracer);
   for (int code in input.codeUnits) {
     state.processToken(code);
   }

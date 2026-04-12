@@ -71,7 +71,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return false;
         }
       }
@@ -91,7 +91,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
       }
@@ -123,7 +123,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
       }

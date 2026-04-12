@@ -125,7 +125,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
         // If no frames remain, the parser cannot recover from this prefix.
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return false;
         }
       }
@@ -154,7 +154,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
         // No active frames means the parse has already failed.
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
       }
@@ -195,7 +195,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
         // No active frames means the parse has already failed.
-        if (parseState.frames.isEmpty) {
+        if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
       }

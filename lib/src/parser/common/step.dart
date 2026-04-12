@@ -105,44 +105,7 @@ class Step {
   /// because the predicate still has pending work.
   void requeue(Frame frame) {
     requeued.add(frame);
-    // Only predicate-owned frames affect predicate liveness counters.
-    if (frame.context.predicateStack.lastOrNull case var predicateKey?) {
-      assert(
-        !frame.context.predicateStack.isEmpty,
-        "Invariant violation in requeue: predicate stack lookup implies non-empty stack.",
-      );
-      // A requeued predicate frame is still live work for that tracker.
-      var key = PredicateKey(
-        predicateKey.pattern,
-        predicateKey.startPosition,
-        isAnd: predicateKey.isAnd,
-        name: predicateKey.name,
-      );
-      var tracker = parseState.predicateTrackers[key];
-      tracker?.addPendingFrame();
-      if (tracker != null) {
-        parseState.tracer?.onTrackerUpdate(
-          "Predicate",
-          tracker.toString(),
-          tracker.activeFrames,
-          "requeue",
-        );
-      }
-    }
-
-    if (frame.context.caller case ConjunctionCallerKey caller) {
-      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
-      var tracker = parseState.conjunctionTrackers[key];
-      tracker?.addPendingFrame();
-      if (tracker != null) {
-        parseState.tracer?.onTrackerUpdate(
-          "Conjunction",
-          tracker.toString(),
-          tracker.activeFrames,
-          "requeue",
-        );
-      }
-    }
+    parseState.incrementTrackers(frame.context, "requeue");
   }
 
   /// Resolve a conjunction match and wake up any waiters at the matching position.
@@ -723,6 +686,7 @@ class Step {
       var newGroup = ContextGroup(state, nextContext)..addMarks(marks);
       _currentFrameGroupsInt[packedId] = newGroup;
 
+      parseState.incrementTrackers(nextContext, "enqueue");
       _workQueue.add((IntContextKey(packedId), state));
       return;
     }
@@ -745,32 +709,7 @@ class Step {
     GlushProfiler.incrementMiss("parser.enqueue.merged");
     _activeContextKeysComplex.add(key);
 
-    if (nextContext.predicateStack.lastOrNull case var pk?) {
-      var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-      var tracker = parseState.predicateTrackers[pKey];
-      tracker?.addPendingFrame();
-      if (tracker != null) {
-        parseState.tracer?.onTrackerUpdate(
-          "Predicate",
-          tracker.toString(),
-          tracker.activeFrames,
-          "enqueue",
-        );
-      }
-    }
-    if (nextContext.caller case ConjunctionCallerKey con) {
-      var key = ConjunctionKey(con.left, con.right, con.startPosition);
-      var tracker = parseState.conjunctionTrackers[key];
-      tracker?.addPendingFrame();
-      if (tracker != null) {
-        parseState.tracer?.onTrackerUpdate(
-          "Conjunction",
-          tracker.toString(),
-          tracker.activeFrames,
-          "enqueue",
-        );
-      }
-    }
+    parseState.incrementTrackers(nextContext, "enqueue");
 
     // Initialize group and store initial marks.
     _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
@@ -912,19 +851,7 @@ class Step {
     var nextFrame = Frame(context, branchedMarks);
     nextFrame.nextStates.add(nextGroup.state);
 
-    if (context.predicateStack.lastOrNull case PredicateCallerKey predicateKey) {
-      var key = PredicateKey(
-        predicateKey.pattern,
-        predicateKey.startPosition,
-        isAnd: predicateKey.isAnd,
-        name: predicateKey.name,
-      );
-      var tracker = parseState.predicateTrackers[key];
-      if (tracker != null) {
-        tracker.addPendingFrame();
-      }
-    }
-
+    parseState.incrementTrackers(context, "finalize nextGroup");
     nextFrames.add(nextFrame);
   }
 
@@ -1019,39 +946,14 @@ class Step {
       var marks = group.mergedMarks;
       var context = group.context;
 
-      if (context.predicateStack.lastOrNull case var pk?) {
-        var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-        var tracker = parseState.predicateTrackers[pKey];
-        if (tracker != null) {
-          tracker.removePendingFrame();
-          parseState.tracer?.onTrackerUpdate(
-            "Predicate",
-            tracker.toString(),
-            tracker.activeFrames,
-            "processBatch",
-          );
-        }
-      }
-      if (context.caller case ConjunctionCallerKey c) {
-        var key = ConjunctionKey(c.left, c.right, c.startPosition);
-        var tracker = parseState.conjunctionTrackers[key];
-        if (tracker != null && tracker.activeFrames > 0) {
-          tracker.removePendingFrame();
-          parseState.tracer?.onTrackerUpdate(
-            "Conjunction",
-            tracker.toString(),
-            tracker.activeFrames,
-            "processBatch",
-          );
-        }
-      }
-
       if (context.caller case NegationCallerKey caller) {
         parseState
             .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
             ?.visitedPositions
             .add(position);
       }
+
+      parseState.decrementTrackers(context, "processBatch");
 
       _process(Frame(context, marks), state);
     }
@@ -1364,35 +1266,27 @@ class Step {
     }
   }
 
-  /// Handle [NegationAction]: negative lookahead (!pattern).
+  /// Handle [NegationAction]: span negation (complement).
   void _processNegationAction(Frame frame, State state, NegationAction action) {
     var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Negative lookahead (!pattern).
+    // Span negation (Neg).
     // Continues only if the sub-parse fails to match a given span.
     var symbol = action.symbol;
     var key = NegationKey(symbol, position);
     var isFirst = !parseState.negationTrackers.containsKey(key);
     var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
 
-    // Probing: If a position is already set, we check if [start, position] matches.
-    var targetJ = frame.context.position;
-    if (tracker.matchedPositions.contains(targetJ)) {
-      // The sub-parse already matched this specific span, so negation fails.
-    } else if (tracker.isExhausted) {
-      // The child sub-parse is done and did NOT match targetJ; negation succeeds.
-      _resumeLaggedPredicateContinuation(
-        source: source,
-        parentContext: frame.context,
-        parentMarks: frame.marks,
-        nextState: action.nextState,
-        isAnd: true,
-        symbol: action.symbol,
-        branchKey: ActionBranchKey(action),
-      );
-    } else if (!tracker.hasWaiterAt(targetJ)) {
-      // Result unknown; park until sub-parse settles for this j.
-      tracker.addWaiter(targetJ, (frameContext, action.nextState, frame.marks));
+    // Park the continuation until the negation sub-parse settles.
+    // We use unconstrainedWaiters so that the negation can match ANY position
+    // visited by the parser that the sub-parse did not end at.
+    tracker.unconstrainedWaiters.add((frameContext, action.nextState, frame.marks));
+
+    // Ensure that the next position is considered "visited" even if the sub-parse
+    // fails immediately. This allows Negation to act as a consuming terminal.
+    var inputLen = parseState.historyByPosition.length;
+    // If we have a token at the current position, the next position is a candidate.
+    if (position < inputLen) {
+      tracker.visitedPositions.add(position + 1);
     }
 
     if (isFirst) {

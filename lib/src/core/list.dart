@@ -550,8 +550,8 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
     return _collectLazy(this, const {});
   }
 
-  Iterable<List<T>> _collectLazy(LazyGlushList<T> node, Set<LazyGlushList<T>> stack) {
-    if (stack.contains(node)) {
+  Iterable<List<T>> _collectLazy(LazyGlushList<T> node, Set<int> stack) {
+    if (stack.contains(node.hashCode)) {
       return const [];
     }
 
@@ -564,7 +564,7 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
     }
 
     var results = <List<T>>[];
-    var newStack = {...stack, node};
+    var newStack = {...stack, node.hashCode};
 
     if (node is LazyEmpty<T>) {
       results.add(const []);

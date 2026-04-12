@@ -644,7 +644,7 @@ class GrammarFileParser {
       return ExpressionUnaryNode(ExpressionUnaryOperator.logicalNot, _parseUnary());
     }
 
-    if (_peek().type case _TokenType.minus || _TokenType.tilde) {
+    if (_peek().type case _TokenType.minus) {
       _advance();
       return ExpressionUnaryNode(ExpressionUnaryOperator.negate, _parseUnary());
     }
@@ -847,12 +847,12 @@ class GrammarFileParser {
     return null;
   }
 
-  /// Parse: expr & expr & expr
+  /// Parse: expr && expr && expr
   PatternExpr _parseConjunction() {
     var parts = [_parsePrefix()];
 
     while (_peek().type == _TokenType.doubleAmpersand) {
-      _advance(); // consume &
+      _advance(); // consume &&
       parts.add(_parsePrefix());
     }
 
@@ -865,7 +865,12 @@ class GrammarFileParser {
   /// Parse prefix predicates: &expr, !expr
   PatternExpr _parsePrefix() {
     var type = _peek().type;
-    if (type == _TokenType.ampersand || type == _TokenType.bang) {
+    if (type case _TokenType.tilde || _TokenType.minus) {
+      _advance();
+      var inner = _parseRepetition();
+      return NegationPattern(inner);
+    }
+    if (type case _TokenType.ampersand || _TokenType.bang) {
       _advance();
       var inner = _parseRepetition();
       return PredicatePattern(inner, isAnd: type == _TokenType.ampersand);
