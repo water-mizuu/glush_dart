@@ -100,7 +100,7 @@ void main() {
         start = (if (position == 0) '') "hello"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       expect(parser.recognize("hello"), isTrue);
     });
 
@@ -110,7 +110,7 @@ void main() {
               | (if (position > 0) '') "b"
       ''';
 
-      var parserDsl = grammarDsl.toSMParserMini();
+      var parserDsl = grammarDsl.toSMParser();
       expect(parserDsl.recognize("a"), isTrue);
     });
 
@@ -151,7 +151,7 @@ void main() {
         start = (if (!false) '') "yes"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       expect(parser.recognize("yes"), isTrue);
     });
 
@@ -185,7 +185,7 @@ void main() {
         content = "data" | sub:start
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       expect(parser.recognize("data"), isTrue);
     });
   });

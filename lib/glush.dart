@@ -15,7 +15,6 @@ export "src/parser/key/branch_key.dart";
 export "src/parser/key/caller_key.dart";
 export "src/parser/key/derivation_key.dart";
 export "src/parser/sm_parser.dart";
-export "src/parser/sm_parser_mini.dart";
 export "src/parser/state_machine/state_actions.dart";
 export "src/parser/state_machine/state_machine.dart";
 export "src/parser/state_machine/state_machine_export.dart";

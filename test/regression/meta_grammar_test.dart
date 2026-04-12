@@ -4,7 +4,7 @@ import "package:test/test.dart";
 void main() {
   group("Meta Grammar", () {
     late Grammar metaGrammar;
-    late SMParserMini metaParser;
+    late SMParser metaParser;
 
     // The meta grammar definition as a string
     const metaGrammarString = r"""
@@ -120,7 +120,7 @@ void main() {
         GrammarFileParser(metaGrammarString).parse(),
       ).compile(startRuleName: "full");
 
-      metaParser = SMParserMini(metaGrammar);
+      metaParser = SMParser(metaGrammar);
     });
 
     test("parses a simple single-rule grammar", () {

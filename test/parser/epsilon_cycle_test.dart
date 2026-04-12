@@ -8,8 +8,8 @@ void main() {
       return Rule("test", () => Label("x", Eps()).star() >> Token(const ExactToken(97)));
     });
 
-    var parser = SMParserMini(grammar);
-    
+    var parser = SMParser(grammar);
+
     // This previously caused an infinite loop of unique Context objects.
     // Now it should merge the epsilon iterations and succeed.
     var outcome = parser.parse("a");
@@ -24,7 +24,7 @@ void main() {
       return Rule("test", () => Label("x", inner).star() >> Token(const ExactToken(97)));
     });
 
-    var parser = SMParserMini(grammar);
+    var parser = SMParser(grammar);
     var outcome = parser.parse("a");
 
     expect(outcome, isA<ParseSuccess>());

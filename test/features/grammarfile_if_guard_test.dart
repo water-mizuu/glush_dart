@@ -22,7 +22,7 @@ void main() {
         start = if (position > 0) "a";
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       expect(parser.recognize("a"), isFalse);
     });
 
@@ -81,7 +81,7 @@ void main() {
         start = (if (position == 0) '') "hello"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       expect(parser.recognize("hello"), isTrue);
       expect(parser.recognize("world"), isFalse);
     });
@@ -91,7 +91,7 @@ void main() {
         start = (if (position == 0) '') "a" | (if (position > 0) '') "b"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       // At position 0, first branch matches
       expect(parser.recognize("a"), isTrue);
       expect(parser.recognize("b"), isFalse);
@@ -102,7 +102,7 @@ void main() {
         start = (if (position > 10) '') "text"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       // Guard always fails at position 0
       expect(parser.recognize("text"), isFalse);
     });
@@ -112,7 +112,7 @@ void main() {
         start = (if (!false) '') "yes"
       ''';
 
-      var parser = grammarText.toSMParserMini();
+      var parser = grammarText.toSMParser();
       // Negation of false is true, so should match
       expect(parser.recognize("yes"), isTrue);
     });

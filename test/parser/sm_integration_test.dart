@@ -178,7 +178,7 @@ void main() {
         var a = Token(const ExactToken(97));
         return Rule("test", () => a.not().not() >> a);
       });
-      var parser = SMParserMini(grammar);
+      var parser = SMParser(grammar);
       expect(parser.recognize("a"), isTrue, reason: "!!a should match a");
       expect(parser.recognize("b"), isFalse);
     });
@@ -188,7 +188,7 @@ void main() {
         var a = Token(const ExactToken(97));
         return Rule("test", () => a.not().not().not() >> a);
       });
-      var parser = SMParserMini(grammar);
+      var parser = SMParser(grammar);
       expect(parser.recognize("a"), isFalse, reason: "!!!a should NOT match a");
     });
   });

@@ -7,7 +7,6 @@ import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/sm_parser.dart";
-import "package:glush/src/parser/sm_parser_mini.dart";
 
 /// Compiles a GrammarFile into an executable Grammar
 class GrammarFileCompiler {
@@ -456,10 +455,6 @@ extension GrammarFileExtension on String {
       GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName);
 
   SMParser toSMParser({String? startRuleName}) => SMParser(
-    GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
-  );
-
-  SMParserMini toSMParserMini({String? startRuleName}) => SMParserMini(
     GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
   );
 }

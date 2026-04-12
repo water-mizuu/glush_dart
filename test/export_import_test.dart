@@ -121,7 +121,7 @@ void main() {
         atom = 'a' | 'b' | 'c'
       """;
 
-      var originalParser = grammarText.toSMParserMini();
+      var originalParser = grammarText.toSMParser();
       var exportedJson = originalParser.stateMachine.exportToJson();
       File("exported.json")
         ..createSync(recursive: true)
@@ -214,9 +214,9 @@ void main() {
       });
 
       program = Rule("program", () => block.call(arguments: {"lvl": CallArgumentValue.literal(0)}));
-      var originalParser = SMParserMini(Grammar(() => program));
+      var originalParser = SMParser(Grammar(() => program));
       var exportedJson = originalParser.stateMachine.exportToJson();
-      var importedParser = SMParserMini.fromImported(exportedJson);
+      var importedParser = SMParser.fromImported(exportedJson);
 
       expect(importedParser.recognize("aaa\nbbb\n"), isTrue);
       expect(importedParser.recognize(":\n    aaa\n"), isTrue);
@@ -251,9 +251,9 @@ void main() {
         name = [A-Za-z_] [A-Za-z0-9_]*
       """;
 
-      var originalParser = grammarText.toSMParserMini();
+      var originalParser = grammarText.toSMParser();
       var exportedJson = originalParser.stateMachine.exportToJson();
-      var importedParser = SMParserMini.fromImported(exportedJson);
+      var importedParser = SMParser.fromImported(exportedJson);
 
       expect(importedParser.recognize("<book>Hello</book>"), isTrue);
       expect(importedParser.recognize("<book>Hello</author>"), isFalse);

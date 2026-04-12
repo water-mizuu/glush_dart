@@ -10,7 +10,7 @@ void main() {
       return Rule("test", () => amb.and() >> a);
     });
 
-    var parser = SMParserMini(grammar);
+    var parser = SMParser(grammar);
     // Use parseAmbiguous to see if we get multiple mark streams
     var outcome = parser.parseAmbiguous("a", captureTokensAsMarks: true);
 
@@ -30,7 +30,7 @@ void main() {
       return Rule("test", () => amb.not() >> b);
     });
 
-    var parser = SMParserMini(grammar);
+    var parser = SMParser(grammar);
     var outcome = parser.parseAmbiguous("b", captureTokensAsMarks: true);
 
     expect(outcome, isA<ParseAmbiguousSuccess>());

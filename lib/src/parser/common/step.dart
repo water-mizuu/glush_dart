@@ -17,7 +17,6 @@ import "package:glush/src/parser/key/branch_key.dart";
 import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
-import "package:glush/src/parser/key/guard_cache_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -90,9 +89,6 @@ class Step {
 
   /// Frames that were delayed or diverted (e.g. for sub-parses).
   final List<Frame> requeued = [];
-
-  /// Cache for guard evaluation results within this execution step.
-  final Map<GuardCacheKey, bool> _guardResultCache = {};
 
   /// Requeue work for processing at a future step position.
   ///
@@ -305,27 +301,11 @@ class Step {
     // Guard results are cached by rule, position, arguments, and mark forest so
     // repeated branches do not re-evaluate the same boolean expression.
     var subjectRule = rule.guardOwner ?? rule;
-    var cacheKey = GuardCacheKey(
-      subjectRule,
-      guard,
-      argumentsKey,
-      position,
-      frame.context.callStart,
-      frame.context.minPrecedenceLevel,
-    );
-
-    if (_guardResultCache.containsKey(cacheKey)) {
-      GlushProfiler.incrementHit("parser.guard.cache");
-      return _guardResultCache[cacheKey]!;
-    }
-
-    GlushProfiler.incrementMiss("parser.guard.cache");
     var result = GlushProfiler.measure("parser.guard.evaluate", () {
       return guard.evaluate(
         _buildGuardEnvironment(rule: subjectRule, frame: frame, arguments: arguments),
       );
     });
-    _guardResultCache[cacheKey] = result;
     GlushProfiler.increment("parser.guard.cache_assign");
     return result;
   }
@@ -367,12 +347,6 @@ class Step {
 
   CaptureValue? _extractLabelCapture(LazyGlushList<Mark> marks, String target) {
     var concreteMarks = marks.evaluate();
-    var cacheKey = (concreteMarks, target);
-    if (parseState.labelCaptureCache.containsKey(cacheKey)) {
-      GlushProfiler.incrementHit("parser.capture.cache");
-      return parseState.labelCaptureCache[cacheKey];
-    }
-    GlushProfiler.incrementMiss("parser.capture.cache");
 
     // If multiple branches can produce the same capture name, we keep the
     // earliest capture as the canonical one for this forest.
@@ -389,7 +363,6 @@ class Step {
       }
       return resolved;
     });
-    parseState.labelCaptureCache[cacheKey] = capture;
     GlushProfiler.increment("parser.capture.cache_assign");
     return capture;
   }
@@ -1054,33 +1027,21 @@ class Step {
             (frameContext.caller.uid << 32) |
             (action.nextState.id << 8) |
             (frameContext.minPrecedenceLevel ?? 0xFF);
-        var nextGroup = _nextFrameGroupsInt[packedId];
-        if (nextGroup != null) {
-          GlushProfiler.incrementHit("parser.context.dedup");
-        } else {
-          GlushProfiler.incrementMiss("parser.context.dedup");
-          nextGroup = _nextFrameGroupsInt[packedId] = ContextGroup(
-            action.nextState,
-            frameContext.advancePosition(position + 1),
-          );
-        }
-        nextGroup.addMarks(newMarks);
+
+        _nextFrameGroupsInt[packedId] = ContextGroup(
+          action.nextState,
+          frameContext.advancePosition(position + 1),
+        )..addMarks(newMarks);
       } else {
         var complexKey = ComplexContextKey(
           action.nextState,
           frameContext.advancePosition(position + 1),
         );
-        var nextGroup = _nextFrameGroupsComplex[complexKey];
-        if (nextGroup != null) {
-          GlushProfiler.incrementHit("parser.context.dedup");
-        } else {
-          GlushProfiler.incrementMiss("parser.context.dedup");
-          nextGroup = _nextFrameGroupsComplex[complexKey] = ContextGroup(
-            action.nextState,
-            frameContext.advancePosition(position + 1),
-          );
-        }
-        nextGroup.addMarks(newMarks);
+
+        _nextFrameGroupsComplex[complexKey] = ContextGroup(
+          action.nextState,
+          frameContext.advancePosition(position + 1),
+        )..addMarks(newMarks);
       }
     }
   }

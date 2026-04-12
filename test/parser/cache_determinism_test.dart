@@ -11,7 +11,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) 'a' 'b' 'c' | if (position == 0) 'a' 'b' 'd';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("abc"), isTrue);
       expect(parser.recognize("abd"), isTrue);
     });
@@ -21,7 +21,7 @@ void main() {
         rule = if (position == 0) start;
         start = 'a' | 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -37,7 +37,7 @@ void main() {
       const grammar = r"""
         rule = (if (position < 10) 'a') (if (position < 10) 'b');
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("ab"), isTrue);
     });
 
@@ -45,7 +45,7 @@ void main() {
       const grammar = r'''
         rule = if (ruleName == "rule") 'a' | if (ruleName == "rule") 'a';
       ''';
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -53,7 +53,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) (if (position == 0) 'a' 'b');
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("ab"), isTrue);
     });
 
@@ -61,7 +61,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 99) 'a' | if (position == 99) 'b';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isFalse);
       expect(parser.recognize("b"), isFalse);
     });
@@ -78,7 +78,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0 && callStart == 0) &'a' 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -86,7 +86,7 @@ void main() {
       const grammar = r"""
         rule = if (minPrecedenceLevel == null) 'a' | 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -94,7 +94,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) 'a' | if (position == 0) 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
     });
 
@@ -102,7 +102,7 @@ void main() {
       const grammar = r"""
         rule = if (position < 10) 'a' rule | if (position < 10) 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
       expect(parser.recognize("aa"), isTrue);
     });
@@ -112,7 +112,7 @@ void main() {
         rule = repeat(2);
         repeat(n) = if (n > 0) 'a' repeat(n - 1) | if (n == 0) '';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("aa"), isTrue);
     });
 
@@ -128,7 +128,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) ('a' | 'a')* 'b';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("b"), isTrue);
       expect(parser.recognize("ab"), isTrue);
       expect(parser.recognize("aab"), isTrue);
@@ -138,7 +138,7 @@ void main() {
       const grammar = r'''
         rule = if (ruleName == "rule") (('a' 'b') | ('a' 'b'));
       ''';
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("ab"), isTrue);
     });
 
@@ -146,7 +146,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) !'b' 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("a"), isTrue);
       expect(parser.recognize("ba"), isFalse);
     });
@@ -155,7 +155,7 @@ void main() {
       const grammar = r"""
         rule = if (position == 0) 'a' | if (position == 0) 'a';
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       // Multiple parses should use same cache
       expect(parser.recognize("a"), isTrue);
       expect(parser.recognize("a"), isTrue);
@@ -175,7 +175,7 @@ void main() {
         rule = if (position < 5) merged;
         merged = ('a' | 'a') ('b' | 'b');
       """;
-      var parser = grammar.toSMParserMini();
+      var parser = grammar.toSMParser();
       expect(parser.recognize("ab"), isTrue);
     });
   });

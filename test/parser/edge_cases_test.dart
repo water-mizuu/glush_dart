@@ -8,7 +8,6 @@ void main() {
     Grammar grammar,
     void Function(RecognizerAndMarksParser parser) body,
   ) {
-    test("$name (Mini)", () => body(SMParserMini(grammar)));
     test("$name (Full)", () => body(SMParser(grammar)));
   }
 
@@ -372,17 +371,7 @@ void main() {
         return e;
       }),
       (parser) {
-        if (parser is SMParserMini) {
-          var result = parser.parseAmbiguous("a+a+a");
-          expect(result, isA<ParseAmbiguousSuccess>());
-          if (result is ParseAmbiguousSuccess) {
-            expect(result.forest.allMarkPaths().length, equals(1));
-            var marks = result.forest.allMarkPaths().first.toStringList();
-            expect(marks.where((m) => m == "left").length, equals(2));
-            expect(marks.where((m) => m == "mid").length, equals(2));
-            expect(marks.where((m) => m == "right").length, equals(2));
-          }
-        } else if (parser is SMParser) {
+        if (parser is SMParser) {
           expect(parser.recognize("a+a+a"), isTrue);
           // Full SMParser parseAmbiguous returns merged marks, not paths
           var result = parser.parseAmbiguous("a+a+a");

@@ -52,7 +52,6 @@ final class ParseState {
 
   final Map<RuleName, Rule> rulesByName;
   final Map<int, Rule> rulesById;
-  final Map<(GlushList<Mark>, String), CaptureValue?> labelCaptureCache = {};
 
   int position = 0;
   int callerCounter = 1;
@@ -129,7 +128,6 @@ final class ParseState {
     });
 
     // Record final cache statistics
-    GlushProfiler.increment("parser.cache.label_captures", labelCaptureCache.length);
     GlushProfiler.increment("parser.cache.predicates_final", predicateTrackers.length);
     GlushProfiler.increment("parser.cache.conjunctions_final", conjunctionTrackers.length);
     GlushProfiler.increment("parser.cache.negations_final", negationTrackers.length);

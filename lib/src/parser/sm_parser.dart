@@ -41,7 +41,6 @@ import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:glush/src/parser/state_machine/state_machine_export.dart";
-import "package:glush/src/representation/evaluator.dart";
 
 /// Main parser implementation using a state machine-based LR-like algorithm.
 ///
@@ -196,8 +195,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
-        var results = lastStep.acceptedContexts.values.toList();
-        var branches = results.fold<LazyGlushList<Mark>>(
+        var branches = lastStep.acceptedContexts.values.fold<LazyGlushList<Mark>>(
           const LazyGlushList.empty(),
           LazyGlushList.branched,
         );
@@ -217,16 +215,5 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// parser ambiguity without memory overhead.
   int countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
-  }
-
-  Object? evaluateParseTreeWith<T extends Object>(
-    Object? tree,
-    String input,
-    Evaluator<T> evaluator,
-  ) {
-    if (tree is ParseNode) {
-      return evaluator.evaluate(tree);
-    }
-    return null;
   }
 }

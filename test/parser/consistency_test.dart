@@ -3,7 +3,7 @@ import "package:test/test.dart";
 
 /// Helper to verify that parse() results are consistent with parseAmbiguous().
 void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
-  var parser = SMParserMini(g);
+  var parser = SMParser(g);
   var result = parser.parse(input);
   var ambigResult = parser.parseAmbiguous(input);
 
@@ -99,7 +99,7 @@ void main() {
       // Even though ambiguous, parse() result must be one of the paths.
       verifyConsistency(g, "a", isAmbiguous: true);
 
-      var parser = SMParserMini(g);
+      var parser = SMParser(g);
       var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
       expect(
         ambig.allMarkPaths().length,
@@ -129,7 +129,7 @@ void main() {
       );
       verifyConsistency(g, "ab");
 
-      var parser = SMParserMini(g);
+      var parser = SMParser(g);
       var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousSuccess).forest;
       // Should have 1 result because both branches are unique and merged.
       expect(ambig.allMarkPaths().length, 1);
@@ -151,7 +151,7 @@ void main() {
         return Rule("S", () => (a() | b()) & (c() | d()));
       });
 
-      var parser = SMParserMini(g);
+      var parser = SMParser(g);
       var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
 
       // Combinations: (A,C), (A,D), (B,C), (B,D)

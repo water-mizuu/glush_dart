@@ -56,28 +56,26 @@ void main() {
     print("DSL marks: $tree");
 
     var boxRule = Rule("box", () => Eps());
-    var value = dslParser.evaluateParseTreeWith(
-      tree,
-      "bc",
-      Evaluator<Object>({
-        "start": (ctx) => ctx<Object>("outer"),
-        "outer": (ctx) {
-          var closure = ctx<Object>("box") as PatternClosureValue;
-          return CallArgumentValue.map({
-            "direct": CallArgumentValue.callable(closure),
-            "nested": CallArgumentValue.list([
-              CallArgumentValue.callable(closure),
-              CallArgumentValue.literal(ctx<String>("tail")),
-            ]),
-          });
-        },
-        "value": (_) {
-          var closure = PatternClosureValue(seed, GuardEnvironment(rule: boxRule));
-          return CallArgumentValue.callable(closure);
-        },
-        "tail": (ctx) => ctx.span,
-      }),
-    );
+    var evaluator = Evaluator<Object>({
+      "start": (ctx) => ctx<Object>("outer"),
+      "outer": (ctx) {
+        var closure = ctx<Object>("box") as PatternClosureValue;
+        return CallArgumentValue.map({
+          "direct": CallArgumentValue.callable(closure),
+          "nested": CallArgumentValue.list([
+            CallArgumentValue.callable(closure),
+            CallArgumentValue.literal(ctx<String>("tail")),
+          ]),
+        });
+      },
+      "value": (_) {
+        var closure = PatternClosureValue(seed, GuardEnvironment(rule: boxRule));
+        return CallArgumentValue.callable(closure);
+      },
+      "tail": (ctx) => ctx.span,
+    });
+
+    var value = evaluator.evaluate(tree.evaluateStructure());
     print("DSL value: $value");
   }
 }
