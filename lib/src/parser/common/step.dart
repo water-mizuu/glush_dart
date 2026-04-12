@@ -141,13 +141,15 @@ class Step {
   ) {
     // Create a Parallel node representing the cartesian product of left and right marks
     // at the same span. This captures all combinations of parallel marks.
+    GlushProfiler.increment("parser.conjunctions.completed");
     var conjunctionResult = LazyGlushList.conjunction(left, right);
+    GlushProfiler.increment("parser.marks.conjunctions_created");
 
     for (var (_, parentContext, nextState, parentMarks) in targetWaiters) {
       // Add the parallel result to the parent marks.
       var nextMarks = parentMarks.addList(conjunctionResult);
       var nextContext = parentContext.advancePosition(endPosition);
-
+      GlushProfiler.increment("parser.marks.added");
       requeue(Frame(nextContext, nextMarks)..nextStates.add(nextState));
     }
   }
@@ -189,6 +191,12 @@ class Step {
       // Predicates must map to rule entries in the state machine.
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
     }
+    GlushProfiler.increment("parser.predicates.spawned");
+    if (isAnd) {
+      GlushProfiler.increment("parser.predicates.and");
+    } else {
+      GlushProfiler.increment("parser.predicates.not");
+    }
     var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd, name: name);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
@@ -210,6 +218,7 @@ class Step {
 
   /// Seed a conjunction sub-parse (both side A and side B).
   void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
+    GlushProfiler.increment("parser.conjunctions.spawned");
     var leftCaller = ConjunctionCallerKey(
       left: left,
       right: right,
@@ -505,6 +514,7 @@ class Step {
           parseState.callerCounter++,
         );
         GlushProfiler.increment("parser.callers.cache_assign");
+        GlushProfiler.increment("parser.callers.created_simple");
       } else {
         GlushProfiler.incrementHit("parser.callers.cache");
       }
@@ -529,6 +539,7 @@ class Step {
           parseState.callerCounter++,
         );
         GlushProfiler.increment("parser.callers.cache_assign");
+        GlushProfiler.increment("parser.callers.created_complex");
       } else {
         GlushProfiler.incrementHit("parser.callers.cache");
       }
@@ -540,7 +551,11 @@ class Step {
       Ref(frame.marks),
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
+    if (isNewWaiter) {
+      GlushProfiler.increment("parser.callers.new_waiter");
+    }
     if (isNewCaller) {
+      GlushProfiler.increment("parser.callers.spawned");
       parseState.tracer?.onRuleCall(targetRule, position, caller);
       var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
 
@@ -563,6 +578,7 @@ class Step {
         );
       }
     } else if (isNewWaiter) {
+      GlushProfiler.increment("parser.callers.early_returns");
       for (var (returnContext, _) in caller.returns) {
         _triggerReturn(
           caller,
@@ -626,6 +642,7 @@ class Step {
     ParseNodeKey? callSite,
   }) {
     GlushProfiler.increment("parser.enqueue.calls");
+    GlushProfiler.increment("parser.frames.processed");
     var nextContext = context;
 
     var targetPosition = nextContext.position;
@@ -634,6 +651,7 @@ class Step {
     if (targetPosition != position) {
       // Frame is lagging and will be processed when its position comes up.
       GlushProfiler.increment("parser.enqueue.requeued");
+      GlushProfiler.increment("parser.frames.requeued");
       parseState.tracer?.onEnqueue(state, targetPosition, "future position");
       requeue(Frame(nextContext, marks)..nextStates.add(state));
       return;
@@ -648,6 +666,7 @@ class Step {
 
       if (!isSupportingAmbiguity && !_activeContextKeysInt.add(packedId)) {
         GlushProfiler.incrementHit("parser.enqueue.deduplicated");
+        GlushProfiler.increment("parser.frames.deduplicated");
         return;
       }
 
@@ -944,8 +963,10 @@ class Step {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
 
+    GlushProfiler.increment("parser.token_actions.attempted");
     // Token actions fire only when an input token matches the expected pattern.
     if (token != null && action.choice.matches(token)) {
+      GlushProfiler.increment("parser.token_actions.matched");
       var newMarks = frame.marks;
       var pattern = action.choice;
 
@@ -955,6 +976,7 @@ class Step {
 
       // Capture policy controls whether consumed chars become human-readable StringMarks.
       if (shouldCapture) {
+        GlushProfiler.increment("parser.marks.added");
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
@@ -968,8 +990,10 @@ class Step {
             (frameContext.minPrecedenceLevel ?? 0xFF);
         var nextGroup = _nextFrameGroupsInt[packedId];
         if (nextGroup != null) {
+          GlushProfiler.incrementHit("parser.token_actions.frame_merge");
           nextGroup.addMarks(newMarks);
         } else {
+          GlushProfiler.incrementMiss("parser.token_actions.frame_merge");
           _nextFrameGroupsInt[packedId] = ContextGroup(
             action.nextState,
             frameContext.advancePosition(position + 1),
@@ -982,14 +1006,18 @@ class Step {
         );
         var nextGroup = _nextFrameGroupsComplex[complexKey];
         if (nextGroup != null) {
+          GlushProfiler.incrementHit("parser.token_actions.frame_merge_complex");
           nextGroup.addMarks(newMarks);
         } else {
+          GlushProfiler.incrementMiss("parser.token_actions.frame_merge_complex");
           _nextFrameGroupsComplex[complexKey] = ContextGroup(
             action.nextState,
             frameContext.advancePosition(position + 1),
           )..addMarks(newMarks);
         }
       }
+    } else {
+      GlushProfiler.increment("parser.token_actions.rejected");
     }
   }
 

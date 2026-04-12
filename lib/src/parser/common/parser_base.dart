@@ -280,7 +280,7 @@ abstract base class GlushParserBase implements GlushParser {
       var futurePos = workQueue.firstKeyOrNull!;
       var futureFrames = workQueue.removeFirst();
       for (var frame in futureFrames) {
-        parseState.decrementTrackers(frame.context, "transfer futureWork");
+        parseState.decrementTrackers(frame.context, "transfer to deferredFramesByPosition");
         parseState.enqueueAt(futurePos, frame);
       }
     }

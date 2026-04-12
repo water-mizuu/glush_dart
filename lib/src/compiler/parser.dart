@@ -1134,8 +1134,7 @@ class GrammarFileParser {
     }
 
     var ranges = <CharRange>[];
-
-    int i = 0;
+    var i = 0;
 
     int readCode() {
       if (i >= inner.length) {

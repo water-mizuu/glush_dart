@@ -1,143 +1,122 @@
 import "package:glush/glush.dart";
+import "package:test/test.dart";
 
-const _metaGrammarString = r"""
-        # ==========================
-        #   Full Meta Grammar
-        # ==========================
-        full = $full start _ file:file _ eof
-
-        file = $rules left:file _ right:rule
-            | $first rule:rule
-
-        rule = $rule name:ident _ '=' _ body:choice _ ( ';' )?
-
-        choice = $choice     left:choice _               '|' _  right:seq
-               | $precChoice left:choice _ prec:number _ '|' _  right:seq
-               | $firstChoice          ((prec:number _)? '|' _)? body:seq
-
-        seq = $seq left:seq _ &isContinuation right:prefix
-            | prefix
-
-        prefix = $and '&' atom:rep
-               | $not '!' atom:rep
-               | rep
-
-        rep = $rep atom:primary kind:repKind
-            | primary
-
-        repKind = $star '*'      | $plus '+'
-                | $starBang "*!" | $plusBang "+!"
-                | $question '?'
-
-        primary =
-            $group '(' _ inner:choice _ ')'
-          | $label name:ident ':' atom:primary
-          | $mark '$' name:ident
-          | start
-          | eof
-          | $ref name:ident
-          | $lit literal
-          | $range charRange
-          | $any '.'
-
-        isContinuation = ident !(_ [=])
-                       | literal
-                       | charRange
-                       | '['
-                       | '('
-                       | '.'
-                       | '!'
-                       | '&'
-
-        ident = [A-Za-z$_] [A-Za-z$_0-9]*
-        literal = ['] (!['] .)* ['] | ["] (![\"] .)* ["]
-        charRange = '[' (!']' .)* ']'
-        number = [0-9]+
-
-        _ = $ws (plain_ws | comment | newline)* !plain_ws !comment !newline
-        comment = '#' (!newline .)* (newline | eof)
-        plain_ws = [ \t]+ ![ \t]
-        newline = [\n\r]+ ![\n\r]
-      """;
-
-const _forestGrammarString = r"""
-start = item ':' item
-item = name:word
-word = [a-z]+
-""";
-
-const _dataDrivenGrammarString = r"""
-start = capture:times(3, 's') check(capture, 3) '!'
-
-times(n, char) = _times(n, char)
-_times(n, char) = if (n > 1) cdr:_times(n - 1, char) car:char
-               | if (n == 1) char
-               | if (n <= 0) ''
-
-check(value, n) = if (value.length == n) ''
-""";
-
-void _runProfile(String label, void Function() action) {
-  GlushProfiler.reset();
-  GlushProfiler.enabled = true;
-  var watch = Stopwatch()..start();
-  try {
-    action();
-  } finally {
-    watch.stop();
-    GlushProfiler.enabled = false;
-  }
-
-  print("== $label ==");
-  print("wall_ms=${(watch.elapsedMicroseconds / 1000).toStringAsFixed(3)}");
-  print(GlushProfiler.snapshot().report());
-  print("");
-}
-
-void _profileMeta() {
-  var ast = GrammarFileParser(_metaGrammarString).parse();
-  var grammar = GrammarFileCompiler(ast).compile(startRuleName: "full");
-  var parser = SMParserMini(grammar);
-
-  _runProfile("meta-self-parse", () {
-    parser.parse(_metaGrammarString);
-  });
-}
-
-void _profileDataDriven() {
-  var grammar = GrammarFileCompiler(
-    GrammarFileParser(_dataDrivenGrammarString).parse(),
-  ).compile(startRuleName: "start");
-  var parser = SMParserMini(grammar);
-
-  _runProfile("data-driven-parse", () {
-    var outcome = parser.parse("sss!");
-    if (outcome case ParseSuccess(:var result)) {
-      const StructuredEvaluator().evaluate(result.rawMarks);
-    }
-  });
-}
-
-void _profileForest() {
-  var grammar = GrammarFileCompiler(
-    GrammarFileParser(_forestGrammarString).parse(),
-  ).compile(startRuleName: "start");
-  var parser = SMParser(grammar);
-
-  _runProfile("parse-ambiguous", () {
-    var outcome = parser.parseAmbiguous("alpha:beta", captureTokensAsMarks: true);
-    if (outcome case ParseAmbiguousSuccess(:var forest)) {
-      const StructuredEvaluator().evaluate(forest.allMarkPaths().single);
-    }
-  });
-}
+// Import all test files
+import "../test/core/backslash_literal_test.dart" as backslash_literal_test;
+import "../test/core/conjunction_test.dart" as conjunction_test;
+import "../test/core/glush_list_test.dart" as glush_list_test;
+import "../test/core/glush_test.dart" as glush_test;
+import "../test/core/inversion_test.dart" as inversion_test;
+import "../test/core/stress_test.dart" as stress_test;
+import "../test/diagnostic/execution_trace_test.dart" as execution_trace_test;
+import "../test/export_import_test.dart" as export_import_test;
+import "../test/features/ambiguous_marks_test.dart" as ambiguous_marks_test;
+import "../test/features/associativity_test.dart" as associativity_test;
+import "../test/features/data_driven_parameters_test.dart" as data_driven_parameters_test;
+import "../test/features/data_driven_rules_test.dart" as data_driven_rules_test;
+import "../test/features/debug_predicate_test.dart" as debug_predicate_test;
+import "../test/features/function_style_rules_smoke_test.dart" as function_style_rules_smoke_test;
+import "../test/features/grammarfile_if_guard_test.dart" as grammarfile_if_guard_test;
+import "../test/features/grammarfile_precedence_test.dart" as grammarfile_precedence_test;
+import "../test/features/greedy_star_plus_test.dart" as greedy_star_plus_test;
+import "../test/features/identifier_resolution_test.dart" as identifier_resolution_test;
+import "../test/features/indentation_grammar_test.dart" as indentation_grammar_test;
+import "../test/features/inline_guard_test.dart" as inline_guard_test;
+import "../test/features/marks_regression_test.dart" as marks_regression_test;
+import "../test/features/marks_test.dart" as marks_test;
+import "../test/features/optional_unambiguous_test.dart" as optional_unambiguous_test;
+import "../test/features/precedence_test.dart" as precedence_test;
+import "../test/features/pred_amb_test.dart" as pred_amb_test;
+import "../test/features/predicate_nesting_test.dart" as predicate_nesting_test;
+import "../test/features/predicates_test.dart" as predicates_test;
+import "../test/features/recursive_test.dart" as recursive_test;
+import "../test/features/scc_counting_test.dart" as scc_counting_test;
+import "../test/features/sm_features_test.dart" as sm_features_test;
+import "../test/features/star_plus_unambiguous_test.dart" as star_plus_unambiguous_test;
+import "../test/features/tail_call_optimization_test.dart" as tail_call_optimization_test;
+import "../test/features/xml_mark_bridge_test.dart" as xml_mark_bridge_test;
+import "../test/parser/cache_determinism_test.dart" as cache_determinism_test;
+import "../test/parser/conjunction_edge_cases_test.dart" as conjunction_edge_cases_test;
+import "../test/parser/conjunction_properties_test.dart" as conjunction_properties_test;
+import "../test/parser/consistency_test.dart" as consistency_test;
+import "../test/parser/debug_not_sequence_test.dart" as debug_not_sequence_test;
+import "../test/parser/edge_cases_test.dart" as edge_cases_test;
+import "../test/parser/epsilon_cycle_test.dart" as epsilon_cycle_test;
+import "../test/parser/gamma_three_test.dart" as gamma_three_test;
+import "../test/parser/multi_predicate_test.dart" as multi_predicate_test;
+import "../test/parser/predicate_ambiguity_test.dart" as predicate_ambiguity_test;
+import "../test/parser/predicate_regression_test.dart" as predicate_regression_test;
+import "../test/parser/shared_predicate_test.dart" as shared_predicate_test;
+import "../test/parser/sm_integration_test.dart" as sm_integration_test;
+import "../test/parser/sm_parser_mini_test.dart" as sm_parser_mini_test;
+import "../test/parser/state_machine_dot_escape_test.dart" as state_machine_dot_escape_test;
+import "../test/regression/conjunction_logic_test.dart" as conjunction_logic_test;
+import "../test/regression/cyclic_unary_ambiguity_test.dart" as cyclic_unary_ambiguity_test;
+import "../test/regression/gamma_bug_test.dart" as gamma_bug_test;
+import "../test/regression/meta_grammar_test.dart" as meta_grammar_test;
 
 void main() {
-  _runProfile("compiler-only", () {
-    var ast = GrammarFileParser(_metaGrammarString).parse();
-    GrammarFileCompiler(ast).compile(startRuleName: "full");
+  GlushProfiler.enabled = true;
+
+  group("Profiling runner", () {
+    // Run all test main functions
+    ambiguous_marks_test.main();
+    associativity_test.main();
+    backslash_literal_test.main();
+    cache_determinism_test.main();
+    conjunction_edge_cases_test.main();
+    conjunction_logic_test.main();
+    conjunction_properties_test.main();
+    conjunction_test.main();
+    consistency_test.main();
+    cyclic_unary_ambiguity_test.main();
+    data_driven_parameters_test.main();
+    data_driven_rules_test.main();
+    debug_not_sequence_test.main();
+    debug_predicate_test.main();
+    edge_cases_test.main();
+    epsilon_cycle_test.main();
+    execution_trace_test.main();
+    export_import_test.main();
+    function_style_rules_smoke_test.main();
+    gamma_bug_test.main();
+    gamma_three_test.main();
+    glush_list_test.main();
+    glush_test.main();
+    grammarfile_if_guard_test.main();
+    grammarfile_precedence_test.main();
+    greedy_star_plus_test.main();
+    identifier_resolution_test.main();
+    indentation_grammar_test.main();
+    inline_guard_test.main();
+    inversion_test.main();
+    marks_regression_test.main();
+    marks_test.main();
+    meta_grammar_test.main();
+    multi_predicate_test.main();
+    optional_unambiguous_test.main();
+    precedence_test.main();
+    pred_amb_test.main();
+    predicate_ambiguity_test.main();
+    predicate_nesting_test.main();
+    predicate_regression_test.main();
+    predicates_test.main();
+    recursive_test.main();
+    scc_counting_test.main();
+    shared_predicate_test.main();
+    sm_features_test.main();
+    sm_integration_test.main();
+    sm_parser_mini_test.main();
+    star_plus_unambiguous_test.main();
+    state_machine_dot_escape_test.main();
+    stress_test.main();
+    tail_call_optimization_test.main();
+    xml_mark_bridge_test.main();
+
+    // Set up a tearDown to print the profiling summary after all tests
+    tearDownAll(() {
+      print("\n\n========== PROFILING SUMMARY ==========");
+      print(GlushProfiler.snapshot().report());
+    });
   });
-  _profileMeta();
-  _profileDataDriven();
-  _profileForest();
 }

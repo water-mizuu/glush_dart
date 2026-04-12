@@ -30,7 +30,7 @@ final class ParseState {
          for (var rule in parser.grammar.rules) rule.symbolId!: rule,
          for (var rule in parser.stateMachine.allRules.values) rule.symbolId!: rule,
        } {
-    futureWork[0] = initialFrames;
+    deferredFramesByPosition[0] = initialFrames;
     for (var frame in initialFrames) {
       incrementTrackers(frame.context, "initial");
     }
@@ -60,7 +60,7 @@ final class ParseState {
 
   /// Buffer for work enqueued for positions beyond the current [position].
   /// This is essential for non-local transitions (e.g. complementing a long span).
-  final Map<int, List<Frame>> futureWork = {};
+  final Map<int, List<Frame>> deferredFramesByPosition = {};
 
   /// Frames currently being processed at the current [position].
   final List<Frame> currentFrames = [];
@@ -68,8 +68,8 @@ final class ParseState {
   /// Process one input code unit and advance the parser by one position.
   Step processToken(int unit) {
     historyByPosition.add(unit);
-    var frames = futureWork.remove(position) ?? [];
-    // Every frame pulled from futureWork must be decremented because the
+    var frames = deferredFramesByPosition.remove(position) ?? [];
+    // Every frame pulled from deferredFramesByPosition must be decremented because the
     // parser will re-increment them when adding to its internal work queue.
     for (var frame in frames) {
       decrementTrackers(frame.context);
@@ -88,6 +88,18 @@ final class ParseState {
     });
     GlushProfiler.increment("parser.process_token.calls");
 
+    // Record frame work queue depth
+    var deferredFrameCount = deferredFramesByPosition.values
+        .map((v) => v.length)
+        .fold(0, (sum, list) => sum + list);
+    GlushProfiler.increment("parser.work_queue.depth", deferredFrameCount);
+
+    // Track active predicates/conjunctions/negations
+    GlushProfiler.increment("parser.predicates.active", predicateTrackers.length);
+    GlushProfiler.increment("parser.conjunctions.active", conjunctionTrackers.length);
+    GlushProfiler.increment("parser.negations.active", negationTrackers.length);
+    GlushProfiler.increment("parser.callers.total", callersInt.length + callersComplex.length);
+
     position++;
     _lastStep = step;
     return step;
@@ -95,9 +107,11 @@ final class ParseState {
 
   /// Finalize the parse at end-of-input.
   Step finish() {
-    var frames = futureWork.remove(position) ?? [];
-    // Every frame pulled from futureWork must be decremented because the
+    var frames = deferredFramesByPosition.remove(position) ?? [];
+    // Every frame pulled from deferredFramesByPosition must be decremented because the
     // parser will re-increment them when adding to its internal work queue.
+    GlushProfiler.increment("parser.steps.finish");
+    GlushProfiler.increment("parser.frames.finish", frames.length);
     for (var frame in frames) {
       decrementTrackers(frame.context);
     }
@@ -113,6 +127,13 @@ final class ParseState {
         captureTokensAsMarks: captureTokensAsMarks,
       );
     });
+
+    // Record final cache statistics
+    GlushProfiler.increment("parser.cache.label_captures", labelCaptureCache.length);
+    GlushProfiler.increment("parser.cache.predicates_final", predicateTrackers.length);
+    GlushProfiler.increment("parser.cache.conjunctions_final", conjunctionTrackers.length);
+    GlushProfiler.increment("parser.cache.negations_final", negationTrackers.length);
+
     _lastStep = step;
     tracer?.finalize();
     return step;
@@ -129,14 +150,16 @@ final class ParseState {
   bool get accept => _lastStep?.accept ?? false;
 
   /// Returns true if there is any pending work at or after the [position].
-  bool get hasPendingWork =>
-      futureWork.entries.any((entry) => entry.key >= position && entry.value.isNotEmpty);
+  bool get hasPendingWork => deferredFramesByPosition.entries.any(
+    (entry) => entry.key >= position && entry.value.isNotEmpty,
+  );
 
   void incrementTrackers(Context context, String reason) {
     if (context.predicateStack.lastOrNull case var pk?) {
       var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
       var tracker = predicateTrackers[pKey];
       tracker?.addPendingFrame();
+      GlushProfiler.increment("parser.predicate_frames.added");
       if (tracker != null) {
         tracer?.onTrackerUpdate("Predicate", tracker.toString(), tracker.activeFrames, reason);
       }
@@ -146,6 +169,7 @@ final class ParseState {
       var key = ConjunctionKey(con.left, con.right, con.startPosition);
       var tracker = conjunctionTrackers[key];
       tracker?.addPendingFrame();
+      GlushProfiler.increment("parser.conjunction_frames.added");
       if (tracker != null) {
         tracer?.onTrackerUpdate("Conjunction", tracker.toString(), tracker.activeFrames, reason);
       }
@@ -155,6 +179,7 @@ final class ParseState {
       var key = NegationKey(neg.pattern, neg.startPosition);
       var tracker = negationTrackers[key];
       tracker?.addPendingFrame();
+      GlushProfiler.increment("parser.negation_frames.added");
       if (tracker != null) {
         tracer?.onTrackerUpdate("Negation", tracker.toString(), tracker.activeFrames, reason);
       }
@@ -162,8 +187,8 @@ final class ParseState {
   }
 
   void enqueueAt(int position, Frame frame) {
-    futureWork.putIfAbsent(position, () => []).add(frame);
-    incrementTrackers(frame.context, "enqueue futureWork");
+    deferredFramesByPosition.putIfAbsent(position, () => []).add(frame);
+    incrementTrackers(frame.context, "enqueue deferredFramesByPosition");
   }
 
   void decrementTrackers(Context context, [String? reason]) {
@@ -172,6 +197,7 @@ final class ParseState {
       var tracker = predicateTrackers[key];
       if (tracker != null) {
         tracker.removePendingFrame();
+        GlushProfiler.increment("parser.predicate_frames.removed");
         if (reason != null) {
           tracer?.onTrackerUpdate("Predicate", tracker.toString(), tracker.activeFrames, reason);
         }
@@ -183,6 +209,7 @@ final class ParseState {
       var tracker = conjunctionTrackers[key];
       if (tracker != null && tracker.activeFrames > 0) {
         tracker.removePendingFrame();
+        GlushProfiler.increment("parser.conjunction_frames.removed");
         if (reason != null) {
           tracer?.onTrackerUpdate("Conjunction", tracker.toString(), tracker.activeFrames, reason);
         }
@@ -194,6 +221,7 @@ final class ParseState {
       var tracker = negationTrackers[key];
       if (tracker != null && tracker.activeFrames > 0) {
         tracker.removePendingFrame();
+        GlushProfiler.increment("parser.negation_frames.removed");
         if (reason != null) {
           tracer?.onTrackerUpdate("Negation", tracker.toString(), tracker.activeFrames, reason);
         }
