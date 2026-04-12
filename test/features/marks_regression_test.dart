@@ -273,9 +273,9 @@ void main() {
           r'''
             start = outer:(left:('a'+) ":" right:(inner:('b'+)));
           '''
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
-      var outcome = parser.parse("aaa:bbb");
+      var outcome = parser.parse("aaa:bbb", captureTokensAsMarks: true);
       expect(outcome, isA<ParseSuccess>());
 
       var marks = (outcome as ParseSuccess).result.rawMarks;
@@ -297,9 +297,9 @@ void main() {
           r"""
             start = $outer first:'a' middle:'b' last:'c';
           """
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
-      var outcome = parser.parse("abc");
+      var outcome = parser.parse("abc", captureTokensAsMarks: true);
       expect(outcome, isA<ParseSuccess>());
 
       var result = (outcome as ParseSuccess).result;

@@ -173,14 +173,14 @@ abstract base class GlushParserBase implements GlushParser {
   /// Create a reusable manual parse cursor.
   ParseState createParseState({
     bool isSupportingAmbiguity = false,
-    bool? captureTokensAsMarks,
+    bool captureTokensAsMarks = false,
     ParseTracer? tracer,
   }) {
     return ParseState(
       this,
       initialFrames: initialFrames,
       isSupportingAmbiguity: isSupportingAmbiguity,
-      captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+      captureTokensAsMarks: captureTokensAsMarks,
       tracer: tracer,
     );
   }
@@ -200,7 +200,7 @@ abstract base class GlushParserBase implements GlushParser {
     List<Frame> frames, {
     required ParseState parseState,
     bool isSupportingAmbiguity = false,
-    bool? captureTokensAsMarks,
+    bool captureTokensAsMarks = false,
   }) {
     if (token != null && parseState.historyByPosition.length == currentPosition) {
       parseState.historyByPosition.add(token);
@@ -232,7 +232,7 @@ abstract base class GlushParserBase implements GlushParser {
                     : null),
           position,
           isSupportingAmbiguity: isSupportingAmbiguity,
-          captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+          captureTokensAsMarks: captureTokensAsMarks,
         );
       }
       var currentStep = stepsAtPosition[position]!;
@@ -294,7 +294,7 @@ abstract base class GlushParserBase implements GlushParser {
       token,
       currentPosition,
       isSupportingAmbiguity: isSupportingAmbiguity,
-      captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
+      captureTokensAsMarks: captureTokensAsMarks,
     );
     step.finalize();
     return step;

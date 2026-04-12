@@ -513,7 +513,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   );
   start = Rule("start", () => leftStart() | rightStart());
 
-  var fluentParser = SMParser(Grammar(() => start), captureTokensAsMarks: true);
+  var fluentParser = SMParser(Grammar(() => start));
   var fluentOutcome = fluentParser.parseAmbiguous("a", captureTokensAsMarks: true);
   print("Fluent ambiguous outcome: ${fluentOutcome.runtimeType}");
   if (fluentOutcome case ParseAmbiguousSuccess(:var forest)) {

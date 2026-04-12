@@ -7,7 +7,6 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 
 abstract interface class GlushParser {
   StateMachine get stateMachine;
-  bool get captureTokensAsMarks;
   GrammarInterface get grammar;
   List<Frame> get initialFrames;
 
@@ -17,7 +16,7 @@ abstract interface class GlushParser {
     List<Frame> frames, {
     required ParseState parseState,
     bool isSupportingAmbiguity,
-    bool? captureTokensAsMarks,
+    bool captureTokensAsMarks,
   });
 }
 

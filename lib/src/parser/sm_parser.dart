@@ -64,10 +64,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// Builds the state machine on first use and initializes the parser state.
   /// The parser can then be reused across multiple parse() calls on different inputs.
-  SMParser(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar);
-
-  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar);
+  SMParser.fromStateMachine(this.stateMachine);
 
   /// Create a parser from an imported state machine JSON.
   ///
@@ -93,9 +91,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   @override
   final StateMachine stateMachine;
 
-  @override
-  bool captureTokensAsMarks;
-
   /// Returns the grammar used to construct this parser's state machine.
   @override
   GrammarInterface get grammar => stateMachine.grammar;
@@ -120,7 +115,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   @override
   bool recognize(String input) {
     return GlushProfiler.measure("parser.recognize", () {
-      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+      var parseState = createParseState();
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
@@ -145,11 +140,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseSuccess] if the entire input matches the grammar
   /// - [ParseError] if parsing fails at some position
   @override
-  ParseOutcome parse(String input, {bool? captureTokensAsMarks}) {
+  ParseOutcome parse(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse", () {
-      var parseState = createParseState(
-        captureTokensAsMarks: captureTokensAsMarks ?? this.captureTokensAsMarks,
-      );
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
@@ -184,12 +177,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// - [ParseAmbiguousSuccess] if input matches (all interpretations merged)
   /// - [ParseError] if parsing fails
   @override
-  ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
+  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse_ambiguous", () {
-      var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
       var parseState = createParseState(
         isSupportingAmbiguity: true,
-        captureTokensAsMarks: shouldCapture,
+        captureTokensAsMarks: captureTokensAsMarks,
       );
 
       for (var codepoint in input.codeUnits) {

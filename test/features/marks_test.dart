@@ -14,8 +14,8 @@ void main() {
         return rule;
       });
 
-      var parser = SMParser(grammar, captureTokensAsMarks: true);
-      var outcome = parser.parse("user:michael");
+      var parser = SMParser(grammar);
+      var outcome = parser.parse("user:michael", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
       var result = (outcome as ParseSuccess).result;
@@ -35,9 +35,9 @@ void main() {
         start = user:ident ":" pass:ident;
         ident = [a-z]+;
       '''
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
-      var outcome = parser.parse("alice:secret");
+      var outcome = parser.parse("alice:secret", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
       var result = (outcome as ParseSuccess).result;
@@ -56,16 +56,16 @@ void main() {
         choice = $prec "a"
                | $first "b";
       '''
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
       var evaluator = const StructuredEvaluator();
 
-      var firstOutcome = parser.parse("a");
+      var firstOutcome = parser.parse("a", captureTokensAsMarks: true);
       expect(firstOutcome, isA<ParseSuccess>());
       var firstTree = evaluator.evaluate((firstOutcome as ParseSuccess).result.rawMarks);
       expect(firstTree["choice.prec"].first.span, equals("a"));
 
-      var secondOutcome = parser.parse("b");
+      var secondOutcome = parser.parse("b", captureTokensAsMarks: true);
       expect(secondOutcome, isA<ParseSuccess>());
       var secondTree = evaluator.evaluate((secondOutcome as ParseSuccess).result.rawMarks);
       expect(secondTree["choice.first"].first.span, equals("b"));
@@ -77,9 +77,9 @@ void main() {
         start = person:(first:ident " " last:ident);
         ident = [A-Z][a-z]*;
       '''
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
-      var outcome = parser.parse("John Doe");
+      var outcome = parser.parse("John Doe", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
       var result = (outcome as ParseSuccess).result;

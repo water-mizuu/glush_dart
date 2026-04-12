@@ -21,10 +21,9 @@ import "package:glush/src/parser/state_machine/state_machine_export.dart";
 /// Representation (BSR) or a Shared Packed Parse Forest (SPPF) by default. It is
 /// optimized for cases where only the results (marks) are needed.
 final class SMParserMini extends GlushParserBase implements RecognizerAndMarksParser {
-  SMParserMini(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar);
+  SMParserMini(GrammarInterface grammar) : stateMachine = StateMachine(grammar);
 
-  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  SMParserMini.fromStateMachine(this.stateMachine);
 
   /// Create a parser from an imported state machine JSON.
   ///
@@ -48,9 +47,6 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   final StateMachine stateMachine;
 
   @override
-  bool captureTokensAsMarks;
-
-  @override
   GrammarInterface get grammar => stateMachine.grammar;
 
   @override
@@ -67,7 +63,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   @override
   bool recognize(String input) {
     return GlushProfiler.measure("parser.recognize", () {
-      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+      var parseState = createParseState();
 
       for (var codepoint in input.codeUnits) {
         parseState.processToken(codepoint);
@@ -85,7 +81,7 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// This method must remain independent of the BSR/SPPF pipeline and rely
   /// only on the State Machine execution plus marks bookkeeping.
   @override
-  ParseOutcome parse(String input) {
+  ParseOutcome parse(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse", () {
       var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
@@ -113,12 +109,11 @@ final class SMParserMini extends GlushParserBase implements RecognizerAndMarksPa
   /// This method must remain independent of the BSR/SPPF pipeline and derive
   /// ambiguity from the State Machine's marks system only.
   @override
-  ParseOutcome parseAmbiguous(String input, {bool? captureTokensAsMarks}) {
+  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse_ambiguous", () {
-      var shouldCapture = captureTokensAsMarks ?? this.captureTokensAsMarks;
       var parseState = createParseState(
         isSupportingAmbiguity: true,
-        captureTokensAsMarks: shouldCapture,
+        captureTokensAsMarks: captureTokensAsMarks,
       );
 
       for (var codepoint in input.codeUnits) {

@@ -20,9 +20,9 @@ void main() {
         var m1 = Marker("m1");
         return Rule("test", () => m1 >> a >> a);
       });
-      var parser = SMParserMini(grammar, captureTokensAsMarks: true);
+      var parser = SMParserMini(grammar);
 
-      var outcome = parser.parse("aa");
+      var outcome = parser.parse("aa", captureTokensAsMarks: true);
       expect(outcome, isA<ParseSuccess>());
       var success = outcome as ParseSuccess;
       expect(success.result.marks, equals(["m1", "aa"]));

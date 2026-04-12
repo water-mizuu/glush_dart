@@ -189,8 +189,8 @@ void main() {
       const grammar = r"""
         rule = name:('a' | 'a');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["name"].first.span, "a");
@@ -200,8 +200,8 @@ void main() {
       const grammar = r"""
         rule = a:('x' | 'x') b:('y' | 'y');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("xy") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("xy", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["a"].first.span, "x");
@@ -212,8 +212,8 @@ void main() {
       const grammar = r"""
         rule = name:(('a' | 'a' | 'a'));
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["name"].first.span, "a");
@@ -224,8 +224,8 @@ void main() {
         rule = id:inner;
         inner = 'a' | 'a';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["id"].first.span, "a");
@@ -235,8 +235,8 @@ void main() {
       const grammar = r"""
         rule = nums:([0-9]+);
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("123") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("123", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["nums"].first.span, "123");
@@ -246,8 +246,8 @@ void main() {
       const grammar = r"""
         rule = val:((('a' | 'a') ('b' | 'b')));
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("ab") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "ab");
@@ -257,8 +257,8 @@ void main() {
       const grammar = r"""
         rule = val:('a' | 'a') 'b';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("ab") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "a");
@@ -268,8 +268,8 @@ void main() {
       const grammar = r"""
         rule = opt:('a' | 'a')?;
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["opt"][0].span, "a");
@@ -279,8 +279,8 @@ void main() {
       const grammar = r"""
         rule = val:('a' | 'a');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "a");
@@ -290,8 +290,8 @@ void main() {
       const grammar = r"""
         rule = 'x' val:('a' | 'a') 'y';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("xay") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("xay", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "a");
@@ -301,8 +301,8 @@ void main() {
       const grammar = r"""
         rule = code:('abc' | 'abc');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("abc") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("abc", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["code"].first.span, "abc");
@@ -312,8 +312,8 @@ void main() {
       const grammar = r"""
         rule = outer:(inner:('a' | 'a') ('b' | 'b'));
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("ab") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["outer"].first.span, "ab");
@@ -324,8 +324,8 @@ void main() {
       const grammar = r"""
         rule = digits:([0-9]+) | letters:([a-z]+);
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("123") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("123", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["digits"][0].span, "123");
@@ -335,11 +335,11 @@ void main() {
       const grammar = r"""
         rule = val:('x' | 'x');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
+      var parser = grammar.toSMParser();
       var eval = const StructuredEvaluator();
 
       for (int i = 0; i < 5; i++) {
-        var result = parser.parse("x") as ParseSuccess;
+        var result = parser.parse("x", captureTokensAsMarks: true) as ParseSuccess;
         var tree = eval.evaluate(result.result.rawMarks);
         expect(tree["val"].first.span, "x");
       }
@@ -349,8 +349,8 @@ void main() {
       const grammar = r"""
         rule = data:(('a'|'a') | ('a'|'a'));
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["data"].first.span, "a");
@@ -360,8 +360,8 @@ void main() {
       const grammar = r"""
         rule = val:('' | 'a' | '');
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "a");
@@ -372,8 +372,8 @@ void main() {
         rule = item;
         item = val:'x' 'y' 'z';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("xyz") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("xyz", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "x");
@@ -384,8 +384,8 @@ void main() {
         rule = phrase:(identifier ' ' identifier);
         identifier = [a-z]+;
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("hello world") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("hello world", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["phrase"].first.span, "hello world");
@@ -396,8 +396,8 @@ void main() {
         rule = items:((item | item)*);
         item = 'x' | 'x';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("xxx") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("xxx", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["items"].first.span, "xxx");
@@ -409,8 +409,8 @@ void main() {
         inner = mid;
         mid = 'a' | 'a' | 'a';
       """;
-      var parser = grammar.toSMParser(captureTokensAsMarks: true);
-      var result = parser.parse("a") as ParseSuccess;
+      var parser = grammar.toSMParser();
+      var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
       var eval = const StructuredEvaluator();
       var tree = eval.evaluate(result.result.rawMarks);
       expect(tree["val"].first.span, "a");

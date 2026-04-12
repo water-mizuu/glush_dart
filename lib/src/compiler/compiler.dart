@@ -455,14 +455,11 @@ extension GrammarFileExtension on String {
   Grammar toGrammar({String? startRuleName}) =>
       GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName);
 
-  SMParser toSMParser({String? startRuleName, bool captureTokensAsMarks = false}) => SMParser(
+  SMParser toSMParser({String? startRuleName}) => SMParser(
     GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
-    captureTokensAsMarks: captureTokensAsMarks,
   );
 
-  SMParserMini toSMParserMini({String? startRuleName, bool captureTokensAsMarks = false}) =>
-      SMParserMini(
-        GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
-        captureTokensAsMarks: captureTokensAsMarks,
-      );
+  SMParserMini toSMParserMini({String? startRuleName}) => SMParserMini(
+    GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
+  );
 }

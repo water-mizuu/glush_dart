@@ -1,4 +1,5 @@
 import "package:glush/glush.dart";
+
 import "interpreter.dart";
 
 void main() {
@@ -52,7 +53,7 @@ void main() {
     _ = [ \n\r\t]*;
   ''';
 
-  var parser = grammarString.toSMParser(captureTokensAsMarks: true);
+  var parser = grammarString.toSMParser();
 
   const input = """
 fn main() {
@@ -69,7 +70,7 @@ fn main() {
 """;
 
   print("PARSING PROGRAM:\n$input");
-  var outcome = parser.parse(input);
+  var outcome = parser.parse(input, captureTokensAsMarks: true);
 
   if (outcome is ParseSuccess) {
     var result = outcome.result;

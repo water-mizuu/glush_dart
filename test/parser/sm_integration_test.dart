@@ -101,7 +101,7 @@ void main() {
         S = $start &Target 'a' 'b' 'c'
         Target = 'a' 'b'
       """
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
       var parseState = parser.createParseState(captureTokensAsMarks: true);
 
@@ -113,7 +113,10 @@ void main() {
 
       expect(finalStep.accept, isTrue);
       expect(
-        finalStep.acceptedContexts.values.expand((v) => v.evaluate().iterate()).toList().toShortMarks(),
+        finalStep.acceptedContexts.values
+            .expand((v) => v.evaluate().iterate())
+            .toList()
+            .toShortMarks(),
         equals(["S.start", "abc"]),
       );
     });
@@ -124,7 +127,7 @@ void main() {
         S = $start !Target 'a' 'c'
         Target = 'a' 'b'
       """
-              .toSMParser(captureTokensAsMarks: true);
+              .toSMParser();
 
       var parseState = parser.createParseState(captureTokensAsMarks: true);
 
@@ -136,7 +139,10 @@ void main() {
 
       expect(finalStep.accept, isTrue);
       expect(
-        finalStep.acceptedContexts.values.expand((v) => v.evaluate().iterate()).toList().toShortMarks(),
+        finalStep.acceptedContexts.values
+            .expand((v) => v.evaluate().iterate())
+            .toList()
+            .toShortMarks(),
         equals(["S.start", "ac"]),
       );
     });
