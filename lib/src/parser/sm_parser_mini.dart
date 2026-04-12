@@ -22,9 +22,17 @@ import "package:glush/src/parser/state_machine/state_machine_export.dart";
 /// optimized for cases where only the results (marks) are needed.
 final class SMParserMini extends GlushParserBase implements RecognizerAndMarksParser {
   SMParserMini(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar);
+    : stateMachine = StateMachine(grammar),
+      super(
+        stateMachine: StateMachine(grammar),
+        captureTokensAsMarks: captureTokensAsMarks,
+      );
 
-  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  SMParserMini.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false})
+    : super(
+        stateMachine: stateMachine,
+        captureTokensAsMarks: captureTokensAsMarks,
+      );
 
   /// Create a parser from an imported state machine JSON.
   ///

@@ -4,10 +4,11 @@ import "package:meta/meta.dart";
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 @immutable
 class PredicateKey {
-  const PredicateKey(this.pattern, this.startPosition, {required this.isAnd, this.name});
+  const PredicateKey(this.pattern, this.startPosition, {required this.isAnd, required this.isMirror, this.name});
   final PatternSymbol pattern;
   final int startPosition;
   final bool isAnd;
+  final bool isMirror;
   final String? name;
 
   @override
@@ -16,10 +17,11 @@ class PredicateKey {
       pattern == other.pattern &&
       startPosition == other.startPosition &&
       isAnd == other.isAnd &&
+      isMirror == other.isMirror &&
       name == other.name;
 
   @override
-  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
+  int get hashCode => Object.hash(pattern, startPosition, isAnd, isMirror, name);
 
   @override
   String toString() {
@@ -48,18 +50,20 @@ class NegationKey {
 /// Key for tracking conjunction sub-parses by left/right patterns and start position.
 @immutable
 class ConjunctionKey {
-  const ConjunctionKey(this.left, this.right, this.startPosition);
+  const ConjunctionKey(this.left, this.right, this.startPosition, {required this.isMirror});
   final PatternSymbol left;
   final PatternSymbol right;
   final int startPosition;
+  final bool isMirror;
 
   @override
   bool operator ==(Object other) =>
       other is ConjunctionKey &&
       left == other.left &&
       right == other.right &&
-      startPosition == other.startPosition;
+      startPosition == other.startPosition &&
+      isMirror == other.isMirror;
 
   @override
-  int get hashCode => Object.hash(left, right, startPosition);
+  int get hashCode => Object.hash(left, right, startPosition, isMirror);
 }

@@ -89,7 +89,6 @@ class Step {
   final Map<Context, LazyGlushList<Mark>> acceptedContexts = {};
 
   /// Frames that were delayed or diverted (e.g. for sub-parses).
-  final List<Frame> requeued = [];
 
   /// Cache for guard evaluation results within this execution step.
   final Map<GuardCacheKey, bool> _guardResultCache = {};
@@ -104,8 +103,7 @@ class Step {
   /// If the frame belongs to a predicate stack, we increase `activeFrames`
   /// because the predicate still has pending work.
   void requeue(Frame frame) {
-    requeued.add(frame);
-    parseState.incrementTrackers(frame.context, "requeue");
+    parseState.enqueueAt(frame.context.position, frame);
   }
 
   /// Resolve a conjunction match and wake up any waiters at the matching position.
@@ -203,6 +201,7 @@ class Step {
         predicateStack: nextStack,
         callStart: position,
         position: position,
+        isMirror: frame.context.isMirror,
       ),
       const LazyGlushList<Mark>.empty(),
     );
@@ -223,7 +222,7 @@ class Step {
       isLeft: false,
     );
 
-    var subParseKey = ConjunctionKey(left, right, position);
+    var subParseKey = ConjunctionKey(left, right, position, isMirror: frame.context.isMirror);
     parseState.conjunctionTrackers[subParseKey]!; // Touch to ensure it exists if called from Action
 
     // Side A
@@ -238,6 +237,7 @@ class Step {
           callStart: position,
           position: position,
           predicateStack: frame.context.predicateStack,
+          isMirror: frame.context.isMirror,
         ),
         const LazyGlushList<Mark>.empty(),
       );
@@ -255,6 +255,7 @@ class Step {
           callStart: position,
           position: position,
           predicateStack: frame.context.predicateStack,
+          isMirror: frame.context.isMirror,
         ),
         const LazyGlushList<Mark>.empty(),
       );
@@ -280,6 +281,33 @@ class Step {
         callStart: position,
         position: position,
         predicateStack: frame.context.predicateStack, // Negations inherit parent predicate stack
+        isMirror: frame.context.isMirror,
+      ),
+      const LazyGlushList<Mark>.empty(),
+    );
+  }
+
+  /// Seed a "Mirror" sub-parse that matches structurally regardless of tokens.
+  /// This ensures negations visit exactly the positions that the operand
+  /// *could* have reached.
+  void _spawnNegationMirror(PatternSymbol symbol, Frame frame) {
+    var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
+    if (entryState == null) {
+      throw StateError("Mirror negation symbol must resolve to a rule: $symbol");
+    }
+    print("_spawnNegationMirror called for $symbol at $position");
+    var negationKey = NegationCallerKey(symbol, position);
+
+    _enqueue(
+      entryState,
+      Context(
+        negationKey,
+        arguments: frame.context.arguments,
+        captures: frame.context.captures,
+        callStart: position,
+        position: position,
+        predicateStack: frame.context.predicateStack,
+        isMirror: true,
       ),
       const LazyGlushList<Mark>.empty(),
     );
@@ -579,6 +607,7 @@ class Step {
             position: position,
             minPrecedenceLevel: minPrecedenceLevel,
             arguments: callArguments,
+            isMirror: frame.context.isMirror,
           ),
           const LazyGlushList<Mark>.empty(),
           source: source,
@@ -624,6 +653,7 @@ class Step {
         predicateStack: nextStack,
         callStart: position,
         position: position,
+        isMirror: frame.context.isMirror,
       ),
       const LazyGlushList<Mark>.empty(),
     );
@@ -663,6 +693,8 @@ class Step {
       return;
     }
 
+    parseState.incrementTrackers(nextContext, "enqueue");
+
     // Optimized fast-path: check if context is simple and use bit-packed ID
     if (nextContext.isSimple) {
       var packedId =
@@ -686,7 +718,6 @@ class Step {
       var newGroup = ContextGroup(state, nextContext)..addMarks(marks);
       _currentFrameGroupsInt[packedId] = newGroup;
 
-      parseState.incrementTrackers(nextContext, "enqueue");
       _workQueue.add((IntContextKey(packedId), state));
       return;
     }
@@ -708,8 +739,6 @@ class Step {
 
     GlushProfiler.incrementMiss("parser.enqueue.merged");
     _activeContextKeysComplex.add(key);
-
-    parseState.incrementTrackers(nextContext, "enqueue");
 
     // Initialize group and store initial marks.
     _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
@@ -821,6 +850,7 @@ class Step {
       callStart: parentContext.callStart,
       position: returnContext.position,
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
+      isMirror: parentContext.isMirror,
     );
 
     _enqueue(nextState, nextContext, nextMarks, source: source, action: action, callSite: callSite);
@@ -846,6 +876,12 @@ class Step {
 
     if (context.position != position + 1 || context.callStart != callerStartPosition) {
       context = context.copyWith(position: position + 1, callStart: callerStartPosition);
+    }
+
+    // Track Mirror reach to next position for negations
+    if (context.caller case NegationCallerKey neg when context.isMirror) {
+      var key = NegationKey(neg.pattern, neg.startPosition);
+      parseState.negationTrackers[key]?.visitedPositions.add(position + 1);
     }
 
     var nextFrame = Frame(context, branchedMarks);
@@ -882,7 +918,13 @@ class Step {
       var context = group.context;
 
       if (context.predicateStack.lastOrNull case var pk?) {
-        var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
+        var pKey = PredicateKey(
+          pk.pattern,
+          pk.startPosition,
+          isAnd: pk.isAnd,
+          isMirror: context.isMirror,
+          name: pk.name,
+        );
         var tracker = parseState.predicateTrackers[pKey];
         if (tracker != null) {
           tracker.removePendingFrame();
@@ -895,7 +937,7 @@ class Step {
         }
       }
       if (context.caller case ConjunctionCallerKey c) {
-        var key = ConjunctionKey(c.left, c.right, c.startPosition);
+        var key = ConjunctionKey(c.left, c.right, c.startPosition, isMirror: context.isMirror);
         var tracker = parseState.conjunctionTrackers[key];
         if (tracker != null && tracker.activeFrames > 0) {
           tracker.removePendingFrame();
@@ -908,12 +950,6 @@ class Step {
         }
       }
 
-      if (context.caller case NegationCallerKey caller) {
-        parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-            ?.visitedPositions
-            .add(position);
-      }
       _enqueue(state, context, marks);
     }
   }
@@ -946,13 +982,6 @@ class Step {
       var marks = group.mergedMarks;
       var context = group.context;
 
-      if (context.caller case NegationCallerKey caller) {
-        parseState
-            .negationTrackers[NegationKey(caller.pattern, caller.startPosition)]
-            ?.visitedPositions
-            .add(position);
-      }
-
       parseState.decrementTrackers(context, "processBatch");
 
       _process(Frame(context, marks), state);
@@ -970,8 +999,9 @@ class Step {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
 
-    // Token actions fire only when an input token matches the expected pattern.
-    if (token != null && action.choice.matches(token)) {
+    // Token actions fire only when an input token matches the expected pattern,
+    // OR if we are in "mirror" mode exploring the structure of a negation.
+    if (token != null && (action.choice.matches(token) || frameContext.isMirror)) {
       var newMarks = frame.marks;
       var pattern = action.choice;
 
@@ -985,9 +1015,7 @@ class Step {
       }
 
       // BATTERIZED next-position fast path calculation
-      if (frameContext.predicateStack.isEmpty &&
-          frameContext.captures.isEmpty &&
-          frameContext.arguments.isEmpty) {
+      if (frameContext.isSimple) {
         var packedId =
             (frameContext.caller.uid << 32) |
             (action.nextState.id << 8) |
@@ -1044,10 +1072,9 @@ class Step {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
 
-      // BATTERIZED next-position fast path calculation
-      if (frameContext.predicateStack.isEmpty &&
-          frameContext.captures.isEmpty &&
-          frameContext.arguments.isEmpty) {
+      // BATTERIZED next-position fast path calculation.
+      // Mirroring always takes the slow path to ensure isMirror is preserved in key uniquely.
+      if (frameContext.isSimple) {
         var packedId =
             (frameContext.caller.uid << 32) |
             (action.nextState.id << 8) |
@@ -1151,7 +1178,12 @@ class Step {
     // Lookahead predicate (&pattern or !pattern).
     // Spawns a sub-parse that must complete before this path can continue.
     var symbol = action.symbol;
-    var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd);
+    var subParseKey = PredicateKey(
+      symbol,
+      position,
+      isAnd: action.isAnd,
+      isMirror: frame.context.isMirror,
+    );
     var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
 
     // Use a tracker to coordinate results from the sub-parse.
@@ -1202,11 +1234,12 @@ class Step {
           predicateKey.pattern,
           predicateKey.startPosition,
           isAnd: predicateKey.isAnd,
+          isMirror: frameContext.isMirror,
           name: predicateKey.name,
         );
         parseState.predicateTrackers[key]?.addPendingFrame();
       }
-    } else if (tracker.canResolveFalse) {
+    } else if (tracker.isExhausted) {
       // The sub-parse already exhausted without matching; NOT waiters resume.
       if (!tracker.isAnd) {
         _resumeLaggedPredicateContinuation(
@@ -1235,7 +1268,7 @@ class Step {
     // Both side A and side B are run independently from the same position.
     var left = action.leftSymbol;
     var right = action.rightSymbol;
-    var key = ConjunctionKey(left, right, position);
+    var key = ConjunctionKey(left, right, position, isMirror: frameContext.isMirror);
     var isFirst = !parseState.conjunctionTrackers.containsKey(key);
     var tracker = parseState.conjunctionTrackers[key] ??= ConjunctionTracker(
       leftSymbol: left,
@@ -1276,21 +1309,12 @@ class Step {
     var isFirst = !parseState.negationTrackers.containsKey(key);
     var tracker = parseState.negationTrackers[key] ??= NegationTracker(symbol, position);
 
-    // Park the continuation until the negation sub-parse settles.
-    // We use unconstrainedWaiters so that the negation can match ANY position
-    // visited by the parser that the sub-parse did not end at.
-    tracker.unconstrainedWaiters.add((frameContext, action.nextState, frame.marks));
-
-    // Ensure that the next position is considered "visited" even if the sub-parse
-    // fails immediately. This allows Negation to act as a consuming terminal.
-    var inputLen = parseState.historyByPosition.length;
-    // If we have a token at the current position, the next position is a candidate.
-    if (position < inputLen) {
-      tracker.visitedPositions.add(position + 1);
-    }
+    // Persistent negations match every visited position that the sub-parse did not end at.
+    tracker.addPersistentWaiter((frameContext, action.nextState, frame.marks));
 
     if (isFirst) {
       _spawnNegationSubparse(symbol, frame);
+      _spawnNegationMirror(symbol, frame);
     }
   }
 
@@ -1496,6 +1520,7 @@ class Step {
           predicateSymbol,
           position,
           isAnd: action.isAnd,
+          isMirror: frameContext.isMirror,
           name: action.name,
         );
         var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
@@ -1517,7 +1542,7 @@ class Step {
               branchKey: ActionBranchKey(action),
             );
           }
-        } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
+        } else if (tracker.isExhausted) {
           if (!tracker.isAnd) {
             _resumeLaggedPredicateContinuation(
               source: source,
@@ -1537,6 +1562,7 @@ class Step {
               predicateKey.pattern,
               predicateKey.startPosition,
               isAnd: predicateKey.isAnd,
+              isMirror: frameContext.isMirror,
               name: predicateKey.name,
             );
             var parentTracker = parseState.predicateTrackers[key];
@@ -1567,7 +1593,13 @@ class Step {
           throw StateError("Predicate rule must have a symbol id.");
         }
 
-        var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd, name: action.name);
+        var subParseKey = PredicateKey(
+          symbol,
+          position,
+          isAnd: action.isAnd,
+          isMirror: frameContext.isMirror,
+          name: action.name,
+        );
         var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
         if (isFirst) {
           parseState.predicateTrackers[subParseKey] = PredicateTracker(
@@ -1605,12 +1637,13 @@ class Step {
               predicateKey.pattern,
               predicateKey.startPosition,
               isAnd: predicateKey.isAnd,
+              isMirror: frameContext.isMirror,
               name: predicateKey.name,
             );
             var parentTracker = parseState.predicateTrackers[key];
             parentTracker?.addPendingFrame();
           }
-        } else if (tracker.canResolveFalse) {
+        } else if (tracker.isExhausted) {
           if (!tracker.isAnd) {
             _resumeLaggedPredicateContinuation(
               source: source,
@@ -1804,6 +1837,7 @@ class Step {
         caller.pattern,
         caller.startPosition,
         isAnd: caller.isAnd,
+        isMirror: frame.context.isMirror,
         name: caller.name,
       );
       var tracker = parseState.predicateTrackers[key];
@@ -1826,6 +1860,7 @@ class Step {
             predicateKey.pattern,
             predicateKey.startPosition,
             isAnd: predicateKey.isAnd,
+            isMirror: parentContext.isMirror,
             name: predicateKey.name,
           );
           var parentTracker = parseState.predicateTrackers[key];
@@ -1856,7 +1891,12 @@ class Step {
     }
 
     if (caller is ConjunctionCallerKey) {
-      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
+      var key = ConjunctionKey(
+        caller.left,
+        caller.right,
+        caller.startPosition,
+        isMirror: frame.context.isMirror,
+      );
       var tracker = parseState.conjunctionTrackers[key];
       if (tracker != null) {
         _finishConjunction(tracker, position, caller.isLeft, frame.marks);
@@ -1866,9 +1906,12 @@ class Step {
 
     if (caller is NegationCallerKey) {
       var key = NegationKey(caller.pattern, caller.startPosition);
-      var tracker = parseState.negationTrackers[key];
-      if (tracker != null) {
-        tracker.markMatchedPosition(position);
+      if (frame.context.isMirror) {
+        // Mirror sub-parse: record where it could structurally reach
+        parseState.negationTrackers[key]?.visitedPositions.add(position);
+      } else {
+        // Literal sub-parse: record where it literally matched
+        parseState.negationTrackers[key]?.markMatchedPosition(position);
       }
       return;
     }
@@ -1910,6 +1953,20 @@ class Step {
 
   /// Handle [AcceptAction]: mark parse as accepted.
   void _processAcceptAction(Frame frame) {
+    if (frame.context.caller case NegationCallerKey caller) {
+      print(
+        "AcceptAction! position: $position, isMirror: ${frame.context.isMirror}, pattern: ${caller.pattern}",
+      );
+      var key = NegationKey(caller.pattern, caller.startPosition);
+      if (frame.context.isMirror) {
+        // Mirror accepts: record this position as structurally reachable.
+        parseState.negationTrackers[key]?.visitedPositions.add(position);
+      } else {
+        // Literal match: mark that the operand literally matched at this position.
+        parseState.negationTrackers[key]?.markMatchedPosition(position);
+      }
+    }
+
     var previousMarks = acceptedContexts[frame.context];
     if (previousMarks != null) {
       acceptedContexts[frame.context] = LazyGlushList.branched(previousMarks, frame.marks);

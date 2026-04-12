@@ -25,6 +25,7 @@ class Context {
     this.position = 0,
     this.minPrecedenceLevel,
     this.precedenceLevel,
+    this.isMirror = false,
   }) : _hash = Object.hash(
          caller,
          callStart,
@@ -33,9 +34,10 @@ class Context {
          precedenceLevel,
          captures,
          predicateStack,
+         isMirror,
          _mapHashCode(arguments),
        ),
-       isSimple = predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty;
+       isSimple = predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty && !isMirror;
 
   final int _hash;
 
@@ -50,6 +52,9 @@ class Context {
 
   /// Bindings for data captured via structural labels (name:pattern).
   final CaptureBindings captures;
+
+  /// Whether this context is a "Structural Mirror" (matches any token).
+  final bool isMirror;
 
   /// The stack of active lookahead predicates currently being evaluated.
   final GlushList<PredicateCallerKey> predicateStack;
@@ -88,6 +93,7 @@ class Context {
     int? position,
     int? minPrecedenceLevel,
     int? precedenceLevel,
+    bool? isMirror,
   }) {
     return Context(
       caller ?? this.caller,
@@ -98,6 +104,7 @@ class Context {
       position: position ?? this.position,
       minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
       precedenceLevel: precedenceLevel ?? this.precedenceLevel,
+      isMirror: isMirror ?? this.isMirror,
     );
   }
 
@@ -116,6 +123,7 @@ class Context {
       position: newPosition,
       minPrecedenceLevel: minPrecedenceLevel,
       precedenceLevel: precedenceLevel,
+      isMirror: isMirror,
     );
   }
 
@@ -134,6 +142,7 @@ class Context {
       position: position,
       minPrecedenceLevel: minPrecedenceLevel,
       precedenceLevel: precedenceLevel,
+      isMirror: isMirror,
     );
   }
 
@@ -149,6 +158,7 @@ class Context {
           precedenceLevel == other.precedenceLevel &&
           captures == other.captures &&
           predicateStack == other.predicateStack &&
+          isMirror == other.isMirror &&
           _mapEquals(arguments, other.arguments);
 
   static bool _mapEquals(Map<Object?, Object?>? a, Map<Object?, Object?>? b) {

@@ -44,8 +44,8 @@ class PredicateTracker {
     activeFrames--;
   }
 
-  /// True when the predicate can no longer succeed and has not matched.
-  bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
+  /// True when the predicate sub-parse is fully exhausted.
+  bool get isExhausted => activeFrames == 0;
 
   @override
   String toString() => "pred($symbol @ $startPosition)";
@@ -109,14 +109,35 @@ class NegationTracker {
   /// Map of end positions j to waiters that should resume if A does NOT match j.
   final Map<int, List<(Context, State, LazyGlushList<Mark>)>> waiters = {};
 
-  /// Waiters with no specific target j — fire at every visited position
-  /// that A did NOT match.
-  final List<(Context, State, LazyGlushList<Mark>)> unconstrainedWaiters = [];
+  /// Every input position j that has already triggered a persistent match.
+  final Set<int> persistedPositions = <int>{};
+
+  /// Persistent waiters that fire at every visited position A didn't match.
+  final List<(Context, State, LazyGlushList<Mark>)> persistentWaiters = [];
+
+  /// True when the negation sub-parse (Normal and Mirror) has finished.
+  bool isSubparseFinished = false;
 
   /// Add a waiter for a specific end position.
   void addWaiter(int endPosition, (Context, State, LazyGlushList<Mark>) waiter) {
     (waiters[endPosition] ??= []).add(waiter);
   }
+
+  /// Add a persistent waiter that fires at every subsequent non-matching position.
+  void addPersistentWaiter((Context, State, LazyGlushList<Mark>) waiter) {
+    for (var existing in persistentWaiters) {
+      if (identical(existing.$1, waiter.$1) && 
+          identical(existing.$2, waiter.$2) && 
+          identical(existing.$3, waiter.$3)) {
+        return;
+      }
+      if (existing.$1 == waiter.$1 && existing.$2 == waiter.$2 && existing.$3 == waiter.$3) {
+        return;
+      }
+    }
+    persistentWaiters.add(waiter);
+  }
+
 
   /// Record that the sub-parse matched [endPosition] and cancel any parked waiters there.
   void markMatchedPosition(int endPosition) {
@@ -145,5 +166,5 @@ class NegationTracker {
   bool get isExhausted => activeFrames == 0;
 
   @override
-  String toString() => "neg($symbol @ $startPosition)";
+  String toString() => "neg($symbol @ $startPosition${isSubparseFinished ? ' [FINISHED]' : ''})";
 }

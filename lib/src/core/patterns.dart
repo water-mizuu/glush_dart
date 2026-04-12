@@ -2590,14 +2590,10 @@ class Neg extends Pattern {
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
     pattern.calculateEmpty(emptyRules);
-    // Negation is not zero-width, so it's only empty if it can match empty span
-    // But wait, ¬epsilon matches any non-empty span.
-    // If A matches empty, ¬A does not match empty.
-    // If A doesn't match empty, ¬A matches empty?
-    // Actually, ¬A is span-consuming, so it matches any span (i,j) that A doesn't.
-    // So yes, it can be empty if A doesn't match (i,i).
-    setEmpty(!pattern.empty());
-    return empty();
+    // Negation is not zero-width as per user requirements.
+    // It must always consume at least one span (i,j) where j > i.
+    setEmpty(false);
+    return false;
   }
 
   @override

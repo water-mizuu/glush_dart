@@ -1,0 +1,52 @@
+﻿--- Negation Debug Start (ac) ---
+Input: 'ac'
+    [DEBUG] Tracker incremented (enqueue) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (processBatch) for Instance of 'NegationKey': 1
+    [DEBUG] TokenAction at 0: token=a, mirror=false, choice=a
+    [DEBUG] Tracker decremented (processBatch) for Instance of 'NegationKey': 0
+    [DEBUG] TokenAction at 0: token=a, mirror=true, choice=a
+    [DEBUG] Finalizing position 0: intGroups=1, complexGroups=1
+    [DEBUG] Tracker incremented (finalize nextGroup) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (finalize nextGroup) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (transfer next) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (transfer next) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (transfer futureWork) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue futureWork) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (transfer futureWork) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue futureWork) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (null) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker decremented (null) for Instance of 'NegationKey': 0
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker at 0 VISITING position 1
+    [DEBUG] Tracker decremented (process position queue) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (process position queue) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker incremented (enqueue) for Instance of 'NegationKey': 2
+    [DEBUG] Tracker decremented (processBatch) for Instance of 'NegationKey': 1
+    [DEBUG] TokenAction at 1: token=c, mirror=false, choice=b
+    [DEBUG] Tracker decremented (processBatch) for Instance of 'NegationKey': 0
+    [DEBUG] TokenAction at 1: token=c, mirror=true, choice=b
+    [DEBUG] TokenAction MATCHED via Mirror at 1
+    [DEBUG] Finalizing position 1: intGroups=0, complexGroups=1
+    [DEBUG] Tracker incremented (finalize nextGroup) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker decremented (transfer next) for Instance of 'NegationKey': 0
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker decremented (transfer futureWork) for Instance of 'NegationKey': 0
+    [DEBUG] Tracker incremented (enqueue futureWork) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker decremented (null) for Instance of 'NegationKey': 0
+    [DEBUG] Tracker incremented (enqueue list) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker at 0 VISITING position 2
+    [DEBUG] Tracker decremented (process position queue) for Instance of 'NegationKey': 0
+    [DEBUG] Tracker incremented (enqueue) for Instance of 'NegationKey': 1
+    [DEBUG] Tracker decremented (processBatch) for Instance of 'NegationKey': 0
+    [DEBUG] Negation at 0 checking exhaustion. visited={1, 0, 2}, matched={}
+    [DEBUG] Negation(unconstrained) at 0 MATCHING j=1
+    [DEBUG] Negation(unconstrained) at 0 SKIPPING j=0 (zero-width check)
+    [DEBUG] Negation(unconstrained) at 0 MATCHING j=2
+Result: Instance of 'ParseAmbiguousSuccess'
+SUCCESS (CORRECT if it matched 'ac')
+Path span: ''

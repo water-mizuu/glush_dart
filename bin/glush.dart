@@ -20,7 +20,7 @@ void main() {
   const input = "abc";
 
   var tracer = FileTracer("another.log");
-  var state = parser.createParseState(captureTokensAsMarks: true, tracer: tracer);
+  var state = parser.createParseState(captureTokensAsMarks: true);
   for (int code in input.codeUnits) {
     state.processToken(code);
   }

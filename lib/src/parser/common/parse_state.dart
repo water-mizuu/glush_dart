@@ -128,13 +128,21 @@ final class ParseState {
   GrammarInterface get grammar => parser.grammar;
   bool get accept => _lastStep?.accept ?? false;
 
-  /// Returns true if there is any pending work at or after the [position].
+  /// Returns true if there is any pending work at or after the [position],
+  /// or if there are active negation trackers that might still match.
   bool get hasPendingWork =>
-      futureWork.entries.any((entry) => entry.key >= position && entry.value.isNotEmpty);
+      futureWork.entries.any((entry) => entry.key >= position && entry.value.isNotEmpty) ||
+      negationTrackers.isNotEmpty;
 
   void incrementTrackers(Context context, String reason) {
     if (context.predicateStack.lastOrNull case var pk?) {
-      var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
+      var pKey = PredicateKey(
+        pk.pattern,
+        pk.startPosition,
+        isAnd: pk.isAnd,
+        isMirror: context.isMirror,
+        name: pk.name,
+      );
       var tracker = predicateTrackers[pKey];
       tracker?.addPendingFrame();
       if (tracker != null) {
@@ -143,7 +151,7 @@ final class ParseState {
     }
 
     if (context.caller case ConjunctionCallerKey con) {
-      var key = ConjunctionKey(con.left, con.right, con.startPosition);
+      var key = ConjunctionKey(con.left, con.right, con.startPosition, isMirror: context.isMirror);
       var tracker = conjunctionTrackers[key];
       tracker?.addPendingFrame();
       if (tracker != null) {
@@ -162,13 +170,24 @@ final class ParseState {
   }
 
   void enqueueAt(int position, Frame frame) {
+    if (frame.context.caller is NegationCallerKey || frame.context.caller is ConjunctionCallerKey) {
+      print(
+        "parseState.enqueueAt: position $position, caller: ${frame.context.caller}, isMirror: ${frame.context.isMirror}",
+      );
+    }
     futureWork.putIfAbsent(position, () => []).add(frame);
     incrementTrackers(frame.context, "enqueue futureWork");
   }
 
   void decrementTrackers(Context context, [String? reason]) {
     if (context.predicateStack.lastOrNull case var pk?) {
-      var key = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
+      var key = PredicateKey(
+        pk.pattern,
+        pk.startPosition,
+        isAnd: pk.isAnd,
+        isMirror: context.isMirror,
+        name: pk.name,
+      );
       var tracker = predicateTrackers[key];
       if (tracker != null) {
         tracker.removePendingFrame();
@@ -179,7 +198,12 @@ final class ParseState {
     }
 
     if (context.caller case ConjunctionCallerKey caller) {
-      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
+      var key = ConjunctionKey(
+        caller.left,
+        caller.right,
+        caller.startPosition,
+        isMirror: context.isMirror,
+      );
       var tracker = conjunctionTrackers[key];
       if (tracker != null && tracker.activeFrames > 0) {
         tracker.removePendingFrame();

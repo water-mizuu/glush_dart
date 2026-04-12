@@ -65,9 +65,17 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Builds the state machine on first use and initializes the parser state.
   /// The parser can then be reused across multiple parse() calls on different inputs.
   SMParser(GrammarInterface grammar, {this.captureTokensAsMarks = false})
-    : stateMachine = StateMachine(grammar);
+    : stateMachine = StateMachine(grammar),
+      super(
+        stateMachine: StateMachine(grammar),
+        captureTokensAsMarks: captureTokensAsMarks,
+      );
 
-  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false});
+  SMParser.fromStateMachine(this.stateMachine, {this.captureTokensAsMarks = false})
+    : super(
+        stateMachine: stateMachine,
+        captureTokensAsMarks: captureTokensAsMarks,
+      );
 
   /// Create a parser from an imported state machine JSON.
   ///
