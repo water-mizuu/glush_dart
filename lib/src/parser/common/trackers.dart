@@ -11,38 +11,47 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// and the next state to transition to.
 typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 
+/// Base class for tracking asynchronous sub-parses (predicates, conjunctions).
+abstract class SubparseTracker {
+  /// How many frames owned by this sub-parse are currently in flight.
+  int activeFrames = 0;
+
+  /// Parked continuations waiting for this sub-parse to complete.
+  final List<Waiter> waiters = [];
+
+  /// Mark one sub-parse-owned frame as live.
+  void addPendingFrame() {
+    activeFrames++;
+  }
+
+  /// Mark one sub-parse-owned frame as finished.
+  void removePendingFrame() {
+    assert(
+      activeFrames > 0,
+      "$runtimeType underflow: removePendingFrame() called with no pending frames.",
+    );
+    activeFrames--;
+  }
+
+  /// True when the sub-parse has no more work to do.
+  bool get isExhausted => activeFrames == 0;
+}
+
 /// Tracks one lookahead sub-parse for a specific `(pattern, startPosition)`.
 ///
 /// The parser may enter the same predicate from multiple branches, so the
 /// tracker counts how many predicate-owned frames are still live (`activeFrames`).
 /// Once all branches finish, the tracker can resolve the predicate as matched
 /// or exhausted, and then wake any parked continuations.
-class PredicateTracker {
+class PredicateTracker extends SubparseTracker {
   PredicateTracker(this.symbol, this.startPosition, {required this.isAnd});
   final PatternSymbol symbol;
   final int startPosition;
   final bool isAnd;
 
-  int activeFrames = 0;
   bool matched = false;
   bool exhausted = false;
   int? longestMatch;
-
-  final List<Waiter> waiters = [];
-
-  /// Mark one predicate-owned frame as live.
-  void addPendingFrame() {
-    activeFrames++;
-  }
-
-  /// Mark one predicate-owned frame as finished.
-  void removePendingFrame() {
-    assert(
-      activeFrames > 0,
-      "PredicateTracker underflow: removePendingFrame() called with no pending frames.",
-    );
-    activeFrames--;
-  }
 
   /// True when the predicate can no longer succeed and has not matched.
   bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
@@ -56,7 +65,7 @@ class PredicateTracker {
 /// Both sides (A and B) are run independently from the same start position.
 /// When both find a match ending at the same position `j`, they rendezvous
 /// and resume the main parse at `j`.
-class ConjunctionTracker {
+class ConjunctionTracker extends SubparseTracker {
   ConjunctionTracker({
     required this.leftSymbol,
     required this.rightSymbol,
@@ -68,20 +77,6 @@ class ConjunctionTracker {
 
   final Map<int, List<LazyGlushList<Mark>>> leftCompletions = {};
   final Map<int, List<LazyGlushList<Mark>>> rightCompletions = {};
-  int activeFrames = 0;
-
-  final List<Waiter> waiters = [];
-
-  void addPendingFrame() {
-    activeFrames++;
-  }
-
-  void removePendingFrame() {
-    assert(activeFrames > 0, "ConjunctionTracker underflow");
-    activeFrames--;
-  }
-
-  bool get isExhausted => activeFrames == 0;
 
   @override
   String toString() => "conj($leftSymbol & $rightSymbol @ $startPosition)";

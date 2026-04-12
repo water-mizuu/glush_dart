@@ -90,6 +90,10 @@ class Step {
   /// Frames that were delayed or diverted (e.g. for sub-parses).
   final List<Frame> requeued = [];
 
+  /// Frames enqueued for positions beyond the next position.
+  /// Keyed by position to support later retrieval.
+  final Map<int, List<Frame>> deferredFramesByPosition = {};
+
   /// Requeue work for processing at a future step position.
   ///
   /// Frames with [Context.position] different from [position]
@@ -124,6 +128,24 @@ class Step {
       var leftCompletions = tracker.leftCompletions[endPosition] ?? [];
       for (var left in leftCompletions) {
         _triggerConjunctionReturn(tracker, endPosition, left, marks, tracker.waiters);
+      }
+    }
+  }
+
+  /// Check for matching pairs on both sides of a conjunction and resume waiters.
+  /// Used when a NEW waiter is added and needs to see all existing results.
+  void _rendezvousConjunction(
+    ConjunctionTracker tracker,
+    int endPosition,
+    List<Waiter> specificWaiters,
+  ) {
+    var lefts = tracker.leftCompletions[endPosition];
+    var rights = tracker.rightCompletions[endPosition];
+    if (lefts != null && rights != null) {
+      for (var left in lefts) {
+        for (var right in rights) {
+          _triggerConjunctionReturn(tracker, endPosition, left, right, specificWaiters);
+        }
       }
     }
   }
@@ -569,31 +591,6 @@ class Step {
     }
   }
 
-  void _spawnParameterPredicateSubparse({
-    required String text,
-    required Frame frame,
-    required bool isAnd,
-    String? name,
-  }) {
-    var entryState = parseState.parser.stateMachine.parameterPredicateEntry(text);
-    var syntheticSymbol = -1; // Synthetic symbols for predicates are now represented as -1
-    var newPredicateKey = PredicateCallerKey(syntheticSymbol, position, isAnd: isAnd, name: name);
-    var nextStack = frame.context.predicateStack.add(newPredicateKey);
-
-    _enqueue(
-      entryState,
-      Context(
-        newPredicateKey,
-        arguments: frame.context.arguments,
-        captures: frame.context.captures,
-        predicateStack: nextStack,
-        callStart: position,
-        position: position,
-      ),
-      const LazyGlushList<Mark>.empty(),
-    );
-  }
-
   bool get accept => acceptedContexts.isNotEmpty;
 
   /// Enqueue an active parser configuration for processing at this step.
@@ -821,64 +818,7 @@ class Step {
     nextFrames.add(nextFrame);
   }
 
-  /// Compute the same-position closure for a given frame.
-  ///
-  /// This method explores all epsilon transitions departing from the frame's
-  /// entry state. In ambiguity mode, distinct mark branches are tracked.
-  void processFrame(Frame frame) {
-    GlushProfiler.increment("parser.frames.processed");
-    for (var state in frame.nextStates) {
-      parseState.tracer?.onProcessState(frame, state);
-      _enqueue(state, frame.context, frame.marks);
-    }
-    while (_workQueue.isNotEmpty) {
-      var (key, state) = _workQueue.removeFirst();
-      ContextGroup? group;
-      if (key is IntContextKey) {
-        group = _currentFrameGroupsInt.remove(key.id);
-      } else {
-        group = _currentFrameGroupsComplex.remove(key as ComplexContextKey);
-      }
-
-      if (group == null) {
-        continue;
-      }
-
-      var marks = group.mergedMarks;
-      var context = group.context;
-
-      if (context.predicateStack.lastOrNull case var pk?) {
-        var pKey = PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name);
-        var tracker = parseState.predicateTrackers[pKey];
-        if (tracker != null) {
-          tracker.removePendingFrame();
-          parseState.tracer?.onTrackerUpdate(
-            "Predicate",
-            tracker.toString(),
-            tracker.activeFrames,
-            "process",
-          );
-        }
-      }
-      if (context.caller case ConjunctionCallerKey c) {
-        var key = ConjunctionKey(c.left, c.right, c.startPosition);
-        var tracker = parseState.conjunctionTrackers[key];
-        if (tracker != null && tracker.activeFrames > 0) {
-          tracker.removePendingFrame();
-          parseState.tracer?.onTrackerUpdate(
-            "Conjunction",
-            tracker.toString(),
-            tracker.activeFrames,
-            "process",
-          );
-        }
-      }
-      _enqueue(state, context, marks);
-    }
-  }
-
-  /// Enqueue a frame without processing the work queue.
-  /// Use this with processFrameFinalize() for batching.
+  /// Enqueue a frame for processing at the current position.
   void processFrameEnqueue(Frame frame) {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
@@ -1095,36 +1035,51 @@ class Step {
 
   /// Handle [PredicateAction]: lookahead predicate (&pattern or !pattern).
   void _processPredicateAction(Frame frame, State state, PredicateAction action) {
+    var source = ParseNodeKey(state.id, position, frame.context.caller);
+    _handlePredicate(
+      symbol: action.symbol,
+      frame: frame,
+      isAnd: action.isAnd,
+      source: source,
+      nextState: action.nextState,
+      action: action,
+    );
+  }
+
+  /// Unified handler for lookahead predicates.
+  ///
+  /// Manages tracker lifecycle, waiter registration, and sub-parse spawning.
+  void _handlePredicate({
+    required PatternSymbol symbol,
+    required Frame frame,
+    required bool isAnd,
+    required ParseNodeKey source,
+    required State nextState,
+    String? name,
+    StateAction? action,
+  }) {
     var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Lookahead predicate (&pattern or !pattern).
-    // Spawns a sub-parse that must complete before this path can continue.
-    var symbol = action.symbol;
-    var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd);
+    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
     var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
 
     // Use a tracker to coordinate results from the sub-parse.
     var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
       symbol,
       position,
-      isAnd: action.isAnd,
+      isAnd: isAnd,
     );
 
     assert(
       tracker.symbol == symbol && tracker.startPosition == position,
-      "Invariant violation in PredicateAction: tracker key and payload diverged.",
+      "Invariant violation in predicate handler: tracker key and payload diverged.",
     );
     assert(
-      tracker.isAnd == action.isAnd,
-      "Invariant violation in PredicateAction: mixed AND/NOT trackers share "
+      tracker.isAnd == isAnd,
+      "Invariant violation in predicate handler: mixed AND/NOT trackers share "
       "the same (symbol,position) key.",
     );
 
     // A predicate may be re-entered after it has already matched.
-    // The tracker has three states:
-    // - matched: AND can resume, NOT cannot
-    // - unresolved: park this continuation and wait for completion
-    // - exhausted false: NOT may resume once all pending branches drain
     if (tracker.matched) {
       // AND can resume once with the current results.
       if (tracker.isAnd) {
@@ -1132,17 +1087,17 @@ class Step {
           source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
-          nextState: action.nextState,
-          isAnd: action.isAnd,
-          symbol: action.symbol,
-          branchKey: ActionBranchKey(action),
+          nextState: nextState,
+          isAnd: isAnd,
+          symbol: symbol,
+          branchKey: action != null ? ActionBranchKey(action) : null,
         );
       }
     }
 
     if (!tracker.exhausted) {
-      // Still active; park continuation to catch future (potentially longer) matches.
-      tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
+      // Still active; park continuation to catch future matches.
+      tracker.waiters.add((source, frameContext, nextState, frame.marks));
 
       var predicateKey = frameContext.predicateStack.lastOrNull;
       if (predicateKey != null) {
@@ -1157,22 +1112,22 @@ class Step {
       }
     } else if (tracker.canResolveFalse) {
       // The sub-parse already exhausted without matching; NOT waiters resume.
-      if (!tracker.isAnd) {
+      if (!isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
-          nextState: action.nextState,
-          isAnd: action.isAnd,
-          symbol: action.symbol,
-          branchKey: ActionBranchKey(action),
+          nextState: nextState,
+          isAnd: isAnd,
+          symbol: symbol,
+          branchKey: action != null ? ActionBranchKey(action) : null,
         );
       }
     }
 
     // Seed the sub-parse if this is the first time we've reached this predicate.
     if (isFirst && !tracker.matched && !tracker.exhausted) {
-      _spawnPredicateSubparse(symbol, frame, isAnd: action.isAnd);
+      _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
     }
   }
 
@@ -1197,17 +1152,9 @@ class Step {
     tracker.waiters.add(waiter);
 
     // Rendezvous logic: if results are already available for both sides
-    // at some position J, resume the waiter immediately.
+    // at any position J, resume the waiter immediately.
     for (var j in tracker.leftCompletions.keys) {
-      if (tracker.rightCompletions.containsKey(j)) {
-        var lefts = tracker.leftCompletions[j]!;
-        var rights = tracker.rightCompletions[j]!;
-        for (var left in lefts) {
-          for (var right in rights) {
-            _triggerConjunctionReturn(tracker, j, left, right, [waiter]);
-          }
-        }
-      }
+      _rendezvousConjunction(tracker, j, [waiter]);
     }
 
     if (isFirst) {
@@ -1387,7 +1334,6 @@ class Step {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Lookahead predicate on a dynamic parameter (&($paramName)).
     var arguments = frame.context.arguments;
     if (!arguments.containsKey(action.name)) {
       throw StateError("Missing argument '${action.name}' for parameter reference.");
@@ -1396,8 +1342,6 @@ class Step {
     var value = arguments[action.name];
     switch (value) {
       case String text:
-        // Parameter predicates for strings reuse the same materialization logic
-        // but wrap the result in lookahead (epsilon-like) semantics.
         if (text.isEmpty) {
           if (action.isAnd) {
             _resumeLaggedPredicateContinuation(
@@ -1412,68 +1356,18 @@ class Step {
           }
           return;
         }
-        var predicateSymbol = -1;
-        var subParseKey = PredicateKey(
-          predicateSymbol,
-          position,
+
+        const predicateSymbol = -1;
+        _handlePredicate(
+          symbol: predicateSymbol,
+          frame: frame,
           isAnd: action.isAnd,
+          source: source,
+          nextState: action.nextState,
           name: action.name,
-        );
-        var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
-        var tracker = parseState.predicateTrackers[subParseKey] ??= PredicateTracker(
-          predicateSymbol,
-          position,
-          isAnd: action.isAnd,
+          action: action,
         );
 
-        if (tracker.matched) {
-          if (tracker.isAnd) {
-            _resumeLaggedPredicateContinuation(
-              source: source,
-              parentContext: frame.context,
-              parentMarks: frame.marks,
-              nextState: action.nextState,
-              isAnd: action.isAnd,
-              symbol: predicateSymbol,
-              branchKey: ActionBranchKey(action),
-            );
-          }
-        } else if (tracker.exhausted || (!isFirst && tracker.canResolveFalse)) {
-          if (!tracker.isAnd) {
-            _resumeLaggedPredicateContinuation(
-              source: source,
-              parentContext: frame.context,
-              parentMarks: frame.marks,
-              nextState: action.nextState,
-              isAnd: action.isAnd,
-              symbol: predicateSymbol,
-              branchKey: ActionBranchKey(action),
-            );
-          }
-        } else {
-          tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
-          var predicateKey = frameContext.predicateStack.lastOrNull;
-          if (predicateKey != null) {
-            var key = PredicateKey(
-              predicateKey.pattern,
-              predicateKey.startPosition,
-              isAnd: predicateKey.isAnd,
-              name: predicateKey.name,
-            );
-            var parentTracker = parseState.predicateTrackers[key];
-            parentTracker?.addPendingFrame();
-          }
-        }
-
-        if (isFirst && !tracker.matched && !tracker.exhausted) {
-          // Seed a synthetic state machine to probe the parameter string.
-          _spawnParameterPredicateSubparse(
-            text: text,
-            frame: frame,
-            isAnd: action.isAnd,
-            name: action.name,
-          );
-        }
       case Rule rule:
       case RuleCall(rule: var rule):
         if (value is RuleCall && value.arguments.isNotEmpty) {
@@ -1488,66 +1382,16 @@ class Step {
           throw StateError("Predicate rule must have a symbol id.");
         }
 
-        var subParseKey = PredicateKey(symbol, position, isAnd: action.isAnd, name: action.name);
-        var isFirst = !parseState.predicateTrackers.containsKey(subParseKey);
-        if (isFirst) {
-          parseState.predicateTrackers[subParseKey] = PredicateTracker(
-            symbol,
-            position,
-            isAnd: action.isAnd,
-          );
-        }
-        var tracker = parseState.predicateTrackers[subParseKey]!;
-        assert(
-          tracker.isAnd == action.isAnd,
-          "Invariant violation in ParameterPredicateAction: mixed AND/NOT trackers share "
-          "the same parameter predicate key.",
+        _handlePredicate(
+          symbol: symbol,
+          frame: frame,
+          isAnd: action.isAnd,
+          source: source,
+          nextState: action.nextState,
+          name: action.name,
+          action: action,
         );
 
-        if (tracker.matched) {
-          if (tracker.isAnd) {
-            _resumeLaggedPredicateContinuation(
-              source: source,
-              parentContext: frame.context,
-              parentMarks: frame.marks,
-              nextState: action.nextState,
-              isAnd: action.isAnd,
-              symbol: symbol,
-              branchKey: ActionBranchKey(action),
-            );
-          }
-        }
-
-        if (!tracker.exhausted) {
-          tracker.waiters.add((source, frameContext, action.nextState, frame.marks));
-          var predicateKey = frameContext.predicateStack.lastOrNull;
-          if (predicateKey != null) {
-            var key = PredicateKey(
-              predicateKey.pattern,
-              predicateKey.startPosition,
-              isAnd: predicateKey.isAnd,
-              name: predicateKey.name,
-            );
-            var parentTracker = parseState.predicateTrackers[key];
-            parentTracker?.addPendingFrame();
-          }
-        } else if (tracker.canResolveFalse) {
-          if (!tracker.isAnd) {
-            _resumeLaggedPredicateContinuation(
-              source: source,
-              parentContext: frame.context,
-              parentMarks: frame.marks,
-              nextState: action.nextState,
-              isAnd: action.isAnd,
-              symbol: symbol,
-              branchKey: ActionBranchKey(action),
-            );
-          }
-        }
-
-        if (isFirst && !tracker.matched && !tracker.exhausted) {
-          _spawnPredicateSubparse(symbol, frame, isAnd: action.isAnd, name: action.name);
-        }
       case Eps():
         if (action.isAnd) {
           _resumeLaggedPredicateContinuation(

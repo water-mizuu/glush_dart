@@ -152,9 +152,9 @@ abstract base class GlushParserBase implements GlushParser {
           parseState,
           position == currentPosition
               ? token
-              : (position < parseState.historyByPosition.length
-                    ? parseState.historyByPosition[position]
-                    : null),
+              : position < parseState.historyByPosition.length
+              ? parseState.historyByPosition[position]
+              : null,
           position,
           isSupportingAmbiguity: isSupportingAmbiguity,
           captureTokensAsMarks: captureTokensAsMarks,
@@ -191,14 +191,14 @@ abstract base class GlushParserBase implements GlushParser {
 
     var steps = stepsAtPosition[currentPosition];
 
-    // Harvest all lingerframes enqueued for future positions (e.g. by negations)
-    // and store them in ParseState's buffer.
+    // Harvest any frames enqueued for positions beyond currentPosition
+    // (e.g., from negations or deferred sub-parses) and store in deferred map.
     while (workQueue.isNotEmpty) {
       var futurePos = workQueue.firstKeyOrNull!;
       var futureFrames = workQueue.removeFirst();
       for (var frame in futureFrames) {
-        parseState.decrementTrackers(frame.context, "transfer to deferredFramesByPosition");
-        parseState.enqueueAt(futurePos, frame);
+        parseState.decrementTrackers(frame.context, "defer to Step.deferredFramesByPosition");
+        steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(frame);
       }
     }
 
