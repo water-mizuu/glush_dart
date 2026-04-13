@@ -1,6 +1,8 @@
 /// Parser for grammar files
 library glush.grammar_file_parser;
 
+import "dart:convert";
+
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/profiling.dart";
 
@@ -1134,29 +1136,34 @@ class GrammarFileParser {
     }
 
     var ranges = <CharRange>[];
+    var bytes = utf8.encode(inner);
     var i = 0;
 
     int readCode() {
-      if (i >= inner.length) {
+      if (i >= bytes.length) {
         throw GrammarFileParseError("Unterminated character range", line: line, column: column);
       }
-      if (i < inner.length && inner[i] == r"\" && i + 1 < inner.length) {
+      var byte = bytes[i];
+      // Check for escape sequences (backslash is 0x5C = 92)
+      if (byte == 92 && i + 1 < bytes.length) {
         i++; // consume backslash
-        var escaped = inner[i++];
+        var escaped = bytes[i++];
         return switch (escaped) {
-          "n" => 10,
-          "r" => 13,
-          "t" => 9,
-          "0" => 0,
-          _ => escaped.codeUnitAt(0), // \\ \] etc.
+          110 => 10, // n -> newline
+          114 => 13, // r -> carriage return
+          116 => 9, // t -> tab
+          48 => 0, // 0 -> null
+          _ => escaped, // backslash escapes - use the byte itself
         };
       }
-      return inner.codeUnitAt(i++);
+      i++;
+      return byte;
     }
 
-    while (i < inner.length) {
+    while (i < bytes.length) {
       var startCode = readCode();
-      if (i < inner.length && inner[i] == "-") {
+      if (i < bytes.length && bytes[i] == 45) {
+        // dash (-) is 0x2D = 45
         i++; // consume '-'
         var endCode = readCode();
         if (endCode < startCode) {

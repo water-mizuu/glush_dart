@@ -28,6 +28,8 @@
 /// can coexist, enabling proper handling of predicates without backtracking.
 library glush.sm_parser;
 
+import "dart:convert";
+
 import "package:glush/glush.dart" show StateMachine;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
@@ -116,8 +118,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     return GlushProfiler.measure("parser.recognize", () {
       var parseState = createParseState();
 
-      for (var codepoint in input.codeUnits) {
-        parseState.processToken(codepoint);
+      for (var byte in utf8.encode(input)) {
+        parseState.processToken(byte);
         // If no frames remain, the parser cannot recover from this prefix.
         if (!parseState.hasPendingWork) {
           return false;
@@ -143,8 +145,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     return GlushProfiler.measure("parser.parse", () {
       var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
 
-      for (var codepoint in input.codeUnits) {
-        parseState.processToken(codepoint);
+      for (var byte in utf8.encode(input)) {
+        parseState.processToken(byte);
         // No active frames means the parse has already failed.
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
@@ -183,8 +185,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         captureTokensAsMarks: captureTokensAsMarks,
       );
 
-      for (var codepoint in input.codeUnits) {
-        parseState.processToken(codepoint);
+      for (var byte in utf8.encode(input)) {
+        parseState.processToken(byte);
         // No active frames means the parse has already failed.
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);

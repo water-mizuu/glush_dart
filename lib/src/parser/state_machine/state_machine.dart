@@ -1,6 +1,8 @@
 /// State machine compilation from grammars
 library glush.state_machine;
 
+import "dart:convert";
+
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/key/state_key.dart";
@@ -222,11 +224,12 @@ class StateMachine {
       return state;
     }
 
+    var bytes = utf8.encode(text);
     var tail = nextState;
-    for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+    for (var i = bytes.length - 1; i >= 0; i--) {
       var state = _getOrCreateState(ParamStringStateKey(text, i, nextState));
       if (state.actions.isEmpty) {
-        state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
+        state.actions.add(ParameterStringAction(bytes[i], tail));
       }
       tail = state;
     }
@@ -261,11 +264,12 @@ class StateMachine {
       return terminal;
     }
 
+    var bytes = utf8.encode(text);
     var tail = terminal;
-    for (var i = text.codeUnits.length - 1; i >= 0; i--) {
+    for (var i = bytes.length - 1; i >= 0; i--) {
       var state = _getOrCreateState(ParamPredicateStateKey(text, i));
       if (state.actions.isEmpty) {
-        state.actions.add(ParameterStringAction(text.codeUnits[i], tail));
+        state.actions.add(ParameterStringAction(bytes[i], tail));
       }
       tail = state;
     }

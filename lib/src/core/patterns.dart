@@ -3,6 +3,8 @@
 /// Pattern system for grammar definition
 library glush.patterns;
 
+import "dart:convert";
+
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
@@ -1652,13 +1654,14 @@ sealed class Pattern {
       return Eps();
     }
 
-    if (pattern.codeUnits.length == 1) {
-      return Token(ExactToken(pattern.codeUnits.single));
+    List<int> bytes = utf8.encode(pattern);
+
+    if (bytes.length == 1) {
+      return Token(ExactToken(bytes.single));
     }
 
-    List<int> codeUnits = pattern.codeUnits;
-    Pattern result = codeUnits
-        .map((u) => Token(ExactToken(u)))
+    Pattern result = bytes
+        .map((b) => Token(ExactToken(b)))
         .cast<Pattern>()
         .reduce((acc, curr) => acc >> curr)
         .withAction((span, _) => span);
@@ -1984,14 +1987,10 @@ class Token extends Pattern {
   }
   Token.char(String char) //
     : assert(char.length == 1, "Character patterns should have only one value!"),
-      assert(
-        char.length == char.codeUnits.length,
-        "Unicode characters cannot be used in character patterns!",
-      ),
-      choice = ExactToken(char.codeUnits.single);
+      choice = ExactToken(utf8.encode(char).single);
   Token.charRange(String from, String to)
-    : choice = RangeToken(from.codeUnits.first, to.codeUnits.first);
-  Token.any() : choice = const AnyToken();
+    : choice = RangeToken(utf8.encode(from).first, utf8.encode(to).first);
+  Token.any() : choice = const RangeToken(0, 255);
   final TokenChoice choice;
 
   @override
