@@ -170,6 +170,7 @@ abstract base class GlushParserBase implements GlushParser {
     while (workQueue.isNotEmpty) {
       var futurePos = workQueue.firstKeyOrNull!;
       var futureFrames = workQueue.removeFirst();
+
       for (var frame in futureFrames) {
         parseState.decrementTrackers(frame.context, "defer to Step.deferredFramesByPosition");
         steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(frame);
@@ -205,20 +206,28 @@ final class _PositionWorkQueue {
       return const [];
     }
 
-    int minPos = _heap.first.$1;
-    List<Frame> framesAtMin = [];
+    var list = <Frame>[];
+    var min = _heap.first.$1;
 
-    // Extract all frames at minimum position
-    int i = 0;
-    while (i < _heap.length && _heap[i].$1 == minPos) {
-      framesAtMin.add(_heap[i].$2);
-      i++;
+    while (_heap.isNotEmpty && _heap.first.$1 == min) {
+      // Swap first and last
+      var temp = _heap.first;
+      _heap.first = _heap.last;
+      _heap.last = temp;
+
+      // Add the last element (which was the first) to the list
+      list.add(_heap.last.$2);
+
+      // Remove the last element
+      _heap.removeLast();
+
+      // Sift down if heap is not empty
+      if (_heap.isNotEmpty) {
+        _siftDown(0);
+      }
     }
 
-    // Remove extracted elements and maintain heap invariant
-    _heap.removeRange(0, i);
-
-    return framesAtMin;
+    return list;
   }
 
   void addFrame(int position, Frame frame) {
@@ -236,6 +245,30 @@ final class _PositionWorkQueue {
       _heap[parent] = _heap[index];
       _heap[index] = temp;
       index = parent;
+    }
+  }
+
+  void _siftDown(int index) {
+    while (true) {
+      int smallest = index;
+      int left = (index << 1) + 1;
+      int right = (index << 1) + 2;
+
+      if (left < _heap.length && _heap[left].$1 < _heap[smallest].$1) {
+        smallest = left;
+      }
+      if (right < _heap.length && _heap[right].$1 < _heap[smallest].$1) {
+        smallest = right;
+      }
+
+      if (smallest == index) {
+        break;
+      }
+
+      var temp = _heap[index];
+      _heap[index] = _heap[smallest];
+      _heap[smallest] = temp;
+      index = smallest;
     }
   }
 }

@@ -1,41 +1,26 @@
 // ignore_for_file: strict_raw_type, unreachable_from_main
 
-import "dart:io";
-
 import "package:glush/glush.dart";
 import "package:glush/src/parser/common/tracer.dart";
 
-const grammar = """
-  S = [0-9]+ [0-9]
-""";
-final parser = grammar.toSMParser();
+final andParser = r"""S = &'a' . .""".toSMParser();
+final notParser = r"""S = !'b' . .""".toSMParser();
 
 void main() {
   // Default behavior: parse and output
-  const input = "1230";
+  const input = r"ab";
 
-  var tracer = FileTracer("another.log");
-  var state = parser.createParseState(captureTokensAsMarks: true, tracer: tracer);
+  var tracer1 = FileTracer("AND.log");
+  var state1 = andParser.createParseState(captureTokensAsMarks: true, tracer: tracer1);
   for (int code in input.codeUnits) {
-    state.processToken(code);
+    state1.processToken(code);
   }
-  state.finish();
+  state1.finish();
 
-  File("state-machine.dot")
-    ..createSync(recursive: true)
-    ..writeAsStringSync(parser.stateMachine.toDot());
-
-  var paths = state.forest;
-  if (!state.accept || paths == null) {
-    print("DEBUG: paths is null, returning");
-    return;
+  var tracer2 = FileTracer("NOT.log");
+  var state2 = notParser.createParseState(captureTokensAsMarks: true, tracer: tracer2);
+  for (int code in input.codeUnits) {
+    state2.processToken(code);
   }
-
-  print(paths.allMarkPaths().take(5).toList());
-
-  File("another.dot")
-    ..createSync(recursive: true)
-    ..writeAsStringSync(paths.toDot());
-
-  return;
+  state2.finish();
 }

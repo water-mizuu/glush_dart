@@ -14,8 +14,8 @@ abstract class ParseTracer {
   void onProcessState(Frame frame, State state);
   void onAction(StateAction action, String result);
   void onEnqueue(State state, int targetPosition, String reason);
-  void onRuleCall(Rule rule, int position, CallerKey caller);
-  void onRuleReturn(Rule rule, int position, CallerKey caller);
+  void onRuleCall(Rule rule, int position, CallerKey caller, State fromState, State toState);
+  void onRuleReturn(Rule rule, int position, CallerKey caller, State? fromState);
   void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd});
   void onTrackerUpdate(String type, String key, int activeFrames, String action);
   void onMessage(String message);
@@ -113,13 +113,15 @@ class FileTracer implements ParseTracer {
   }
 
   @override
-  void onRuleCall(Rule rule, int position, CallerKey caller) {
-    _sink.writeln("  [> Call]    ${rule.name} at pos $position (caller: $caller)");
+  void onRuleCall(Rule rule, int position, CallerKey caller, State fromState, State toState) {
+    _sink.writeln("  [> Call]    State(${fromState.id}) -> State(${toState.id}) at pos $position");
   }
 
   @override
-  void onRuleReturn(Rule rule, int position, CallerKey caller) {
-    _sink.writeln("  [< Return]  ${rule.name} at pos $position (to: $caller)");
+  void onRuleReturn(Rule rule, int position, CallerKey caller, State? fromState) {
+    if (fromState != null) {
+      _sink.writeln("  [< Return]  State(${fromState.id}) at pos $position");
+    }
   }
 
   @override

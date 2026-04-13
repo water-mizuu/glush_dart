@@ -551,10 +551,9 @@ class Step {
     }
     if (isNewCaller) {
       GlushProfiler.increment("parser.callers.spawned");
-      parseState.tracer?.onRuleCall(targetRule, position, caller);
       var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
-
       if (firstState != null) {
+        parseState.tracer?.onRuleCall(targetRule, position, caller, currentState, firstState);
         _enqueue(
           firstState,
           Context(
@@ -690,7 +689,11 @@ class Step {
   void _process(Frame frame, State state) {
     // Iterate over all possible actions originating from the current state.
     for (var action in state.actions) {
-      parseState.tracer?.onAction(action, "processing");
+      // Note: TokenAction reports its result (o matched or x rejected) after processing,
+      // not before. All other actions report "processing" before execution.
+      if (action is! TokenAction) {
+        parseState.tracer?.onAction(action, "processing");
+      }
       switch (action) {
         case TokenAction():
           _processTokenAction(frame, state, action);
@@ -749,10 +752,10 @@ class Step {
         returnContext.precedenceLevel != null &&
         returnContext.precedenceLevel! < minPrecedence) {
       // Waiter's precedence threshold is not met by this return.
-      parseState.tracer?.onRuleReturn(caller.rule, position, caller);
+      parseState.tracer?.onRuleReturn(caller.rule, position, caller, null);
       return;
     }
-    parseState.tracer?.onRuleReturn(caller.rule, position, caller);
+    parseState.tracer?.onRuleReturn(caller.rule, position, caller, null);
 
     var packedId = ReturnKey.getPackedId(
       returnContext.precedenceLevel,
@@ -866,6 +869,7 @@ class Step {
     // Token actions fire only when an input token matches the expected pattern.
     if (token != null && action.choice.matches(token)) {
       GlushProfiler.increment("parser.token_actions.matched");
+      parseState.tracer?.onAction(action, " matched");
       var newMarks = frame.marks;
       var pattern = action.choice;
 
@@ -882,6 +886,7 @@ class Step {
       _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
+      parseState.tracer?.onAction(action, " rejected");
     }
   }
 
@@ -1589,6 +1594,9 @@ class Step {
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       // Replay to waiters only when this return context is newly added.
       if (caller.addReturn(returnContext, frame.marks)) {
+        // Log the return action
+        parseState.tracer?.onRuleReturn(caller.rule, position, caller, state);
+
         // Newly discovered return context fan-outs to all queued waiters.
         for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
             in caller.waiters) {

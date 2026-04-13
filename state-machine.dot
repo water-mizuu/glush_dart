@@ -4,16 +4,20 @@ digraph StateMachine {
   "__start__" [shape=point, label=""];
   "__accept__" [shape=doublecircle, label="accept"];
   "__return_0__" [shape=box, label="return 0", style=filled, fillcolor=lightgray];
+  "__return_5__" [shape=box, label="return 5", style=filled, fillcolor=lightgray];
   "S0" [shape=circle, label="init"];
   "S1" [shape=doublecircle, label="<S_0>"];
   "S2" [shape=circle, label="<S>"];
-  "S3" [shape=circle, label="48..57"];
-  "S4" [shape=circle, label="48..57"];
+  "S3" [shape=circle, label="and(<pred$0_0>)"];
+  "S4" [shape=circle, label="any"];
+  "S5" [shape=circle, label="<pred$0>"];
+  "S6" [shape=circle, label="a"];
   "__start__" -> "S0" [label="start"];
   "S0" -> "S1" [label="call 0", style=bold];
   "S1" -> "__accept__" [label="accept"];
-  "S2" -> "S3" [label="token 48..57"];
-  "S3" -> "S3" [label="token 48..57"];
-  "S3" -> "S4" [label="token 48..57"];
+  "S2" -> "S3" [label="AND 5", style=dashed, color=seagreen4];
+  "S3" -> "S4" [label="token any"];
   "S4" -> "__return_0__" [label="return S", style=dashed, color=gray45];
+  "S5" -> "S6" [label="token a"];
+  "S6" -> "__return_5__" [label="return pred$0", style=dashed, color=gray45];
 }
