@@ -82,7 +82,7 @@ class Step {
   final Queue<(ContextKey, State)> _workQueue = DoubleLinkedQueue();
 
   /// Set of GSS callers that have already returned at this position.
-  final Set<CallerKey> _returnedCallers = {};
+  final Set<(CallerKey, int)> _returnedCallersPositionAware = {};
 
   /// Deduplication set for uniquely identifying accepted parse contexts and their marks.
   final Map<Context, LazyGlushList<Mark>> acceptedContexts = {};
@@ -794,10 +794,7 @@ class Step {
 
   /// Materialize batched token transitions into next-position frames.
   void finalize() {
-    for (var nextGroup in _nextFrameGroupsInt.values) {
-      _processNextGroup(nextGroup);
-    }
-    for (var nextGroup in _nextFrameGroupsComplex.values) {
+    for (var nextGroup in _nextFrameGroupsInt.values.followedBy(_nextFrameGroupsComplex.values)) {
       _processNextGroup(nextGroup);
     }
     _nextFrameGroupsInt.clear();
@@ -812,6 +809,15 @@ class Step {
 
     if (context.position != position + 1 || context.callStart != callerStartPosition) {
       context = context.copyWith(position: position + 1, callStart: callerStartPosition);
+    }
+
+    // When an action leads directly to a ReturnAction state, process the return
+    // immediately using the already-advanced context. This avoids deferring the
+    // return through the work queue, ensuring it settles before other actions
+    // at the next position (like AcceptAction).
+    if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
+      _process(Frame(context, branchedMarks), nextGroup.state);
+      return;
     }
 
     var nextFrame = Frame(context, branchedMarks);
@@ -1527,6 +1533,7 @@ class Step {
     }
 
     var caller = frame.context.caller;
+    var returnPosition = frame.context.position;
 
     // Predicate returns settle the predicate tracker directly.
     if (caller is PredicateCallerKey) {
@@ -1546,11 +1553,11 @@ class Step {
         return;
       }
 
-      bool isNewLongest = tracker.longestMatch == null || position > tracker.longestMatch!;
+      bool isNewLongest = tracker.longestMatch == null || returnPosition > tracker.longestMatch!;
       if (!isNewLongest) {
         return;
       }
-      tracker.longestMatch = position;
+      tracker.longestMatch = returnPosition;
       tracker.matched = true;
 
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
@@ -1574,16 +1581,16 @@ class Step {
       var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
       var tracker = parseState.trackers[key];
       if (tracker is ConjunctionTracker) {
-        _finishConjunction(tracker, position, caller.isLeft, frame.marks);
+        _finishConjunction(tracker, returnPosition, caller.isLeft, frame.marks);
       }
       return;
     }
 
-    // In single-derivation mode, replay each caller's returns once.
-    if (!isSupportingAmbiguity && !_returnedCallers.add(caller)) {
+    // In single-derivation mode, replay each caller's returns once per position.
+    if (!isSupportingAmbiguity && !_returnedCallersPositionAware.add((caller, returnPosition))) {
       // Logical meaning:
-      // - in single-derivation mode we replay returns once per caller key
-      // - if add() is false, this caller was already replayed
+      // - in single-derivation mode we replay returns once per (caller key, position)
+      // - if add() is false, this caller was already replayed at this position
       // => skip duplicate resume fan-out.
       return;
     }
@@ -1595,7 +1602,7 @@ class Step {
       // Replay to waiters only when this return context is newly added.
       if (caller.addReturn(returnContext, frame.marks)) {
         // Log the return action
-        parseState.tracer?.onRuleReturn(caller.rule, position, caller, state);
+        parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
 
         // Newly discovered return context fan-outs to all queued waiters.
         for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
@@ -1608,7 +1615,7 @@ class Step {
             parentContext,
             parentMarks.value,
             returnContext,
-            source: ParseNodeKey(state.id, position, caller),
+            source: ParseNodeKey(state.id, returnPosition, caller),
             action: action,
             callSite: callSite,
           );

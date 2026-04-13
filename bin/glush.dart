@@ -3,8 +3,8 @@
 import "package:glush/glush.dart";
 import "package:glush/src/parser/common/tracer.dart";
 
-final andParser = r"""S = &'a' . .""".toSMParser();
-final notParser = r"""S = !'b' . .""".toSMParser();
+final andParser = r"""S = &'a' .""".toSMParser();
+final notParser = r"""S = !'b' .""".toSMParser();
 
 void main() {
   // Default behavior: parse and output
