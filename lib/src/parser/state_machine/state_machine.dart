@@ -398,6 +398,10 @@ class StateMachine {
           terminal.minPrecedenceLevel,
         );
         state.actions.add(action);
+      case Retreat():
+        var nextState = _getOrCreateState(PatternStateKey(terminal));
+        var action = RetreatAction(nextState);
+        state.actions.add(action);
       case Eps():
         // Epsilon doesn't create transitions
         break;
@@ -732,7 +736,8 @@ class StateMachine {
       LabelEnd() ||
       Backreference() ||
       Rule() ||
-      RuleCall() => true,
+      RuleCall() ||
+      Retreat() => true,
       ParameterRefPattern() => false,
       ParameterCallPattern() => false,
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),

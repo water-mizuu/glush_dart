@@ -353,3 +353,18 @@ final class ConjunctionAction implements StateAction {
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
+
+/// Action to retreat/go-back one position in the input.
+final class RetreatAction implements StateAction {
+  /// Create a retreat action.
+  ///
+  /// Parameters:
+  ///   [nextState] - The state to transition to after retreating
+  const RetreatAction(this.nextState);
+
+  /// The next state after this transition.
+  final State nextState;
+
+  @override
+  String toString() => "Retreat";
+}

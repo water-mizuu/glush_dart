@@ -98,6 +98,10 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "rightSymbol": action.rightSymbol,
       "nextState": stateIdMap[action.nextState],
     },
+    RetreatAction() => {
+      "type": "retreat",
+      "nextState": stateIdMap[action.nextState],
+    },
   };
 }
 
@@ -165,6 +169,9 @@ StateAction _deserializeAction(
       leftSymbol: json["leftSymbol"]! as int,
       rightSymbol: json["rightSymbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
+    ),
+    "retreat" => RetreatAction(
+      stateMap[json["nextState"]]!,
     ),
     _ => throw UnsupportedError("Unknown action type: $type"),
   };

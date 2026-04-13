@@ -1649,6 +1649,8 @@ sealed class Pattern {
   factory Pattern.start() = StartAnchor;
   factory Pattern.eof() = EofAnchor;
   factory Pattern.any() = Token.any;
+  factory Pattern.retreat() = Retreat;
+
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
       return Eps();
@@ -1734,6 +1736,7 @@ sealed class Pattern {
       "las" => LabelStart(json["name"]! as String),
       "lae" => LabelEnd(json["name"]! as String),
       "bac" => Backreference(json["name"]! as String),
+      "ret" => Retreat(),
       _ => throw UnsupportedError("Unknown pattern type: $type"),
     };
     if (json["symbolId"] != null) {
@@ -1821,6 +1824,11 @@ sealed class Pattern {
   Alt operator |(Pattern other) => Alt(this, other);
   Conj operator &(Pattern other) => Conj(this, other);
 
+  /// Retreat operator — verifies the current pattern matches, then moves the
+  /// parsing position back by one before continuing with the next pattern.
+  /// Example: 'a' < 'ab' matches 'ab' at the current position, given 'a' matched.
+  Pattern operator <(Pattern other) => this >> Retreat() >> other;
+
   /// Attach a semantic action to this pattern.
   /// The callback receives (span, childResults) where:
   ///   - span: the matched substring
@@ -1862,6 +1870,7 @@ sealed class Pattern {
       LabelEnd() => "lae",
       Backreference() => "bac",
       IfCond() => "if",
+      Retreat() => "ret",
     };
   }
 
@@ -2158,6 +2167,37 @@ final class EofAnchor extends Pattern {
 
   @override
   String toString() => r"$";
+}
+
+/// Retreat (backstep) pattern.
+///
+/// Matches at any position and moves the parsing position back by one.
+/// Useful for lookahead/backtrack patterns where match validation is separated
+/// from consumption.
+final class Retreat extends Pattern {
+  @override
+  Retreat copy() => Retreat();
+
+  @override
+  bool calculateEmpty(Set<Rule> emptyRules) {
+    setEmpty(false);
+    return false;
+  }
+
+  @override
+  bool isStatic() => true;
+
+  @override
+  Set<Pattern> firstSet() => {this};
+
+  @override
+  Set<Pattern> lastSet() => {this};
+
+  @override
+  Map<String, Object?> toJson() => {"type": "ret"};
+
+  @override
+  String toString() => "<";
 }
 
 /// Alternation (choice between patterns)

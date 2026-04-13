@@ -135,6 +135,9 @@ class GrammarFileCompiler {
       case GreaterThanPattern(:var codePoint):
         return Token(GreaterToken(codePoint));
 
+      case RetreatPattern():
+        return Retreat();
+
       case MarkerPattern(:var name):
         return Marker(name);
 

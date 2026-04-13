@@ -121,7 +121,8 @@ class Grammar implements GrammarInterface {
         ParameterCallPattern() ||
         LabelStart() ||
         LabelEnd() ||
-        Backreference() => [],
+        Backreference() ||
+        Retreat() => [],
         Alt(:var left, :var right) ||
         Seq(:var left, :var right) ||
         Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
@@ -440,7 +441,8 @@ class Grammar implements GrammarInterface {
           RuleCall() ||
           LabelStart() ||
           LabelEnd() ||
-          Backreference():
+          Backreference() ||
+          Retreat():
         break;
     }
   }

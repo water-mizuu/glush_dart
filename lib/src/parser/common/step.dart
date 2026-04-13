@@ -723,6 +723,8 @@ class Step {
           _processParameterPredicateAction(frame, state, action);
         case TailCallAction():
           _processTailCallAction(frame, state, action);
+        case RetreatAction():
+          _processRetreatAction(frame, state, action);
         case ReturnAction():
           _processReturnAction(frame, state, action);
         case AcceptAction():
@@ -1520,6 +1522,21 @@ class Step {
       _enqueue(state, context, marks, source: source, action: action);
       return;
     }
+  }
+
+  /// Retreat parser position by 1.
+  ///
+  /// This enqueues a frame at [position - 1].
+  /// Note: The frame will be processed by [GlushParserBase.processToken] which
+  /// supports historical token replay.
+  void _processRetreatAction(Frame frame, State state, RetreatAction action) {
+    if (position == 0) {
+      // Cannot retreat past start of input.
+      return;
+    }
+
+    var nextContext = frame.context.advancePosition(position - 1);
+    _enqueue(action.nextState, nextContext, frame.marks);
   }
 
   /// Handle [ReturnAction]: return from a rule call.

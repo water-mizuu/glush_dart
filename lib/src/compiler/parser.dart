@@ -522,7 +522,19 @@ class GrammarFileParser {
     var parts = [_parseConjunction()];
 
     while (_isSequenceContinuation()) {
-      parts.add(_parseConjunction());
+      if (_peek().type == _TokenType.lesser) {
+        // Disambiguate infix retreat (<) from prefix less-than (< 97)
+        if (tokenIndex + 1 < _tokens.length &&
+            _tokens[tokenIndex + 1].type == _TokenType.identifier &&
+            int.tryParse(_tokens[tokenIndex + 1].value) != null) {
+          parts.add(_parseConjunction());
+        } else {
+          _advance(); // consume <
+          parts.add(const RetreatPattern());
+        }
+      } else {
+        parts.add(_parseConjunction());
+      }
     }
 
     PatternExpr result = parts.length == 1 ? parts[0] : SequencePattern(parts);
@@ -911,6 +923,7 @@ class GrammarFileParser {
         type == _TokenType.charRange ||
         type == _TokenType.backslashLiteral ||
         type == _TokenType.lparen ||
+        type == _TokenType.lesser ||
         type == _TokenType.caret ||
         type == _TokenType.dollar ||
         type == _TokenType.ampersand ||

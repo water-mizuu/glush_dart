@@ -40,9 +40,9 @@ void main() {
       var parser =
           r"""
         expr =
-            6| $add expr^6 '+' expr^7
-            7| $mul expr^7 '*' expr^8
-           11| 'n'
+           6 | $add expr^6 '+' expr^7
+           7 | $mul expr^7 '*' expr^8
+          11 | 'n'
       """
               .toSMParser();
 

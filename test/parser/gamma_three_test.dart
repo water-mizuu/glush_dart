@@ -29,13 +29,13 @@ void main() {
   test("ambiguous gamma 3: S = S c c | .", () {
     var parser =
         r"""
-      V = value:(.) S(value)
+      V = value:(.) < S(value)
       S(v) = $2 S(v) S(v)
            | $1 v
       """
             .toSMParser();
 
-    const testInput = "bbbbbb";
+    const testInput = "bbbbb";
     var result = parser.parseAmbiguous(testInput);
     expect(result, isA<ParseAmbiguousSuccess>());
     var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();

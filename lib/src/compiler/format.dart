@@ -310,6 +310,13 @@ class GroupPattern implements PatternExpr {
   String toString() => "($inner)";
 }
 
+class RetreatPattern implements PatternExpr {
+  const RetreatPattern();
+
+  @override
+  String toString() => "<";
+}
+
 class AnyPattern implements PatternExpr {
   const AnyPattern();
 }
