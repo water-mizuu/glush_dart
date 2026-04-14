@@ -12,7 +12,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 
 /// Base class for tracking asynchronous sub-parses (predicates, conjunctions).
-abstract class SubparseTracker {
+sealed class SubparseTracker {
   /// How many frames owned by this sub-parse are currently in flight.
   int activeFrames = 0;
 

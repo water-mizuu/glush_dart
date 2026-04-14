@@ -10,7 +10,6 @@ final class GuardCacheKey {
   GuardCacheKey(
     this.rule,
     this.guard,
-    // this.marks,
     this.callArgumentsKey,
     this.position,
     this.callStart,
@@ -19,7 +18,6 @@ final class GuardCacheKey {
         GuardCacheKey,
         rule,
         guard,
-        // marks,
         callArgumentsKey,
         position,
         callStart,
@@ -28,7 +26,6 @@ final class GuardCacheKey {
 
   final Rule rule;
   final GuardExpr guard;
-  // final GlushList<Mark> marks;
   final CallArgumentsKey callArgumentsKey;
   final int position;
   final int? callStart;

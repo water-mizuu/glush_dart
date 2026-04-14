@@ -77,7 +77,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// Parameters:
   ///   [jsonString] - The exported state machine JSON from [StateMachine.exportToJson]
   ///   [grammar] - The grammar interface associated with this machine
-  ///   [captureTokensAsMarks] - Whether to capture tokens as marks during parsing
   ///
   /// Returns:
   ///   An SMParser ready for immediate use

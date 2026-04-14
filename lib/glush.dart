@@ -13,7 +13,6 @@ export "src/parser/common/parse_result.dart";
 export "src/parser/interface.dart";
 export "src/parser/key/branch_key.dart";
 export "src/parser/key/caller_key.dart";
-export "src/parser/key/derivation_key.dart";
 export "src/parser/sm_parser.dart";
 export "src/parser/state_machine/state_actions.dart";
 export "src/parser/state_machine/state_machine.dart";

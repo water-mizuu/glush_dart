@@ -35,7 +35,7 @@ void main() {
       """
             .toSMParser();
 
-    const testInput = "bbbbb";
+    const testInput = "bb";
     var result = parser.parseAmbiguous(testInput);
     expect(result, isA<ParseAmbiguousSuccess>());
     var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();

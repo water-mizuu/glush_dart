@@ -11,6 +11,7 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
+import "package:glush/src/parser/common/parser_base.dart" show GlushParserBase;
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/branch_key.dart";
@@ -759,7 +760,7 @@ class Step {
     }
     parseState.tracer?.onRuleReturn(caller.rule, position, caller, null);
 
-    var packedId = ReturnKey.getPackedId(
+    var packedId = ReturnKey(
       returnContext.precedenceLevel,
       returnContext.position,
       returnContext.callStart,
@@ -1101,7 +1102,7 @@ class Step {
     }
 
     // Seed the sub-parse if this is the first time we've reached this predicate.
-    if (isFirst && !tracker.matched && !tracker.exhausted) {
+    if (isFirst) {
       _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
     }
   }

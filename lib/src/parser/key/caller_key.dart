@@ -132,8 +132,8 @@ class Caller extends CallerKey {
   @override
   final int uid;
 
-  final Map<int, (Context, LazyGlushList<Mark>)> _returnsInt = {};
-  final Map<int, LazyReturn<Mark>> _lazyReturns = {};
+  final Map<ReturnKey, (Context, LazyGlushList<Mark>)> _returnsInt = {};
+  final Map<ReturnKey, LazyReturn<Mark>> _lazyReturns = {};
 
   _WaiterData? _waiterData;
 
@@ -192,11 +192,7 @@ class Caller extends CallerKey {
   }
 
   bool addReturn(Context context, LazyGlushList<Mark> marks) {
-    var packedId = ReturnKey.getPackedId(
-      context.precedenceLevel,
-      context.position,
-      context.callStart,
-    );
+    var packedId = ReturnKey(context.precedenceLevel, context.position, context.callStart);
     var existing = _returnsInt[packedId];
 
     if (existing == null) {
@@ -215,7 +211,7 @@ class Caller extends CallerKey {
     return false;
   }
 
-  LazyGlushList<Mark> getReturnMarks(int packedId) {
+  LazyGlushList<Mark> getReturnMarks(ReturnKey packedId) {
     return _returnsInt[packedId]?.$2 ?? const LazyGlushList.empty();
   }
 
@@ -239,7 +235,7 @@ class Caller extends CallerKey {
   /// Get or create the LazyReturn proxy for a given packedId.
   /// Ensures identical(ruleReturn(id1), ruleReturn(id1)) == true for the same id,
   /// enabling critical identity-based dedup in addReturn().
-  LazyReturn<Mark> getLazyReturn(int packedId, LazyGlushList<Mark> Function() provider) {
+  LazyReturn<Mark> getLazyReturn(ReturnKey packedId, LazyGlushList<Mark> Function() provider) {
     return _lazyReturns[packedId] ??= LazyReturn(provider);
   }
 }
