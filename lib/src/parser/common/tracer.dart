@@ -86,7 +86,6 @@ class FileTracer implements ParseTracer {
       var states = frame.nextStates.map((s) => s.toString()).join(", ");
       _sink.writeln("  Frame $i:");
       _sink.writeln("    States:  {$states}");
-      _sink.writeln("    States:  {$states}");
       _sink.writeln(
         "    Context: caller=${frame.context.caller}, marks=${frame.marks.evaluate().iterate().toList().length}",
       );
