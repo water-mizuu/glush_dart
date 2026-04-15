@@ -19,7 +19,7 @@ void main() {
   }
   state1.finish();
 
-  print(state1.forest!.allMarkPaths().single.evaluateStructure());
+  print(state1.forest!.allMarkPaths().single.evaluateStructure(input));
 
   var tracer2 = FileTracer("NOT.log");
   var state2 = notParser.createParseState(captureTokensAsMarks: true, tracer: tracer2);
@@ -27,4 +27,25 @@ void main() {
     state2.processToken(code);
   }
   state2.finish();
+
+  var parser =
+      r"""
+      V = value:(.) < S(value)
+      S(v) = $2 S(v) S(v)
+           | $1 v
+      """
+          .toSMParser();
+
+  const testInput = "bb";
+  var result = parser.parseAmbiguous(testInput, captureTokensAsMarks: true);
+  var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();
+
+  var evaluator = Evaluator({
+    "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
+    "S.1": (ctx) => ctx.next(),
+  });
+  for (var derivation in derivations) {
+    print(derivation.evaluateStructure(testInput));
+    print(evaluator.evaluate(derivation.evaluateStructure(testInput)));
+  }
 }

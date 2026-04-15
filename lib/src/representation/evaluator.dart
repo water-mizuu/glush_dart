@@ -1,5 +1,7 @@
 // ignore_for_file: must_be_immutable
 
+import "dart:math";
+
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
@@ -98,14 +100,6 @@ class EvaluationContext<T extends Object> {
 /// 1. Uses explicit types instead of dynamic/any.
 /// 2. Uses a simple class-based handler system instead of complex closures.
 /// 3. Uses a stateful iterator for consuming child nodes.
-///
-/// Example:
-/// ```dart
-/// final evaluator = Evaluator<int>({
-///   "add": (ctx) => ctx<int>("left") + ctx<int>("right"),
-///   "num": (ctx) => int.parse(ctx.span),
-/// });
-/// ```
 class Evaluator<T extends Object> {
   Evaluator(this.handlers);
 
@@ -164,20 +158,16 @@ class Evaluator<T extends Object> {
 
     while (true) {
       var (label, node) = current;
-      // Walk forward until we find the first sibling with a registered handler.
-      // This lets structural wrappers or ignored siblings appear before the
-      // semantic node we actually want to interpret.
       var handler = _resolveHandler(label);
       if (handler != null) {
         var childIt = node is ParseResult
             ? NodeIterator(node.children.toList())
             : NodeIterator(const []);
 
-        // Auto-flatten redundant same-named nested results (common in rule calls wrapping labeled alternatives)
         while (childIt.hasNext && childIt.remainingCount == 1 && childIt.peek().$1 == label) {
           node = childIt.next().$2;
           childIt = node is ParseResult
-              ? NodeIterator(node.children.toList()) //
+              ? NodeIterator(node.children.toList())
               : NodeIterator(const []);
         }
 
@@ -322,11 +312,11 @@ class ParseResult extends ParseNode {
       return false;
     }
     for (var i = 0; i < a.length; ++i) {
-      if (a[i] != b[i]) {
+      if (a[i].$1 != b[i].$1 || a[i].$2 != b[i].$2) {
         return false;
       }
     }
-    return false;
+    return true;
   }
 
   @override
@@ -368,123 +358,64 @@ class StructuredEvaluator {
     }
   }
 
-  ParseResult evaluate(List<Mark> marks) {
-    var copy = [...marks];
-    expandMarks(copy, 0, copy.length);
+  ParseResult evaluate(Object marks, {required String input}) {
+    LazyGlushList<Mark> lazyMarks;
+    if (marks is List<Mark>) {
+      lazyMarks = LazyGlushList.fromList(marks);
+    } else if (marks is LazyGlushList<Mark>) {
+      lazyMarks = marks;
+    } else {
+      throw ArgumentError("marks must be List<Mark> or LazyGlushList<Mark>");
+    }
 
-    return GlushProfiler.measure("evaluator.evaluate_marks", () {
-      var stack = <_EvaluationFrame>[_EvaluationFrame("")];
-
-      for (var mark in copy) {
-        switch (mark) {
-          case LabelStartMark(:var name):
-            stack.add(_EvaluationFrame(name));
-          case LabelEndMark(:var name, :var position):
-            _closeLabel(stack, name, position);
-          case NamedMark(:var name):
-            if (stack.last.children.isNotEmpty) {
-              var lastChild = stack.last.children.removeLast();
-              var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
-              stack.last.children.add((name, newNode));
-            } else {
-              var newNode = ParseResult([], stack.last.spanBuffer.toString());
-              stack.last.children.add((name, newNode));
-            }
-          case ExpandingMark():
-            throw UnsupportedError("Marks has not been expanded.");
-
-          case ConjunctionMark(:var left, :var right):
-            var leftResult = evaluate(left.evaluate().allMarkPaths().expand((v) => v).toList());
-            for (var child in leftResult.children) {
-              stack.last.children.add(child);
-            }
-            stack.last.addToken(leftResult.span);
-
-            var rightResult = evaluate(right.evaluate().allMarkPaths().expand((v) => v).toList());
-            for (var child in rightResult.children) {
-              stack.last.children.add(child);
-            }
-          case StringMark(:var value):
-            stack.last.addToken(value);
-        }
-      }
-
-      if (stack.length != 1) {
-        _closeRemainingLabels(stack);
-      }
-
-      return stack.first.toResult();
-    });
+    return _evaluate(lazyMarks, input: input).result;
   }
 
-  void _closeLabel(List<_EvaluationFrame> stack, String name, int position) {
-    if (stack.length <= 1) {
-      return;
-    }
+  ({ParseResult result, int start, int end}) _evaluate(
+    LazyGlushList<Mark> lazyMarks, {
+    required String input,
+  }) {
+    var stack = <_EvaluationFrame>[_EvaluationFrame("root", input: input)];
 
-    var matchIndex = stack.length - 1;
-    while (matchIndex > 0 && stack[matchIndex].name != name) {
-      matchIndex--;
-    }
-
-    if (matchIndex == 0 && stack[0].name != name) {
-      return;
-    }
-
-    while (stack.length - 1 > matchIndex) {
-      var frame = stack.removeLast();
-      stack.last.addChild(frame.name, frame.toResult());
-    }
-
-    var frame = stack.removeLast();
-    stack.last.addChild(frame.name, frame.toResult());
-  }
-
-  void _closeRemainingLabels(List<_EvaluationFrame> stack) {
-    while (stack.length > 1) {
-      var frame = stack.removeLast();
-      stack.last.addChild(frame.name, frame.toResult());
-    }
-  }
-
-  ParseResult evaluateStrict(List<Mark> marks) {
-    var copy = [...marks];
-    expandMarks(copy, 0, copy.length);
-    var stack = <_EvaluationFrame>[_EvaluationFrame("")];
-
-    for (var mark in copy) {
+    for (var mark in lazyMarks.evaluate().iterate()) {
       switch (mark) {
-        case LabelStartMark(:var name):
-          stack.add(_EvaluationFrame(name));
+        case LabelStartMark(:var name, :var position):
+          stack.last.recordRange(position, position);
+          stack.add(_EvaluationFrame(name, input: input, startPosition: position));
         case LabelEndMark(:var name, :var position):
+          stack.last.recordRange(position, position);
           _closeStrictLabel(stack, name, position);
-        case NamedMark(:var name):
+        case NamedMark(:var name, :var position):
+          stack.last.recordRange(position, position);
           if (stack.last.children.isNotEmpty) {
             var lastChild = stack.last.children.removeLast();
             var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
-            stack.last.children.add((name, newNode));
+            stack.last.addChild(name, newNode);
           } else {
-            var newNode = ParseResult([], stack.last.spanBuffer.toString());
-            stack.last.children.add((name, newNode));
+            var newNode = ParseResult([], "");
+            stack.last.addChild(name, newNode);
           }
         case ExpandingMark():
           throw UnsupportedError("Marks has not been expanded.");
 
-        case ConjunctionMark(:var left, :var right):
-          var leftResult = evaluateStrict(left.evaluate().allMarkPaths().expand((v) => v).toList());
-          for (var child in leftResult.children) {
+        case ConjunctionMark(:var left, :var right, :var position):
+          stack.last.recordRange(position, position);
+          var leftPath = left.evaluate().allMarkPaths().first;
+          var leftEval = _evaluate(LazyGlushList.fromList(leftPath), input: input);
+          stack.last.recordRange(leftEval.start, leftEval.end);
+          for (var child in leftEval.result.children) {
             stack.last.children.add(child);
           }
-          stack.last.addToken(leftResult.span);
 
-          var rightResult = evaluateStrict(
-            right.evaluate().allMarkPaths().expand((v) => v).toList(),
-          );
-          for (var child in rightResult.children) {
+          var rightPath = right.evaluate().allMarkPaths().first;
+          var rightEval = _evaluate(LazyGlushList.fromList(rightPath), input: input);
+          stack.last.recordRange(rightEval.start, rightEval.end);
+          for (var child in rightEval.result.children) {
             stack.last.children.add(child);
           }
-        case StringMark(:var value):
-          stack.last.addToken(value);
+        case StringMark(:var position, :var value):
+          stack.last.recordRange(position, position + value.length);
+          stack.last.addChild("", TokenResult(value));
       }
     }
 
@@ -493,7 +424,10 @@ class StructuredEvaluator {
       throw StateError("Unclosed label(s) at end of mark stream: $openLabels");
     }
 
-    return stack.first.toResult();
+    var frame = stack.first;
+    var start = frame.startPosition ?? frame.minPosition ?? 0;
+    var end = frame.maxPosition ?? start;
+    return (result: frame.toResult(), start: start, end: end);
   }
 
   void _closeStrictLabel(List<_EvaluationFrame> stack, String name, int position) {
@@ -510,30 +444,51 @@ class StructuredEvaluator {
     }
 
     stack.removeLast();
-    stack.last.addChild(frame.name, frame.toResult());
+    var start = frame.startPosition ?? frame.minPosition ?? position;
+    stack.last.recordRange(start, position);
+    stack.last.addChild(frame.name, frame.toResult(endPosition: position));
   }
 }
 
 extension StructuredEvaluatorExtension on List<Mark> {
-  ParseResult evaluateStructure() => const StructuredEvaluator().evaluate(this);
+  ParseResult evaluateStructure(String input) =>
+      const StructuredEvaluator().evaluate(this, input: input);
 }
 
 class _EvaluationFrame {
-  _EvaluationFrame(this.name);
+  _EvaluationFrame(this.name, {required this.input, this.startPosition});
   final String name;
+  final String input;
+  final int? startPosition;
   final List<(String label, ParseNode node)> children = [];
-  final StringBuffer spanBuffer = StringBuffer();
+
+  /// Minimum and maximum positions seen in marks within this frame
+  int? minPosition;
+  int? maxPosition;
 
   void addChild(String label, ParseNode result) {
     children.add((label, result));
-    spanBuffer.write(result.span);
   }
 
-  void addToken(String value) {
-    spanBuffer.write(value);
+  /// Record a range of characters seen in this frame.
+  void recordRange(int start, int end) {
+    minPosition = minPosition == null ? start : min(minPosition!, start);
+    maxPosition = maxPosition == null ? end : max(maxPosition!, end);
   }
 
-  ParseResult toResult() {
-    return ParseResult(children, spanBuffer.toString());
+  ParseResult toResult({int? endPosition}) {
+    // If no endPosition is provided (root frame case), default to the end of input
+    var effectiveEndPosition = endPosition ?? maxPosition ?? input.length;
+
+    var start = startPosition ?? minPosition ?? 0;
+    var end = effectiveEndPosition;
+
+    // Ensure bounds are valid
+    start = max(0, min(start, input.length));
+    end = max(start, min(end, input.length));
+
+    var span = input.substring(start, end);
+
+    return ParseResult(children, span);
   }
 }

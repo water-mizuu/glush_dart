@@ -32,7 +32,7 @@ Set<String> _marksTrees(SMParser parser, String input) {
   var forest = (result as ParseAmbiguousSuccess).forest;
   return {
     for (final path in forest.allMarkPaths())
-      _canonicalNode(const StructuredEvaluator().evaluate(path)),
+      _canonicalNode(const StructuredEvaluator().evaluate(path, input: input)),
   };
 }
 
@@ -143,6 +143,7 @@ void main() {
 
       var tree = const StructuredEvaluator().evaluate(
         (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
+        input: "alpha:beta-gamma",
       );
 
       var item = tree["item"].single as ParseResult;
@@ -167,7 +168,7 @@ void main() {
       expect(result, isA<ParseAmbiguousSuccess>());
 
       var trees = (result as ParseAmbiguousSuccess).forest.allMarkPaths().map(
-        (path) => const StructuredEvaluator().evaluate(path),
+        (path) => const StructuredEvaluator().evaluate(path, input: "if if a else a"),
       );
       var canonicalTrees = {for (final tree in trees) _canonicalNode(tree)};
 
@@ -187,6 +188,7 @@ void main() {
 
       var tree = const StructuredEvaluator().evaluate(
         (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
+        input: "ab",
       );
 
       expect(tree["look"], isEmpty);
@@ -241,7 +243,9 @@ void main() {
       var forest = (result as ParseAmbiguousSuccess).forest;
       var paths = forest.allMarkPaths().toList();
 
-      var trees = paths.map((path) => const StructuredEvaluator().evaluate(path)).toList();
+      var trees = paths
+          .map((path) => const StructuredEvaluator().evaluate(path, input: input))
+          .toList();
       expect(trees, isNotEmpty);
       expect(trees.any((tree) => tree["full"].isNotEmpty), isTrue);
       expect(trees.any((tree) => tree.span == input), isTrue);
@@ -260,6 +264,7 @@ void main() {
 
       var tree = const StructuredEvaluator().evaluate(
         (result as ParseAmbiguousSuccess).forest.allMarkPaths().single,
+        input: "alice:bob",
       );
 
       var pair = tree["start.pair"].single as ParseResult;
@@ -305,7 +310,7 @@ void main() {
       var result = (outcome as ParseSuccess).result;
       expect(result.marks, equals(["start.outer", "first", "a", "middle", "b", "last", "c"]));
 
-      var tree = const StructuredEvaluator().evaluate(result.rawMarks);
+      var tree = const StructuredEvaluator().evaluate(result.rawMarks, input: "abc");
       var outer = tree["start.outer"].single as ParseResult;
       expect(outer.span, equals("abc"));
       expect(outer.children.map((e) => e.$1), equals(["first", "middle", "last"]));

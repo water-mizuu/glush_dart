@@ -54,6 +54,7 @@ import "../test/regression/conjunction_logic_test.dart" as conjunction_logic_tes
 import "../test/regression/cyclic_unary_ambiguity_test.dart" as cyclic_unary_ambiguity_test;
 import "../test/regression/gamma_bug_test.dart" as gamma_bug_test;
 import "../test/regression/meta_grammar_test.dart" as meta_grammar_test;
+import "../test/retreat_test.dart" as retreat_test;
 
 void main() {
   GlushProfiler.enabled = true;
@@ -102,6 +103,7 @@ void main() {
     predicate_regression_test.main();
     predicates_test.main();
     recursive_test.main();
+    retreat_test.main();
     scc_counting_test.main();
     shared_predicate_test.main();
     sm_features_test.main();

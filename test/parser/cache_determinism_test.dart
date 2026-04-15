@@ -191,8 +191,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["name"].first.span, "a");
     });
 
@@ -202,8 +201,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("xy", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("xy");
       expect(tree["a"].first.span, "x");
       expect(tree["b"].first.span, "y");
     });
@@ -214,8 +212,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["name"].first.span, "a");
     });
 
@@ -226,8 +223,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["id"].first.span, "a");
     });
 
@@ -237,8 +233,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("123", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("123");
       expect(tree["nums"].first.span, "123");
     });
 
@@ -248,8 +243,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("ab");
       expect(tree["val"].first.span, "ab");
     });
 
@@ -259,8 +253,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("ab");
       expect(tree["val"].first.span, "a");
     });
 
@@ -270,8 +263,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["opt"][0].span, "a");
     });
 
@@ -281,8 +273,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["val"].first.span, "a");
     });
 
@@ -292,8 +283,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("xay", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("xay");
       expect(tree["val"].first.span, "a");
     });
 
@@ -303,8 +293,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("abc", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("abc");
       expect(tree["code"].first.span, "abc");
     });
 
@@ -314,8 +303,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("ab", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("ab");
       expect(tree["outer"].first.span, "ab");
       expect((tree["outer"].first as ParseResult)["inner"].first.span, "a");
     });
@@ -326,8 +314,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("123", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("123");
       expect(tree["digits"][0].span, "123");
     });
 
@@ -336,11 +323,10 @@ void main() {
         rule = val:('x' | 'x');
       """;
       var parser = grammar.toSMParser();
-      var eval = const StructuredEvaluator();
 
       for (int i = 0; i < 5; i++) {
         var result = parser.parse("x", captureTokensAsMarks: true) as ParseSuccess;
-        var tree = eval.evaluate(result.result.rawMarks);
+        var tree = result.result.rawMarks.evaluateStructure("x");
         expect(tree["val"].first.span, "x");
       }
     });
@@ -351,8 +337,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["data"].first.span, "a");
     });
 
@@ -362,8 +347,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["val"].first.span, "a");
     });
 
@@ -374,8 +358,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("xyz", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("xyz");
       expect(tree["val"].first.span, "x");
     });
 
@@ -386,8 +369,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("hello world", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("hello world");
       expect(tree["phrase"].first.span, "hello world");
     });
 
@@ -398,8 +380,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("xxx", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("xxx");
       expect(tree["items"].first.span, "xxx");
     });
 
@@ -411,8 +392,7 @@ void main() {
       """;
       var parser = grammar.toSMParser();
       var result = parser.parse("a", captureTokensAsMarks: true) as ParseSuccess;
-      var eval = const StructuredEvaluator();
-      var tree = eval.evaluate(result.result.rawMarks);
+      var tree = result.result.rawMarks.evaluateStructure("a");
       expect(tree["val"].first.span, "a");
     });
   });

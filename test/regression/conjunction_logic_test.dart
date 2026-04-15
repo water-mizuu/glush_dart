@@ -28,7 +28,7 @@ void main() {
             "Only labeled path {a} remains.",
       );
 
-      var results = paths.map((p) => p.evaluateStructure()).toList();
+      var results = paths.map((p) => p.evaluateStructure("")).toList();
       var labels = results.map((r) => getLabels(r)).toList();
 
       expect(labels.every((l) => l.contains("a")), isTrue, reason: "All paths must have label 'a'");
@@ -55,7 +55,7 @@ void main() {
             "Conjunction requires both sides, so only {a} remains.",
       );
 
-      var results = paths.map((p) => p.evaluateStructure()).toList();
+      var results = paths.map((p) => p.evaluateStructure("")).toList();
       var labels = results.map((r) => getLabels(r)).toList();
 
       expect(labels.every((l) => l.contains("a")), isTrue, reason: "Path must have label 'a'");
@@ -84,7 +84,7 @@ void main() {
             "Path {a} alone is INVALID because right side must also succeed.",
       );
 
-      var results = paths.map((p) => const StructuredEvaluator().evaluate(p)).toList();
+      var results = paths.map((p) => const StructuredEvaluator().evaluate(p, input: "")).toList();
       var labels = results.map((r) => getLabels(r)).toList();
 
       expect(
@@ -127,7 +127,7 @@ void main() {
             "pure epsilon paths. Missing: {} (both epsilon)",
       );
 
-      var results = paths.map((p) => const StructuredEvaluator().evaluate(p)).toList();
+      var results = paths.map((p) => const StructuredEvaluator().evaluate(p, input: "")).toList();
       var labels = results.map((r) => getLabels(r)).toList();
 
       // 3 combinations exist (both-epsilon path is eliminated)

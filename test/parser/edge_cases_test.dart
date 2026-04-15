@@ -157,7 +157,7 @@ void main() {
         var paths = forest.allMarkPaths().toList();
         expect(paths, hasLength(1));
 
-        var tree = const StructuredEvaluator().evaluate(paths.single);
+        var tree = const StructuredEvaluator().evaluate(paths.single, input: "abc");
         expect(tree.get("outer").single.span, equals("abc"));
         expect(tree.get("inner"), isEmpty);
       },
@@ -180,7 +180,7 @@ void main() {
         var paths = forest.allMarkPaths().toList();
         expect(paths, hasLength(1));
 
-        var tree = const StructuredEvaluator().evaluate(paths.single);
+        var tree = const StructuredEvaluator().evaluate(paths.single, input: "ac");
         expect(tree.get("outer").single.span, equals("ac"));
         expect(tree.get("inner"), isEmpty);
       },
@@ -200,7 +200,7 @@ void main() {
         var paths = forest.allMarkPaths().toList();
         expect(paths, hasLength(1));
 
-        var tree = const StructuredEvaluator().evaluate(paths.single);
+        var tree = const StructuredEvaluator().evaluate(paths.single, input: "a");
         expect(tree.get("outer").single.span, equals("a"));
         expect(tree.get("inner"), isEmpty);
       },
@@ -222,10 +222,12 @@ void main() {
         expect(paths, hasLength(2));
 
         for (var path in paths) {
-          expect(() => path.evaluateStructure(), returnsNormally);
+          expect(() => path.evaluateStructure("ab"), returnsNormally);
         }
 
-        var trees = paths.map((path) => const StructuredEvaluator().evaluate(path)).toList();
+        var trees = paths
+            .map((path) => const StructuredEvaluator().evaluate(path, input: "ab"))
+            .toList();
 
         expect(trees.every((tree) => tree.get("outer").single.span == "ab"), isTrue);
       },

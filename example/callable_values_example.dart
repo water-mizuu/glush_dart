@@ -75,7 +75,7 @@ void main() {
       "tail": (ctx) => ctx.span,
     });
 
-    var value = evaluator.evaluate(tree.evaluateStructure());
+    var value = evaluator.evaluate(tree.evaluateStructure("bc"));
     print("DSL value: $value");
   }
 }

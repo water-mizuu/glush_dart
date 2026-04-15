@@ -41,7 +41,7 @@ void main() {
 
   if (outcome is ParseSuccess) {
     // 1. Convert marks to a structured tree
-    final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks);
+    final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks, input: '1 + 2 + 3');
 
     // 2. Interpret with a typed evaluator
     final evaluator = Evaluator<int>({
@@ -127,7 +127,7 @@ final outcome = parser.parseAmbiguous('sss');
 
 if (outcome is ParseAmbiguousSuccess) {
   for (var path in outcome.forest.allMarkPaths()) {
-    print(path.evaluateStructure()); // Prints each unique derivation tree
+    print(path.evaluateStructure('sss')); // Prints each unique derivation tree
   }
 }
 ```

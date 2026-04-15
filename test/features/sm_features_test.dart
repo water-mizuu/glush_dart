@@ -40,7 +40,7 @@ void main() {
 
       var forest = (result as ParseAmbiguousSuccess).forest;
       var val = evaluator.evaluate(
-        const StructuredEvaluator().evaluate(forest.allMarkPaths().first),
+        const StructuredEvaluator().evaluate(forest.allMarkPaths().first, input: "n+n*n^n"),
       );
       expect(val, equals("(n + (n * (n ^ n)))"));
     });

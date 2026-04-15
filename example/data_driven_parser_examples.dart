@@ -491,7 +491,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   print("DSL ambiguous outcome: ${dslOutcome.runtimeType}");
   if (dslOutcome case ParseAmbiguousSuccess(:var forest)) {
     print("DSL paths: ${forest.allMarkPaths().length}");
-    for (var tree in forest.allMarkPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
+    for (var tree in forest.allMarkPaths().map((p) => const StructuredEvaluator().evaluate(p, input: "a"))) {
       print(tree);
     }
   }
@@ -518,7 +518,7 @@ void _exampleAmbiguousDataDrivenChoice() {
   print("Fluent ambiguous outcome: ${fluentOutcome.runtimeType}");
   if (fluentOutcome case ParseAmbiguousSuccess(:var forest)) {
     print("Fluent paths: ${forest.allMarkPaths().length}");
-    for (var tree in forest.allMarkPaths().map((p) => const StructuredEvaluator().evaluate(p))) {
+    for (var tree in forest.allMarkPaths().map((p) => const StructuredEvaluator().evaluate(p, input: "a"))) {
       print(tree);
     }
   }

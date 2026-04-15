@@ -74,7 +74,7 @@ fn main() {
 
   if (outcome is ParseSuccess) {
     var result = outcome.result;
-    var tree = result.rawMarks.evaluateStructure();
+    var tree = result.rawMarks.evaluateStructure(input);
 
     print("\nSTRUCTURED TREE:");
     _printTree(tree, 0);

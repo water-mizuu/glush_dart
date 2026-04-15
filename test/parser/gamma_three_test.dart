@@ -36,16 +36,16 @@ void main() {
             .toSMParser();
 
     const testInput = "bb";
-    var result = parser.parseAmbiguous(testInput);
+    var result = parser.parseAmbiguous(testInput, captureTokensAsMarks: true);
     expect(result, isA<ParseAmbiguousSuccess>());
     var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();
 
     var evaluator = Evaluator({
       "S.2": (ctx) => "(${ctx.next()}${ctx.next()})",
-      "S.1": (ctx) => ".",
+      "S.1": (ctx) => ctx.next(),
     });
     for (var derivation in derivations) {
-      print(evaluator.evaluate(derivation.evaluateStructure()));
+      print(evaluator.evaluate(derivation.evaluateStructure(testInput)));
     }
   });
 }

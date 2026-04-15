@@ -160,7 +160,7 @@ void main() {
       var success = res as ParseAmbiguousSuccess;
 
       // Evaluate the structure from the marks of the first derivation
-      var root = success.forest.allMarkPaths().single.evaluateStructure();
+      var root = success.forest.allMarkPaths().single.evaluateStructure(input);
 
       // We expect BOTH l1 and l2 to be present in the children
       expect(root.get("l1"), isNotEmpty, reason: "Label l1 should be recovered");
@@ -185,7 +185,7 @@ void main() {
 
       var res = parser.parseAmbiguous(input, captureTokensAsMarks: true);
       var success = res as ParseAmbiguousSuccess;
-      var root = success.forest.allMarkPaths().single.evaluateStructure();
+      var root = success.forest.allMarkPaths().single.evaluateStructure(input);
 
       // Check l1 hierarchy
       var l1 = root.get("l1").first as ParseResult;

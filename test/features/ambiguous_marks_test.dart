@@ -27,7 +27,7 @@ void main() {
       expect(paths.length, equals(2));
 
       var evaluator = const StructuredEvaluator();
-      var trees = paths.map((p) => evaluator.evaluate(p)).toList();
+      var trees = paths.map((p) => evaluator.evaluate(p, input: "z")).toList();
 
       expect(trees.any((t) => hasLabel(t.children, "a")), isTrue);
       expect(trees.any((t) => hasLabel(t.children, "b")), isTrue);
@@ -49,7 +49,7 @@ void main() {
       var evaluator = const StructuredEvaluator();
 
       // We don't guarantee the order of paths in BranchedList, so we check both
-      var trees = paths.map((p) => evaluator.evaluate(p)).toList();
+      var trees = paths.map((p) => evaluator.evaluate(p, input: "ab")).toList();
 
       var hasA = trees.any((t) => hasLabel(t.children, "a"));
       var hasB = trees.any((t) => hasLabel(t.children, "b"));
@@ -74,7 +74,7 @@ void main() {
       var paths = forest.allMarkPaths().toList();
 
       var evaluator = const StructuredEvaluator();
-      var trees = paths.map((p) => evaluator.evaluate(p)).toList();
+      var trees = paths.map((p) => evaluator.evaluate(p, input: input)).toList();
 
       // We use a Set of stringified trees to count unique interpretations
       var uniqueTrees = trees.map((t) => t.toString()).toSet();
@@ -125,7 +125,7 @@ void main() {
       var paths = forest2.allMarkPaths().toList();
       var evaluator = const StructuredEvaluator();
 
-      var treeAA = paths.map((p) => evaluator.evaluate(p)).firstWhere((tree) {
+      var treeAA = paths.map((p) => evaluator.evaluate(p, input: "aa")).firstWhere((tree) {
         return hasLabel(tree.children, "a") && getLabel(tree.children, "a").length == 2;
       });
       expect(getLabel(treeAA.children, "a").length, equals(2));
@@ -152,7 +152,7 @@ void main() {
       expect(paths.length, equals(2));
 
       var evaluator = const StructuredEvaluator();
-      var trees = paths.map((p) => evaluator.evaluate(p)).toList();
+      var trees = paths.map((p) => evaluator.evaluate(p, input: "a")).toList();
 
       expect(trees.any((t) => hasLabel(t.children, "leftMark")), isTrue);
       expect(trees.any((t) => hasLabel(t.children, "rightMark")), isTrue);
