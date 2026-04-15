@@ -13,16 +13,6 @@ abstract base class GlushParserBase implements GlushParser {
   @override
   List<Frame> get initialFrames;
 
-  void _enqueueFrameForPosition(
-    ParseState parseState,
-    _PositionWorkQueue workQueue,
-    Frame frame, {
-    String reason = "enqueue list",
-  }) {
-    parseState.incrementTrackers(frame.context, reason);
-    workQueue.addFrame(frame.context.position, frame);
-  }
-
   /// Bucket frames by their [Context.position] into the global work queue.
   ///
   /// The parser may hold frames from multiple [Context.position]s simultaneously when calls
@@ -33,7 +23,8 @@ abstract base class GlushParserBase implements GlushParser {
     List<Frame> frames,
   ) {
     for (var frame in frames) {
-      _enqueueFrameForPosition(parseState, workQueue, frame);
+      parseState.incrementTrackers(frame.context, "enqueue list");
+      workQueue.addFrame(frame.context.position, frame);
     }
   }
 
@@ -58,14 +49,10 @@ abstract base class GlushParserBase implements GlushParser {
               parseState.decrementTrackers(parentContext, "childExhausted");
 
               if (!tracker.isAnd) {
+                var targetPosition = parentContext.position;
                 var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
-                // Keep position tracking explicit for resumed NOT predicate frames.
-                _enqueueFrameForPosition(
-                  parseState,
-                  workQueue,
-                  nextFrame,
-                  reason: "resumeNotPredicate",
-                );
+                parseState.incrementTrackers(parentContext, "resumeNotPredicate");
+                workQueue.addFrame(targetPosition, nextFrame);
               }
             }
             tracker.waiters.clear();
@@ -165,13 +152,13 @@ abstract base class GlushParserBase implements GlushParser {
       // Neutral transfer: decrement from Step storage, increment into Global queue.
       for (var frame in currentStep.nextFrames) {
         parseState.decrementTrackers(frame.context, "transfer next");
-        _enqueueFrameForPosition(parseState, workQueue, frame);
+        _enqueueFramesForPosition(parseState, workQueue, [frame]);
       }
       currentStep.nextFrames.clear();
 
       for (var frame in currentStep.requeued) {
         parseState.decrementTrackers(frame.context, "transfer requeue");
-        _enqueueFrameForPosition(parseState, workQueue, frame);
+        _enqueueFramesForPosition(parseState, workQueue, [frame]);
       }
       currentStep.requeued.clear();
     }
@@ -207,37 +194,35 @@ abstract base class GlushParserBase implements GlushParser {
 }
 
 final class _PositionWorkQueue {
-  final List<int> _positions = [];
-  final List<Frame> _frames = [];
+  final List<(int position, Frame frame)> _heap = [];
 
-  bool get isEmpty => _positions.isEmpty;
-  bool get isNotEmpty => _positions.isNotEmpty;
+  bool get isEmpty => _heap.isEmpty;
+  bool get isNotEmpty => _heap.isNotEmpty;
 
-  int? get firstKeyOrNull => _positions.isEmpty ? null : _positions.first;
+  int? get firstKeyOrNull => _heap.isEmpty ? null : _heap.first.$1;
 
   List<Frame> removeFirst() {
-    if (_positions.isEmpty) {
+    if (_heap.isEmpty) {
       return const [];
     }
 
     var list = <Frame>[];
-    var min = _positions.first;
+    var min = _heap.first.$1;
 
-    while (_positions.isNotEmpty && _positions.first == min) {
-      var last = _positions.length - 1;
-      var firstFrame = _frames.first;
-
+    while (_heap.isNotEmpty && _heap.first.$1 == min) {
       // Swap first and last
-      _positions[0] = _positions[last];
-      _frames[0] = _frames[last];
-      list.add(firstFrame);
+      var temp = _heap.first;
+      _heap.first = _heap.last;
+      _heap.last = temp;
+
+      // Add the last element (which was the first) to the list
+      list.add(_heap.last.$2);
 
       // Remove the last element
-      _positions.removeLast();
-      _frames.removeLast();
+      _heap.removeLast();
 
       // Sift down if heap is not empty
-      if (_positions.isNotEmpty) {
+      if (_heap.isNotEmpty) {
         _siftDown(0);
       }
     }
@@ -246,28 +231,19 @@ final class _PositionWorkQueue {
   }
 
   void addFrame(int position, Frame frame) {
-    _positions.add(position);
-    _frames.add(frame);
-    _siftUp(_positions.length - 1);
-  }
-
-  void _swap(int a, int b) {
-    var position = _positions[a];
-    _positions[a] = _positions[b];
-    _positions[b] = position;
-
-    var frame = _frames[a];
-    _frames[a] = _frames[b];
-    _frames[b] = frame;
+    _heap.add((position, frame));
+    _siftUp(_heap.length - 1);
   }
 
   void _siftUp(int index) {
     while (index > 0) {
       int parent = (index - 1) >> 1;
-      if (_positions[parent] <= _positions[index]) {
+      if (_heap[parent].$1 <= _heap[index].$1) {
         break;
       }
-      _swap(parent, index);
+      var temp = _heap[parent];
+      _heap[parent] = _heap[index];
+      _heap[index] = temp;
       index = parent;
     }
   }
@@ -278,10 +254,10 @@ final class _PositionWorkQueue {
       int left = (index << 1) + 1;
       int right = (index << 1) + 2;
 
-      if (left < _positions.length && _positions[left] < _positions[smallest]) {
+      if (left < _heap.length && _heap[left].$1 < _heap[smallest].$1) {
         smallest = left;
       }
-      if (right < _positions.length && _positions[right] < _positions[smallest]) {
+      if (right < _heap.length && _heap[right].$1 < _heap[smallest].$1) {
         smallest = right;
       }
 
@@ -289,7 +265,9 @@ final class _PositionWorkQueue {
         break;
       }
 
-      _swap(index, smallest);
+      var temp = _heap[index];
+      _heap[index] = _heap[smallest];
+      _heap[smallest] = temp;
       index = smallest;
     }
   }

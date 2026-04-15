@@ -1,4 +1,6 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
+import "dart:collection";
+
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
@@ -78,11 +80,7 @@ class Step {
   final Set<ComplexContextKey> _activeContextKeysComplex = {};
 
   /// The work queue for same-position closure exploration.
-  ///
-  /// Uses a flat array (key, state, key, state, ...) to avoid per-node linked
-  /// list allocation churn in hot parsing loops.
-  final List<Object> _workQueue = [];
-  int _workQueueHead = 0;
+  final Queue<(ContextKey, State)> _workQueue = DoubleLinkedQueue();
 
   /// Set of GSS callers that have already returned at this position.
   final Set<(CallerKey, int)> _returnedCallersPositionAware = {};
@@ -654,8 +652,7 @@ class Step {
       _currentFrameGroupsInt[packedId] = newGroup;
 
       parseState.incrementTrackers(nextContext, "enqueue");
-      _workQueue.add(packedId);
-      _workQueue.add(state);
+      _workQueue.add((IntContextKey(packedId), state));
       return;
     }
 
@@ -681,8 +678,7 @@ class Step {
 
     // Initialize group and store initial marks.
     _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
-    _workQueue.add(key);
-    _workQueue.add(state);
+    _workQueue.add((key, state));
   }
 
   /// Execute outgoing actions for one `(frame,state)` pair.
@@ -846,12 +842,11 @@ class Step {
   /// Process all accumulated work from previous processFrameEnqueue() calls.
   /// This must be called after all frames at a position have been enqueued.
   void processFrameFinalize() {
-    while (_workQueueHead < _workQueue.length) {
-      var key = _workQueue[_workQueueHead++];
-      var state = _workQueue[_workQueueHead++] as State;
+    while (_workQueue.isNotEmpty) {
+      var (key, state) = _workQueue.removeFirst();
       ContextGroup? group;
-      if (key is int) {
-        group = _currentFrameGroupsInt.remove(key);
+      if (key is IntContextKey) {
+        group = _currentFrameGroupsInt.remove(key.id);
       } else {
         group = _currentFrameGroupsComplex.remove(key as ComplexContextKey);
       }
@@ -865,11 +860,6 @@ class Step {
       parseState.decrementTrackers(context, "processBatch");
 
       _process(Frame(context, marks), state);
-    }
-
-    if (_workQueueHead != 0) {
-      _workQueue.clear();
-      _workQueueHead = 0;
     }
   }
 
