@@ -37,11 +37,12 @@ void main() {
        2 | $num [0-9]+;
   '''.toSMParser();
 
-  final outcome = parser.parse('1 + 2 + 3');
+  final input = '1 + 2 + 3';
+  final outcome = parser.parse(input);
 
   if (outcome is ParseSuccess) {
     // 1. Convert marks to a structured tree
-    final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks, input: '1 + 2 + 3');
+    final tree = StructuredEvaluator().evaluate(outcome.result.rawMarks, input);
 
     // 2. Interpret with a typed evaluator
     final evaluator = Evaluator<int>({
@@ -68,7 +69,6 @@ Glush uses a powerful string-based DSL that supports virtually every modern pars
 | **Choice**      | `A \| B`               | Matches either `A` or `B` (Generalized).                 |
 | **Conjunction** | `A && B`               | Matches if **both** `A` and `B` match the same span.     |
 | **Lookahead**   | `&A` / `!A`            | Positive or Negative lookahead. Doesn't consume input.   |
-| **Negation**    | `~A`                   | Matches if `A` specifically **does not** match.          |
 | **Repetition**  | `*`, `+`, `?`          | Zero-or-more, one-or-more, or optional.                  |
 | **Possessive**  | `*!`, `+!`             | Deterministic repetition (won't backtrack once matched). |
 | **Literals**    | `'abc'`, `"abc"`       | Exact string matching.                                   |
