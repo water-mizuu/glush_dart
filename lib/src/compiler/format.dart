@@ -3,20 +3,11 @@ library glush.grammar_file_format;
 
 /// Represents a Rule definition parsed from a grammar file
 class RuleDefinition {
-  RuleDefinition({
-    required this.name,
-    required this.pattern,
-    List<String>? parameters,
-    Map<PatternExpr, int>? precedenceLevels,
-  }) : parameters = parameters ?? const [],
-       precedenceLevels = precedenceLevels ?? {};
+  RuleDefinition({required this.name, required this.pattern, List<String>? parameters})
+    : parameters = parameters ?? const [];
   final String name;
   final PatternExpr pattern;
   final List<String> parameters;
-
-  /// Maps each alternative pattern to its precedence level
-  /// This is populated during parsing when precedence levels are specified: "6| pattern"
-  final Map<PatternExpr, int> precedenceLevels;
 
   @override
   String toString() {
@@ -391,6 +382,17 @@ class GuardNameNode implements GuardValueNode {
 
   @override
   String toString() => name;
+}
+
+/// Pattern wrapped with a precedence level (e.g., "6 | pattern")
+/// The precedence level determines how this alternative is prioritized in parsing
+class PrecedenceExpr implements PatternExpr {
+  const PrecedenceExpr(this.level, this.pattern);
+  final int level;
+  final PatternExpr pattern;
+
+  @override
+  String toString() => "$level:$pattern";
 }
 
 /// Semantic action placeholder

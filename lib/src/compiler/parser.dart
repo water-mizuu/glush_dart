@@ -386,12 +386,7 @@ class GrammarFileParser {
       _advance();
     }
 
-    return RuleDefinition(
-      name: ruleName,
-      pattern: pattern,
-      parameters: parameters,
-      precedenceLevels: lastParsedPrecedenceLevels,
-    );
+    return RuleDefinition(name: ruleName, pattern: pattern, parameters: parameters);
   }
 
   List<String> _parseParameterList() {
@@ -446,16 +441,14 @@ class GrammarFileParser {
   /// Precedence prefixes can implicitly start new alternatives
   PatternExpr _parseAlternation() {
     var parts = <PatternExpr>[];
-    var precedenceLevels = <PatternExpr, int>{};
 
     // Parse first alternative
     int? precedenceLevel = _tryParsePrecedenceLevel();
     PatternExpr pattern = _parseSequence();
-    parts.add(pattern);
     if (precedenceLevel != null) {
-      precedenceLevels[pattern] = precedenceLevel;
+      pattern = PrecedenceExpr(precedenceLevel, pattern);
     }
-
+    parts.add(pattern);
     // Continue while we see | OR a precedence prefix (N|)
     // A precedence prefix can implicitly start a new alternative
     while (_peek().type == _TokenType.pipe || _isPrecedencePrefixAhead()) {
@@ -465,18 +458,19 @@ class GrammarFileParser {
       }
 
       // Parse next alternative with optional precedence
-      precedenceLevel = _tryParsePrecedenceLevel();
+      var newPrecedenceLevel = _tryParsePrecedenceLevel();
       pattern = _parseSequence();
-      parts.add(pattern);
-      if (precedenceLevel != null) {
-        precedenceLevels[pattern] = precedenceLevel;
+
+      if (newPrecedenceLevel != null) {
+        precedenceLevel = newPrecedenceLevel;
       }
+      if (precedenceLevel != null) {
+        pattern = PrecedenceExpr(precedenceLevel, pattern);
+      }
+      parts.add(pattern);
     }
 
     var result = parts.length == 1 ? parts[0] : AlternationPattern(parts);
-
-    // Store precedence levels for access by _parseRule
-    lastParsedPrecedenceLevels = precedenceLevels;
 
     return result;
   }

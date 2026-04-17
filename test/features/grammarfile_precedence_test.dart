@@ -3,27 +3,6 @@ import "package:test/test.dart";
 
 void main() {
   group("GrammarFileParser precedence", () {
-    test("parses precedence levels correctly", () {
-      const grammarText = """
-        expr =
-          11| '(' expr^0 ')'
-          11| [0-9]+
-          7| expr^7 '*' expr^8
-          6| expr^6 '+' expr^7
-        """;
-
-      var parser = GrammarFileParser(grammarText);
-      var grammarFile = parser.parse();
-
-      // Check that we have one rule
-      expect(grammarFile.rules.length, 1);
-      var rule = grammarFile.rules[0];
-      expect(rule.name, "expr");
-
-      // Check precedence levels are stored
-      expect(rule.precedenceLevels.isNotEmpty, true);
-    });
-
     test("GrammarFileCompiler applies precedence levels correctly to each alternative", () {
       const grammarText = """
         expr =
@@ -63,9 +42,9 @@ void main() {
     test("precedence constraints are properly applied to rule calls", () {
       const grammarText = """
         expr =
-          11| [0-9]+
-          7| expr^7 '*' expr^8
-          6| expr^6 '+' expr^6
+          11 | [0-9]+
+           7 | expr^7 '*' expr^8
+           6 | expr^6 '+' expr^6
         """;
 
       var parser = GrammarFileParser(grammarText);
@@ -89,12 +68,12 @@ void main() {
     test("multiple operations with correct precedence and associativity", () {
       const grammarText = """
         expr =
-          11| '(' expr^0 ')'
-          11| [0-9]+
-          7| expr^7 '*' expr^8
-          7| expr^7 '/' expr^8
-          6| expr^6 '+' expr^6
-          6| expr^6 '-' expr^6
+          11 | '(' expr^0 ')'
+          11 | [0-9]+
+           7 | expr^7 '*' expr^8
+           7 | expr^7 '/' expr^8
+           6 | expr^6 '+' expr^6
+           6 | expr^6 '-' expr^6
           ;
       """;
 
@@ -144,6 +123,8 @@ void _walkPattern(PatternExpr pattern, void Function(PatternExpr) visit) {
       _walkPattern(p.pattern, visit);
     case GroupPattern p:
       _walkPattern(p.inner, visit);
+    case PrecedenceExpr p:
+      _walkPattern(p.pattern, visit);
     default:
       break;
   }

@@ -59,9 +59,6 @@ expr =
     print("Parsed Rules:");
     for (var rule in grammarFile.rules) {
       print("  ${rule.name}: ${rule.pattern}");
-      if (rule.precedenceLevels.isNotEmpty) {
-        print("    Precedence levels assigned: ${rule.precedenceLevels.values.toSet()}");
-      }
     }
     print("");
 

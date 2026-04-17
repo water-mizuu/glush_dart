@@ -41,7 +41,7 @@ class GrammarFileCompiler {
           _currentCaptures = [];
           try {
             return GlushProfiler.measure("compiler.compile_pattern", () {
-              return _compilePattern(ruleDef.pattern, ruleDef.precedenceLevels);
+              return _compilePattern(ruleDef.pattern);
             });
           } finally {
             _currentOwnerRule = previousOwner;
@@ -72,8 +72,10 @@ class GrammarFileCompiler {
   }
 
   /// Compile a pattern expression into a Pattern
-  Pattern _compilePattern(PatternExpr expr, Map<PatternExpr, int> precedenceLevels) {
+  Pattern _compilePattern(PatternExpr expr) {
     switch (expr) {
+      case PrecedenceExpr(:var level, :var pattern):
+        return _compilePattern(pattern).atLevel(level);
       // `if (...)` is lowered into a synthetic guarded rule so the compiler
       // keeps the parser logic in the state machine instead of inventing a
       // separate semantic side channel.
@@ -89,7 +91,7 @@ class GrammarFileCompiler {
             _currentOwnerRule = owner;
             _currentParameters = parameters;
             try {
-              return _compilePattern(inner, precedenceLevels);
+              return _compilePattern(inner);
             } finally {
               _currentOwnerRule = previousOwner;
               _currentParameters = previousParameters;
@@ -201,50 +203,39 @@ class GrammarFileCompiler {
         throw Exception("Undefined rule: ${expr.ruleName}");
 
       case SequencePattern():
-        Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
+        Pattern result = _compilePattern(expr.patterns[0]);
         for (int i = 1; i < expr.patterns.length; i++) {
-          result = result >> _compilePattern(expr.patterns[i], precedenceLevels);
+          result = result >> _compilePattern(expr.patterns[i]);
         }
         return result;
 
       case AlternationPattern():
         var beforeCaptures = _currentCaptures;
 
-        // Compile each alternative and apply its individual precedence level if specified
-        Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
+        // Compile each alternative
+        Pattern result = _compilePattern(expr.patterns[0]);
 
         // Put back the before captures
         _currentCaptures = beforeCaptures;
 
-        var level0 = precedenceLevels[expr.patterns[0]];
-        if (level0 != null) {
-          result = result.atLevel(level0);
-        }
-
         for (int i = 1; i < expr.patterns.length; i++) {
-          var altPattern = _compilePattern(expr.patterns[i], precedenceLevels);
+          var altPattern = _compilePattern(expr.patterns[i]);
           // Put back the before captures
           _currentCaptures = beforeCaptures;
-
-          // Apply precedence level to this specific alternative if it has one
-          var altLevel = precedenceLevels[expr.patterns[i]];
-          if (altLevel != null) {
-            altPattern = altPattern.atLevel(altLevel);
-          }
           result = result | altPattern;
         }
 
         return result;
 
       case ConjunctionPattern():
-        Pattern result = _compilePattern(expr.patterns[0], precedenceLevels);
+        Pattern result = _compilePattern(expr.patterns[0]);
         for (int i = 1; i < expr.patterns.length; i++) {
-          result = result & _compilePattern(expr.patterns[i], precedenceLevels);
+          result = result & _compilePattern(expr.patterns[i]);
         }
         return result;
 
       case RepetitionPattern():
-        var pattern = _compilePattern(expr.pattern, precedenceLevels);
+        var pattern = _compilePattern(expr.pattern);
         switch (expr.kind) {
           case RepetitionKind.zeroOrMore:
             return pattern.star();
@@ -255,24 +246,22 @@ class GrammarFileCompiler {
         }
 
       case StarPattern():
-        return Star(_compilePattern(expr.pattern, precedenceLevels));
+        return Star(_compilePattern(expr.pattern));
 
       case StarBangPattern():
-        return Star(_compilePattern(expr.pattern, precedenceLevels)) >>
-            Not(_compilePattern(expr.pattern, precedenceLevels));
+        return Star(_compilePattern(expr.pattern)) >> Not(_compilePattern(expr.pattern));
 
       case PlusPattern():
-        return Plus(_compilePattern(expr.pattern, precedenceLevels));
+        return Plus(_compilePattern(expr.pattern));
 
       case PlusBangPattern():
-        return Plus(_compilePattern(expr.pattern, precedenceLevels)) >>
-            Not(_compilePattern(expr.pattern, precedenceLevels));
+        return Plus(_compilePattern(expr.pattern)) >> Not(_compilePattern(expr.pattern));
 
       case GroupPattern():
-        return _compilePattern(expr.inner, precedenceLevels);
+        return _compilePattern(expr.inner);
 
       case LabeledPattern(:var label, :var inner):
-        var innerPattern = _compilePattern(inner, precedenceLevels);
+        var innerPattern = _compilePattern(inner);
         if (innerPattern is And || innerPattern is Not) {
           return innerPattern;
         }
@@ -283,7 +272,7 @@ class GrammarFileCompiler {
         return result;
 
       case MainMarkPattern(:var name, :var inner):
-        var compiled = _compilePattern(inner, precedenceLevels);
+        var compiled = _compilePattern(inner);
         var ruleName = _currentOwnerRule?.name;
         return Label(ruleName == null ? name : "$ruleName.$name", compiled);
 
@@ -291,7 +280,7 @@ class GrammarFileCompiler {
         throw Exception("ActionExpr cannot be compiled as a pattern");
 
       case PredicatePattern():
-        var inner = _compilePattern(expr.pattern, precedenceLevels);
+        var inner = _compilePattern(expr.pattern);
         if (expr.isAnd) {
           return And(inner);
         } else {
@@ -406,7 +395,7 @@ class GrammarFileCompiler {
                 "eof" => CallArgumentValue.pattern(Pattern.eof()),
                 _ => CallArgumentValue.reference(name),
               },
-      PatternExpr() => CallArgumentValue.pattern(_compilePattern(value, const {})),
+      PatternExpr() => CallArgumentValue.pattern(_compilePattern(value)),
     };
   }
 
@@ -434,7 +423,7 @@ class GrammarFileCompiler {
                 "eof" => Pattern.eof(),
                 _ => Pattern.string(name),
               },
-      PatternExpr() => _compilePattern(value, const {}),
+      PatternExpr() => _compilePattern(value),
     };
   }
 
