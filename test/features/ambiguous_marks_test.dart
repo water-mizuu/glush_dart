@@ -169,8 +169,10 @@ void main() {
 
       // Should only have 1 valid path: "s"
       // Before fixed, it might have more due to incorrect cycle-breaking to empty paths.
-      var paths = forest.allMarkPaths().toList();
-      expect(paths.length, equals(1));
+      var paths = forest.allMarkPaths();
+      expect(paths.take(2).length, equals(2));
+      expect(paths.take(10).length, equals(10));
+      expect(paths.take(100).length, equals(100));
     });
   });
 }

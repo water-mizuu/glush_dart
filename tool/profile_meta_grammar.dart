@@ -152,11 +152,9 @@ void main() {
   });
   measure("metaParser.parse(ambiguous)", 30, () {
     var result = grammar.parseAmbiguous(metaGrammarString);
-    if (result is! ParseSuccess &&
-        result is! ParseAmbiguousSuccess &&
-        result is! ParseAmbiguousSuccess) {
+    if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
-    return result;
+    return result.ambiguousSuccess()!.forest.allMarkPaths().first;
   });
 }

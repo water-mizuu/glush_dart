@@ -21,7 +21,7 @@ void main() {
       var result = (outcome as ParseSuccess).result;
 
       var marks = result.rawMarks;
-      var evaluator = const StructuredEvaluator();
+      var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
       var tree = evaluator.evaluate(marks, input: "user:michael");
 
       expect(tree.get("name").first.span, equals("user"));
@@ -42,7 +42,7 @@ void main() {
       expect(outcome, isA<ParseSuccess>());
       var result = (outcome as ParseSuccess).result;
 
-      var evaluator = const StructuredEvaluator();
+      var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
       var tree = evaluator.evaluate(result.rawMarks, input: "alice:secret");
 
       expect(tree["user"].first.span, equals("alice"));
@@ -58,22 +58,18 @@ void main() {
       '''
               .toSMParser();
 
-      var evaluator = const StructuredEvaluator();
-
       var firstOutcome = parser.parse("a", captureTokensAsMarks: true);
       expect(firstOutcome, isA<ParseSuccess>());
-      var firstTree = evaluator.evaluate(
-        (firstOutcome as ParseSuccess).result.rawMarks,
-        input: "a",
-      );
+      var firstResult = (firstOutcome as ParseSuccess).result;
+      var firstEvaluator = StructuredEvaluator(sppfTable: firstResult.sppfTable);
+      var firstTree = firstEvaluator.evaluate(firstResult.rawMarks, input: "a");
       expect(firstTree["choice.prec"].first.span, equals("a"));
 
       var secondOutcome = parser.parse("b", captureTokensAsMarks: true);
       expect(secondOutcome, isA<ParseSuccess>());
-      var secondTree = evaluator.evaluate(
-        (secondOutcome as ParseSuccess).result.rawMarks,
-        input: "b",
-      );
+      var secondResult = (secondOutcome as ParseSuccess).result;
+      var secondEvaluator = StructuredEvaluator(sppfTable: secondResult.sppfTable);
+      var secondTree = secondEvaluator.evaluate(secondResult.rawMarks, input: "b");
       expect(secondTree["choice.first"].first.span, equals("b"));
     });
 
@@ -90,7 +86,7 @@ void main() {
       expect(outcome, isA<ParseSuccess>());
       var result = (outcome as ParseSuccess).result;
 
-      var evaluator = const StructuredEvaluator();
+      var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
       var tree = evaluator.evaluate(result.rawMarks, input: "John Doe");
 
       var person = tree["person"].first as ParseResult;

@@ -158,7 +158,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         var results = lastStep.acceptedContexts.values.first;
         var onlyPath = results.evaluate().allMarkPaths().first;
 
-        return ParseSuccess(ParserResult(onlyPath));
+        return ParseSuccess(ParserResult(onlyPath, sppfTable: parseState.sppfTable));
       } else {
         return ParseError(parseState.position);
       }

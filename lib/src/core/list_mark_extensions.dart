@@ -4,8 +4,6 @@
 /// keeping the core list.dart library free from glush-specific dependencies.
 library glush.list_mark_extensions;
 
-import "dart:collection";
-
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/helper/diagonal.dart";
@@ -105,28 +103,32 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
   /// Collects all paths through the LazyGlushList, creating ConjunctionMarks for parallel branches.
   /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
   Iterable<List<Mark>> allMarkPaths() {
-    return _collectLazyMarkPaths(this, HashSet());
+    return _collectLazyMarkPaths(this, const {});
   }
 
-  Iterable<List<Mark>> _collectLazyMarkPaths(LazyGlushList<Mark> node, Set<int> stack) sync* {
-    if (stack.contains(node.hashCode)) {
-      return;
-    }
+  Iterable<List<Mark>> _collectLazyMarkPaths(
+    LazyGlushList<Mark> node,
+    Map<int, int> visitCounts, // Track how many times each node has been visited IN THIS EXECUTION
+  ) sync* {
+    var nodeId = node.hashCode;
+    var currentCount = visitCounts[nodeId] ?? 0;
 
-    var newStack = {...stack, node.hashCode};
+    // Track this visit
+    var newVisitCounts = {...visitCounts, nodeId: currentCount + 1};
+
     if (node is LazyEmpty<Mark>) {
       yield const [];
     } else if (node is LazyPush<Mark>) {
-      for (var pPath in _collectLazyMarkPaths(node.parent, newStack)) {
+      for (var pPath in _collectLazyMarkPaths(node.parent, newVisitCounts)) {
         yield [...pPath, node.val.evaluate()];
       }
     } else if (node is LazyBranched<Mark>) {
-      yield* _collectLazyMarkPaths(node.left, newStack);
-      yield* _collectLazyMarkPaths(node.right, newStack);
+      yield* _collectLazyMarkPaths(node.left, newVisitCounts);
+      yield* _collectLazyMarkPaths(node.right, newVisitCounts);
     } else if (node is LazyConcat<Mark>) {
       for (var (l, r) in diagonalize(
-        _collectLazyMarkPaths(node.left, newStack),
-        _collectLazyMarkPaths(node.right, newStack),
+        _collectLazyMarkPaths(node.left, newVisitCounts),
+        _collectLazyMarkPaths(node.right, newVisitCounts),
       )) {
         yield [...l, ...r];
       }
@@ -134,8 +136,8 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
       // For Mark conjunctions, expand all combinations into separate paths.
       // Don't wrap in ConjunctionMark - let the combinations expand naturally.
       for (var (leftPath, rightPath) in diagonalize(
-        _collectLazyMarkPaths(node.left, newStack),
-        _collectLazyMarkPaths(node.right, newStack),
+        _collectLazyMarkPaths(node.left, newVisitCounts),
+        _collectLazyMarkPaths(node.right, newVisitCounts),
       )) {
         var leftList = LazyGlushList.fromList(leftPath);
         var rightList = LazyGlushList.fromList(rightPath);
@@ -144,7 +146,17 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
     } else if (node is LazyEvaluated<Mark>) {
       yield* node.list.allMarkPaths();
     } else if (node is LazyReturn<Mark>) {
-      yield* _collectLazyMarkPaths(node.provider(), newStack);
+      // If we've encountered this node before in this path, yield a terminal result
+      // at this depth level, then continue infinitely deeper
+      if (currentCount > 0) {
+        // Yield empty to create a path at this recursion depth
+        yield const [];
+      }
+
+      // Continue recursing infinitely (no depth limit)
+      for (var path in _collectLazyMarkPaths(node.provider(), newVisitCounts)) {
+        yield path;
+      }
     }
   }
 }

@@ -10,7 +10,7 @@ class ParseNodeKey {
   const ParseNodeKey(this.stateId, this.position, this.caller);
   final int stateId;
   final int position;
-  final CallerKey? caller;
+  final CallerKey caller;
 
   @override
   bool operator ==(Object other) =>

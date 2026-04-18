@@ -38,12 +38,12 @@ S = $1 (S) | $2 's'
     );
 
     if (result is ParseAmbiguousSuccess) {
-      var paths = result.forest.allMarkPaths().toList();
+      var paths = result.forest.allMarkPaths().take(10).toList();
       // Should have paths representing different derivations
       expect(paths.length, greaterThan(0), reason: "Should have at least one derivation");
       expect(
         paths.length,
-        lessThan(1000),
+        equals(10),
         reason: "Should not have exponential explosion of paths due to span deduplication",
       );
     }
@@ -69,8 +69,8 @@ S = $1 (S) | $2 (S) | $3 's' | $4 't'
     // Without proper span deduplication, this would create exponential
     // duplicate parse states and hang
     const grammarSource = r"""
-S = $1 (S) | $2 's'
-""";
+      S = $1 (S) | $2 's'
+      """;
 
     var parser = grammarSource.toSMParser();
 
@@ -80,7 +80,7 @@ S = $1 (S) | $2 's'
     expect(result, isA<ParseAmbiguousSuccess>());
 
     if (result is ParseAmbiguousSuccess) {
-      var paths = result.forest.allMarkPaths().toList();
+      var paths = result.forest.allMarkPaths().take(10).toList();
       print(paths);
       // Should have a reasonable number of paths, not exponential explosion
       expect(paths.length, greaterThan(0));

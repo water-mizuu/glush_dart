@@ -48,7 +48,6 @@ import "../test/parser/predicate_ambiguity_test.dart" as predicate_ambiguity_tes
 import "../test/parser/predicate_regression_test.dart" as predicate_regression_test;
 import "../test/parser/shared_predicate_test.dart" as shared_predicate_test;
 import "../test/parser/sm_integration_test.dart" as sm_integration_test;
-import "../test/parser/sm_parser_mini_test.dart" as sm_parser_mini_test;
 import "../test/parser/state_machine_dot_escape_test.dart" as state_machine_dot_escape_test;
 import "../test/regression/conjunction_logic_test.dart" as conjunction_logic_test;
 import "../test/regression/cyclic_unary_ambiguity_test.dart" as cyclic_unary_ambiguity_test;
@@ -108,7 +107,6 @@ void main() {
     shared_predicate_test.main();
     sm_features_test.main();
     sm_integration_test.main();
-    sm_parser_mini_test.main();
     star_plus_unambiguous_test.main();
     state_machine_dot_escape_test.main();
     stress_test.main();

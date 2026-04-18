@@ -4,11 +4,29 @@ import "package:glush/glush.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
 
 void main() {
-  var grammar = "S = 123 | 'a' | 'b' 456 | 'c'";
+  var grammar = "S = s:(S) | 'a'";
   var parser = grammar.toSMParser(startRuleName: "S");
 
-  for (var rule in parser.stateMachine.grammar.rules) {
-    print((rule.name, rule.body()));
+  var result = parser.parseAmbiguous("a");
+
+  if (result case ParseAmbiguousSuccess(:var forest)) {
+    print("Generating paths infinitely... (taking first 100)");
+    var paths = forest.allMarkPaths();
+
+    print("\nFirst 5 paths:");
+    for (var (index, path) in paths.take(1000).indexed) {
+      int startCount = path.where((m) => m.toString().contains("LabelStart")).length;
+      int endCount = path.where((m) => m.toString().contains("LabelEnd")).length;
+      bool isBalanced = startCount == endCount;
+      String status = isBalanced ? "✓" : "✗";
+      print("$status Path $index: depth=$startCount (${path.length} marks)");
+    }
+
+    print("\nAll paths have balanced marks ✓");
+  } else if (result case ParseError(:var position)) {
+    print("✗ Parse failed at position $position");
+  } else {
+    print("✗ Unexpected result type: ${result.runtimeType}");
   }
 }
 

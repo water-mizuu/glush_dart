@@ -6,6 +6,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/parser/common/sppf_table.dart";
 import "package:meta/meta.dart";
 
 /// Signature for an evaluation handler.
@@ -325,7 +326,12 @@ class ParseResult extends ParseNode {
 
 /// Evaluator that produces a structured tree of results based on labels.
 class StructuredEvaluator {
-  const StructuredEvaluator();
+  const StructuredEvaluator({this.sppfTable});
+
+  /// When set, label spans derived from marks are cross-checked against the
+  /// SPPF label index inside an [assert]. This is zero-cost in production
+  /// (asserts are compiled out) and validates SPPF/marks parity in debug/test.
+  final SppfTable? sppfTable;
 
   void expandMarks(List<Mark> marks, int start, int end) {
     for (int i = end - 1; i >= start; --i) {
@@ -447,6 +453,31 @@ class StructuredEvaluator {
     var start = frame.startPosition ?? frame.minPosition ?? position;
     stack.last.recordRange(start, position);
     stack.last.addChild(frame.name, frame.toResult(endPosition: position));
+
+    // SPPF parity check: assert that the SPPF index contains at least one
+    // SymbolNode that agrees with the marks-derived label span.
+    // Different SymbolNodes for the same rule may have shorter spans (e.g. for
+    // greedy '+' rules with intermediate completions) — that is expected.
+    assert(() {
+      var table = sppfTable;
+      if (table == null) return true;
+      for (var sym in table.allSymbolNodes) {
+        var sppfSpan = sym.labelFor(name);
+        if (sppfSpan == null) continue;
+        if (sppfSpan.$1 == start && sppfSpan.$2 == position) return true;
+      }
+      // No node matched. This is acceptable during in-flight parses where
+      // ReturnAction hasn't fired for the enclosing rule yet. Only hard-fail
+      // if the table already has label entries for this name but none match.
+      var hasAnyEntry = table.allSymbolNodes.any((s) => s.labelFor(name) != null);
+      assert(
+        !hasAnyEntry,
+        'SPPF has entries for label "$name" but none match marks span '
+        "[$start..$position). SPPF entries: "
+        '${table.allSymbolNodes.where((s) => s.labelFor(name) != null).map((s) => '${s.labelFor(name)}@${s.start}..${s.end}').join(', ')}',
+      );
+      return true;
+    }());
   }
 }
 

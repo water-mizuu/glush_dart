@@ -1,6 +1,7 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/step.dart" show Step;
 import "package:glush/src/parser/key/caller_key.dart";
@@ -185,6 +186,10 @@ class Context {
 /// When multiple frames advance to the same state/caller/position, they are
 /// grouped into a single [ContextGroup] so that their marks and derivations
 /// can be merged into a single branched node.
+///
+/// For BSPPF: frames that merge into the same group call [SppfTable.getNodeP]
+/// with the same key, always receiving the SAME [IntermediateNode] back (due
+/// to deduplication). So [sppfNode] is set once and reused for all.
 final class ContextGroup {
   ContextGroup(this.state, this.context);
 
@@ -194,6 +199,19 @@ final class ContextGroup {
   /// Batch mark accumulation: stored in a list, merged into a balanced tree on access.
   LazyGlushList<Mark>? _single;
   List<LazyGlushList<Mark>>? _batch;
+
+  /// The shared BSPPF [IntermediateNode] (or leaf) for all frames in this group.
+  ///
+  /// Because [SppfTable.getNodeP] deduplicates by key, all frames that end
+  /// up in the same group produce the identical node object. We just store
+  /// the first non-null one encountered.
+  SppfNode? sppfNode;
+
+  /// Open-label stack for all frames in this group (first-write wins).
+  OpenLabel? openLabels;
+
+  /// Closed-label log for all frames in this group (first-write wins).
+  ClosedLabel? closedLabels;
 
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
@@ -213,6 +231,21 @@ final class ContextGroup {
     } else {
       _batch!.add(marks);
     }
+  }
+
+  /// Record the BSPPF node for this group (stores the first non-null value).
+  void addSppfNode(SppfNode? node) {
+    sppfNode ??= node;
+  }
+
+  /// Record the open-label stack for this group (first-write wins).
+  void addOpenLabels(OpenLabel? labels) {
+    openLabels ??= labels;
+  }
+
+  /// Record the closed-label log for this group (first-write wins).
+  void addClosedLabels(ClosedLabel? labels) {
+    closedLabels ??= labels;
   }
 
   static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int start, int end) {

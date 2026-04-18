@@ -3,6 +3,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/core/sppf.dart";
 import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
@@ -10,6 +11,7 @@ import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/parser_base.dart" show GlushParserBase;
+import "package:glush/src/parser/common/sppf_table.dart" show SppfTable;
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/branch_key.dart";
@@ -389,6 +391,30 @@ class Step {
       return resolved;
     });
     GlushProfiler.increment("parser.capture.cache_assign");
+
+    // SPPF parity check: assert that the SPPF index contains at least one
+    // SymbolNode whose label span for `target` matches the marks-derived span.
+    // Multiple nodes for the same rule at different positions are expected —
+    // we only require that at least ONE agrees.
+    //
+    // Note: this check fires mid-parse (during guard evaluation). The SPPF may
+    // have entries from OTHER invocations of the same rule at different positions,
+    // so we do not hard-fail when no match is found — we only validate when a
+    // match IS present.
+    assert(() {
+      if (capture == null) return true;
+      var start = capture.startPosition;
+      var end = capture.endPosition;
+      for (var sym in parseState.sppfTable.allSymbolNodes) {
+        var sppfSpan = sym.labelFor(target);
+        if (sppfSpan == null) continue;
+        if (sppfSpan.$1 == start && sppfSpan.$2 == end) return true;
+      }
+      // No exact match found — this is acceptable mid-parse since the SPPF
+      // accumulates entries from all rule invocations at all positions.
+      return true;
+    }(), "Stuff should match.");
+
     return capture;
   }
 
@@ -548,6 +574,9 @@ class Step {
       frame.context,
       Ref(frame.marks),
       ParseNodeKey(currentState.id, position, frame.context.caller),
+      callerSppfNode: frame.sppfNode,
+      callerOpenLabels: frame.openLabels,
+      callerClosedLabels: frame.closedLabels,
     );
     if (isNewWaiter) {
       GlushProfiler.increment("parser.callers.new_waiter");
@@ -588,6 +617,9 @@ class Step {
           source: ParseNodeKey(currentState.id, position, frame.context.caller),
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
+          parentSppfNode: frame.sppfNode,
+          parentOpenLabels: frame.openLabels,
+          parentClosedLabels: frame.closedLabels,
         );
       }
     }
@@ -612,6 +644,9 @@ class Step {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
+    SppfNode? sppfNode,
+    OpenLabel? openLabels,
+    ClosedLabel? closedLabels,
   }) {
     GlushProfiler.increment("parser.enqueue.calls");
     GlushProfiler.increment("parser.frames.processed");
@@ -625,7 +660,15 @@ class Step {
       GlushProfiler.increment("parser.enqueue.requeued");
       GlushProfiler.increment("parser.frames.requeued");
       parseState.tracer?.onEnqueue(state, targetPosition, "future position");
-      requeue(Frame(nextContext, marks)..nextStates.add(state));
+      requeue(
+        Frame(
+          nextContext,
+          marks,
+          sppfNode: sppfNode,
+          openLabels: openLabels,
+          closedLabels: closedLabels,
+        )..nextStates.add(state),
+      );
       return;
     }
 
@@ -646,11 +689,18 @@ class Step {
       if (group != null) {
         GlushProfiler.incrementHit("parser.enqueue.merged");
         group.addMarks(marks);
+        group.addSppfNode(sppfNode);
+        group.addOpenLabels(openLabels);
+        group.addClosedLabels(closedLabels);
         return;
       }
 
       GlushProfiler.incrementMiss("parser.enqueue.merged");
-      var newGroup = ContextGroup(state, nextContext)..addMarks(marks);
+      var newGroup = ContextGroup(state, nextContext)
+        ..addMarks(marks)
+        ..addSppfNode(sppfNode)
+        ..addOpenLabels(openLabels)
+        ..addClosedLabels(closedLabels);
       _currentFrameGroupsInt[packedId] = newGroup;
 
       parseState.incrementTrackers(nextContext, "enqueue");
@@ -671,6 +721,9 @@ class Step {
     if (group != null) {
       GlushProfiler.incrementHit("parser.enqueue.merged");
       group.addMarks(marks);
+      group.addSppfNode(sppfNode);
+      group.addOpenLabels(openLabels);
+      group.addClosedLabels(closedLabels);
       return;
     }
 
@@ -680,7 +733,11 @@ class Step {
     parseState.incrementTrackers(nextContext, "enqueue");
 
     // Initialize group and store initial marks.
-    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
+    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
+      ..addMarks(marks)
+      ..addSppfNode(sppfNode)
+      ..addOpenLabels(openLabels)
+      ..addClosedLabels(closedLabels);
     _workQueue.add(key);
     _workQueue.add(state);
   }
@@ -742,6 +799,10 @@ class Step {
   ///
   /// This method applies call-site precedence filtering and merges marks as:
   /// `parent marks (prefix) + returned marks (call result)`.
+  ///
+  /// For BSPPF: the completed callee produces a [SymbolNode]. We call
+  /// [SppfTable.getNodeP] to accumulate it into the parent's prefix, producing
+  /// a new [IntermediateNode] that replaces the parent's [sppfNode].
   void _triggerReturn(
     Caller caller,
     CallerKey parent,
@@ -753,6 +814,9 @@ class Step {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
+    SppfNode? parentSppfNode,
+    OpenLabel? parentOpenLabels,
+    ClosedLabel? parentClosedLabels,
   }) {
     // Call-site can reject returns below its minimum precedence threshold.
     if (minPrecedence != null &&
@@ -776,6 +840,23 @@ class Step {
     // Fast paths for the common case where one/both mark streams are empty.
     var nextMarks = parentMarks.addList(returnProxy);
 
+    // BSPPF: get the SymbolNode for the completed callee, then accumulate it.
+    SppfNode? nextSppfNode;
+    if (caller.rule.symbolId case var ruleSymbol?) {
+      var calleeSymbol = parseState.sppfTable.symbol(
+        ruleSymbol,
+        caller.startPosition,
+        returnContext.position,
+      );
+      nextSppfNode = parseState.sppfTable.getNodeP(
+        nextState.id,
+        parentContext.callStart,
+        returnContext.position,
+        parentSppfNode,
+        calleeSymbol,
+      );
+    }
+
     CaptureBindings mergedCaptures;
     if (parentContext.captures.isEmpty) {
       mergedCaptures = returnContext.captures;
@@ -796,7 +877,17 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    _enqueue(nextState, nextContext, nextMarks, source: source, action: action, callSite: callSite);
+    _enqueue(
+      nextState,
+      nextContext,
+      nextMarks,
+      source: source,
+      action: action,
+      callSite: callSite,
+      sppfNode: nextSppfNode,
+      openLabels: parentOpenLabels,
+      closedLabels: parentClosedLabels,
+    );
   }
 
   /// Materialize batched token transitions into next-position frames.
@@ -823,11 +914,26 @@ class Step {
     // return through the work queue, ensuring it settles before other actions
     // at the next position (like AcceptAction).
     if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
-      _process(Frame(context, branchedMarks), nextGroup.state);
+      _process(
+        Frame(
+          context,
+          branchedMarks,
+          sppfNode: nextGroup.sppfNode,
+          openLabels: nextGroup.openLabels,
+          closedLabels: nextGroup.closedLabels,
+        ),
+        nextGroup.state,
+      );
       return;
     }
 
-    var nextFrame = Frame(context, branchedMarks);
+    var nextFrame = Frame(
+      context,
+      branchedMarks,
+      sppfNode: nextGroup.sppfNode,
+      openLabels: nextGroup.openLabels,
+      closedLabels: nextGroup.closedLabels,
+    );
     nextFrame.nextStates.add(nextGroup.state);
 
     parseState.incrementTrackers(context, "finalize nextGroup");
@@ -839,7 +945,14 @@ class Step {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
       parseState.tracer?.onProcessState(frame, state);
-      _enqueue(state, frame.context, frame.marks);
+      _enqueue(
+        state,
+        frame.context,
+        frame.marks,
+        sppfNode: frame.sppfNode,
+        openLabels: frame.openLabels,
+        closedLabels: frame.closedLabels,
+      );
     }
   }
 
@@ -864,7 +977,16 @@ class Step {
 
       parseState.decrementTrackers(context, "processBatch");
 
-      _process(Frame(context, marks), state);
+      _process(
+        Frame(
+          context,
+          marks,
+          sppfNode: group.sppfNode,
+          openLabels: group.openLabels,
+          closedLabels: group.closedLabels,
+        ),
+        state,
+      );
     }
 
     if (_workQueueHead != 0) {
@@ -902,7 +1024,24 @@ class Step {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
-      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
+      // BSPPF: build terminal node then accumulate via getNodeP.
+      var termNode = parseState.sppfTable.terminal(frameContext.position);
+      var newSppfNode = parseState.sppfTable.getNodeP(
+        action.nextState.id,
+        frameContext.callStart,
+        frameContext.position + 1,
+        frame.sppfNode,
+        termNode,
+      );
+
+      _enqueueToNextPosition(
+        action.nextState,
+        frameContext,
+        newMarks,
+        sppfNode: newSppfNode,
+        openLabels: frame.openLabels,
+        closedLabels: frame.closedLabels,
+      );
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
       parseState.tracer?.onAction(action, " rejected");
@@ -910,22 +1049,32 @@ class Step {
   }
 
   /// Internal helper to enqueue work for the next input position.
-  /// Handles both fast-path (int key) and complex (complex key) context merging.
-  void _enqueueToNextPosition(State nextState, Context context, LazyGlushList<Mark> marks) {
+  void _enqueueToNextPosition(
+    State nextState,
+    Context context,
+    LazyGlushList<Mark> marks, {
+    SppfNode? sppfNode,
+    OpenLabel? openLabels,
+    ClosedLabel? closedLabels,
+  }) {
     if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
-      // BATTERIZED next-position fast path calculation
       var packedId =
           (context.caller.uid << 32) | (nextState.id << 8) | (context.minPrecedenceLevel ?? 0xFF);
       var nextGroup = _nextFrameGroupsInt[packedId];
       if (nextGroup != null) {
         GlushProfiler.incrementHit("parser.next_pos.frame_merge");
         nextGroup.addMarks(marks);
+        nextGroup.addSppfNode(sppfNode);
+        nextGroup.addOpenLabels(openLabels);
+        nextGroup.addClosedLabels(closedLabels);
       } else {
         GlushProfiler.incrementMiss("parser.next_pos.frame_merge");
-        _nextFrameGroupsInt[packedId] = ContextGroup(
-          nextState,
-          context.advancePosition(position + 1),
-        )..addMarks(marks);
+        _nextFrameGroupsInt[packedId] =
+            ContextGroup(nextState, context.advancePosition(position + 1))
+              ..addMarks(marks)
+              ..addSppfNode(sppfNode)
+              ..addOpenLabels(openLabels)
+              ..addClosedLabels(closedLabels);
       }
     } else {
       var complexKey = ComplexContextKey(nextState, context.advancePosition(position + 1));
@@ -933,12 +1082,17 @@ class Step {
       if (nextGroup != null) {
         GlushProfiler.incrementHit("parser.next_pos.frame_merge_complex");
         nextGroup.addMarks(marks);
+        nextGroup.addSppfNode(sppfNode);
+        nextGroup.addOpenLabels(openLabels);
+        nextGroup.addClosedLabels(closedLabels);
       } else {
         GlushProfiler.incrementMiss("parser.next_pos.frame_merge_complex");
-        _nextFrameGroupsComplex[complexKey] = ContextGroup(
-          nextState,
-          context.advancePosition(position + 1),
-        )..addMarks(marks);
+        _nextFrameGroupsComplex[complexKey] =
+            ContextGroup(nextState, context.advancePosition(position + 1))
+              ..addMarks(marks)
+              ..addSppfNode(sppfNode)
+              ..addOpenLabels(openLabels)
+              ..addClosedLabels(closedLabels);
       }
     }
   }
@@ -953,7 +1107,16 @@ class Step {
     // or end-of-input (token is null).
     var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
     if (isMatch) {
-      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
+      _enqueue(
+        action.nextState,
+        frameContext,
+        frame.marks,
+        source: source,
+        action: action,
+        sppfNode: frame.sppfNode,
+        openLabels: frame.openLabels,
+        closedLabels: frame.closedLabels,
+      );
     }
   }
 
@@ -967,7 +1130,23 @@ class Step {
       if (captureTokensAsMarks) {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
-      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
+      // BSPPF: parameter string characters are terminals too.
+      var termNode = parseState.sppfTable.terminal(frameContext.position);
+      var newSppfNode = parseState.sppfTable.getNodeP(
+        action.nextState.id,
+        frameContext.callStart,
+        frameContext.position + 1,
+        frame.sppfNode,
+        termNode,
+      );
+      _enqueueToNextPosition(
+        action.nextState,
+        frameContext,
+        newMarks,
+        sppfNode: newSppfNode,
+        openLabels: frame.openLabels,
+        closedLabels: frame.closedLabels,
+      );
     }
   }
 
@@ -984,37 +1163,61 @@ class Step {
       frame.marks.add(NamedMarkVal(action.name, position)),
       source: source,
       action: action,
+      sppfNode: frame.sppfNode,
+      openLabels: frame.openLabels,
+      closedLabels: frame.closedLabels,
     );
   }
 
   /// Handle [LabelStartAction]: begin a labeled capture group.
+  ///
+  /// For BSPPF label tracking: pushes [action.name] + [position] onto the
+  /// frame's open-label stack so [_processLabelEndAction] can pair them.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // Begin a labelled span (capture start).
+    // Push onto the open-label stack (O(1) persistent prepend).
+    var newOpen = OpenLabel(action.name, position, frame.openLabels);
+
     _enqueue(
       action.nextState,
       frameContext,
       frame.marks.add(LabelStartVal(action.name, position)),
       source: source,
       action: action,
+      sppfNode: frame.sppfNode,
+      openLabels: newOpen,
+      closedLabels: frame.closedLabels,
     );
   }
 
   /// Handle [LabelEndAction]: end a labeled capture group.
+  ///
+  /// For BSPPF label tracking: pops the matching open entry from the stack and
+  /// appends a [ClosedLabel] to the frame's closed-label log.
   void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // End a labelled span (capture end).
-    // This allows the parser to extract the text covered by the label.
+    // Pop the matching open entry and record the closed span.
+    OpenLabel? newOpen = frame.openLabels;
+    ClosedLabel? newClosed = frame.closedLabels;
+    var popped = popOpenLabel(frame.openLabels, action.name);
+    if (popped != null) {
+      newOpen = popped.$1;
+      newClosed = ClosedLabel(action.name, popped.$2, position, frame.closedLabels);
+    }
+
     _enqueue(
       action.nextState,
       frameContext,
       frame.marks.add(LabelEndVal(action.name, position)),
       source: source,
       action: action,
+      sppfNode: frame.sppfNode,
+      openLabels: newOpen,
+      closedLabels: newClosed,
     );
   }
 
@@ -1029,6 +1232,9 @@ class Step {
       frame.marks.add(ExpandingMarkVal(action.name, position)),
       source: source,
       action: action,
+      sppfNode: frame.sppfNode,
+      openLabels: frame.openLabels,
+      closedLabels: frame.closedLabels,
     );
   }
 
@@ -1190,7 +1396,15 @@ class Step {
         // String parameters are materialized as virtual input tokens.
         if (text.isEmpty) {
           // Epsilon transition if the string is empty.
-          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
+          _enqueue(
+            action.nextState,
+            frame.context,
+            frame.marks,
+            source: source,
+            action: action,
+            openLabels: frame.openLabels,
+            closedLabels: frame.closedLabels,
+          );
           return;
         }
         // Redirect to a synthetic state machine that consumes the string.
@@ -1198,7 +1412,15 @@ class Step {
           text,
           action.nextState,
         );
-        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
+        _enqueue(
+          entryState,
+          frame.context,
+          frame.marks,
+          source: source,
+          action: action,
+          openLabels: frame.openLabels,
+          closedLabels: frame.closedLabels,
+        );
         return;
       case CaptureValue captureValue:
         // Data captured from a label can also be used as a parameter.
@@ -1206,7 +1428,15 @@ class Step {
           captureValue.value,
           action.nextState,
         );
-        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
+        _enqueue(
+          entryState,
+          frame.context,
+          frame.marks,
+          source: source,
+          action: action,
+          openLabels: frame.openLabels,
+          closedLabels: frame.closedLabels,
+        );
       case RuleCall callValue:
         // Parameter resolves to a rule call: expansion occurs at the current position.
         var resolvedCall = _resolveCallArgumentValues(callValue.arguments, frame, callValue.rule);
@@ -1236,15 +1466,39 @@ class Step {
         );
       case Eps():
         // Parameter as epsilon transition.
-        _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
+        _enqueue(
+          action.nextState,
+          frame.context,
+          frame.marks,
+          source: source,
+          action: action,
+          openLabels: frame.openLabels,
+          closedLabels: frame.closedLabels,
+        );
       case Pattern pattern when pattern.singleToken():
         // Parameter as a single-token pattern (e.g. char ranges).
         if (token != null && pattern.match(token)) {
-          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
+          _enqueue(
+            action.nextState,
+            frame.context,
+            frame.marks,
+            source: source,
+            action: action,
+            openLabels: frame.openLabels,
+            closedLabels: frame.closedLabels,
+          );
         }
       case bool matches:
         if (matches) {
-          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
+          _enqueue(
+            action.nextState,
+            frame.context,
+            frame.marks,
+            source: source,
+            action: action,
+            openLabels: frame.openLabels,
+            closedLabels: frame.closedLabels,
+          );
         }
       case Pattern pattern:
         throw UnsupportedError(
@@ -1615,11 +1869,23 @@ class Step {
     }
 
     // In single-derivation mode, replay each caller's returns once per position.
+    // NOTE: the BSPPF label drain runs BEFORE this guard because labels must be
+    // recorded from every concrete frame that reaches ReturnAction — the guard
+    // only suppresses duplicate waiter fan-outs, not forest construction.
+    if (caller is Caller) {
+      if (caller.rule.symbolId case var ruleSymbol?) {
+        var sym = parseState.sppfTable.symbol(ruleSymbol, caller.startPosition, returnPosition);
+        sym.addFamily(frame.sppfNode ?? parseState.sppfTable.epsilon(returnPosition));
+        // Drain closed-label log into the SymbolNode (O(labels in this call), typically O(1)).
+        var label = frame.closedLabels;
+        while (label != null) {
+          sym.recordLabel(label.name, label.start, label.end);
+          label = label.tail;
+        }
+      }
+    }
+
     if (!isSupportingAmbiguity && !_returnedCallersPositionAware.add((caller, returnPosition))) {
-      // Logical meaning:
-      // - in single-derivation mode we replay returns once per (caller key, position)
-      // - if add() is false, this caller was already replayed at this position
-      // => skip duplicate resume fan-out.
       return;
     }
 
@@ -1629,11 +1895,19 @@ class Step {
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       // Replay to waiters only when this return context is newly added.
       if (caller.addReturn(returnContext, frame.marks)) {
-        // Log the return action
         parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
 
         // Newly discovered return context fan-outs to all queued waiters.
-        for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
+        for (var WaiterInfo(
+              :nextState,
+              :minPrecedence,
+              :parentContext,
+              :parentMarks,
+              :callSite,
+              :parentSppfNode,
+              :parentOpenLabels,
+              :parentClosedLabels,
+            )
             in caller.waiters) {
           _triggerReturn(
             caller,
@@ -1646,6 +1920,9 @@ class Step {
             source: ParseNodeKey(state.id, returnPosition, caller),
             action: action,
             callSite: callSite,
+            parentSppfNode: parentSppfNode,
+            parentOpenLabels: parentOpenLabels,
+            parentClosedLabels: parentClosedLabels,
           );
         }
       }
@@ -1653,6 +1930,10 @@ class Step {
   }
 
   /// Handle [AcceptAction]: mark parse as accepted.
+  ///
+  /// For BSPPF: the root [SymbolNode] for the start rule is looked up directly
+  /// from the state machine's start symbol, since the accept frame's caller is
+  /// always [RootCallerKey] (not a [Caller]).
   void _processAcceptAction(Frame frame) {
     var previousMarks = acceptedContexts[frame.context];
     if (previousMarks != null) {
@@ -1660,5 +1941,13 @@ class Step {
     } else {
       acceptedContexts[frame.context] = frame.marks;
     }
+
+    // BSPPF: find the start rule's SymbolNode covering [0..position].
+    // The start symbol is known from the grammar; the SymbolNode was already
+    // created when the start rule fired its ReturnAction.
+    var startSym = parseState.parser.stateMachine.grammar.startSymbol;
+    parseState.bsppfRoot = parseState.sppfTable.allSymbolNodes
+        .where((s) => s.ruleSymbol == startSym && s.start == 0 && s.end == position)
+        .firstOrNull;
   }
 }

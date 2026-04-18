@@ -2,6 +2,7 @@
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/core/sppf.dart";
 import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
@@ -163,9 +164,21 @@ class Caller extends CallerKey {
     int? minPrecedence,
     Context callerContext,
     Ref<LazyGlushList<Mark>> callerMarks,
-    ParseNodeKey node,
-  ) {
-    var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
+    ParseNodeKey node, {
+    SppfNode? callerSppfNode,
+    OpenLabel? callerOpenLabels,
+    ClosedLabel? callerClosedLabels,
+  }) {
+    var waiter = _WaiterData(
+      next,
+      minPrecedence,
+      callerContext,
+      callerMarks,
+      node,
+      parentSppfNode: callerSppfNode,
+      parentOpenLabels: callerOpenLabels,
+      parentClosedLabels: callerClosedLabels,
+    );
     var data = _waiterData;
 
     if (data == null) {
@@ -246,14 +259,26 @@ class _WaiterData {
     this.minPrecedence,
     this.parentContext,
     this.parentMarks,
-    this.callSite,
-  );
+    this.callSite, {
+    this.parentSppfNode,
+    this.parentOpenLabels,
+    this.parentClosedLabels,
+  });
 
   final State nextState;
   final int? minPrecedence;
   final Context parentContext;
   final Ref<LazyGlushList<Mark>> parentMarks;
   final ParseNodeKey callSite;
+
+  /// The BSPPF accumulation of the parent frame at the time of the call.
+  final SppfNode? parentSppfNode;
+
+  /// The parent's open-label stack at the time of the call.
+  final OpenLabel? parentOpenLabels;
+
+  /// The parent's closed-label log at the time of the call.
+  final ClosedLabel? parentClosedLabels;
 
   _WaiterData? next;
 }
@@ -264,4 +289,7 @@ extension type const WaiterInfo(_WaiterData _) {
   Context get parentContext => _.parentContext;
   Ref<LazyGlushList<Mark>> get parentMarks => _.parentMarks;
   ParseNodeKey get callSite => _.callSite;
+  SppfNode? get parentSppfNode => _.parentSppfNode;
+  OpenLabel? get parentOpenLabels => _.parentOpenLabels;
+  ClosedLabel? get parentClosedLabels => _.parentClosedLabels;
 }

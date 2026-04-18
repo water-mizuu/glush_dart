@@ -12,6 +12,7 @@ analyzer:
     avoid_multiple_declarations_per_line: ignore
     parameter_assignments: ignore
     dangling_library_doc_comments: ignore
+    prefer_asserts_with_message: ignore
 linter:
   rules:
     always_declare_return_types: true

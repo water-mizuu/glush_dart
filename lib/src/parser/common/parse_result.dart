@@ -2,6 +2,7 @@ import "dart:math" show max;
 
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/parser/common/sppf_table.dart";
 
 /// Sealed result type returned by parser.parse().
 sealed class ParseOutcome {
@@ -114,8 +115,13 @@ final class ParseAmbiguousSuccess implements ParseOutcome {
 /// Provides methods to extract flattened mark streams and human-readable
 /// representations of the categorical annotations found during parsing.
 class ParserResult {
-  const ParserResult(this._rawMarks);
+  const ParserResult(this._rawMarks, {this.sppfTable});
   final List<Mark> _rawMarks;
+
+  /// The SPPF table from the parse session. Non-null when the parser builds
+  /// a BSPPF (always the case). Can be passed to [StructuredEvaluator] to
+  /// enable SPPF/marks parity cross-checks in debug/test mode.
+  final SppfTable? sppfTable;
 
   List<Mark> get rawMarks => _rawMarks;
 

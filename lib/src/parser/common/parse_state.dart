@@ -3,8 +3,10 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
+import "package:glush/src/parser/common/sppf_table.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
@@ -41,6 +43,19 @@ final class ParseState {
   final ParseTracer? tracer;
   final List<int> historyByPosition = [];
   final Map<SubparseKey, SubparseTracker> trackers = {};
+
+  /// Shared BSPPF node table for this parse session.
+  ///
+  /// All [IntermediateNode], [SymbolNode], [TerminalNode], and [EpsilonNode]
+  /// objects are deduplicated here, enabling structural sharing across
+  /// concurrent derivation paths.
+  final SppfTable sppfTable = SppfTable();
+
+  /// The root [SymbolNode] of the completed BSPPF, set by [_processAcceptAction].
+  ///
+  /// Null until the parse accepts. In ambiguous grammars, all derivations are
+  /// packed into this single shared node.
+  SymbolNode? bsppfRoot;
 
   /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
   final Map<int, Caller> callersInt = {};
