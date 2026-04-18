@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_print
 /// Diagnostic test: BSPPF label awareness in data-driven grammars.
 ///
+// ignore: comment_references
 /// This test drives the parser manually (via [createParseState]) so we can
 /// inspect [ParseState.bsppfRoot] and [ParseState.sppfTable] after a parse.
 ///
@@ -30,7 +31,9 @@ ParseState _driveParser(SMParser parser, String input) {
   var ps = parser.createParseState(captureTokensAsMarks: true);
   for (var byte in bytes) {
     ps.processToken(byte);
-    if (!ps.hasPendingWork) break;
+    if (!ps.hasPendingWork) {
+      break;
+    }
   }
   ps.finish();
   return ps;
@@ -49,7 +52,9 @@ void _printLabelIndex(ParseState ps, String input, StateMachine sm) {
   var resolve = _nameResolver(sm);
 
   String spanText(int start, int end) {
-    if (start >= end) return "ε";
+    if (start >= end) {
+      return "ε";
+    }
     var decoded = utf8.decode(bytes.sublist(start, end), allowMalformed: true);
     return '"$decoded" [$start..$end)';
   }
@@ -61,7 +66,9 @@ void _printLabelIndex(ParseState ps, String input, StateMachine sm) {
   var printed = 0;
   for (var sym in ps.sppfTable.allSymbolNodes) {
     var map = sym.labelMapForDebug;
-    if (map == null || map.isEmpty) continue;
+    if (map == null || map.isEmpty) {
+      continue;
+    }
     printed++;
     var ruleName = resolve(sym.ruleSymbol);
     print(

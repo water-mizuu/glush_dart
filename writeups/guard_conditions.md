@@ -165,6 +165,9 @@ var guard = (GuardValue.argument("x").gt(0) & GuardValue.argument("y").lt(100))
 
 In the Glush implementation, guards are represented at the pattern level through classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart):
 
+- **Core Guard Pattern**: [lib/src/core/patterns.dart:2611-2655](../lib/src/core/patterns.dart#L2611-L2655)
+- **Rule Guarding**: [lib/src/core/patterns.dart:2690-2693](../lib/src/core/patterns.dart#L2690-L2693)
+
 **IfCond Pattern**:
 
 ```dart

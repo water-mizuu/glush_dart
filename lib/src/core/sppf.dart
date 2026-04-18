@@ -7,6 +7,7 @@
 library glush.sppf;
 
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/common/frame.dart" show Frame;
 import "package:meta/meta.dart";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ class EpsilonNode extends SppfNode {
 ///
 /// Represents one binary split: [left] is the accumulated prefix (null = ε),
 /// [right] is the child just completed (null = ε body in a SymbolNode).
+@immutable
 class SppfFamily {
   const SppfFamily(this.left, this.right);
 
@@ -115,15 +117,42 @@ class IntermediateNode extends SppfNode {
   @override
   final int end;
 
+  /// Single family for the common case (no ambiguity).
+  /// Null if either no family has been added yet, or if multiple families exist.
+  SppfFamily? _singleFamily;
+
+  /// Multiple families for ambiguous parses. Null if using [_singleFamily] mode.
+  List<SppfFamily>? _multipleFamilies;
+
   /// All derivation alternatives for this slot+span.
-  final List<SppfFamily> families = [];
+  List<SppfFamily> get families {
+    if (_multipleFamilies != null) {
+      return _multipleFamilies!;
+    }
+    if (_singleFamily != null) {
+      return [_singleFamily!];
+    }
+    return const [];
+  }
 
   /// Add a derivation alternative (deduplicates by identity).
   void addFamily(SppfNode? left, SppfNode right) {
     var f = SppfFamily(left, right);
-    if (!families.contains(f)) {
-      families.add(f);
+
+    if (_multipleFamilies != null) {
+      // Already in multi-family mode
+      if (!_multipleFamilies!.contains(f)) {
+        _multipleFamilies!.add(f);
+      }
+    } else if (_singleFamily == null) {
+      // First family - store directly
+      _singleFamily = f;
+    } else if (_singleFamily != f) {
+      // Second family - transition to list mode
+      _multipleFamilies = [_singleFamily!, f];
+      _singleFamily = null;
     }
+    // else: identical to single family, skip (deduplicate)
   }
 
   @override
@@ -146,18 +175,46 @@ class SymbolNode extends SppfNode {
   @override
   final int end;
 
+  /// Single family for the common case (no ambiguity).
+  /// Null if either no family has been added yet, or if multiple families exist.
+  SppfNode? _singleFamily;
+
+  /// Multiple families for ambiguous parses. Null if using [_singleFamily] mode.
+  List<SppfNode?>? _multipleFamilies;
+
   /// One entry per derivation alternative.
   ///
   /// Each body is the accumulated [IntermediateNode] (or a leaf node) that
   /// represents one complete parse of this rule's right-hand side.
-  final List<SppfNode?> families = [];
+  List<SppfNode?> get families {
+    if (_multipleFamilies != null) {
+      return _multipleFamilies!;
+    }
+    if (_singleFamily != null) {
+      return [_singleFamily];
+    }
+    return const [];
+  }
 
   /// Add a body derivation (deduplicates by identity).
   void addFamily(SppfNode? body) {
-    for (var existing in families) {
-      if (identical(existing, body)) return;
+    if (_multipleFamilies != null) {
+      // Already in multi-family mode
+      for (var existing in _multipleFamilies!) {
+        if (identical(existing, body)) {
+          return;
+        }
+      }
+      _multipleFamilies!.add(body);
+    } else if (_singleFamily == null) {
+      // First family - store directly
+      _singleFamily = body;
+    } else if (!identical(_singleFamily, body)) {
+      // Second family - transition to list mode
+      _multipleFamilies = [_singleFamily, body];
+      _singleFamily = null;
     }
-    families.add(body);
+    // else: identical to single family, skip (deduplicate)
   }
 
   // ---------------------------------------------------------------------------
@@ -167,6 +224,7 @@ class SymbolNode extends SppfNode {
   /// Labels closed during derivations of this rule.
   ///
   /// Keyed by label name → list of (start, end) spans, one per derivation
+  // ignore: comment_references
   /// path that closed that label. Populated eagerly during [_processReturnAction]
   /// so that post-parse queries are O(1) map lookups.
   Map<String, List<(int start, int end)>>? _labelMap;
@@ -177,15 +235,16 @@ class SymbolNode extends SppfNode {
     var list = _labelMap![name]!;
     // Deduplicate identical spans (different derivation paths may produce the same span).
     for (var entry in list) {
-      if (entry.$1 == start && entry.$2 == end) return;
+      if (entry.$1 == start && entry.$2 == end) {
+        return;
+      }
     }
     list.add((start, end));
   }
 
   /// All label spans for [name] across all derivations of this rule.
   /// Returns an empty list if the label was never recorded.
-  List<(int start, int end)> labelsFor(String name) =>
-      _labelMap?[name] ?? const [];
+  List<(int start, int end)> labelsFor(String name) => _labelMap?[name] ?? const [];
 
   /// The first (or only) span for [name], or null if absent.
   (int start, int end)? labelFor(String name) => _labelMap?[name]?.firstOrNull;
@@ -197,7 +256,7 @@ class SymbolNode extends SppfNode {
 
   @override
   String toString() {
-    final labels = _labelMap?.length ?? 0;
+    var labels = _labelMap?.length ?? 0;
     return "Symbol($ruleSymbol, $start..$end, #${families.length}, labels=$labels)";
   }
 }
@@ -209,6 +268,7 @@ class SymbolNode extends SppfNode {
 /// One entry in the open-label stack: a label that has been started but not yet closed.
 ///
 /// This is a persistent linked list threaded through [Frame] so that
+// ignore: comment_references
 /// [_processLabelEndAction] can pair each close with its matching open
 /// without walking the mark stream.
 class OpenLabel {
@@ -225,6 +285,7 @@ class OpenLabel {
 /// One entry in the closed-label log: a fully matched label span.
 ///
 /// A persistent linked list of all labels closed during the current rule call.
+// ignore: comment_references
 /// Attached to a [SymbolNode] in batch when [_processReturnAction] fires.
 class ClosedLabel {
   const ClosedLabel(this.name, this.start, this.end, this.tail);
@@ -238,11 +299,16 @@ class ClosedLabel {
 /// Pop the topmost [name] entry from [stack], returning the new stack and
 /// the open position.  Returns null if [name] is not found (malformed input).
 (OpenLabel? newStack, int openPos)? popOpenLabel(OpenLabel? stack, String name) {
-  if (stack == null) return null;
-  if (stack.name == name) return (stack.tail, stack.openPos);
+  if (stack == null) {
+    return null;
+  }
+  if (stack.name == name) {
+    return (stack.tail, stack.openPos);
+  }
   var result = popOpenLabel(stack.tail, name);
-  if (result == null) return null;
+  if (result == null) {
+    return null;
+  }
   // Reconstruct the prefix above the popped entry.
   return (OpenLabel(stack.name, stack.openPos, result.$1), result.$2);
 }
-

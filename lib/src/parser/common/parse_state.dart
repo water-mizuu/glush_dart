@@ -51,6 +51,7 @@ final class ParseState {
   /// concurrent derivation paths.
   final SppfTable sppfTable = SppfTable();
 
+  // ignore: comment_references
   /// The root [SymbolNode] of the completed BSPPF, set by [_processAcceptAction].
   ///
   /// Null until the parse accepts. In ambiguous grammars, all derivations are

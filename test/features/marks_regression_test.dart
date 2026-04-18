@@ -283,7 +283,7 @@ void main() {
       var outcome = parser.parse("aaa:bbb", captureTokensAsMarks: true);
       expect(outcome, isA<ParseSuccess>());
 
-      var marks = (outcome as ParseSuccess).result.rawMarks;
+      var marks = (outcome as ParseSuccess).rawMarks;
       var starts = [
         for (final mark in marks)
           if (mark case LabelStartMark(:var name)) name,

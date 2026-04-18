@@ -4,8 +4,9 @@
 /// whenever two derivation paths produce the same (type, start, end) triple.
 library glush.sppf_table;
 
-import 'package:glush/src/core/patterns.dart';
-import 'package:glush/src/core/sppf.dart';
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/core/sppf.dart";
+import "package:meta/meta.dart";
 
 /// Shared table of BSPPF nodes for a single parse session.
 ///
@@ -35,12 +36,10 @@ class SppfTable {
   // -------------------------------------------------------------------------
 
   /// Get or create a [TerminalNode] for [position].
-  TerminalNode terminal(int position) =>
-      _terminals[position] ??= TerminalNode(position);
+  TerminalNode terminal(int position) => _terminals[position] ??= TerminalNode(position);
 
   /// Get or create an [EpsilonNode] at [position].
-  EpsilonNode epsilon(int position) =>
-      _epsilons[position] ??= EpsilonNode(position);
+  EpsilonNode epsilon(int position) => _epsilons[position] ??= EpsilonNode(position);
 
   /// Get or create an [IntermediateNode] for ([slotId], [start], [end]).
   IntermediateNode intermediate(int slotId, int start, int end) {
@@ -101,10 +100,201 @@ class SppfTable {
   /// All [SymbolNode]s created during this parse session.
   ///
   /// Exposed for diagnostic tests that want to walk the BSPPF after parsing.
-  Iterable<SymbolNode> get allSymbolNodes =>
-      _symbolSimple.values.followedBy(_symbolComplex.values);
+  Iterable<SymbolNode> get allSymbolNodes => _symbolSimple.values.followedBy(_symbolComplex.values);
 
   @override
-  String toString() =>
-      'SppfTable(T=$terminalCount, I=$intermediateCount, S=$symbolCount)';
+  String toString() => "SppfTable(T=$terminalCount, I=$intermediateCount, S=$symbolCount)";
+
+  /// Render the BSPPF as a Graphviz DOT graph.
+  ///
+  /// [nameOf] maps a [PatternSymbol] to a human-readable rule name.
+  /// Typical usage:
+  /// ```dart
+  /// final dot = parseState.sppfTable.toDot(
+  ///   nameOf: (sym) => parser.stateMachine.allRules[sym]?.name.toString() ?? '?($sym)',
+  ///   input: utf8.encode(inputString),
+  /// );
+  /// ```
+  ///
+  /// Node shapes and colors:
+  /// - **SymbolNode** (rule completions) — rounded rectangle, steel-blue fill
+  /// - **IntermediateNode** (in-progress slots) — rectangle, light-grey fill
+  /// - **TerminalNode** (single consumed byte) — oval, pale-green fill
+  /// - **EpsilonNode** (zero-width match) — oval, pale-yellow fill
+  ///
+  /// Edges represent the binarized derivation structure:
+  /// - `SymbolNode → body` (one edge per derivation alternative)
+  /// - `IntermediateNode → left + right` (packed node split)
+  ///
+  /// Ambiguous nodes (multiple families) are highlighted with a red border.
+  String toDot({
+    required String Function(PatternSymbol) nameOf,
+    String Function(int slotId)? slotOf,
+    List<int>? input,
+    String rankdir = "TB",
+  }) {
+    var buf = StringBuffer();
+    buf.writeln("digraph BSPPF {");
+    buf.writeln("  rankdir=$rankdir;");
+    buf.writeln('  node [fontname="Helvetica", fontsize=11];');
+    buf.writeln("  edge [fontsize=9];");
+    buf.writeln();
+
+    // ── Assign stable node IDs ──────────────────────────────────────────────
+    var nodeId = <Object, String>{};
+    var counter = 0;
+
+    String idOf(Object node) => nodeId.putIfAbsent(node, () => "n${counter++}");
+
+    // Collect all reachable nodes via BFS from all SymbolNodes.
+    var visited = <Object>{};
+    var queue = <Object>[..._symbolSimple.values, ..._symbolComplex.values];
+
+    // ── Helper: byte span text ───────────────────────────────────────────────
+    String spanText(int start, int end) {
+      if (input == null || start >= end) {
+        return "[$start..$end)";
+      }
+      try {
+        // Decode the relevant slice; replace malformed bytes with '?'.
+        var slice = input.sublist(start.clamp(0, input.length), end.clamp(0, input.length));
+        // Represent bytes as ASCII printable chars or '·'.
+        var chars = slice.map((b) {
+          if (b >= 32 && b < 127) {
+            return String.fromCharCode(b);
+          }
+          return "·";
+        }).join();
+        return "'$chars' [$start..$end)";
+      } on Exception catch (_) {
+        return "[$start..$end)";
+      }
+    }
+
+    // ── BFS to emit all nodes ────────────────────────────────────────────────
+    while (queue.isNotEmpty) {
+      var node = queue.removeLast();
+      if (!visited.add(node)) {
+        continue;
+      }
+      var id = idOf(node);
+
+      switch (node) {
+        case SymbolNode sym:
+          var ruleName = nameOf(sym.ruleSymbol);
+          var span = spanText(sym.start, sym.end);
+          var labelLines =
+              sym.labelMapForDebug?.entries
+                  .map((e) => '${e.key}: ${e.value.map((s) => '[${s.$1}..${s.$2})').join(', ')}')
+                  .join(r"\n") ??
+              "";
+          var labelAnnotation = labelLines.isNotEmpty ? "\\n{$labelLines}" : "";
+          var isAmbiguous = sym.families.length > 1;
+          var border = isAmbiguous ? "color=crimson, penwidth=2," : "";
+
+          buf.writeln(
+            '  $id [label="${_esc(ruleName)}\\n$span${_esc(labelAnnotation)}", '
+            'shape=box, style="rounded,filled", fillcolor="#5B9BD5", '
+            "fontcolor=white, $border];",
+          );
+
+          for (var (i, body) in sym.families.indexed) {
+            // Packed Node for this derivation
+            var packedId = "${id}_p$i";
+            buf.writeln('  $packedId [label="", shape=circle, width=0.1, height=0.1];');
+            buf.writeln('  $id -> $packedId [label="alt${i + 1}", arrowhead=none];');
+
+            if (body == null) {
+              var eid = idOf(_EpsilonSentinel(sym.start));
+              buf.writeln("  $packedId -> $eid [style=dashed];");
+              if (visited.add(_EpsilonSentinel(sym.start))) {
+                buf.writeln(
+                  '  $eid [label="ε", shape=oval, '
+                  'style=filled, fillcolor="#FFFACD"];',
+                );
+              }
+            } else {
+              buf.writeln("  $packedId -> ${idOf(body)};");
+              queue.add(body);
+            }
+          }
+
+        case IntermediateNode im:
+          var slotName = slotOf?.call(im.slotId) ?? "slot ${im.slotId}";
+          var span = spanText(im.start, im.end);
+          var isAmbiguous = im.families.length > 1;
+          var border = isAmbiguous ? "color=crimson, penwidth=2," : "";
+
+          buf.writeln(
+            '  $id [label="${_esc(slotName)}\\n$span", shape=box, '
+            'style=filled, fillcolor="#D9D9D9", $border];',
+          );
+
+          for (var (i, fam) in im.families.indexed) {
+            // Packed Node for this derivation
+            var packedId = "${id}_p$i";
+            buf.writeln('  $packedId [label="", shape=circle, width=0.1, height=0.1];');
+            buf.writeln('  $id -> $packedId [label="alt${i + 1}", arrowhead=none];');
+
+            if (fam.left != null) {
+              buf.writeln("  $packedId -> ${idOf(fam.left!)} [style=dashed];");
+              queue.add(fam.left!);
+            }
+            if (fam.right != null) {
+              buf.writeln("  $packedId -> ${idOf(fam.right!)};");
+              queue.add(fam.right!);
+            } else {
+              var eid = idOf(_EpsilonSentinel(im.end));
+              buf.writeln("  $packedId -> $eid [style=dashed];");
+              if (visited.add(_EpsilonSentinel(im.end))) {
+                buf.writeln(
+                  '  $eid [label="ε", shape=oval, '
+                  'style=filled, fillcolor="#FFFACD"];',
+                );
+              }
+            }
+          }
+
+        case TerminalNode term:
+          var text = input != null && term.position < input.length
+              ? _esc(
+                  String.fromCharCode(
+                    input[term.position] >= 32 && input[term.position] < 127
+                        ? input[term.position]
+                        : 0xB7 /* · */,
+                  ),
+                )
+              : "?";
+          buf.writeln(
+            '  $id [label="\'$text\'\\n[${term.position}..${term.end})", '
+            'shape=oval, style=filled, fillcolor="#C8E6C9"];',
+          );
+
+        case EpsilonNode eps:
+          buf.writeln(
+            '  $id [label="ε\\n[${eps.position}]", shape=oval, '
+            'style=filled, fillcolor="#FFFACD"];',
+          );
+      }
+    }
+
+    buf.writeln("}");
+    return buf.toString();
+  }
+
+  static String _esc(String s) =>
+      s.replaceAll(r"\", r"\\").replaceAll('"', r'\"').replaceAll("\n", r"\n");
+}
+
+/// Sentinel used to render an epsilon body edge for a SymbolNode.
+@immutable
+class _EpsilonSentinel {
+  const _EpsilonSentinel(this.position);
+  final int position;
+
+  @override
+  bool operator ==(Object other) => other is _EpsilonSentinel && other.position == position;
+
+  @override
+  int get hashCode => position ^ 0xE70;
 }

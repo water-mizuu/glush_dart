@@ -282,7 +282,7 @@ void main() {
 
       if (parseResult is ParseSuccess) {
         // Verify parse result has marks that can be evaluated
-        expect(parseResult.result.rawMarks, isNotNull);
+        expect(parseResult.rawMarks, isNotNull);
       }
     });
 

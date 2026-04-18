@@ -402,13 +402,19 @@ class Step {
     // so we do not hard-fail when no match is found — we only validate when a
     // match IS present.
     assert(() {
-      if (capture == null) return true;
+      if (capture == null) {
+        return true;
+      }
       var start = capture.startPosition;
       var end = capture.endPosition;
       for (var sym in parseState.sppfTable.allSymbolNodes) {
         var sppfSpan = sym.labelFor(target);
-        if (sppfSpan == null) continue;
-        if (sppfSpan.$1 == start && sppfSpan.$2 == end) return true;
+        if (sppfSpan == null) {
+          continue;
+        }
+        if (sppfSpan.$1 == start && sppfSpan.$2 == end) {
+          return true;
+        }
       }
       // No exact match found — this is acceptable mid-parse since the SPPF
       // accumulates entries from all rule invocations at all positions.
@@ -802,7 +808,7 @@ class Step {
   ///
   /// For BSPPF: the completed callee produces a [SymbolNode]. We call
   /// [SppfTable.getNodeP] to accumulate it into the parent's prefix, producing
-  /// a new [IntermediateNode] that replaces the parent's [sppfNode].
+  /// a new [IntermediateNode] that replaces the parent's [SppfNode].
   void _triggerReturn(
     Caller caller,
     CallerKey parent,
@@ -1171,6 +1177,7 @@ class Step {
 
   /// Handle [LabelStartAction]: begin a labeled capture group.
   ///
+  // ignore: comment_references
   /// For BSPPF label tracking: pushes [action.name] + [position] onto the
   /// frame's open-label stack so [_processLabelEndAction] can pair them.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {

@@ -84,7 +84,7 @@ void main() {
       var outcome = parser.parse("John Doe", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
-      var result = (outcome as ParseSuccess).result;
+      var result = outcome as ParseSuccess;
 
       var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
       var tree = evaluator.evaluate(result.rawMarks, input: "John Doe");

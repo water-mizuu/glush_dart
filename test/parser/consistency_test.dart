@@ -14,7 +14,7 @@ void verifyConsistency(Grammar g, String input, {bool isAmbiguous = false}) {
     reason: "Ambiguous parse failed for input: $input",
   );
 
-  var standardMarks = (result as ParseSuccess).result.rawMarks;
+  var standardMarks = (result as ParseSuccess).rawMarks;
   var ambigForest = (ambigResult as ParseAmbiguousSuccess).forest;
   var ambigPaths = ambigForest.evaluate().allMarkPaths().toList();
 

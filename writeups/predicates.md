@@ -148,7 +148,7 @@ In the implementation, the `And` class has a method `invert()` that returns `Not
 
 ### Core Classes
 
-In the Glush implementation, predicates are represented at the pattern level through two classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart):
+In the Glush implementation, predicates are represented at the pattern level through two classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart#L2522-L2610):
 
 ```dart
 class And extends Pattern {
@@ -307,7 +307,7 @@ This means predicates can nest: `Token.char('a').and().and()` → `And(And(Token
 
 ### State Machine Actions
 
-The state machine is a compiled representation of the grammar that drives parser execution. Predicates manifest in the state machine as actions within states. The relevant classes are in [lib/src/parser/state_machine/state_actions.dart](lib/src/parser/state_machine/state_actions.dart):
+The state machine is a compiled representation of the grammar that drives parser execution. Predicates manifest in the state machine as actions within states. The relevant classes are in [lib/src/parser/state_machine/state_actions.dart](lib/src/parser/state_machine/state_actions.dart#L311-L329):
 
 ```dart
 final class PredicateAction implements StateAction {

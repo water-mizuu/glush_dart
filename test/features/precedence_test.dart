@@ -525,7 +525,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markList = result.result.toList();
+          var markList = result.rawMarks.map((m) => m.toList()).toList();
           expect(markList, isNotEmpty);
           // Each mark converts to [name, position]
           expect(markList[0], isA<List<Object?>>());

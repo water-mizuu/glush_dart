@@ -148,7 +148,7 @@ final grammar = r'''
 
 ### Core Classes
 
-In the Glush implementation, parameters are represented through classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart):
+In the Glush implementation, parameters are represented through classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart#L2866-L2986):
 
 **ParameterRefPattern**:
 
@@ -208,7 +208,7 @@ class ParameterCallPattern extends Pattern {
 
   // Used to resolve argument values and cache keys
   ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
-    CallArgumentsKey parentKey,
+    GuardEnvironment env,
   ) { ... }
 
   @override

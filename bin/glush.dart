@@ -1,27 +1,23 @@
 // ignore_for_file: strict_raw_type, unreachable_from_main
 
+import "dart:convert";
+
 import "package:glush/glush.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
 
 void main() {
-  var grammar = "S = s:(S) | 'a'";
+  var grammar = r"S = 's'+";
   var parser = grammar.toSMParser(startRuleName: "S");
+  var result = parser.parseAmbiguous("sss");
 
-  var result = parser.parseAmbiguous("a");
-
-  if (result case ParseAmbiguousSuccess(:var forest)) {
-    print("Generating paths infinitely... (taking first 100)");
-    var paths = forest.allMarkPaths();
-
-    print("\nFirst 5 paths:");
-    for (var (index, path) in paths.take(1000).indexed) {
-      int startCount = path.where((m) => m.toString().contains("LabelStart")).length;
-      int endCount = path.where((m) => m.toString().contains("LabelEnd")).length;
-      bool isBalanced = startCount == endCount;
-      String status = isBalanced ? "✓" : "✗";
-      print("$status Path $index: depth=$startCount (${path.length} marks)");
-    }
-
+  if (result case ParseAmbiguousSuccess result) {
+    var sppf = result.sppfTable;
+    print(
+      sppf!.toDot(
+        nameOf: (sym) => parser.stateMachine.allRules[sym]?.name.toString() ?? "?($sym)",
+        input: utf8.encode("sss"),
+      ),
+    );
     print("\nAll paths have balanced marks ✓");
   } else if (result case ParseError(:var position)) {
     print("✗ Parse failed at position $position");

@@ -139,7 +139,7 @@ void _methodParse(GrammarInterface grammar, String input) {
 
   if (result is ParseSuccess) {
     print("Parse succeeded.");
-    var tree = result.result.rawMarks.evaluateStructure(input);
+    var tree = result.rawMarks.evaluateStructure(input);
     var value = evaluator.evaluate(tree);
     print("Evaluated result: $value");
   } else if (result is ParseError) {

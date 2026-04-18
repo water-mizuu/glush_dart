@@ -158,7 +158,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         var results = lastStep.acceptedContexts.values.first;
         var onlyPath = results.evaluate().allMarkPaths().first;
 
-        return ParseSuccess(ParserResult(onlyPath, sppfTable: parseState.sppfTable));
+        return ParseSuccess(onlyPath, sppfTable: parseState.sppfTable);
       } else {
         return ParseError(parseState.position);
       }
@@ -196,12 +196,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
-        var branches = lastStep.acceptedContexts.values.fold<LazyGlushList<Mark>>(
-          const LazyGlushList.empty(),
-          LazyGlushList.branched,
-        );
+        var branches = lastStep
+            .acceptedContexts
+            .values //
+            .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched);
 
-        return ParseAmbiguousSuccess(branches);
+        return ParseAmbiguousSuccess(branches, sppfTable: parseState.sppfTable);
       } else {
         return ParseError(parseState.position);
       }
@@ -216,5 +216,37 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// parser ambiguity without memory overhead.
   int countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
+  }
+
+  /// Parse [input] and return the BSPPF as a Graphviz DOT string.
+  ///
+  /// Runs a full parse (same as [parse]) and then renders the resulting
+  /// Binarized Shared Packed Parse Forest as a DOT graph suitable for
+  /// visualization with `dot -Tsvg` or online tools like Graphviz Online.
+  ///
+  /// If parsing fails, returns a DOT graph with a single error node.
+  ///
+  /// Example:
+  /// ```dart
+  /// final dot = parser.parseToDot("alice:secret");
+  /// print(dot); // pipe to `dot -Tsvg > out.svg`
+  /// ```
+  String parseToDot(String input) {
+    var bytes = utf8.encode(input);
+    var parseState = createParseState();
+
+    for (var byte in bytes) {
+      parseState.processToken(byte);
+      if (!parseState.hasPendingWork) {
+        break;
+      }
+    }
+    parseState.finish();
+
+    return parseState.sppfTable.toDot(
+      nameOf: (sym) => stateMachine.allRules[sym]?.name.toString() ?? "?($sym)",
+      slotOf: (slotId) => stateMachine.keyOf(slotId)?.toString() ?? "slot $slotId",
+      input: bytes,
+    );
   }
 }

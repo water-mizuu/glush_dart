@@ -157,6 +157,16 @@ class StateMachine {
     _cachedStates = stateMapping.values.toList();
   }
 
+  Map<int, StateKey>? _idToKey;
+
+  /// Get the [StateKey] for a given [stateId].
+  ///
+  /// Returns null if the state ID is not found in this machine.
+  StateKey? keyOf(int stateId) {
+    _idToKey ??= {for (var entry in _stateMapping.entries) entry.value.id: entry.key};
+    return _idToKey![stateId];
+  }
+
   /// Initialize from exported JSON data.
   ///
   /// This method sets up the state machine from pre-compiled data without needing

@@ -100,7 +100,7 @@ expr =
 
         if (result is ParseSuccess) {
           print("  Status: ✓ Success");
-          print("  Marks: ${result.result.rawMarks.length}");
+          print("  Marks: ${result.rawMarks.length}");
         } else if (result is ParseError) {
           print("  Status: ✗ Parse error at position ${result.position}");
         }

@@ -460,11 +460,17 @@ class StructuredEvaluator {
     // greedy '+' rules with intermediate completions) — that is expected.
     assert(() {
       var table = sppfTable;
-      if (table == null) return true;
+      if (table == null) {
+        return true;
+      }
       for (var sym in table.allSymbolNodes) {
         var sppfSpan = sym.labelFor(name);
-        if (sppfSpan == null) continue;
-        if (sppfSpan.$1 == start && sppfSpan.$2 == position) return true;
+        if (sppfSpan == null) {
+          continue;
+        }
+        if (sppfSpan.$1 == start && sppfSpan.$2 == position) {
+          return true;
+        }
       }
       // No node matched. This is acceptable during in-flight parses where
       // ReturnAction hasn't fired for the enclosing rule yet. Only hard-fail

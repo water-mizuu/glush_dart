@@ -89,6 +89,14 @@ Conjunction (A & B) starts at position 0:
 
 ---
 
+### Location & Key Files
+
+- **Core Pattern**: [lib/src/core/patterns.dart:2471-2515](../lib/src/core/patterns.dart#L2471-L2515)
+- **Rendezvous Logic**: [lib/src/parser/common/step.dart:117-178](../lib/src/parser/common/step.dart#L117-L178)
+- **Conjunction Tracker**: [lib/src/parser/common/trackers.dart:68-83](../lib/src/parser/common/trackers.dart#L68-L83)
+
+---
+
 ## Pattern-Level Representation
 
 ### Core Class
@@ -98,11 +106,11 @@ In the Glush implementation, conjunctions are represented through the `Conj` cla
 ```dart
 class Conj extends Pattern {
   Conj(Pattern left, Pattern right)
-    : left = left.consume(),
-      right = right.consume();
+      : left = left.consume(),
+        right = right.consume();
 
-  Pattern left;
-  Pattern right;
+  final Pattern left;
+  final Pattern right;
 
   @override
   bool singleToken() => left.singleToken() && right.singleToken();
@@ -393,9 +401,7 @@ input: "x"
 When conjunctions involve ambiguous patterns, the result is a **Cartesian product of mark sequences**:
 
 ```dart
-rule = (a:x | b:x) & (c:x | d:x)
-
-input: "x"
+final tree = evaluator.evaluate(outcome.rawMarks, input: "abc");
 ```
 
 Possible derivation combinations:

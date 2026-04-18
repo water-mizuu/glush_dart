@@ -1,6 +1,7 @@
 import "dart:math" show max;
 
 import "package:glush/src/core/list.dart";
+import "package:glush/src/core/list_mark_extensions.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/common/sppf_table.dart";
 
@@ -82,8 +83,15 @@ final class ParseError implements ParseOutcome, Exception {
 
 /// Returned when parsing succeeds (marks-based parse).
 final class ParseSuccess implements ParseOutcome {
-  const ParseSuccess(this.result);
-  final ParserResult result;
+  const ParseSuccess(this.rawMarks, {this.sppfTable});
+  final List<Mark> rawMarks;
+  final SppfTable? sppfTable;
+
+  /// Returns the mark names as a list of strings.
+  List<String> get marks => rawMarks.toMarkStrings();
+
+  /// Returns this object for backward compatibility.
+  ParseSuccess get result => this;
 
   @override
   ParseError? error() => null;
@@ -97,8 +105,9 @@ final class ParseSuccess implements ParseOutcome {
 
 /// Returned when parsing succeeds with an ambiguous forest.
 final class ParseAmbiguousSuccess implements ParseOutcome {
-  const ParseAmbiguousSuccess(this.forest);
+  const ParseAmbiguousSuccess(this.forest, {this.sppfTable});
   final LazyGlushList<Mark> forest;
+  final SppfTable? sppfTable;
 
   @override
   ParseError? error() => null;
@@ -108,59 +117,4 @@ final class ParseAmbiguousSuccess implements ParseOutcome {
 
   @override
   ParseAmbiguousSuccess ambiguousSuccess() => this;
-}
-
-/// Holds the results of a basic parse() operation.
-///
-/// Provides methods to extract flattened mark streams and human-readable
-/// representations of the categorical annotations found during parsing.
-class ParserResult {
-  const ParserResult(this._rawMarks, {this.sppfTable});
-  final List<Mark> _rawMarks;
-
-  /// The SPPF table from the parse session. Non-null when the parser builds
-  /// a BSPPF (always the case). Can be passed to [StructuredEvaluator] to
-  /// enable SPPF/marks parity cross-checks in debug/test mode.
-  final SppfTable? sppfTable;
-
-  List<Mark> get rawMarks => _rawMarks;
-
-  List<String> get marks {
-    var result = <String>[];
-    StringBuffer? currentStringMark;
-
-    for (var mark in _rawMarks) {
-      // Dispatch by mark kind to rebuild a human-readable flattened stream.
-      if (mark is NamedMark) {
-        // Named marks break string runs, so flush buffered token text first.
-        if (currentStringMark != null) {
-          result.add(currentStringMark.toString());
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-        // Label starts are emitted as their own marker entries.
-      } else if (mark is LabelStartMark) {
-        // Label boundaries also break string runs for stable mark segmentation.
-        if (currentStringMark != null) {
-          result.add(currentStringMark.toString());
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-        // Raw token text contributes to the currently buffered string chunk.
-      } else if (mark is StringMark) {
-        // Adjacent token chars are merged into one logical text chunk.
-        currentStringMark ??= StringBuffer();
-        currentStringMark.write(mark.value);
-      }
-    }
-    // Flush trailing string chunk, if any.
-    if (currentStringMark != null) {
-      // Flush trailing buffered text after the loop ends.
-      result.add(currentStringMark.toString());
-    }
-
-    return result;
-  }
-
-  List<List<Object?>> toList() => _rawMarks.map((m) => m.toList()).toList();
 }

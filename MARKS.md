@@ -24,7 +24,7 @@ When using labels, you should use `StructuredEvaluator` to process the marks. It
 final outcome = parser.parse("michael:30");
 if (outcome is ParseSuccess) {
   final evaluator = StructuredEvaluator();
-  final tree = evaluator.evaluate(outcome.result.rawMarks);
+  final tree = evaluator.evaluate(outcome.rawMarks, input: "michael:30");
   
   print(tree['name'].span); // "michael"
   print(tree['age'].span);  // "30"
@@ -75,7 +75,7 @@ ident = [A-Z][a-z]*;
 ```
 
 ```dart
-final tree = evaluator.evaluate(marks);
+final tree = evaluator.evaluate(marks, input: "John Doe");
 final person = tree['person'];
 print(person['first'].span); // "John"
 print(person['last'].span);  // "Doe"
