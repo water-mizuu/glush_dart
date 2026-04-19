@@ -4,19 +4,17 @@ library glush.metagrammar_evaluator;
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/representation/evaluator.dart";
 
-/// Creates an evaluator for the metagrammar that compiles parsed grammar files
-/// into complete GrammarFile objects.
+/// Constructs an [Evaluator] configured to transform metagrammar parse trees into [GrammarFile] objects.
 ///
-/// Usage:
-/// ```dart
-/// const metaGrammarString = r"""...""";
-/// var metaGrammar = metaGrammarString.toSMParser();
-/// var parseResult = metaGrammar.parse("S = 'a' | 'b'");
+/// This evaluator defines a mapping between the "marks" produced by the
+/// metagrammar (defined in `grammar_string_parser.dart`) and the constructors for
+/// the grammar AST (defined in `format.dart`).
 ///
-/// var evaluator = createMetagrammarEvaluator();
-/// var grammarFile = evaluator.evaluate(parseResult) as GrammarFile;
-/// var grammar = GrammarFileCompiler(grammarFile).compile();
-/// ```
+/// Each entry in the evaluator handles a specific grammar construct:
+/// - **Rule Definitions**: Capturing names, parameters, and bodies.
+/// - **Parsing Expressions**: Building sequences, alternations, repetitions, etc.
+/// - **Guard Expressions**: Resolving comparisons and arithmetic in `if` guards.
+/// - **Arguments**: Binding values to parameters in rule calls.
 Evaluator<Object> createMetagrammarEvaluator() {
   return Evaluator<Object>({
     // Top level (rule-prefixed marks)
@@ -422,7 +420,11 @@ Evaluator<Object> createMetagrammarEvaluator() {
   });
 }
 
-/// Removes escape sequences from a string
+/// Normalizes a string by removing quotes and resolving escape sequences.
+///
+/// This is used for both [LiteralPattern] values and string literals in guard
+/// expressions. It ensures that `\n` in a grammar file is treated as a
+/// newline character (0x0A) rather than a backslash and the letter 'n'.
 String _unquote(String escaped) {
   var buffer = StringBuffer();
   for (int i = 0; i < escaped.length; i++) {
@@ -448,7 +450,10 @@ LiteralPattern _parseLiteralPattern(String span) {
   return LiteralPattern(span);
 }
 
-/// Parses character range notation like [a-z], [0-9], etc.
+/// Parses a character range string (e.g., `[a-zA-Z]`) into a list of [CharRange] objects.
+///
+/// It handles the bracket delimiters, internal ranges using the `-` operator,
+/// and escape sequences within the range.
 List<CharRange> _parseCharRanges(String rangeStr) {
   if (!rangeStr.startsWith("[") || !rangeStr.endsWith("]")) {
     throw FormatException("Invalid character range: $rangeStr");

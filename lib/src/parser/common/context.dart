@@ -3,21 +3,26 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/label_capture.dart";
-import "package:glush/src/parser/common/sppf_table.dart";
-import "package:glush/src/parser/common/step.dart" show Step;
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Represents a unique parsing configuration at a specific input position.
 ///
-/// A [Context] tracks the state of the \"virtual parser\" including:
-/// - The caller stack (represented as a link to a GSS [Caller])
-/// - Active lookahead predicates (the [predicateStack])
-/// - Dynamic label captures (the [captures] map)
-/// - Rule arguments (resolved once at construction)
+/// A [Context] tracks the state of a "virtual parser" as it moves through the
+/// grammar. Because Glush is a non-deterministic parser, it can maintain
+/// multiple active contexts simultaneously, each representing a different
+/// interpretation of the input or a different path through the grammar.
+///
+/// Each context is immutable and includes:
+/// - The GSS [caller] stack node.
+/// - Resolved [arguments] for the current rule.
+/// - Active [captures] from labeled patterns.
+/// - The [predicateStack] for nested lookahead predicates.
+/// - Precedence constraints ([minPrecedenceLevel], [precedenceLevel]).
 @immutable
 class Context {
+  /// Creates a [Context] with the given configuration.
   Context(
     this.caller, {
     this.arguments = const <String, Object?>{},
@@ -42,42 +47,39 @@ class Context {
   final int _hash;
 
   /// Whether this context has no lookahead predicates, captures, or arguments.
+  ///
+  /// Simple contexts are optimized for comparison and hashing, and are common
+  /// in grammars that don't use advanced semantic features.
   final bool isSimple;
 
-  /// The GRAPH-SHARED STACK (GSS) node representing the current call hierarchy.
+  /// The Graph-Shared Stack (GSS) node representing the call hierarchy.
   final CallerKey caller;
 
-  /// The resolved arguments for this context.
+  /// The resolved argument values for the current rule parameters.
   final Map<String, Object?> arguments;
 
-  /// Bindings for data captured via structural labels (name:pattern).
+  /// Current variable bindings captured via structural labels.
   final CaptureBindings captures;
 
-  /// The stack of active lookahead predicates currently being evaluated.
+  /// The stack of lookahead predicates currently being evaluated.
+  ///
+  /// This ensures that nested predicates are tracked correctly and that
+  /// predicates can access the context of the outer rules.
   final GlushList<PredicateCallerKey> predicateStack;
 
-  /// The position in the input where the current rule call began.
+  /// The position in the input where the current rule call was initiated.
   final int callStart;
 
-  /// Where this parse path has advanced to in the input.
+  /// The current input position of this specific parse path.
   ///
-  /// This is distinct from the position:
-  /// - [Step.position]: the global current position the parser is processing
-  /// - [Context.position]: how far THIS FRAME has consumed input
-  ///
-  /// These can differ when:
-  /// - A frame is "lagging" (deferred sub-parse, predicate) and hasn't caught up yet
-  /// - Multiple parse paths are interleaved (some at position 10, their frames
-  ///   at [Context.position] 7)
-  ///
-  /// Lagging frames use Step.parseState.historyByPosition to retrieve tokens
-  /// from their [Context.position] rather than the current Step.position.
+  /// This is distinct from the global parser position because different paths
+  /// or lookahead predicates may be at different points in the input stream.
   final int position;
 
-  /// The current minimum precedence level allowed for rule expansion.
+  /// The minimum precedence level allowed for continuing this path.
   final int? minPrecedenceLevel;
 
-  /// The precedence level of the rule currently being parsed.
+  /// The precedence level of the rule currently being matched.
   final int? precedenceLevel;
 
   /// Creates a copy of this context with the specified fields updated.
@@ -103,8 +105,10 @@ class Context {
     );
   }
 
-  /// Fast-path for the common case where only the position advances.
-  /// Avoids recomputing the full hash when nothing else changes.
+  /// Returns a new context advanced to [newPosition].
+  ///
+  /// This is a fast-path optimization that avoids full re-hashing when
+  /// only the position changes.
   Context advancePosition(int newPosition) {
     if (newPosition == position) {
       return this;
@@ -121,7 +125,7 @@ class Context {
     );
   }
 
-  /// Creates a copy of this context for a rule call.
+  /// Returns a new context with a new [nextCaller] and optional [arguments].
   Context withCaller(CallerKey nextCaller, {Map<String, Object?>? arguments}) {
     if (identical(nextCaller, caller) && arguments == null) {
       return this;
@@ -182,38 +186,38 @@ class Context {
   }
 }
 
-/// Helper for grouping context-equivalent frames during token transitions.
+/// A grouping of frames that have arrived at the same [state] and [context].
 ///
-/// When multiple frames advance to the same state/caller/position, they are
-/// grouped into a single [ContextGroup] so that their marks and derivations
-/// can be merged into a single branched node.
-///
-/// For BSPPF: frames that merge into the same group call [SppfTable.getNodeP]
-/// with the same key, always receiving the SAME [IntermediateNode] back (due
-/// to deduplication). So [sppfNode] is set once and reused for all.
+/// In an ambiguous parse, multiple derivation paths may lead to the same
+/// state/context combination. [ContextGroup] allows the parser to merge these
+/// paths, aggregating their marks and derivations into a single branched
+/// forest node. This is critical for preventing exponential explosion in
+/// highly ambiguous grammars.
 final class ContextGroup {
+  /// Creates a [ContextGroup] for a specific [state] and [context].
   ContextGroup(this.state, this.context);
 
+  /// The state machine state that all frames in this group share.
   final State state;
+
+  /// The common parsing context for this group.
   final Context context;
 
-  /// Batch mark accumulation: stored in a list, merged into a balanced tree on access.
   LazyGlushList<Mark>? _single;
   List<LazyGlushList<Mark>>? _batch;
 
-  /// The shared BSPPF [IntermediateNode] (or leaf) for all frames in this group.
-  ///
-  /// Because [SppfTable.getNodeP] deduplicates by key, all frames that end
-  /// up in the same group produce the identical node object. We just store
-  /// the first non-null one encountered.
+  /// The Shared Packed Parse Forest node shared by all paths in this group.
   SppfNode? sppfNode;
 
-  /// Open-label stack for all frames in this group (first-write wins).
+  /// The open-label stack shared by all paths in this group.
   OpenLabel? openLabels;
 
-  /// Closed-label log for all frames in this group (first-write wins).
+  /// The closed-label log shared by all paths in this group.
   ClosedLabel? closedLabels;
 
+  /// Returns the merged mark list for all paths that joined this group.
+  ///
+  /// This generates a branched lazy list if multiple paths contributed marks.
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
       return _buildBalanced(batch, 0, batch.length);
@@ -221,6 +225,7 @@ final class ContextGroup {
     return _single ?? const LazyGlushList<Mark>.empty();
   }
 
+  /// Adds a new set of [marks] to this group's derivation paths.
   void addMarks(LazyGlushList<Mark> marks) {
     if (_single == null && _batch == null) {
       _single = marks;
@@ -234,17 +239,17 @@ final class ContextGroup {
     }
   }
 
-  /// Record the BSPPF node for this group (stores the first non-null value).
+  /// Records the [node] for this group.
   void addSppfNode(SppfNode? node) {
     sppfNode ??= node;
   }
 
-  /// Record the open-label stack for this group (first-write wins).
+  /// Records the [labels] stack for this group.
   void addOpenLabels(OpenLabel? labels) {
     openLabels ??= labels;
   }
 
-  /// Record the closed-label log for this group (first-write wins).
+  /// Records the closed [labels] log for this group.
   void addClosedLabels(ClosedLabel? labels) {
     closedLabels ??= labels;
   }

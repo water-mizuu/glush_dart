@@ -8,13 +8,17 @@ import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/sppf.dart";
 import "package:meta/meta.dart";
 
-/// Shared table of BSPPF nodes for a single parse session.
+/// A deduplication table and factory for Binarized Shared Packed Parse Forest (BSPPF) nodes.
 ///
-/// Keys:
-/// - [TerminalNode]   → `position`
-/// - [EpsilonNode]    → `position`
-/// - [IntermediateNode] → `(slotId, start, end)`
-/// - [SymbolNode]     → `(ruleSymbol, start, end)`
+/// The [SppfTable] is the central repository for all nodes created during a
+/// single parse session. It ensures that the forest is "packed" by memoizing
+/// nodes based on their unique identities. Two derivation paths that cover the
+/// same input span with the same grammar symbol or state-machine slot will
+/// share the exact same [SppfNode] instance.
+///
+/// This sharing is critical for maintaining polynomial (or better) space
+/// complexity in the face of exponential numbers of possible derivations in
+/// ambiguous grammars.
 class SppfTable {
   // -------------------------------------------------------------------------
   // Internal maps
@@ -35,15 +39,22 @@ class SppfTable {
   // Public accessors
   // -------------------------------------------------------------------------
 
-  /// Get or create a [TerminalNode] for [position].
+  /// Returns a shared [TerminalNode] representing the token at [position].
+  ///
+  /// If a node already exists for this position, the existing instance is
+  /// returned.
   TerminalNode terminal(int position) => _terminals[position] ??= TerminalNode(position);
 
-  /// Get or create an [EpsilonNode] at [position].
+  /// Returns a shared [EpsilonNode] representing an empty match at [position].
   EpsilonNode epsilon(int position) => _epsilons[position] ??= EpsilonNode(position);
 
-  /// Get or create an [IntermediateNode] for ([slotId], [start], [end]).
+  /// Returns a shared [IntermediateNode] for the given [slotId] and input span.
+  ///
+  /// Intermediate nodes represent partially completed rules or state-machine
+  /// configurations. They are keyed by the state ID and the input range they
+  /// cover.
   IntermediateNode intermediate(int slotId, int start, int end) {
-    // Fast path: pack into one int if all values fit.
+    // Optimization: Pack the triple into a single 64-bit integer if possible.
     if (slotId < 0xFFFF && start < 0xFFFF && end < 0xFFFF) {
       var key = (slotId << 32) | (start << 16) | end;
       return _intermediateSimple[key] ??= IntermediateNode(slotId, start, end);
@@ -52,7 +63,10 @@ class SppfTable {
     return _intermediateComplex[key] ??= IntermediateNode(slotId, start, end);
   }
 
-  /// Get or create a [SymbolNode] for ([ruleSymbol], [start], [end]).
+  /// Returns a shared [SymbolNode] for the given [ruleSymbol] and input span.
+  ///
+  /// Symbol nodes represent fully completed grammar rules. They are keyed by the
+  /// rule's unique symbol ID and the range of input tokens they consumed.
   SymbolNode symbol(PatternSymbol ruleSymbol, int start, int end) {
     if (ruleSymbol >= 0 && ruleSymbol < 0xFFFF && start < 0xFFFF && end < 0xFFFF) {
       var key = (ruleSymbol << 32) | (start << 16) | end;
@@ -66,17 +80,16 @@ class SppfTable {
   // Core construction helpers
   // -------------------------------------------------------------------------
 
-  /// Build or update an [IntermediateNode] for a step transition.
+  /// Constructs or updates a binarized forest node during a parse transition.
   ///
-  /// Called after each child completion (terminal or sub-rule):
-  /// - [slotId]: the state ID of the state we are transitioning INTO
-  /// - [callStart]: the start position of the enclosing rule call
-  /// - [position]: the new input position (right boundary after the child)
-  /// - [left]: the accumulated prefix so far (null = ε, first child only)
-  /// - [right]: the child just completed
+  /// This is the primary entry point for forest construction during state
+  /// transitions. It manages the creation of [IntermediateNode]s that represent
+  /// the concatenation of an existing prefix ([left]) and a newly completed
+  /// child ([right]).
   ///
-  /// Returns the shared [IntermediateNode] keyed by (slotId, callStart, position).
-  /// Multiple derivation paths add distinct [SppfFamily] entries.
+  /// By creating a chain of binary nodes, we ensure that the forest remains
+  /// binarized, which is essential for efficient sharing and ambiguity
+  /// representation.
   IntermediateNode getNodeP(
     int slotId,
     int callStart,
@@ -105,28 +118,20 @@ class SppfTable {
   @override
   String toString() => "SppfTable(T=$terminalCount, I=$intermediateCount, S=$symbolCount)";
 
-  /// Render the BSPPF as a Graphviz DOT graph.
+  /// Renders the entire parse forest as a Graphviz DOT visualization.
   ///
-  /// [nameOf] maps a [PatternSymbol] to a human-readable rule name.
-  /// Typical usage:
-  /// ```dart
-  /// final dot = parseState.sppfTable.toDot(
-  ///   nameOf: (sym) => parser.stateMachine.allRules[sym]?.name.toString() ?? '?($sym)',
-  ///   input: utf8.encode(inputString),
-  /// );
-  /// ```
+  /// This is a powerful diagnostic tool for inspecting the structure of a
+  /// parse, especially when debugging ambiguous grammars or complex state
+  /// transitions.
   ///
-  /// Node shapes and colors:
-  /// - **SymbolNode** (rule completions) — rounded rectangle, steel-blue fill
-  /// - **IntermediateNode** (in-progress slots) — rectangle, light-grey fill
-  /// - **TerminalNode** (single consumed byte) — oval, pale-green fill
-  /// - **EpsilonNode** (zero-width match) — oval, pale-yellow fill
+  /// The resulting graph uses distinct shapes and colors for different node
+  /// types:
+  /// - **Blue Boxes**: [SymbolNode]s (rule completions).
+  /// - **Grey Boxes**: [IntermediateNode]s (partially completed paths).
+  /// - **Green Ovals**: [TerminalNode]s (input tokens).
+  /// - **Yellow Ovals**: [EpsilonNode]s (empty matches).
   ///
-  /// Edges represent the binarized derivation structure:
-  /// - `SymbolNode → body` (one edge per derivation alternative)
-  /// - `IntermediateNode → left + right` (packed node split)
-  ///
-  /// Ambiguous nodes (multiple families) are highlighted with a red border.
+  /// Nodes with red borders indicate ambiguity (multiple derivation paths).
   String toDot({
     required String Function(PatternSymbol) nameOf,
     String Function(int slotId)? slotOf,

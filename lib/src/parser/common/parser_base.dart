@@ -1,5 +1,5 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
-import "package:glush/src/parser/common/context.dart";
+import "package:glush/glush.dart" show SMParser;
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/step.dart";
@@ -7,9 +7,22 @@ import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/action_key.dart";
+import "package:glush/src/parser/sm_parser.dart" show SMParser;
 
+/// An abstract base class providing the core logic for a state-machine parser.
+///
+/// [GlushParserBase] implements the heavy lifting of the Glush parsing algorithm,
+/// including the work-queue management, lookahead predicate resolution, and
+/// token processing loop. It is designed to be subclassed by specific parser
+/// implementations (like [SMParser]).
+///
+/// The base class manages the [processToken] loop, which coordinates:
+/// - Advancing multiple concurrent parse paths (frames).
+/// - Handling "lagging" frames that need to catch up to the current position.
+/// - Resolving lookahead predicates as they succeed or exhaust.
+/// - Transitioning between input positions using a priority-ordered work queue.
 abstract base class GlushParserBase implements GlushParser {
-  /// Initial frames for a fresh parse session.
+  /// The initial set of frames to start the parsing process.
   @override
   List<Frame> get initialFrames;
 
@@ -23,10 +36,6 @@ abstract base class GlushParserBase implements GlushParser {
     workQueue.addFrame(frame.context.position, frame);
   }
 
-  /// Bucket frames by their [Context.position] into the global work queue.
-  ///
-  /// The parser may hold frames from multiple [Context.position]s simultaneously when calls
-  /// and predicates create lagging continuations.
   void _enqueueFramesForPosition(
     ParseState parseState,
     _PositionWorkQueue workQueue,
@@ -37,10 +46,6 @@ abstract base class GlushParserBase implements GlushParser {
     }
   }
 
-  /// Detect predicates that can now be resolved as exhausted (no active frames).
-  ///
-  /// Resolution is a cascading process: resolving one predicate can decrement
-  /// parent predicate counters, potentially triggering further exhaustion.
   void _checkExhaustedPredicates(
     ParseState parseState,
     _PositionWorkQueue workQueue,
@@ -59,7 +64,6 @@ abstract base class GlushParserBase implements GlushParser {
 
               if (!tracker.isAnd) {
                 var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
-                // Keep position tracking explicit for resumed NOT predicate frames.
                 _enqueueFrameForPosition(
                   parseState,
                   workQueue,
@@ -82,7 +86,8 @@ abstract base class GlushParserBase implements GlushParser {
     }
   }
 
-  /// Create a reusable manual parse cursor.
+  /// Creates a new [ParseState] initialized with this parser's grammar and
+  /// configuration.
   ParseState createParseState({
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
@@ -97,14 +102,15 @@ abstract base class GlushParserBase implements GlushParser {
     );
   }
 
-  /// Core single-token processing pipeline.
+  /// Processes a single [token] and advances all active parse paths.
   ///
-  /// High-level sequence:
-  /// 1) Append token to history (for lagging [Context.position] replay)
-  /// 2) Run a position-ordered work queue up to `currentPosition`
-  /// 3) For each position: process frames, finalize token transitions
-  /// 4) Cascadely run exhaustion checks for predicates and negations
-  /// 5) Return the `Step` associated with the current requested position
+  /// This is the core of the incremental parsing engine. It handles:
+  /// 1. Token replay for frames that are behind the current position.
+  /// 2. Advancing states through the state machine.
+  /// 3. Managing the work queue to ensure that frames are processed in
+  ///    positional order.
+  /// 4. Finalizing acceptance status once the end-of-input (null token) is
+  ///    reached.
   @override
   Step processToken(
     int? token,
@@ -125,8 +131,6 @@ abstract base class GlushParserBase implements GlushParser {
 
     while (workQueue.isNotEmpty) {
       var position = workQueue.firstKeyOrNull!;
-      // Work queue is sorted; once position exceeds current token, stop.
-      // If token is null (EOF), we drain the entire queue to finalize results.
       if (token != null && position > currentPosition) {
         break;
       }
@@ -134,7 +138,6 @@ abstract base class GlushParserBase implements GlushParser {
       var positionFrames = workQueue.removeFirst();
 
       if (stepsAtPosition[position] == null) {
-        // Build one Step object per position lazily on first visit.
         stepsAtPosition[position] = Step(
           parseState,
           position == currentPosition
@@ -149,7 +152,6 @@ abstract base class GlushParserBase implements GlushParser {
       }
       var currentStep = stepsAtPosition[position]!;
 
-      // Process all frames' enqueueing first, then finalize work queue.
       for (var frame in positionFrames) {
         parseState.decrementTrackers(frame.context, "process position queue");
         currentStep.processFrameEnqueue(frame);
@@ -162,7 +164,6 @@ abstract base class GlushParserBase implements GlushParser {
         _checkExhaustedPredicates(parseState, workQueue, currentPosition);
       }
 
-      // Neutral transfer: decrement from Step storage, increment into Global queue.
       for (var frame in currentStep.nextFrames) {
         parseState.decrementTrackers(frame.context, "transfer next");
         _enqueueFrameForPosition(parseState, workQueue, frame);
@@ -178,8 +179,6 @@ abstract base class GlushParserBase implements GlushParser {
 
     var steps = stepsAtPosition[currentPosition];
 
-    // Harvest any frames enqueued for positions beyond currentPosition
-    // (e.g., from negations or deferred sub-parses) and store in deferred map.
     while (workQueue.isNotEmpty) {
       var futurePos = workQueue.firstKeyOrNull!;
       var futureFrames = workQueue.removeFirst();
@@ -206,6 +205,11 @@ abstract base class GlushParserBase implements GlushParser {
   }
 }
 
+/// A min-priority queue that sorts frames by their input position.
+///
+/// This ensures that the parser always processes tokens in chronological
+/// order, which is essential for lookahead predicate resolution and
+/// incremental parsing.
 final class _PositionWorkQueue {
   final List<int> _positions = [];
   final List<Frame> _frames = [];
@@ -227,16 +231,13 @@ final class _PositionWorkQueue {
       var last = _positions.length - 1;
       var firstFrame = _frames.first;
 
-      // Swap first and last
       _positions[0] = _positions[last];
       _frames[0] = _frames[last];
       list.add(firstFrame);
 
-      // Remove the last element
       _positions.removeLast();
       _frames.removeLast();
 
-      // Sift down if heap is not empty
       if (_positions.isNotEmpty) {
         _siftDown(0);
       }

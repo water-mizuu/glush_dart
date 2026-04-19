@@ -10,7 +10,6 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
-import "package:glush/src/parser/common/parser_base.dart" show GlushParserBase;
 import "package:glush/src/parser/common/sppf_table.dart" show SppfTable;
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
@@ -22,20 +21,18 @@ import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
-/// Single parsing step at one input position.
+/// Coordinates the parsing operations at a single input position.
 ///
-/// A [Step] coordinates the exploration of all reachable states at a single
-/// input position (see [position]). It manages:
-/// - The work queue for exploring states at the current [position]
-/// - Deduplication of equivalent parsing contexts
-/// - Branching and result merging for ambiguous paths
-/// - Requeueing frames that may have lagging [Context.position]s
+/// [Step] is responsible for exploring all reachable states and derivation
+/// paths for a specific point in the input stream. It manages the local
+/// work queue, deduplicates redundant parsing configurations, and handles
+/// the merging of ambiguous paths.
 ///
-/// NOTE: The [position] here is distinct from [Context.position].
-/// A frame can be "lagging": at Step position 10 but its parse has only
-/// advanced to position 7. Such frames replay historical tokens
-/// using [ParseState.historyByPosition] to catch up.
+/// Parsing in Glush is position-ordered: all possible transitions at position `N`
+/// are completed (including all epsilon closures) before the parser moves to
+/// position `N+1`.
 class Step {
+  /// Creates a [Step] for the given [position] and [token].
   Step(
     this.parseState,
     this.token,
@@ -44,59 +41,56 @@ class Step {
     required this.captureTokensAsMarks,
   });
 
-  /// The global parse session state.
+  /// The global state of the current parsing session.
   final ParseState parseState;
 
-  /// The current input token being processed (null at end-of-input).
+  /// The input token currently being processed at this position.
+  ///
+  /// This is null if the parser has reached the end of the input.
   final int? token;
 
-  /// The current zero-based input position being processed by this step.
-  ///
-  /// This is distinct from [Context.position]:
-  /// - [position]: where the parser is NOW (advances as tokens are consumed)
-  /// - [Context.position]: how far a specific parse path has advanced
-  ///   (may lag behind if the frame is replaying historical input)
+  /// The zero-based index of this step in the input stream.
   final int position;
 
-  /// Whether to support ambiguous parse paths (forest mode).
+  /// Whether this step should track and preserve ambiguous derivation paths.
   final bool isSupportingAmbiguity;
 
-  /// Whether to capture exact tokens as marks.
+  /// Whether to include raw input tokens in the resulting mark stream.
   final bool captureTokensAsMarks;
 
-  /// Frames produced for the *next* input position after consuming a token.
+  /// Frames that have consumed the current token and are ready for the next position.
   final List<Frame> nextFrames = [];
 
-  /// Batched current-position frames grouped by context metadata.
+  /// Groups of frames at the current position, optimized for fast context lookup.
   final Map<int, ContextGroup> _currentFrameGroupsInt = {};
   final Map<ComplexContextKey, ContextGroup> _currentFrameGroupsComplex = {};
 
-  /// Batched next-position frames grouped by context metadata.
+  /// Groups of frames for the next position, used during token transition batching.
   final Map<int, ContextGroup> _nextFrameGroupsInt = {};
   final Map<ComplexContextKey, ContextGroup> _nextFrameGroupsComplex = {};
 
-  /// Deduplication set for non-forest mode.
+  /// Deduplication sets used in non-ambiguity mode to prune redundant paths.
   final Set<int> _activeContextKeysInt = {};
   final Set<ComplexContextKey> _activeContextKeysComplex = {};
 
-  /// The work queue for same-position closure exploration.
+  /// A work queue of states that still need to be explored at this position.
   ///
-  /// Uses a flat array (key, state, key, state, ...) to avoid per-node linked
-  /// list allocation churn in hot parsing loops.
+  /// This is used to compute the epsilon closure of the current position's
+  /// active states.
   final List<Object> _workQueue = [];
   int _workQueueHead = 0;
 
-  /// Set of GSS callers that have already returned at this position.
+  /// Tracks which GSS callers have already returned at this position to avoid
+  /// redundant waiter fan-outs.
   final Set<(CallerKey, int)> _returnedCallersPositionAware = {};
 
-  /// Deduplication set for uniquely identifying accepted parse contexts and their marks.
+  /// A map of contexts that reached an [AcceptAction], and their associated marks.
   final Map<Context, LazyGlushList<Mark>> acceptedContexts = {};
 
-  /// Frames that were delayed or diverted (e.g. for sub-parses).
+  /// Frames that have been requeued for later processing (e.g., lagging paths).
   final List<Frame> requeued = [];
 
-  /// Frames enqueued for positions beyond the next position.
-  /// Keyed by position to support later retrieval.
+  /// Frames that are enqueued for future positions beyond the immediate next one.
   final Map<int, List<Frame>> deferredFramesByPosition = {};
 
   /// Requeue work for processing at a future step position.
@@ -108,12 +102,22 @@ class Step {
   ///
   /// If the frame belongs to a predicate stack, we increase `activeFrames`
   /// because the predicate still has pending work.
+  /// Requeues a [frame] for processing at a later position or in a different
+  /// context.
+  ///
+  /// This is used when a parse path must be deferred (e.g., because it is
+  /// replaying historical tokens or waiting for a sub-parse to resolve).
   void requeue(Frame frame) {
     requeued.add(frame);
     parseState.incrementTrackers(frame.context, "requeue");
   }
 
   /// Resolve a conjunction match and wake up any waiters at the matching position.
+  /// Finalizes one side of a conjunction (A & B).
+  ///
+  /// When one side of a conjunction completes at an [endPosition], it records
+  /// its marks. If the other side has already completed at the same position,
+  /// they are combined to resume any waiters.
   void _finishConjunction(
     ConjunctionTracker tracker,
     int endPosition,
@@ -139,6 +143,7 @@ class Step {
 
   /// Check for matching pairs on both sides of a conjunction and resume waiters.
   /// Used when a NEW waiter is added and needs to see all existing results.
+  /// Checks for matching completions on both sides of a conjunction for specific waiters.
   void _rendezvousConjunction(
     ConjunctionTracker tracker,
     int endPosition,
@@ -155,6 +160,7 @@ class Step {
     }
   }
 
+  /// Combines results from both sides of a conjunction and resumes target waiters.
   void _triggerConjunctionReturn(
     ConjunctionTracker tracker,
     int endPosition,
@@ -182,6 +188,7 @@ class Step {
   /// The frame is requeued at the original parent position so it can catch up
   /// through already-seen input using the parser's token history, just like an
   /// epsilon transition reopening a delayed path.
+  /// Resumes a parse path that was waiting for a lookahead predicate.
   void _resumeLaggedPredicateContinuation({
     required ParseNodeKey? source,
     required Context parentContext,
@@ -202,6 +209,7 @@ class Step {
   ///
   /// Predicates are lookahead-only, so their entry states are spawned in a
   /// separate sub-parse that can resolve later and wake parked continuations.
+  /// Spawns a new sub-parse to evaluate a lookahead predicate.
   void _spawnPredicateSubparse(
     PatternSymbol symbol,
     Frame frame, {
@@ -209,9 +217,7 @@ class Step {
     String? name,
   }) {
     var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
-    // Missing entry states indicates invalid predicate target symbol.
     if (entryState == null) {
-      // Predicates must map to rule entries in the state machine.
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
     }
     GlushProfiler.increment("parser.predicates.spawned");
@@ -240,6 +246,7 @@ class Step {
   }
 
   /// Seed a conjunction sub-parse (both side A and side B).
+  /// Spawns sub-parses for both sides of a conjunction (A & B).
   void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
     GlushProfiler.increment("parser.conjunctions.spawned");
     var leftCaller = ConjunctionCallerKey(
@@ -256,7 +263,7 @@ class Step {
     );
 
     var subParseKey = ConjunctionKey(left, right, position);
-    parseState.trackers[subParseKey]!; // Touch to ensure it exists if called from Action
+    parseState.trackers[subParseKey]!;
 
     // Side A
     var leftState = parseState.parser.stateMachine.ruleFirst[left];
@@ -300,19 +307,26 @@ class Step {
   /// pull their token from [ParseState.historyByPosition] at their specific position.
   /// This allows lagging frames (from deferred sub-parses, predicates, etc.)
   /// to replay historical tokens and catch up.
+  /// Retrieves the input token appropriate for the given [frame].
+  ///
+  /// If the frame is at the current position, it returns the current token.
+  /// If the frame is "lagging" (e.g., from a sub-parse), it pulls the historical
+  /// token from the parse state.
   int? _getTokenFor(Frame frame) {
     var framePos = frame.context.position;
-    // Frame already at this step's current position: use current token directly.
     if (framePos == position) {
       return token;
     }
-    // Frame is lagging: pull token from shared history.
     return parseState.historyByPosition[framePos];
   }
 
   /// Evaluates whether a rule's guard expression allows expansion in the current context.
   ///
   /// Guards are used to enforce semantic constraints or custom dispatch logic.
+  /// Evaluates whether a rule's guard condition is satisfied.
+  ///
+  /// Guards allow for context-sensitive or semantic checks that prune parse
+  /// paths early.
   bool _ruleGuardPasses(
     Rule rule,
     Frame frame, {
@@ -320,13 +334,10 @@ class Step {
     required CallArgumentsKey argumentsKey,
   }) {
     var guard = rule.guard;
-    // If no guard is defined, the rule always passes.
     if (guard == null) {
       return true;
     }
 
-    // Guard results are cached by rule, position, arguments, and mark forest so
-    // repeated branches do not re-evaluate the same boolean expression.
     var subjectRule = rule.guardOwner ?? rule;
     var result = GlushProfiler.measure("parser.guard.evaluate", () {
       return guard.evaluate(
@@ -337,13 +348,12 @@ class Step {
     return result;
   }
 
+  /// Constructs the semantic environment used for guard evaluation.
   GuardEnvironment _buildGuardEnvironment({
     required Rule rule,
     required Frame frame,
     required Map<String, Object?> arguments,
   }) {
-    // Guards only need a small semantic snapshot: the active rule, the parser
-    // position, caller arguments, and lazy access to marks/captures.
     var values = <String, Object?>{
       "rule": rule,
       "ruleName": rule.name,
@@ -372,11 +382,10 @@ class Step {
     );
   }
 
+  /// Resolves a labeled capture from the current mark stream.
   CaptureValue? _extractLabelCapture(LazyGlushList<Mark> marks, String target) {
     var concreteMarks = marks.evaluate();
 
-    // If multiple branches can produce the same capture name, we keep the
-    // earliest capture as the canonical one for this forest.
     var capture = GlushProfiler.measure("parser.capture.resolve", () {
       var walker = LabelCaptureWalker(target);
       walker.walk(concreteMarks, []);
@@ -392,15 +401,6 @@ class Step {
     });
     GlushProfiler.increment("parser.capture.cache_assign");
 
-    // SPPF parity check: assert that the SPPF index contains at least one
-    // SymbolNode whose label span for `target` matches the marks-derived span.
-    // Multiple nodes for the same rule at different positions are expected —
-    // we only require that at least ONE agrees.
-    //
-    // Note: this check fires mid-parse (during guard evaluation). The SPPF may
-    // have entries from OTHER invocations of the same rule at different positions,
-    // so we do not hard-fail when no match is found — we only validate when a
-    // match IS present.
     assert(() {
       if (capture == null) {
         return true;
@@ -416,14 +416,13 @@ class Step {
           return true;
         }
       }
-      // No exact match found — this is acceptable mid-parse since the SPPF
-      // accumulates entries from all rule invocations at all positions.
       return true;
     }(), "Stuff should match.");
 
     return capture;
   }
 
+  /// Reconstructs the text consumed between two positions.
   String _captureText(int startPosition, int endPosition) {
     GlushProfiler.increment("parser.capture.text_rebuilds");
     var buffer = StringBuffer();
@@ -435,6 +434,7 @@ class Step {
     return buffer.toString();
   }
 
+  /// Resolves the argument values for a rule call.
   ({Map<String, Object?> arguments, CallArgumentsKey key}) _resolveCallArgumentValues(
     Map<String, CallArgumentValue> args,
     Frame frame,
@@ -454,7 +454,6 @@ class Step {
     var resolved = <String, Object?>{};
     var resolvedValues = <Object?>[];
 
-    // Ensure deterministic ordering for the composite key
     var sortedNames = args.keys.toList()..sort();
     for (var name in sortedNames) {
       var value = args[name]!.resolve(env);
@@ -501,6 +500,11 @@ class Step {
     return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
   }
 
+  /// Initiates a rule call and manages caller memoization.
+  ///
+  /// This method checks guards, looks up or creates a [Caller] node in the GSS,
+  /// and either spawns the rule's entry state or triggers returns from a
+  /// memoized caller.
   void _seedRuleCall({
     required Rule targetRule,
     required Map<String, Object?> callArguments,
@@ -513,8 +517,6 @@ class Step {
     required State currentState,
   }) {
     GlushProfiler.increment("parser.rule_calls.considered");
-    // Rule guards are checked before the callee is spawned, so failed guards
-    // never allocate a caller node or enter the callee state machine.
     if (!_ruleGuardPasses(
       targetRule,
       frame,
@@ -643,6 +645,11 @@ class Step {
   /// Deduplication key is `(state, caller, minPrecedence, predicateStack)`.
   /// In ambiguity mode we still preserve distinct mark branches even when the
   /// target configuration is already active, because marks carry the derivation.
+  /// Enqueues a parsing configuration to be explored at this step.
+  ///
+  /// This method performs path deduplication and merging. If the [context] is
+  /// for a future position, it is deferred. Otherwise, it is added to the
+  /// current work queue.
   void _enqueue(
     State state,
     Context context,
@@ -754,6 +761,11 @@ class Step {
   /// together in [finalize], while zero-width actions (epsilon transitions)
   /// are enqueued immediately. This split avoids interleaving same-position
   /// closure with next-position work.
+  /// Processes all actions for a specific state in the given frame.
+  ///
+  /// This is where the state machine's logic is executed for a single parse
+  /// path. It dispatches to specific `_process...` methods based on the action
+  /// type.
   void _process(Frame frame, State state) {
     // Iterate over all possible actions originating from the current state.
     for (var action in state.actions) {
@@ -809,6 +821,11 @@ class Step {
   /// For BSPPF: the completed callee produces a [SymbolNode]. We call
   /// [SppfTable.getNodeP] to accumulate it into the parent's prefix, producing
   /// a new [IntermediateNode] that replaces the parent's [SppfNode].
+  /// Triggers a return from a rule call back to its caller.
+  ///
+  /// This method handles precedence filtering, merges the result into the
+  /// caller's mark stream and SPPF node, and enqueues the caller's next state
+  /// for processing.
   void _triggerReturn(
     Caller caller,
     CallerKey parent,
@@ -843,7 +860,6 @@ class Step {
     // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
     var returnProxy = caller.getLazyReturn(packedId, () => caller.getReturnMarks(packedId));
 
-    // Fast paths for the common case where one/both mark streams are empty.
     var nextMarks = parentMarks.addList(returnProxy);
 
     // BSPPF: get the SymbolNode for the completed callee, then accumulate it.
@@ -897,6 +913,7 @@ class Step {
   }
 
   /// Materialize batched token transitions into next-position frames.
+  /// Finalizes the step, processing any pending next-position frames.
   void finalize() {
     for (var nextGroup in _nextFrameGroupsInt.values.followedBy(_nextFrameGroupsComplex.values)) {
       _processNextGroup(nextGroup);
@@ -905,6 +922,7 @@ class Step {
     _nextFrameGroupsComplex.clear();
   }
 
+  /// Processes a group of frames that have transitioned to the next position.
   void _processNextGroup(ContextGroup nextGroup) {
     var branchedMarks = nextGroup.mergedMarks;
     var context = nextGroup.context;
@@ -915,10 +933,6 @@ class Step {
       context = context.copyWith(position: position + 1, callStart: callerStartPosition);
     }
 
-    // When an action leads directly to a ReturnAction state, process the return
-    // immediately using the already-advanced context. This avoids deferring the
-    // return through the work queue, ensuring it settles before other actions
-    // at the next position (like AcceptAction).
     if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
       _process(
         Frame(
@@ -947,6 +961,7 @@ class Step {
   }
 
   /// Enqueue a frame for processing at the current position.
+  /// Enqueues the given [frame] for processing at this step's position.
   void processFrameEnqueue(Frame frame) {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
@@ -964,6 +979,7 @@ class Step {
 
   /// Process all accumulated work from previous processFrameEnqueue() calls.
   /// This must be called after all frames at a position have been enqueued.
+  /// Drains the work queue and processes all frames for this step.
   void processFrameFinalize() {
     while (_workQueueHead < _workQueue.length) {
       var key = _workQueue[_workQueueHead++];
@@ -1007,30 +1023,28 @@ class Step {
   // The following private methods handle the logic for each StateAction type.
   // They are extracted from the _process method for readability and maintainability.
 
-  /// Handle [TokenAction]: consume a token matching the expected pattern.
+  /// Processes a [TokenAction], which consumes one input token.
+  ///
+  /// If the current token matches the action's pattern, a new frame is created
+  /// and enqueued for the next position.
   void _processTokenAction(Frame frame, State state, TokenAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
 
     GlushProfiler.increment("parser.token_actions.attempted");
-    // Token actions fire only when an input token matches the expected pattern.
     if (token != null && action.choice.matches(token)) {
       GlushProfiler.increment("parser.token_actions.matched");
       parseState.tracer?.onAction(action, " matched");
       var newMarks = frame.marks;
       var pattern = action.choice;
 
-      // Terminal capture logic: some patterns (like literal strings)
-      // naturally want to be captured as marks.
       var shouldCapture = captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
 
-      // Capture policy controls whether consumed chars become human-readable StringMarks.
       if (shouldCapture) {
         GlushProfiler.increment("parser.marks.added");
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
-      // BSPPF: build terminal node then accumulate via getNodeP.
       var termNode = parseState.sppfTable.terminal(frameContext.position);
       var newSppfNode = parseState.sppfTable.getNodeP(
         action.nextState.id,
@@ -1054,7 +1068,7 @@ class Step {
     }
   }
 
-  /// Internal helper to enqueue work for the next input position.
+  /// Batches a frame to be processed at the next input position.
   void _enqueueToNextPosition(
     State nextState,
     Context context,
@@ -1103,14 +1117,12 @@ class Step {
     }
   }
 
-  /// Handle [BoundaryAction]: check start-of-input or end-of-input conditions.
+  /// Processes a [BoundaryAction], checking for start or end of input.
   void _processBoundaryAction(Frame frame, State state, BoundaryAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // Boundary actions match either the start-of-input (position 0)
-    // or end-of-input (token is null).
     var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
     if (isMatch) {
       _enqueue(
@@ -1126,7 +1138,7 @@ class Step {
     }
   }
 
-  /// Handle [ParameterStringAction]: consume a specific code unit.
+  /// Processes a [ParameterStringAction], matching a specific code unit.
   void _processParameterStringAction(Frame frame, State state, ParameterStringAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
@@ -1136,7 +1148,6 @@ class Step {
       if (captureTokensAsMarks) {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
-      // BSPPF: parameter string characters are terminals too.
       var termNode = parseState.sppfTable.terminal(frameContext.position);
       var newSppfNode = parseState.sppfTable.getNodeP(
         action.nextState.id,
@@ -1156,13 +1167,11 @@ class Step {
     }
   }
 
-  /// Handle [MarkAction]: emit a named mark at the current position.
+  /// Processes a [MarkAction], emitting a named mark.
   void _processMarkAction(Frame frame, State state, MarkAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // Emit a named mark at the current position.
-    // Used for user-defined annotations.
     _enqueue(
       action.nextState,
       frameContext,
@@ -1175,16 +1184,11 @@ class Step {
     );
   }
 
-  /// Handle [LabelStartAction]: begin a labeled capture group.
-  ///
-  // ignore: comment_references
-  /// For BSPPF label tracking: pushes [action.name] + [position] onto the
-  /// frame's open-label stack so [_processLabelEndAction] can pair them.
+  /// Processes a [LabelStartAction], beginning a labeled capture.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // Push onto the open-label stack (O(1) persistent prepend).
     var newOpen = OpenLabel(action.name, position, frame.openLabels);
 
     _enqueue(
@@ -1199,15 +1203,11 @@ class Step {
     );
   }
 
-  /// Handle [LabelEndAction]: end a labeled capture group.
-  ///
-  /// For BSPPF label tracking: pops the matching open entry from the stack and
-  /// appends a [ClosedLabel] to the frame's closed-label log.
+  /// Processes a [LabelEndAction], completing a labeled capture.
   void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    // Pop the matching open entry and record the closed span.
     OpenLabel? newOpen = frame.openLabels;
     ClosedLabel? newClosed = frame.closedLabels;
     var popped = popOpenLabel(frame.openLabels, action.name);
@@ -1228,7 +1228,7 @@ class Step {
     );
   }
 
-  /// Handle [BackreferenceAction]: create an expanding mark for backref.
+  /// Processes a [BackreferenceAction], emitting an expanding mark.
   void _processBackreferenceAction(Frame frame, State state, BackreferenceAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
@@ -1245,7 +1245,7 @@ class Step {
     );
   }
 
-  /// Handle [PredicateAction]: lookahead predicate (&pattern or !pattern).
+  /// Processes a [PredicateAction], initiating a lookahead check.
   void _processPredicateAction(Frame frame, State state, PredicateAction action) {
     var source = ParseNodeKey(state.id, position, frame.context.caller);
     _handlePredicate(
@@ -1260,7 +1260,8 @@ class Step {
 
   /// Unified handler for lookahead predicates.
   ///
-  /// Manages tracker lifecycle, waiter registration, and sub-parse spawning.
+  /// This method coordinates between existing trackers and spawning new
+  /// sub-parses to resolve a lookahead condition.
   void _handlePredicate({
     required PatternSymbol symbol,
     required Frame frame,
@@ -1274,7 +1275,6 @@ class Step {
     var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
     var isFirst = !parseState.trackers.containsKey(subParseKey);
 
-    // Use a tracker to coordinate results from the sub-parse.
     var tracker =
         (parseState.trackers[subParseKey] ??= PredicateTracker(symbol, position, isAnd: isAnd))
             as PredicateTracker;
@@ -1289,9 +1289,7 @@ class Step {
       "the same (symbol,position) key.",
     );
 
-    // A predicate may be re-entered after it has already matched.
     if (tracker.matched) {
-      // AND can resume once with the current results.
       if (tracker.isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
@@ -1306,11 +1304,9 @@ class Step {
     }
 
     if (!tracker.exhausted) {
-      // Still active; park continuation to catch future matches.
       tracker.waiters.add((source, frameContext, nextState, frame.marks));
       parseState.incrementTrackers(frameContext, "childPending");
     } else if (tracker.canResolveFalse) {
-      // The sub-parse already exhausted without matching; NOT waiters resume.
       if (!isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
@@ -1324,18 +1320,16 @@ class Step {
       }
     }
 
-    // Seed the sub-parse if this is the first time we've reached this predicate.
     if (isFirst) {
       _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
     }
   }
 
-  /// Handle [ConjunctionAction]: intersection rule (A & B).
+  /// Processes a [ConjunctionAction], requiring two sub-parses to match.
   void _processConjunctionAction(Frame frame, State state, ConjunctionAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Intersection rule (A & B).
-    // Both side A and side B are run independently from the same position.
+
     var left = action.leftSymbol;
     var right = action.rightSymbol;
     var key = ConjunctionKey(left, right, position);
@@ -1348,12 +1342,9 @@ class Step {
             ))
             as ConjunctionTracker;
 
-    // Park the continuation until both sides meet at the same end position.
     var waiter = (source, frameContext, action.nextState, frame.marks);
     tracker.waiters.add(waiter);
 
-    // Rendezvous logic: if results are already available for both sides
-    // at any position J, resume the waiter immediately.
     for (var j in tracker.leftCompletions.keys) {
       _rendezvousConjunction(tracker, j, [waiter]);
     }
@@ -1363,12 +1354,11 @@ class Step {
     }
   }
 
-  /// Handle [CallAction]: static rule call (GLL).
+  /// Processes a [CallAction], calling another rule.
   void _processCallAction(Frame frame, State state, CallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Static rule call (GLL).
-    // Resolves arguments and initiates rule expansion via GSS.
+
     var targetRule = parseState.rulesById[action.ruleSymbol]!;
     var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
 
@@ -1385,13 +1375,12 @@ class Step {
     );
   }
 
-  /// Handle [ParameterAction]: dynamic parameter reference ($paramName).
+  /// Processes a [ParameterAction], resolving a dynamic parameter reference.
   void _processParameterAction(Frame frame, State state, ParameterAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Dynamic parameter reference ($paramName).
-    // Resolves the parameter value from the caller's environment.
+
     var arguments = frame.context.arguments;
     if (!arguments.containsKey(action.name)) {
       throw StateError("Missing argument '${action.name}' for parameter reference.");
@@ -1400,9 +1389,7 @@ class Step {
     var value = arguments[action.name];
     switch (value) {
       case String text:
-        // String parameters are materialized as virtual input tokens.
         if (text.isEmpty) {
-          // Epsilon transition if the string is empty.
           _enqueue(
             action.nextState,
             frame.context,
@@ -1414,7 +1401,6 @@ class Step {
           );
           return;
         }
-        // Redirect to a synthetic state machine that consumes the string.
         var entryState = parseState.parser.stateMachine.parameterStringEntry(
           text,
           action.nextState,
@@ -1430,7 +1416,6 @@ class Step {
         );
         return;
       case CaptureValue captureValue:
-        // Data captured from a label can also be used as a parameter.
         var entryState = parseState.parser.stateMachine.parameterStringEntry(
           captureValue.value,
           action.nextState,
@@ -1445,7 +1430,6 @@ class Step {
           closedLabels: frame.closedLabels,
         );
       case RuleCall callValue:
-        // Parameter resolves to a rule call: expansion occurs at the current position.
         var resolvedCall = _resolveCallArgumentValues(callValue.arguments, frame, callValue.rule);
         _seedRuleCall(
           targetRule: callValue.rule,
@@ -1459,7 +1443,6 @@ class Step {
           currentState: state,
         );
       case Rule rule:
-        // Parameter is a raw rule reference.
         _seedRuleCall(
           targetRule: rule,
           callArguments: const {},
@@ -1472,7 +1455,6 @@ class Step {
           currentState: state,
         );
       case Eps():
-        // Parameter as epsilon transition.
         _enqueue(
           action.nextState,
           frame.context,
@@ -1483,7 +1465,6 @@ class Step {
           closedLabels: frame.closedLabels,
         );
       case Pattern pattern when pattern.singleToken():
-        // Parameter as a single-token pattern (e.g. char ranges).
         if (token != null && pattern.match(token)) {
           _enqueue(
             action.nextState,
@@ -1518,12 +1499,11 @@ class Step {
     }
   }
 
-  /// Handle [ParameterCallAction]: rule call via parameter reference.
+  /// Processes a [ParameterCallAction], calling a rule through a parameter.
   void _processParameterCallAction(Frame frame, State state, ParameterCallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Rule call via a parameter reference ($paramName(args)).
-    // Resolves the rule and merges call-site arguments with rule-defined ones.
+
     var arguments = frame.context.arguments;
     if (!arguments.containsKey(action.targetParameter)) {
       throw StateError("Missing argument '${action.targetParameter}' for parameter reference.");
@@ -1532,7 +1512,6 @@ class Step {
     var value = arguments[action.targetParameter];
     switch (value) {
       case RuleCall callValue:
-        // Merge rule-provided arguments with the dynamic call-site arguments.
         var mergedArguments = <String, CallArgumentValue>{
           ...callValue.arguments,
           ...action.arguments,
@@ -1550,7 +1529,6 @@ class Step {
           currentState: state,
         );
       case Rule rule:
-        // Parameter as a raw rule. We apply the call arguments to it.
         var resolvedCall = _resolveParameterCallArguments(
           action.targetParameter,
           action.arguments,
@@ -1578,7 +1556,7 @@ class Step {
     }
   }
 
-  /// Handle [ParameterPredicateAction]: lookahead on dynamic parameter.
+  /// Processes a [ParameterPredicateAction], initiating a lookahead on a parameter.
   void _processParameterPredicateAction(Frame frame, State state, ParameterPredicateAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
@@ -1685,13 +1663,14 @@ class Step {
     }
   }
 
-  /// Handle [TailCallAction]: tail-call optimized recursion.
-  /// Uses direct trampolining to avoid queue overhead for recursive chains.
+  /// Processes a [TailCallAction], performing tail-call optimization.
+  ///
+  /// This method resolves arguments and checks guards, then jumps directly into
+  /// the rule's entry state using the [_tailCallTrampoline].
   void _processTailCallAction(Frame frame, State state, TailCallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    // Tail calls still respect argument resolution and guards, but avoid
-    // allocating a fresh caller when the recursion can be looped.
+
     var targetRule = parseState.rulesById[action.ruleSymbol]!;
     var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, targetRule);
     if (!_ruleGuardPasses(
@@ -1702,8 +1681,7 @@ class Step {
     )) {
       return;
     }
-    // Tail-call optimized recursion re-enters the rule without allocating
-    // a fresh caller node. Use direct trampolining to avoid queue overhead.
+
     var firstState = parseState.parser.stateMachine.ruleFirst[action.ruleSymbol];
     if (firstState != null) {
       var tailContext = frame.context.copyWith(
@@ -1711,18 +1689,14 @@ class Step {
         minPrecedenceLevel: action.minPrecedenceLevel,
         arguments: resolvedCall.arguments,
       );
-      // Enter tail-call trampoline loop to process recursive chain directly
       _tailCallTrampoline(firstState, tailContext, frame.marks, source, action);
     }
   }
 
-  /// Direct trampoline loop for tail calls.
+  /// Executes a trampoline loop for tail-call recursion.
   ///
-  /// Processes tail calls in a loop without queue overhead, enabling efficient
-  /// left-recursive and right-recursive parsing without stack growth or frame allocation.
-  ///
-  /// This replaces work-queue dequeue/enqueue for recursive chains, improving
-  /// performance for deep recursion patterns.
+  /// This optimizes deep recursion by avoiding the overhead of the global work
+  /// queue when a rule calls itself (or another rule) in a tail position.
   void _tailCallTrampoline(
     State currentState,
     Context currentContext,
@@ -1734,26 +1708,20 @@ class Step {
     var context = currentContext;
     var marks = currentMarks;
 
-    // Keep processing states in a loop until we hit a non-tail action
     while (true) {
-      // Check for any non-tail actions that require work queue or deferred processing
       bool hasTailOnlyPath = true;
       TailCallAction? nextTailCall;
 
       for (var stateAction in state.actions) {
         if (stateAction case TailCallAction tailCall) {
-          // Store potential tail call but check if there are other actions
           nextTailCall = tailCall;
         } else {
-          // Any non-tail action means we need to exit trampoline and queue for normal processing
           hasTailOnlyPath = false;
           break;
         }
       }
 
-      // If we found a pure tail call path, try to jump to next recursion level
       if (hasTailOnlyPath && nextTailCall != null && state.actions.length == 1) {
-        // Single tail call action - jump to it directly
         var tailCall = nextTailCall;
         var targetRule = parseState.rulesById[tailCall.ruleSymbol]!;
         var resolvedCall = _resolveCallArgumentValues(
@@ -1762,7 +1730,6 @@ class Step {
           targetRule,
         );
 
-        // Validate guard for the tail call
         if (!_ruleGuardPasses(
           targetRule,
           Frame(context, marks),
@@ -1772,38 +1739,28 @@ class Step {
           return;
         }
 
-        // Jump to the tail-called rule's entry state
         var nextFirstState = parseState.parser.stateMachine.ruleFirst[tailCall.ruleSymbol];
         if (nextFirstState == null) {
           return;
         }
 
-        // Update state and context for next iteration
         state = nextFirstState;
         context = context.copyWith(
           position: position,
           minPrecedenceLevel: tailCall.minPrecedenceLevel,
         );
-        // marks remain the same as tail calls don't consume tokens or emit marks themselves
-        // (they just loop back)
         GlushProfiler.increment("parser.tail_call.trampoline_hop");
-        continue; // Loop back to process next state
+        continue;
       }
 
-      // Exit trampoline: process normally via work queue
       _enqueue(state, context, marks, source: source, action: action);
       return;
     }
   }
 
-  /// Retreat parser position by 1.
-  ///
-  /// This enqueues a frame at [position - 1].
-  /// Note: The frame will be processed by [GlushParserBase.processToken] which
-  /// supports historical token replay.
+  /// Processes a [RetreatAction], moving the parser back by one position.
   void _processRetreatAction(Frame frame, State state, RetreatAction action) {
     if (position == 0) {
-      // Cannot retreat past start of input.
       return;
     }
 
@@ -1811,20 +1768,21 @@ class Step {
     _enqueue(action.nextState, nextContext, frame.marks);
   }
 
-  /// Handle [ReturnAction]: return from a rule call.
+  /// Processes a [ReturnAction], returning from a rule call.
+  ///
+  /// This method performs precedence filtering and manages the settlement of
+  /// predicate and conjunction trackers. For rule calls, it records the result
+  /// in the GSS and SPPF, then notifies all waiting callers.
   void _processReturnAction(Frame frame, State state, ReturnAction action) {
-    // Enforce call-site precedence gating for this return.
     if (frame.context.minPrecedenceLevel != null &&
         action.precedenceLevel != null &&
         action.precedenceLevel! < frame.context.minPrecedenceLevel!) {
-      // Returned precedence is below required minimum for this call-site.
       return;
     }
 
     var caller = frame.context.caller;
     var returnPosition = frame.context.position;
 
-    // Predicate returns settle the predicate tracker directly.
     if (caller is PredicateCallerKey) {
       assert(
         frame.context.predicateStack.lastOrNull == caller,
@@ -1838,7 +1796,6 @@ class Step {
       );
       var tracker = parseState.trackers[key] as PredicateTracker?;
       if (tracker == null) {
-        // The predicate may already have resolved in this position.
         return;
       }
 
@@ -1852,7 +1809,6 @@ class Step {
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
         parseState.decrementTrackers(parentContext, "childMatched");
 
-        // AND predicates resume only on success.
         if (tracker.isAnd) {
           _resumeLaggedPredicateContinuation(
             source: source,
@@ -1875,15 +1831,10 @@ class Step {
       return;
     }
 
-    // In single-derivation mode, replay each caller's returns once per position.
-    // NOTE: the BSPPF label drain runs BEFORE this guard because labels must be
-    // recorded from every concrete frame that reaches ReturnAction — the guard
-    // only suppresses duplicate waiter fan-outs, not forest construction.
     if (caller is Caller) {
       if (caller.rule.symbolId case var ruleSymbol?) {
         var sym = parseState.sppfTable.symbol(ruleSymbol, caller.startPosition, returnPosition);
         sym.addFamily(frame.sppfNode ?? parseState.sppfTable.epsilon(returnPosition));
-        // Drain closed-label log into the SymbolNode (O(labels in this call), typically O(1)).
         var label = frame.closedLabels;
         while (label != null) {
           sym.recordLabel(label.name, label.start, label.end);
@@ -1896,15 +1847,11 @@ class Step {
       return;
     }
 
-    // Only caller nodes memoize return contexts and wake waiters.
     if (caller is Caller) {
-      // Only rule-call callers memoize and replay return contexts.
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
-      // Replay to waiters only when this return context is newly added.
       if (caller.addReturn(returnContext, frame.marks)) {
         parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
 
-        // Newly discovered return context fan-outs to all queued waiters.
         for (var WaiterInfo(
               :nextState,
               :minPrecedence,
@@ -1936,11 +1883,7 @@ class Step {
     }
   }
 
-  /// Handle [AcceptAction]: mark parse as accepted.
-  ///
-  /// For BSPPF: the root [SymbolNode] for the start rule is looked up directly
-  /// from the state machine's start symbol, since the accept frame's caller is
-  /// always [RootCallerKey] (not a [Caller]).
+  /// Processes an [AcceptAction], indicating a successful parse.
   void _processAcceptAction(Frame frame) {
     var previousMarks = acceptedContexts[frame.context];
     if (previousMarks != null) {
@@ -1949,9 +1892,6 @@ class Step {
       acceptedContexts[frame.context] = frame.marks;
     }
 
-    // BSPPF: find the start rule's SymbolNode covering [0..position].
-    // The start symbol is known from the grammar; the SymbolNode was already
-    // created when the start rule fired its ReturnAction.
     var startSym = parseState.parser.stateMachine.grammar.startSymbol;
     parseState.bsppfRoot = parseState.sppfTable.allSymbolNodes
         .where((s) => s.ruleSymbol == startSym && s.start == 0 && s.end == position)

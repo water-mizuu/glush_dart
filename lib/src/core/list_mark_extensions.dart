@@ -8,9 +8,18 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/helper/diagonal.dart";
 
-/// Extension methods for List<Mark> to extract and format marks.
+/// Extension methods for [List<Mark>] to extract and format marks.
+///
+/// These utilities provide a way to convert the abstract [Mark] forest results
+/// into more human-readable or machine-processable formats, such as merged
+/// string lists or raw mark identifiers.
 extension ListMarkExtractor on List<Mark> {
-  /// Converts the mark list to a list of strings, merging consecutive StringMarks.
+  /// Converts the mark list to a list of strings, merging consecutive [StringMark]s.
+  ///
+  /// This is particularly useful for final result presentation where multiple
+  /// adjacent character-level marks should be treated as a single cohesive
+  /// token string. It also preserves [NamedMark]s and [LabelStartMark]s as
+  /// individual entries in the resulting list.
   List<String> toStringList() {
     var result = <String>[];
     String? currentStringMark;
@@ -37,7 +46,11 @@ extension ListMarkExtractor on List<Mark> {
     return result;
   }
 
-  /// Extracts the string values from marks.
+  /// Extracts the string values or names from all marks in the list.
+  ///
+  /// Unlike [toStringList], this method does not perform any merging of
+  /// consecutive marks. It simply extracts the identifier or value from each
+  /// mark instance and returns them as a flat list of strings.
   List<String> toMarkStrings() {
     var result = <String>[];
     for (var mark in this) {
@@ -53,14 +66,19 @@ extension ListMarkExtractor on List<Mark> {
   }
 }
 
-/// Extension methods for GlushList<Mark> to handle conjunctions.
+/// Extension methods for [GlushList<Mark>] to handle mark-specific forest operations.
 extension GlushListMarkExtensions on GlushList<Mark> {
-  /// Collects all paths through the GlushList, creating ConjunctionMarks for parallel branches.
-  /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
+  /// Collects all flattened mark paths through the [GlushList].
+  ///
+  /// This specialized version of path collection ensures that conjunctions
+  /// are handled correctly by expanding all parallel combinations into distinct
+  /// paths. This allows callers to see every possible semantic interpretation
+  /// of a given input span.
   Iterable<List<Mark>> allMarkPaths() {
     return _collectMarkPaths(this, {});
   }
 
+  /// Internal recursive collector for mark paths with cycle prevention.
   Iterable<List<Mark>> _collectMarkPaths(
     GlushList<Mark> node,
     Set<GlushList<Mark>> visiting,
@@ -98,14 +116,23 @@ extension GlushListMarkExtensions on GlushList<Mark> {
   }
 }
 
-/// Extension methods for LazyGlushList<Mark> to handle lazy conjunctions.
+/// Extension methods for [LazyGlushList<Mark>] to handle lazy mark-specific operations.
 extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
-  /// Collects all paths through the LazyGlushList, creating ConjunctionMarks for parallel branches.
-  /// Mark-specific version that properly handles conjunctions with ConjunctionMark.
+  /// Collects all flattened mark paths through the [LazyGlushList].
+  ///
+  /// This method triggers the evaluation of lazy values and expands all
+  /// possible derivations. It is particularly important for conjunctions,
+  /// where it explicitly wraps parallel results in [ConjunctionMark] nodes
+  /// to preserve the structural information of the match.
   Iterable<List<Mark>> allMarkPaths() {
     return _collectLazyMarkPaths(this, const {});
   }
 
+  /// Internal recursive collector for lazy mark paths with visit tracking.
+  ///
+  /// Visit counts are used to handle recursive structures (cycles) in the
+  /// grammar. When a cycle is detected, the collector yields an empty path
+  /// to allow termination at that depth while still exploring other branches.
   Iterable<List<Mark>> _collectLazyMarkPaths(
     LazyGlushList<Mark> node,
     Map<int, int> visitCounts, // Track how many times each node has been visited IN THIS EXECUTION

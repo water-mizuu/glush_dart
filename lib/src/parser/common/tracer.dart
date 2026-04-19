@@ -7,23 +7,50 @@ import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
-/// Interface for tracing parser execution.
+/// An interface for observing and recording the internal execution of the parser.
+///
+/// Implementations of [ParseTracer] can be used to generate logs, visualizations,
+/// or diagnostic reports that help in understanding how the parser explores the
+/// search space, handles ambiguities, and resolves complex conditions like
+/// lookahead or conjunctions.
 abstract class ParseTracer {
+  /// Called once at the start of a parse session with the loaded [StateMachine].
   void onStart(StateMachine sm);
+
+  /// Called at the beginning of each input position's processing.
   void onStepStart(int position, int? token, List<Frame> frames);
+
+  /// Called when the parser begins processing a specific [State] in a [Frame].
   void onProcessState(Frame frame, State state);
+
+  /// Called when a [StateAction] is executed, with a string describing the outcome.
   void onAction(StateAction action, String result);
+
+  /// Called when a new configuration is enqueued for future processing.
   void onEnqueue(State state, int targetPosition, String reason);
+
+  /// Called when a rule call is initiated.
   void onRuleCall(Rule rule, int position, CallerKey caller, State fromState, State toState);
+
+  /// Called when a rule call returns.
   void onRuleReturn(Rule rule, int position, CallerKey caller, State? fromState);
+
+  /// Called when a lookahead predicate sub-parse completes and resumes its parent.
   void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd});
+
+  /// Called when a tracker (predicate or conjunction) is updated.
   void onTrackerUpdate(String type, String key, int activeFrames, String action);
+
+  /// Records an arbitrary diagnostic message.
   void onMessage(String message);
+
+  /// Finalizes the tracer, closing any open resources.
   void finalize();
 }
 
-/// A tracer that writes to a file.
+/// A [ParseTracer] implementation that writes human-readable execution logs to a file.
 class FileTracer implements ParseTracer {
+  /// Creates a [FileTracer] that writes to the file at [path].
   FileTracer(String path) : _sink = File(path).openWrite();
   final IOSink _sink;
 

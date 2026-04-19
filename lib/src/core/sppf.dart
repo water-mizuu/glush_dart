@@ -14,12 +14,21 @@ import "package:meta/meta.dart";
 // Node hierarchy
 // ---------------------------------------------------------------------------
 
-/// Base class for all BSPPF nodes.
+/// Base class for all nodes in the Binarized Shared Packed Parse Forest (BSPPF).
+///
+/// An SPPF is a data structure that represents all possible parse trees for an
+/// ambiguous grammar in a compact, shared format. Glush uses a binarized
+/// version where each interior node has at most two children, aligning
+/// naturally with the Glushkov state machine's transitions.
 @immutable
 sealed class SppfNode {
+  /// Base constructor for [SppfNode].
   const SppfNode();
 
+  /// The absolute starting position of this node in the input stream (inclusive).
   int get start;
+
+  /// The absolute ending position of this node in the input stream (exclusive).
   int get end;
 }
 
@@ -27,10 +36,12 @@ sealed class SppfNode {
 // Leaf nodes
 // ---------------------------------------------------------------------------
 
-/// A single consumed input token at [position].
+/// A leaf node representing a single consumed token from the input stream.
 class TerminalNode extends SppfNode {
+  /// Creates a [TerminalNode] at the given [position].
   const TerminalNode(this.position);
 
+  /// The position of the token in the input stream.
   final int position;
 
   @override
@@ -50,10 +61,15 @@ class TerminalNode extends SppfNode {
   String toString() => "Terminal($position)";
 }
 
-/// An epsilon (zero-width) derivation at [position].
+/// A leaf node representing an epsilon (zero-width) match at a specific position.
+///
+/// Epsilon nodes are used for patterns that match without consuming any input,
+/// such as optional components that are absent or empty repetitions.
 class EpsilonNode extends SppfNode {
+  /// Creates an [EpsilonNode] at the given [position].
   const EpsilonNode(this.position);
 
+  /// The position where the epsilon match occurred.
   final int position;
 
   @override
@@ -77,18 +93,21 @@ class EpsilonNode extends SppfNode {
 // Interior nodes (shared)
 // ---------------------------------------------------------------------------
 
-/// A family entry inside an [IntermediateNode] or [SymbolNode].
+/// A derivation alternative within an [IntermediateNode] or [SymbolNode].
 ///
-/// Represents one binary split: [left] is the accumulated prefix (null = ε),
-/// [right] is the child just completed (null = ε body in a SymbolNode).
+/// In a binarized forest, each interior node represents a concatenation of a
+/// [left] prefix and a [right] child. If a node is ambiguous, it will contain
+/// multiple [SppfFamily] entries, each representing a different way to split
+/// the span or a different derivation path.
 @immutable
 class SppfFamily {
+  /// Creates an [SppfFamily] with the given [left] and [right] children.
   const SppfFamily(this.left, this.right);
 
-  /// Accumulated left prefix (previous IntermediateNode or null).
+  /// The accumulated left prefix, usually an [IntermediateNode] or null.
   final SppfNode? left;
 
-  /// Rightmost child (TerminalNode, SymbolNode, IntermediateNode, or null for ε).
+  /// The rightmost child in this binary split, or null for epsilon bodies.
   final SppfNode? right;
 
   @override
@@ -100,15 +119,18 @@ class SppfFamily {
   int get hashCode => Object.hash(identityHashCode(left), identityHashCode(right));
 }
 
-/// An intermediate node keyed by [slotId] (state ID) and span [start]..[end].
+/// An interior node representing a partially completed rule body.
 ///
-/// Represents everything parsed in a rule up to—but not including—the final
-/// return. Multiple derivations contribute distinct [SppfFamily] entries.
+/// [IntermediateNode]s are keyed by their [slotId] (which corresponds to a
+/// state in the Glushkov automaton) and their input span. They act as "packed
+/// nodes" in the SPPF, aggregating all possible ways to reach a specific
+/// state over a specific span.
 // ignore: must_be_immutable
 class IntermediateNode extends SppfNode {
+  /// Creates an [IntermediateNode] for the given [slotId] and span.
   IntermediateNode(this.slotId, this.start, this.end);
 
-  /// The state-machine state ID that identifies this slot.
+  /// The ID of the state machine slot this node represents.
   final int slotId;
 
   @override
@@ -117,14 +139,13 @@ class IntermediateNode extends SppfNode {
   @override
   final int end;
 
-  /// Single family for the common case (no ambiguity).
-  /// Null if either no family has been added yet, or if multiple families exist.
+  /// Optimized storage for the common case where a node is not ambiguous.
   SppfFamily? _singleFamily;
 
-  /// Multiple families for ambiguous parses. Null if using [_singleFamily] mode.
+  /// Storage for multiple derivations in ambiguous cases.
   List<SppfFamily>? _multipleFamilies;
 
-  /// All derivation alternatives for this slot+span.
+  /// Returns all derivation alternatives for this intermediate node.
   List<SppfFamily> get families {
     if (_multipleFamilies != null) {
       return _multipleFamilies!;
@@ -135,38 +156,40 @@ class IntermediateNode extends SppfNode {
     return const [];
   }
 
-  /// Add a derivation alternative (deduplicates by identity).
+  /// Adds a new [SppfFamily] to this node, handling deduplication.
+  ///
+  /// This method automatically transitions the node from single-family
+  /// optimization to multi-family storage if an ambiguous derivation is found.
   void addFamily(SppfNode? left, SppfNode right) {
     var f = SppfFamily(left, right);
 
     if (_multipleFamilies != null) {
-      // Already in multi-family mode
       if (!_multipleFamilies!.contains(f)) {
         _multipleFamilies!.add(f);
       }
     } else if (_singleFamily == null) {
-      // First family - store directly
       _singleFamily = f;
     } else if (_singleFamily != f) {
-      // Second family - transition to list mode
       _multipleFamilies = [_singleFamily!, f];
       _singleFamily = null;
     }
-    // else: identical to single family, skip (deduplicate)
   }
 
   @override
   String toString() => "Intermediate(slot=$slotId, $start..$end, #${families.length})";
 }
 
-/// A symbol node keyed by [ruleSymbol] and span [start]..[end].
+/// An interior node representing a completely derived grammar rule.
 ///
-/// Represents a complete derivation of a grammar rule. All frames that
-/// complete [ruleSymbol] over the same span share this node.
+/// [SymbolNode]s are the roots of rule derivations. They are keyed by the
+/// [ruleSymbol] and the input span. Like intermediate nodes, they aggregate
+/// all possible derivations (bodies) of the rule over that span.
 // ignore: must_be_immutable
 class SymbolNode extends SppfNode {
+  /// Creates a [SymbolNode] for the given [ruleSymbol] and span.
   SymbolNode(this.ruleSymbol, this.start, this.end);
 
+  /// The symbol of the grammar rule this node represents.
   final PatternSymbol ruleSymbol;
 
   @override
@@ -175,17 +198,13 @@ class SymbolNode extends SppfNode {
   @override
   final int end;
 
-  /// Single family for the common case (no ambiguity).
-  /// Null if either no family has been added yet, or if multiple families exist.
+  /// Optimized storage for non-ambiguous rule derivations.
   SppfNode? _singleFamily;
 
-  /// Multiple families for ambiguous parses. Null if using [_singleFamily] mode.
+  /// Storage for ambiguous rule derivations.
   List<SppfNode?>? _multipleFamilies;
 
-  /// One entry per derivation alternative.
-  ///
-  /// Each body is the accumulated [IntermediateNode] (or a leaf node) that
-  /// represents one complete parse of this rule's right-hand side.
+  /// Returns all derivation alternatives (rule bodies) for this symbol node.
   List<SppfNode?> get families {
     if (_multipleFamilies != null) {
       return _multipleFamilies!;
@@ -196,10 +215,9 @@ class SymbolNode extends SppfNode {
     return const [];
   }
 
-  /// Add a body derivation (deduplicates by identity).
+  /// Adds a new derivation body to this node, handling deduplication.
   void addFamily(SppfNode? body) {
     if (_multipleFamilies != null) {
-      // Already in multi-family mode
       for (var existing in _multipleFamilies!) {
         if (identical(existing, body)) {
           return;
@@ -207,33 +225,27 @@ class SymbolNode extends SppfNode {
       }
       _multipleFamilies!.add(body);
     } else if (_singleFamily == null) {
-      // First family - store directly
       _singleFamily = body;
     } else if (!identical(_singleFamily, body)) {
-      // Second family - transition to list mode
       _multipleFamilies = [_singleFamily, body];
       _singleFamily = null;
     }
-    // else: identical to single family, skip (deduplicate)
   }
 
   // ---------------------------------------------------------------------------
   // Label index
   // ---------------------------------------------------------------------------
 
-  /// Labels closed during derivations of this rule.
-  ///
-  /// Keyed by label name → list of (start, end) spans, one per derivation
-  // ignore: comment_references
-  /// path that closed that label. Populated eagerly during [_processReturnAction]
-  /// so that post-parse queries are O(1) map lookups.
+  /// Map of label names to their spans captured during the derivation.
   Map<String, List<(int start, int end)>>? _labelMap;
 
-  /// Record that label [name] spans [[start]..[end]] in one derivation of this rule.
+  /// Records a captured label [name] for a specific derivation path.
+  ///
+  /// Deduplicates identical spans to keep the index compact even if multiple
+  /// ambiguous paths produce the same capture.
   void recordLabel(String name, int start, int end) {
     (_labelMap ??= {})[name] ??= [];
     var list = _labelMap![name]!;
-    // Deduplicate identical spans (different derivation paths may produce the same span).
     for (var entry in list) {
       if (entry.$1 == start && entry.$2 == end) {
         return;
@@ -242,16 +254,13 @@ class SymbolNode extends SppfNode {
     list.add((start, end));
   }
 
-  /// All label spans for [name] across all derivations of this rule.
-  /// Returns an empty list if the label was never recorded.
+  /// Returns all spans captured for [name] in this rule's derivations.
   List<(int start, int end)> labelsFor(String name) => _labelMap?[name] ?? const [];
 
-  /// The first (or only) span for [name], or null if absent.
+  /// Returns the primary (first) span for [name], or null if absent.
   (int start, int end)? labelFor(String name) => _labelMap?[name]?.firstOrNull;
 
-  /// Raw label map — exposed for diagnostic tests only.
-  ///
-  /// Returns null if no labels were recorded for this node.
+  /// Returns the internal label map for diagnostic purposes.
   Map<String, List<(int start, int end)>>? get labelMapForDebug => _labelMap;
 
   @override
@@ -262,42 +271,57 @@ class SymbolNode extends SppfNode {
 }
 
 // ---------------------------------------------------------------------------
-// Label-tracking linked lists  (threaded through Frame during parsing)
+// Label-tracking linked lists
 // ---------------------------------------------------------------------------
 
-/// One entry in the open-label stack: a label that has been started but not yet closed.
+/// A node in a persistent linked list tracking currently open labels.
 ///
-/// This is a persistent linked list threaded through [Frame] so that
-// ignore: comment_references
-/// [_processLabelEndAction] can pair each close with its matching open
-/// without walking the mark stream.
+/// As the parser traverses the grammar, it maintains a stack of labels that
+/// have been started but not yet closed. Using a persistent list allows each
+/// [Frame] to have its own independent view of the label stack.
 class OpenLabel {
+  /// Creates an [OpenLabel] entry.
   const OpenLabel(this.name, this.openPos, this.tail);
 
+  /// The name of the label.
   final String name;
+
+  /// The position in the input where the label started.
   final int openPos;
+
+  /// The previous entry in the stack.
   final OpenLabel? tail;
 
-  /// Return a new stack with this entry appended at the top.
+  /// Returns a new [OpenLabel] stack with a new entry added.
   OpenLabel push(String name, int pos) => OpenLabel(name, pos, this);
 }
 
-/// One entry in the closed-label log: a fully matched label span.
+/// A node in a persistent linked list tracking closed labels within a rule.
 ///
-/// A persistent linked list of all labels closed during the current rule call.
-// ignore: comment_references
-/// Attached to a [SymbolNode] in batch when [_processReturnAction] fires.
+/// Once a label is closed, its span is recorded. This list is collected and
+/// moved into the [SymbolNode] once the rule derivation is complete.
 class ClosedLabel {
+  /// Creates a [ClosedLabel] entry.
   const ClosedLabel(this.name, this.start, this.end, this.tail);
 
+  /// The name of the label.
   final String name;
+
+  /// The absolute starting position.
   final int start;
+
+  /// The absolute ending position.
   final int end;
+
+  /// The previous entry in the list.
   final ClosedLabel? tail;
 }
 
-/// Pop the topmost [name] entry from [stack], returning the new stack and
-/// the open position.  Returns null if [name] is not found (malformed input).
+/// Helper to pop a specific [name] from an [OpenLabel] stack.
+///
+/// Since labels might be nested or interleaved in complex ways, this performs
+/// a recursive search and reconstruction to remove the correct entry while
+/// preserving the rest of the persistent stack.
 (OpenLabel? newStack, int openPos)? popOpenLabel(OpenLabel? stack, String name) {
   if (stack == null) {
     return null;
@@ -309,6 +333,5 @@ class ClosedLabel {
   if (result == null) {
     return null;
   }
-  // Reconstruct the prefix above the popped entry.
   return (OpenLabel(stack.name, stack.openPos, result.$1), result.$2);
 }

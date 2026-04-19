@@ -5,13 +5,23 @@ import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
-/// A parked continuation for a sub-parse.
+/// A parked continuation representing a parse path waiting for a sub-parse to complete.
 ///
-/// Contains the derivation source, the parent context to resume in,
-/// and the next state to transition to.
+/// A [Waiter] captures all the state necessary to resume parsing once a
+/// lookahead predicate or conjunction condition is satisfied. It includes:
+/// - [ParseNodeKey?]: The source node for forest construction.
+/// - [Context]: The parsing environment (caller, captures, etc.).
+/// - [State]: The state to transition to upon resumption.
+/// - [LazyGlushList<Mark>]: The accumulated mark stream.
 typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 
-/// Base class for tracking asynchronous sub-parses (predicates, conjunctions).
+/// Base class for coordinating asynchronous or non-linear sub-parses.
+///
+/// Trackers are used to manage derivation paths that diverge from the main
+/// linear token stream, such as lookahead predicates or intersecting
+/// conjunctions. They keep track of how many active frames belong to the
+/// sub-parse and manage a list of [waiters] that should be resumed when certain
+/// conditions are met.
 sealed class SubparseTracker {
   /// How many frames owned by this sub-parse are currently in flight.
   int activeFrames = 0;
@@ -37,12 +47,16 @@ sealed class SubparseTracker {
   bool get isExhausted => activeFrames == 0;
 }
 
-/// Tracks one lookahead sub-parse for a specific `(pattern, startPosition)`.
+/// Coordinates the execution of a lookahead predicate (&pattern or !pattern).
 ///
-/// The parser may enter the same predicate from multiple branches, so the
-/// tracker counts how many predicate-owned frames are still live (`activeFrames`).
-/// Once all branches finish, the tracker can resolve the predicate as matched
-/// or exhausted, and then wake any parked continuations.
+/// A [PredicateTracker] ensures that a lookahead sub-parse is only initiated
+/// once for a given (pattern, position) pair. It tracks the progress of all
+/// branches within that sub-parse using [activeFrames].
+///
+/// If any branch completes successfully, the predicate is marked as [matched].
+/// When all branches are finished, the predicate is marked as [exhausted].
+/// Parked continuations ([waiters]) are resumed based on whether the predicate
+/// was an "AND" (resume on match) or a "NOT" (resume on exhaustion without match).
 class PredicateTracker extends SubparseTracker {
   PredicateTracker(this.symbol, this.startPosition, {required this.isAnd});
   final PatternSymbol symbol;
@@ -60,11 +74,16 @@ class PredicateTracker extends SubparseTracker {
   String toString() => "pred($symbol @ $startPosition)";
 }
 
-/// Tracks one consuming conjunction sub-parse (intersection) for `(left, right, startPosition)`.
+/// Coordinates the execution of an intersection rule (A & B).
 ///
-/// Both sides (A and B) are run independently from the same start position.
-/// When both find a match ending at the same position `j`, they rendezvous
-/// and resume the main parse at `j`.
+/// In a conjunction, two independent sub-parses (left and right) are started
+/// from the same initial position. The conjunction matches only if both sides
+/// complete at the exact same end position.
+///
+/// The tracker stores completions for both sides in [leftCompletions] and
+/// [rightCompletions], keyed by their end position. Whenever a new completion
+/// is recorded, it checks if the other side has already completed at that same
+/// position, and if so, it performs a rendezvous to resume any [waiters].
 class ConjunctionTracker extends SubparseTracker {
   ConjunctionTracker({
     required this.leftSymbol,

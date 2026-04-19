@@ -1,48 +1,55 @@
+import "package:glush/glush.dart" show Caller, Mark, NamedMarkVal;
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/common/context.dart" show Context;
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
-/// Base class for all actions that can occur in a state.
+/// The base class for all operational steps within the state machine.
 ///
-/// Actions represent transitions and side effects in the state machine,
-/// such as token consumption, function calls, returns, and predicates.
+/// A [StateAction] represents a single transition or side effect that the
+/// parser performs when it enters a state. Actions are the "instructions" of
+/// the state machine, defining how to consume tokens, navigate the grammar's
+/// rule hierarchy, and manage metadata like labels and marks.
 @immutable
 sealed class StateAction {
+  /// Base constructor for all state actions.
   const StateAction();
 }
 
-/// Action to set a mark for later backreference.
+/// An action that records a named [Mark] at the current input position.
+///
+/// Markers are used for structural annotations and backreferences. When this
+/// action is executed, a [NamedMarkVal] is appended to the current derivation's
+/// mark stream, allowing the parser or an evaluator to retrieve the exact
+/// position where this marker was encountered.
 final class MarkAction implements StateAction {
-  /// Create a mark action.
-  ///
-  /// Parameters:
-  ///   [name] - The name of the mark
-  ///   [nextState] - The state to transition to after marking
+  /// Creates a mark action that emits [name] and transitions to [nextState].
   const MarkAction(this.name, this.nextState);
 
-  /// The name of this mark.
+  /// The name of the mark to be emitted.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to after the mark is recorded.
   final State nextState;
 
   @override
   String toString() => "Mark($name)";
 }
 
-/// Action to consume a token and transition to the next state.
+/// An action that consumes a single token from the input stream.
+///
+/// This is the primary mechanism for advancing the parser through the input.
+/// The action specifies a [choice] (a pattern or literal) that the current
+/// input token must match. If it matches, the parser advances its position
+/// and transitions to [nextState].
 final class TokenAction implements StateAction {
-  /// Create a token action.
-  ///
-  /// Parameters:
-  ///   [choice] - The token choice to consume
-  ///   [nextState] - The state to transition to after consuming the token
+  /// Creates a token action that matches [choice] and transitions to [nextState].
   const TokenAction(this.choice, this.nextState);
 
-  /// The token choice to consume.
+  /// The pattern that the input token must satisfy.
   final TokenChoice choice;
 
-  /// The next state after this transition.
+  /// The state to transition to after successfully consuming a token.
   final State nextState;
 
   @override
@@ -58,101 +65,101 @@ enum BoundaryKind {
   eof,
 }
 
-/// Action to check for start or end of input boundary.
+/// An action that asserts the parser is at a specific input boundary.
+///
+/// Boundary actions are used to implement anchors like `^` (start of input) or
+/// `$` (end of input). They do not consume any tokens but will only allow the
+/// parse path to continue if the condition is met.
 final class BoundaryAction implements StateAction {
-  /// Create a boundary action.
-  ///
-  /// Parameters:
-  ///   [kind] - The type of boundary (start or eof)
-  ///   [nextState] - The state to transition to if boundary matches
+  /// Creates a boundary check for the specified [kind].
   const BoundaryAction(this.kind, this.nextState);
 
-  /// The type of boundary being checked.
+  /// Whether to check for the start of input or the end of file (EOF).
   final BoundaryKind kind;
 
-  /// The next state after this transition.
+  /// The state to transition to if the boundary condition is satisfied.
   final State nextState;
 
   @override
   String toString() => "Boundary(${kind.name})";
 }
 
-/// Action to mark the start of a labeled capture group.
+/// An action that begins a labeled capture group.
+///
+/// Labeled groups allow the parser to extract specific sub-strings or sub-trees
+/// from the input. This action records the start position of the label in the
+/// mark stream and pushes the label onto the active stack for forest
+/// construction.
 final class LabelStartAction implements StateAction {
-  /// Create a label start action.
-  ///
-  /// Parameters:
-  ///   [name] - The name of the label
-  ///   [nextState] - The state to transition to
+  /// Creates a label start action for the given [name].
   const LabelStartAction(this.name, this.nextState);
 
-  /// The name of the label.
+  /// The name of the capture group.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to after starting the label.
   final State nextState;
 }
 
-/// Action to mark the end of a labeled capture group.
+/// An action that completes a labeled capture group.
+///
+/// This action marks the end of a group started by a [LabelStartAction]. It
+/// calculates the final span of the captured input and records it in the
+/// SPPF and mark stream.
 final class LabelEndAction implements StateAction {
-  /// Create a label end action.
-  ///
-  /// Parameters:
-  ///   [name] - The name of the label
-  ///   [nextState] - The state to transition to
+  /// Creates a label end action for the given [name].
   const LabelEndAction(this.name, this.nextState);
 
-  /// The name of the label.
+  /// The name of the capture group being closed.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to after closing the label.
   final State nextState;
 }
 
-/// Action to match a previously captured label group by name.
+/// An action that matches the currently consumed input against a previous label.
+///
+/// Backreferences allow for context-sensitive parsing. This action retrieves
+/// the text captured by the named label and ensures that the subsequent input
+/// matches it exactly.
 final class BackreferenceAction implements StateAction {
-  /// Create a backreference action.
-  ///
-  /// Parameters:
-  ///   [name] - The name of the label to reference
-  ///   [nextState] - The state to transition to if match succeeds
+  /// Creates a backreference check for the label [name].
   const BackreferenceAction(this.name, this.nextState);
 
-  /// The name of the label being referenced.
+  /// The name of the label to compare against.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to if the input matches the captured label text.
   final State nextState;
 }
 
-/// Action to consume a parameter value during parsing.
+/// An action that resolves a dynamic parameter and branches accordingly.
+///
+/// Parameters in `glush_dart` allow rules to be customized at runtime. This
+/// action looks up the value of [name] in the current [Context] and performs
+/// a transition based on that value (e.g., matching a string or calling a
+/// rule).
 final class ParameterAction implements StateAction {
-  /// Create a parameter action.
-  ///
-  /// Parameters:
-  ///   [name] - The name of the parameter
-  ///   [nextState] - The state to transition to
+  /// Creates an action to resolve the parameter [name].
   const ParameterAction(this.name, this.nextState);
 
-  /// The name of the parameter.
+  /// The name of the parameter to resolve.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to after the parameter is resolved and processed.
   final State nextState;
 
   @override
   String toString() => "Parameter($name)";
 }
 
-/// Action to call a parameterized rule.
+/// An action that invokes a parameterized rule.
+///
+/// This is used when a parameter itself is a rule reference or a rule call. It
+/// merges the call-site arguments with the parameter's own environment to
+/// perform a dynamic dispatch to the target rule.
 final class ParameterCallAction implements StateAction {
-  /// Create a parameter call action.
-  ///
-  /// Parameters:
-  ///   [targetParameter] - The name of the parameter invoking the rule
-  ///   [arguments] - Dynamically bound parameter scope elements
-  ///   [nextState] - The state to transition to after the call returns
-  ///   [minPrecedenceLevel] - Minimum precedence filter for the call
+  /// Creates a dynamic call action via [targetParameter].
   const ParameterCallAction(
     this.targetParameter,
     this.arguments,
@@ -160,16 +167,16 @@ final class ParameterCallAction implements StateAction {
     this.minPrecedenceLevel,
   );
 
-  /// The parameter executing the call.
+  /// The name of the parameter that holds the rule or rule call.
   final String targetParameter;
 
-  /// The arguments passed scoped locally to the parameterized call.
+  /// The arguments to be bound in the called rule's context.
   final Map<String, CallArgumentValue> arguments;
 
-  /// The next state after this transition.
+  /// The state to return to after the dynamic call completes.
   final State nextState;
 
-  /// Minimum precedence filter for the call expansion.
+  /// A precedence constraint to apply to the called rule.
   final int? minPrecedenceLevel;
 
   @override
@@ -195,54 +202,51 @@ final class ParameterStringAction implements StateAction {
   String toString() => "ParameterString(${String.fromCharCode(codeUnit)})";
 }
 
-/// Action to check a predicate on a parameter value.
+/// An action that performs a lookahead assertion on a parameter's value.
+///
+/// This is the state-machine representation of `&($param)` or `!($param)`. It
+/// initiates a sub-parse that resolves the parameter and checks if it matches
+/// the expected condition without consuming input in the main parse path.
 final class ParameterPredicateAction implements StateAction {
-  /// Create a parameter predicate action.
-  ///
-  /// Parameters:
-  ///   [isAnd] - true for AND (&parameter), false for NOT (!parameter)
-  ///   [name] - The parameter name to check
-  ///   [nextState] - The state to transition to if predicate succeeds
+  /// Creates a parameter lookahead assertion.
   const ParameterPredicateAction({
     required this.isAnd,
     required this.name,
     required this.nextState,
   });
 
-  /// Whether this is an AND (&) or NOT (!) predicate.
+  /// True for a positive lookahead (`&`), false for a negative lookahead (`!`).
   final bool isAnd;
 
-  /// The name of the parameter being checked.
+  /// The name of the parameter being asserted.
   final String name;
 
-  /// The next state after this transition.
+  /// The state to transition to if the lookahead assertion succeeds.
   final State nextState;
 
   @override
   String toString() => isAnd ? "ParameterPredicate(&$name)" : "ParameterPredicate(!$name)";
 }
 
-/// Action to call a rule and push a return state onto the call stack.
+/// An action that invokes a grammar rule.
+///
+/// This is the fundamental mechanism for modularity in the grammar. It manages
+/// the allocation of a new GSS node (via the [Caller] mechanism) and
+/// establishes a return point ([returnState]) for when the rule completes.
 final class CallAction implements StateAction {
-  /// Create a call action.
-  ///
-  /// Parameters:
-  ///   [ruleSymbol] - The symbol of the rule to call
-  ///   [arguments] - Explicit mapping of parameter expressions
-  ///   [returnState] - The state to return to when the rule completes
-  ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
+  /// Creates a rule call action.
   const CallAction(this.ruleSymbol, this.arguments, this.returnState, [this.minPrecedenceLevel]);
 
-  /// The rule symbol being called.
+  /// The unique symbol of the rule to be invoked.
   final PatternSymbol ruleSymbol;
 
-  /// Dynamically scoped parameterized arguments matching.
+  /// The arguments to bind in the called rule's context.
   final Map<String, CallArgumentValue> arguments;
 
-  /// The state to return to after the call completes.
+  /// The state to transition to once the rule successfully returns.
   final State returnState;
 
-  /// Optional minimum precedence level for the call.
+  /// An optional precedence constraint for precedence climbing.
   final int? minPrecedenceLevel;
 
   @override
@@ -251,26 +255,23 @@ final class CallAction implements StateAction {
       : "CallAction($ruleSymbol)";
 }
 
-/// Action for tail-call optimization of recursive rules.
+/// An action that performs a tail-optimized recursive rule call.
 ///
-/// When a recursive rule can be optimized into a loop, this action is used
-/// instead of CallAction to avoid stack growth.
+/// Tail-call optimization (TCO) is used to avoid stack overflow and excessive
+/// memory usage in right-recursive grammars. When a rule ends with a call to
+/// itself (or another compatible rule), the machine uses this action to reuse
+/// the current GSS frame instead of allocating a new one.
 final class TailCallAction implements StateAction {
-  /// Create a tail call action.
-  ///
-  /// Parameters:
-  ///   [ruleSymbol] - The rule symbol to tail-call
-  ///   [arguments] - Explicit mapping of parameter expressions
-  ///   [minPrecedenceLevel] - Optional minimum precedence level constraint
+  /// Creates a tail-recursive call action.
   const TailCallAction(this.ruleSymbol, this.arguments, [this.minPrecedenceLevel]);
 
-  /// The rule being tail-called.
+  /// The symbol of the rule to be invoked via tail-call.
   final PatternSymbol ruleSymbol;
 
-  /// Dynamically scoped parameterized arguments matching.
+  /// The arguments to bind in the recursive call's context.
   final Map<String, CallArgumentValue> arguments;
 
-  /// Optional minimum precedence level for the call.
+  /// An optional precedence constraint for precedence climbing.
   final int? minPrecedenceLevel;
 
   @override
@@ -279,19 +280,20 @@ final class TailCallAction implements StateAction {
       : "TailCallAction($ruleSymbol)";
 }
 
-/// Action to return from a rule call and pop the call stack.
+/// An action that signals the completion of a grammar rule.
+///
+/// When the parser reaches this action, it attempts to return to all callers
+/// that are currently waiting for [ruleSymbol] to finish at the current
+/// position. It also communicates the [precedenceLevel] of the completed path
+/// to resolve ambiguity in precedence-sensitive rules.
 final class ReturnAction implements StateAction {
-  /// Create a return action.
-  ///
-  /// Parameters:
-  ///   [ruleSymbol] - The rule being returned from
-  ///   [precedenceLevel] - Optional precedence level for the return
+  /// Creates a return action for the given [ruleSymbol].
   const ReturnAction(this.ruleSymbol, [this.precedenceLevel]);
 
-  /// The rule this return belongs to.
+  /// The symbol of the rule that has completed.
   final PatternSymbol ruleSymbol;
 
-  /// Optional precedence level associated with the return.
+  /// The precedence level of the derivation that produced this return.
   final int? precedenceLevel;
 
   @override
@@ -300,24 +302,33 @@ final class ReturnAction implements StateAction {
       : "ReturnAction($ruleSymbol)";
 }
 
-/// Action to accept the input and complete parsing successfully.
+/// An action that indicates a successful completion of the entire parse.
+///
+/// This action is only present at the end of the grammar's start rule. If the
+/// parser reaches an [AcceptAction] after consuming the expected input (usually
+/// EOF), the parse is considered successful.
 final class AcceptAction implements StateAction {
-  /// Create an accept action.
+  /// Creates an accept action.
   const AcceptAction();
 }
 
-/// Predicate action for lookahead assertions (AND/NOT predicates)
-/// Does not consume input - purely a condition check
+/// An action that initiates a lookahead assertion (&pattern or !pattern).
+///
+/// Lookahead predicates allow the parser to check if a pattern matches (or
+/// fails to match) at the current position without advancing the input. This
+/// action spawns a sub-parse that resolves the condition and notifies the
+/// parent path to resume upon success (for `&`) or failure (for `!`).
 final class PredicateAction implements StateAction {
+  /// Creates a lookahead predicate assertion for [symbol].
   const PredicateAction({required this.isAnd, required this.symbol, required this.nextState});
 
-  // Marker type: true for AND (&), false for NOT (!)
+  /// True for a positive lookahead (`&`), false for a negative lookahead (`!`).
   final bool isAnd;
 
-  // The symbol for the pattern (used by shell grammars)
+  /// The symbol of the rule or pattern to check.
   final PatternSymbol symbol;
 
-  // Next state after successful predicate check
+  /// The state to transition to if the lookahead condition is satisfied.
   final State nextState;
 
   @override
@@ -327,42 +338,42 @@ final class PredicateAction implements StateAction {
       : "Predicate(!$symbol)";
 }
 
-/// Action for consuming intersection (A & B) of two patterns.
+/// An action that coordinates an intersection match between two patterns (A & B).
+///
+/// In a conjunction, both side A and side B must match the same input span
+/// starting from the current position. This action initiates both sub-parses
+/// and uses a rendezvous mechanism to ensure they both reach the same end
+/// position before allowing the parse to continue.
 final class ConjunctionAction implements StateAction {
-  /// Create a conjunction action.
-  ///
-  /// Parameters:
-  ///   [leftSymbol] - The left pattern symbol
-  ///   [rightSymbol] - The right pattern symbol
-  ///   [nextState] - The state to transition to if both patterns match
+  /// Creates an intersection (A & B) action.
   const ConjunctionAction({
     required this.leftSymbol,
     required this.rightSymbol,
     required this.nextState,
   });
 
-  /// The left operand symbol.
+  /// The symbol of the first pattern in the intersection.
   final PatternSymbol leftSymbol;
 
-  /// The right operand symbol.
+  /// The symbol of the second pattern in the intersection.
   final PatternSymbol rightSymbol;
 
-  /// The next state after this transition.
+  /// The state to transition to if both patterns match the same input span.
   final State nextState;
 
   @override
   String toString() => "Conj($leftSymbol & $rightSymbol)";
 }
 
-/// Action to retreat/go-back one position in the input.
+/// An action that instructs the parser to move one position backward in the input.
+///
+/// This is used for complex non-linear grammar patterns where the parser
+/// needs to re-examine a previous token under a different state.
 final class RetreatAction implements StateAction {
-  /// Create a retreat action.
-  ///
-  /// Parameters:
-  ///   [nextState] - The state to transition to after retreating
+  /// Creates an action that retreats the parser to the previous position.
   const RetreatAction(this.nextState);
 
-  /// The next state after this transition.
+  /// The state to transition to at the previous position.
   final State nextState;
 
   @override

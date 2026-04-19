@@ -1,12 +1,23 @@
 /// Grammar file format specification and types
 library glush.grammar_file_format;
 
-/// Represents a Rule definition parsed from a grammar file
+/// Represents the high-level definition of a single grammar rule.
+///
+/// A [RuleDefinition] is the primary structural element of a grammar file. It
+/// binds a [name] to a [pattern] expression and may declare a set of [parameters]
+/// that allow the rule to be customized when called from other rules.
 class RuleDefinition {
+  /// Creates a rule definition for [name] with the given [pattern].
   RuleDefinition({required this.name, required this.pattern, List<String>? parameters})
     : parameters = parameters ?? const [];
+
+  /// The unique name of the rule within the grammar.
   final String name;
+
+  /// The structural pattern that this rule matches.
   final PatternExpr pattern;
+
+  /// The list of parameter names that this rule accepts.
   final List<String> parameters;
 
   @override
@@ -16,9 +27,16 @@ class RuleDefinition {
   }
 }
 
-/// Base class for pattern expressions in grammar files
+/// The base interface for any value that can be passed as a rule argument.
+///
+/// This includes both structural [PatternExpr] nodes and data-centric guard
+/// expressions (literals, comparisons, etc.).
 sealed class CallArgumentValueNode {}
 
+/// The base interface for all parsing expressions in the grammar AST.
+///
+/// A [PatternExpr] defines a part of the grammar's structural specification,
+/// such as sequences, alternations, repetitions, or literals.
 sealed class PatternExpr implements CallArgumentValueNode {}
 
 /// Unary expression used in call arguments and guards.
@@ -87,12 +105,18 @@ enum ExpressionBinaryOperator {
   final String symbol;
 }
 
-/// Literal token pattern (e.g., 'a', '+', 'hello')
+/// A pattern that matches a literal string or character.
+///
+/// Literals are the leaf nodes of the grammar that match exact input sequences.
+/// Quoted strings in the grammar file are parsed into this expression.
 class LiteralPattern implements PatternExpr {
-  // true for quoted strings, false for single char
-
+  /// Creates a literal pattern for the given [literal] text.
   const LiteralPattern(this.literal, {this.isString = false});
+
+  /// The literal text to match.
   final String literal;
+
+  /// Whether the literal was parsed from a double-quoted string.
   final bool isString;
 
   @override
@@ -169,14 +193,22 @@ class MainMarkPattern implements PatternExpr {
   String toString() => "\$$name $inner";
 }
 
-/// Rule reference pattern (e.g., expr, expr^2, term)
-/// The precedenceConstraint is the minimum level required (e.g., 2 in expr^2)
+/// A pattern that invokes another rule by name.
+///
+/// Rule references allow for modular and recursive grammar definitions. They
+/// can include [arguments] for parameterized rules and a [precedenceConstraint]
+/// for precedence climbing (e.g., `expr^2`).
 class RuleRefPattern implements PatternExpr {
-  // optional ^N constraint
-
+  /// Creates a reference to [ruleName].
   const RuleRefPattern(this.ruleName, {this.arguments = const [], this.precedenceConstraint});
+
+  /// The name of the rule being invoked.
   final String ruleName;
+
+  /// The arguments provided to the called rule.
   final List<CallArgumentNode> arguments;
+
+  /// The minimum precedence level required for this call to match.
   final int? precedenceConstraint;
 
   @override
@@ -201,18 +233,28 @@ class CallArgumentNode {
   String toString() => name == null ? "$value" : "$name: $value";
 }
 
-/// Sequence pattern (e.g., expr '+' term)
+/// A pattern that matches multiple sub-patterns in sequence.
+///
+/// Sequences represent the "followed by" relationship in PEG grammars.
 class SequencePattern implements PatternExpr {
+  /// Creates a sequence from a list of [patterns].
   const SequencePattern(this.patterns);
+
+  /// The sub-expressions that must match in order.
   final List<PatternExpr> patterns;
 
   @override
   String toString() => patterns.join(" >> ");
 }
 
-/// Alternation pattern (e.g., '+' | '-' | '*')
+/// A pattern that matches any one of several alternatives.
+///
+/// Alternatives represent the ordered choice ("or") relationship in PEG grammars.
 class AlternationPattern implements PatternExpr {
+  /// Creates an alternation from a list of [patterns].
   const AlternationPattern(this.patterns);
+
+  /// The sub-expressions to attempt in order.
   final List<PatternExpr> patterns;
 
   @override
@@ -228,10 +270,18 @@ class ConjunctionPattern implements PatternExpr {
   String toString() => patterns.join(" & ");
 }
 
-/// Repetition pattern (e.g., expr*, term+, number?)
+/// A pattern that matches an expression repeatedly.
+///
+/// This covers common repetitions like `*` (zero or more), `+` (one or more),
+/// and `?` (optional).
 class RepetitionPattern implements PatternExpr {
+  /// Creates a repetition of [pattern] based on [kind].
   const RepetitionPattern(this.pattern, this.kind);
+
+  /// The expression to repeat.
   final PatternExpr pattern;
+
+  /// The quantifier type (*, +, or ?).
   final RepetitionKind kind;
 
   @override
@@ -406,21 +456,29 @@ class ActionExpr {
   String toString() => "{$code}";
 }
 
-/// Complete grammar file
+/// The top-level container for a compiled grammar file.
+///
+/// A [GrammarFile] represents the entire content of a `.glush` file, including
+/// its [name], the list of [rules] it defines, and any top-level [actions].
 class GrammarFile {
-  // rule name -> actions
-
+  /// Creates a grammar file container.
   const GrammarFile({required this.name, required this.rules, this.actions = const {}});
+
+  /// The logical name of the grammar.
   final String name;
+
+  /// The complete list of rule definitions in the file.
   final List<RuleDefinition> rules;
+
+  /// Semantic actions indexed by their associated rule or pattern name.
   final Map<String, List<ActionExpr>> actions;
 
-  /// Find a rule by name
+  /// Searches for a rule with the specified [name].
   RuleDefinition? findRule(String name) {
     return rules.where((r) => r.name == name).firstOrNull;
   }
 
-  /// Get the start rule (first rule defined)
+  /// The primary entry point for the grammar (the first defined rule).
   RuleDefinition? get startRule => rules.isNotEmpty ? rules.first : null;
 
   @override

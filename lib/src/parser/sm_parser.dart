@@ -60,26 +60,25 @@ import "package:glush/src/parser/state_machine/state_machine_export.dart";
 ///
 /// Critical for parsing complex grammars efficiently with support for
 /// ambiguity and semantic actions.
+/// The primary implementation of the Glush parser using a state machine.
+///
+/// [SMParser] takes a compiled [StateMachine] and drives the parsing process
+/// by feeding tokens into the machine and managing the resulting parse forest.
+/// It supports various modes of operation, from simple input recognition to
+/// full semantic forest construction.
 final class SMParser extends GlushParserBase implements RecognizerAndMarksParser {
-  /// Create a parser from a grammar.
+  /// Creates an [SMParser] from a [grammar].
   ///
-  /// Builds the state machine on first use and initializes the parser state.
-  /// The parser can then be reused across multiple parse() calls on different inputs.
+  /// This constructor automatically compiles the grammar into a [StateMachine].
   SMParser(GrammarInterface grammar) : stateMachine = StateMachine(grammar);
+
+  /// Creates an [SMParser] directly from a pre-compiled [stateMachine].
   SMParser.fromStateMachine(this.stateMachine);
 
-  /// Create a parser from an imported state machine JSON.
+  /// Creates an [SMParser] from a serialized state machine JSON string.
   ///
-  /// Quickly reconstructs a parser from a previously exported state machine
-  /// without requiring grammar recompilation. Useful for production environments
-  /// where fast startup is needed.
-  ///
-  /// Parameters:
-  ///   [jsonString] - The exported state machine JSON from [StateMachine.exportToJson]
-  ///   [grammar] - The grammar interface associated with this machine
-  ///
-  /// Returns:
-  ///   An SMParser ready for immediate use
+  /// This is useful for loading pre-compiled grammars without the overhead
+  /// of re-compiling the grammar at runtime.
   factory SMParser.fromImported(String jsonString, [GrammarInterface? grammar]) {
     var stateMachine = importFromJson(jsonString, grammar);
     return SMParser.fromStateMachine(stateMachine);
@@ -87,17 +86,25 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
   static final Context _initialContext = Context(const RootCallerKey());
 
-  /// The state machine constructed from the grammar.
+  /// The underlying [StateMachine] that defines the transitions and slots
+  /// for this parser.
   @override
   final StateMachine stateMachine;
 
-  /// Returns the grammar used to construct this parser's state machine.
+  /// Returns the grammar that this parser is based on.
   @override
   GrammarInterface get grammar => stateMachine.grammar;
 
-  /// Render the parser's compiled state machine as Graphviz DOT.
+  /// Returns a Graphviz DOT representation of the compiled state machine.
+  ///
+  /// This is useful for debugging and visualizing the structure of the
+  /// grammar's transitions and slot assignments.
   String toDot() => stateMachine.toDot();
 
+  /// Returns the initial set of parser [Frame]s to start a new parse.
+  ///
+  /// This sets up the root context and activates the initial states of the
+  /// grammar.
   @override
   List<Frame> get initialFrames {
     var initialFrame = Frame(_initialContext, const LazyGlushList<Mark>.empty());
@@ -106,12 +113,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     return [initialFrame];
   }
 
-  /// Recognize input without building a parse tree (boolean result).
+  /// Checks if the given [input] is valid according to the grammar.
   ///
-  /// Fast path that only checks if the input matches, without marking or
-  /// other semantic computation. This method must remain independent of the
-  /// BSR/SPPF pipeline and rely only on the State Machine execution and mark
-  /// bookkeeping. Returns true iff the entire input is accepted.
+  /// This is the most efficient way to validate input, as it avoids building
+  /// a full parse forest or calculating semantic marks.
   @override
   bool recognize(String input) {
     return GlushProfiler.measure("parser.recognize", () {
@@ -119,7 +124,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var byte in utf8.encode(input)) {
         parseState.processToken(byte);
-        // If no frames remain, the parser cannot recover from this prefix.
         if (!parseState.hasPendingWork) {
           return false;
         }
@@ -129,16 +133,13 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     });
   }
 
-  /// Parse input and return a [ParseSuccess] or [ParseError].
+  /// Parses the [input] and returns a single derivation path.
   ///
-  /// This is the basic parsing method: runs the state machine on the input
-  /// and returns true only if the entire input is accepted. This method must
-  /// remain independent of the BSR/SPPF pipeline and rely only on the State
-  /// Machine's marks system.
+  /// If the grammar is ambiguous, this method will return one valid
+  /// interpretation. Use [parseAmbiguous] if you need all possible paths.
   ///
-  /// Returns:
-  /// - [ParseSuccess] if the entire input matches the grammar
-  /// - [ParseError] if parsing fails at some position
+  /// [captureTokensAsMarks] can be set to true to include raw tokens in the
+  /// resulting mark stream.
   @override
   ParseOutcome parse(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse", () {
@@ -146,14 +147,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var byte in utf8.encode(input)) {
         parseState.processToken(byte);
-        // No active frames means the parse has already failed.
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
       }
 
       var lastStep = parseState.finish();
-      // Only a final accepted step counts as a successful parse.
       if (lastStep.accept) {
         var results = lastStep.acceptedContexts.values.first;
         var onlyPath = results.evaluate().allMarkPaths().first;
@@ -165,17 +164,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     });
   }
 
-  /// Parse input and return all ambiguous derivation paths.
+  /// Parses the [input] and returns a forest containing all valid interpretations.
   ///
-  /// Like [parse], but records marks for all possible interpretations.
-  /// In ambiguity mode, when multiple [state, caller, minPrec] tuples reach
-  /// the same point, their mark lists are merged instead of deduplicated.
-  /// This method must remain independent of the BSR/SPPF pipeline and derive
-  /// ambiguity purely from the State Machine's marks system.
-  ///
-  /// Returns:
-  /// - [ParseAmbiguousSuccess] if input matches (all interpretations merged)
-  /// - [ParseError] if parsing fails
+  /// This is used for ambiguous grammars where multiple derivation paths may
+  /// exist for the same input.
   @override
   ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
     return GlushProfiler.measure("parser.parse_ambiguous", () {
@@ -186,7 +178,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var byte in utf8.encode(input)) {
         parseState.processToken(byte);
-        // No active frames means the parse has already failed.
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
@@ -194,7 +185,6 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       var lastStep = parseState.finish();
 
-      // Ambiguous mode merges all accepted mark branches into one result.
       if (lastStep.accept) {
         var branches = lastStep
             .acceptedContexts
@@ -208,29 +198,18 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
     });
   }
 
-  /// Count all possible parse trees without building them
-  /// Internally count all derivations for a given input.
+  /// Calculates the total number of distinct derivation paths for the [input].
   ///
-  /// Counts all possible parse trees without building them. Based on []
-  /// and grammar-level recursion with memoization. Useful for understanding
-  /// parser ambiguity without memory overhead.
+  /// This provides a quick way to gauge the level of ambiguity in a parse
+  /// result without fully evaluating all paths.
   int countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
   }
 
-  /// Parse [input] and return the BSPPF as a Graphviz DOT string.
+  /// Parses the [input] and generates a Graphviz DOT representation of the SPPF.
   ///
-  /// Runs a full parse (same as [parse]) and then renders the resulting
-  /// Binarized Shared Packed Parse Forest as a DOT graph suitable for
-  /// visualization with `dot -Tsvg` or online tools like Graphviz Online.
-  ///
-  /// If parsing fails, returns a DOT graph with a single error node.
-  ///
-  /// Example:
-  /// ```dart
-  /// final dot = parser.parseToDot("alice:secret");
-  /// print(dot); // pipe to `dot -Tsvg > out.svg`
-  /// ```
+  /// The resulting graph visualizes the Shared Packed Parse Forest, showing
+  /// all successful derivation paths, intermediate nodes, and labels.
   String parseToDot(String input) {
     var bytes = utf8.encode(input);
     var parseState = createParseState();

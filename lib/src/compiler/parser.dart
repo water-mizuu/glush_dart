@@ -6,10 +6,21 @@ import "dart:convert";
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/profiling.dart";
 
+/// Represents an error encountered during the parsing of a grammar file.
+///
+/// Includes the specific [message] and the [line] and [column] where the error
+/// occurred in the source text.
 class GrammarFileParseError implements Exception {
+  /// Creates a parse error with a descriptive [message].
   GrammarFileParseError(this.message, {this.line = -1, this.column = -1});
+
+  /// The description of the parsing failure.
   final String message;
+
+  /// The 1-based line number in the source.
   final int line;
+
+  /// The 1-based column number in the source.
   final int column;
 
   @override
@@ -22,11 +33,21 @@ class GrammarFileParseError implements Exception {
 }
 
 /// Tokenizer for grammar files
+/// A single lexical unit produced by the [_Tokenizer].
 class _Token {
+  /// Creates a token with a specific [type] and its raw [value].
   _Token(this.type, this.value, this.line, this.column);
+
+  /// The category of the token (e.g., identifier, literal, operator).
   final _TokenType type;
+
+  /// The literal text of the token from the source.
   final String value;
+
+  /// The line number where the token starts.
   final int line;
+
+  /// The column number where the token starts.
   final int column;
 
   @override
@@ -72,10 +93,18 @@ enum _TokenType {
   colon, // :
 }
 
+/// Performs lexical analysis on a grammar source string.
+///
+/// The tokenizer scans the [source] character by character to produce a list
+/// of [_Token] objects. It handles whitespace, comments, literals, and
+/// multi-character operators (like `==` or `&&`).
 class _Tokenizer {
+  /// Creates a tokenizer and immediately processes the [source].
   _Tokenizer(this.source) {
     _tokenize();
   }
+
+  /// The raw grammar source text.
   final String source;
   int position = 0;
   int line = 1;
@@ -315,17 +344,28 @@ class _Tokenizer {
   bool _isIdentifierChar(String ch) => ch.contains(RegExp("[a-zA-Z0-9_]"));
 }
 
-/// Parser for grammar files
+/// A hand-written recursive descent parser for Glush grammar files.
+///
+/// The [GrammarFileParser] transforms a sequence of tokens into a [GrammarFile]
+/// AST. It follows the PEG grammar structure, implementing precedence levels,
+/// rule calls with arguments, and expression-based guards.
 class GrammarFileParser {
+  /// Creates a parser for the given [source] text.
   GrammarFileParser(this.source) {
     var tokenizer = _Tokenizer(source);
     _tokens = tokenizer._tokens;
   }
+
+  /// The original source text.
   final String source;
   late List<_Token> _tokens;
   int tokenIndex = 0;
   Map<PatternExpr, int> lastParsedPrecedenceLevels = {};
 
+  /// Parses the entire token stream into a [GrammarFile].
+  ///
+  /// This is the main entry point for the parser. It continues consuming
+  /// rule definitions until the end of the input is reached.
   GrammarFile parse() {
     return GlushProfiler.measure("compiler.grammar_file_parse", () {
       var rules = <RuleDefinition>[];

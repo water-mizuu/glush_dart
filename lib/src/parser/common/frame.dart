@@ -2,49 +2,56 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/context.dart";
-import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
-/// A [Frame] represents a set of parser states that share the same context.
+/// A set of parser states that share the same context at a specific position.
 ///
-/// When the parser advances past a token, it produces new frames at the next
-/// position. Each frame carries a [Context] and a list of target [State]s
-/// to be explored from that position using that context.
+/// [Frame] is the primary unit of work for the parser's transition loop. When
+/// the parser moves past a token, it calculates the set of reachable next
+/// states. If multiple states share the same [Context], they are grouped into
+/// a single [Frame] to allow for efficient batch processing and merging of
+/// derivation paths.
 ///
-/// **BSPPF fields:**
-/// - [sppfNode]: accumulated [IntermediateNode] (or leaf) for the current rule.
-/// - [openLabels]: persistent stack of label-start events not yet matched.
-/// - [closedLabels]: persistent log of fully-matched label spans for this rule call.
+/// A frame acts as a snapshot of a particular parse path's state, including:
+/// - The semantic [marks] collected so far.
+/// - The partially constructed [sppfNode] (parse forest).
+/// - The stack of [openLabels] and log of [closedLabels] for the current rule.
 class Frame {
-  Frame(this.context, this.marks, {this.sppfNode, this.openLabels, this.closedLabels})
-    : nextStates = {};
+  /// Creates a [Frame] with the given [context] and [marks].
+  Frame(
+    this.context,
+    this.marks, {
+    this.sppfNode,
+    this.openLabels,
+    this.closedLabels,
+  }) : nextStates = {};
 
-  /// The shared parsing context for all states in this frame.
+  /// The shared parsing context (caller, arguments, etc.) for this frame.
   final Context context;
 
-  /// The accumulated mark results for this parse path.
+  /// The accumulated semantic values (marks) for this derivation path.
   final LazyGlushList<Mark> marks;
 
-  /// The accumulated BSPPF node for this parse path (null = ε prefix).
+  /// The accumulated BSPPF node representing the parse forest for this path.
+  ///
+  /// This is null if no input has been consumed yet for the current rule.
   final SppfNode? sppfNode;
 
-  /// Currently-open labels in this derivation path (persistent linked list).
+  /// The persistent stack of labels that have been started but not yet closed.
   ///
-  /// Pushed by [LabelStartAction], popped (and moved to [closedLabels]) by
-  /// [LabelEndAction]. Threading this avoids walking the mark stream to
-  /// pair label-open / label-close events.
+  /// Threading this through the frame allows the parser to pair start and end
+  /// markers efficiently without expensive forest traversals.
   final OpenLabel? openLabels;
 
-  /// Labels that were fully closed during this rule call (persistent linked list).
+  /// The persistent log of labels that have been fully matched in this path.
   ///
-  /// Drained into [SymbolNode.recordLabel] when [ReturnAction] fires,
-  /// giving O(1) label-span queries on the resulting [SymbolNode].
+  /// When a rule finishes, these labels are moved into the final [SymbolNode].
   final ClosedLabel? closedLabels;
 
-  /// The set of states to be processed at the current input position.
+  /// The set of state machine states to be explored from this frame.
   final Set<State> nextStates;
 
-  /// Creates a shallow copy of the frame for targeted exploration.
+  /// Creates a copy of this frame, used when branching the parse path.
   Frame copy() =>
       Frame(context, marks, sppfNode: sppfNode, openLabels: openLabels, closedLabels: closedLabels);
 }

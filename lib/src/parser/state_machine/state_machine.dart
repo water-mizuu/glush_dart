@@ -9,14 +9,20 @@ import "package:glush/src/parser/key/state_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:meta/meta.dart";
 
-/// State in the state machine.
+/// A single configuration within the [StateMachine].
 ///
-/// Each state contains a list of actions (transitions) that can be taken from it.
+/// Each state represents a specific point in the grammar's derivation. It holds
+/// a collection of [actions] that define the possible transitions to subsequent
+/// states.
 @immutable
 class State {
+  /// Creates a state with a unique [id] and its associated [actions].
   const State(this.id, this.actions);
 
+  /// The unique identifier for this state.
   final int id;
+
+  /// The set of transitions available from this state.
   final List<StateAction> actions;
 
   @override
@@ -49,19 +55,18 @@ class State {
 /// Each rule is connected to form a complete automaton that can be used
 /// by the parser to recognize strings matching the grammar.
 class StateMachine {
-  /// Create a state machine by compiling the grammar.
+  /// Compiles a [grammar] into its state machine representation.
   ///
-  /// This constructor:
-  /// 1. Creates an initial state and connects the start rule to it
-  /// 2. Marks the start state as accepting
-  /// 3. Processes all grammar rules to build the state graph
-  /// 4. For each rule, connects first patterns and sequence pairs
-  /// 5. Marks return states for each rule
-  /// 6. Analyzes rules for tail call optimization opportunities
-  /// 7. Builds precedence maps for handling operator precedence
+  /// The construction follows the Glushkov algorithm, which transforms the
+  /// grammar's regular and recursive expressions into a non-deterministic finite
+  /// automaton (NFA) that is then executed by the GLL-style parser engine.
   ///
-  /// Parameters:
-  ///   [grammar] - The grammar interface to compile
+  /// During compilation, the machine:
+  /// 1. Identifies the "first" set for each rule to establish entry points.
+  /// 2. Connects sequence pairs to establish internal transitions.
+  /// 3. Identifies "last" sets to establish rule return points.
+  /// 4. Analyzes the grammar for tail-call optimization opportunities.
+  /// 5. Builds precedence maps to resolve operator priority.
   StateMachine(this.grammar) {
     var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
@@ -159,9 +164,10 @@ class StateMachine {
 
   Map<int, StateKey>? _idToKey;
 
-  /// Get the [StateKey] for a given [stateId].
+  /// Returns the [StateKey] that produced the given [stateId].
   ///
-  /// Returns null if the state ID is not found in this machine.
+  /// This is used for debugging and diagnostics to understand which grammar
+  /// pattern or rule a particular state belongs to.
   StateKey? keyOf(int stateId) {
     _idToKey ??= {for (var entry in _stateMapping.entries) entry.value.id: entry.key};
     return _idToKey![stateId];
@@ -184,17 +190,10 @@ class StateMachine {
     }
   }
 
-  /// Get or create a state with the given key.
+  /// Retrieves an existing state or creates a new one for the given [key].
   ///
-  /// If a state with this key already exists, returns it.
-  /// Otherwise, creates a new state with the next available ID.
-  /// Invalidates the cached states list to ensure consistency.
-  ///
-  /// Parameters:
-  ///   [key] - The key identifying the state (initial, pattern, parameter, etc.)
-  ///
-  /// Returns:
-  ///   The existing or newly created state for this key
+  /// This ensures that states are deduplicated based on their logical identity
+  /// (e.g., a specific position in a specific pattern).
   State _getOrCreateState(StateKey key) {
     var state = _stateMapping[key];
     if (state != null) {
@@ -212,18 +211,12 @@ class StateMachine {
   ///   The state marked as the initial state (created with [InitStateKey])
   State get startState => _stateMapping[const InitStateKey()]!;
 
-  /// Get or create a chain of states for matching a parameter string.
+  /// Generates a chain of states to match a specific [text] string as a parameter.
   ///
-  /// Parameter matching requires consuming characters one by one,
-  /// so this creates a chain of states transitioning through each character
-  /// until reaching the [nextState].
-  ///
-  /// Parameters:
-  ///   [text] - The string to match character-by-character
-  ///   [nextState] - The state to reach after matching all characters
-  ///
-  /// Returns:
-  ///   The entry point state for this parameter string chain
+  /// When a parameter is used in a position that consumes input, the machine
+  /// must synthesize a path that matches the parameter's value. This method
+  /// creates a linear sequence of [ParameterStringAction] transitions that
+  /// ultimately lead to [nextState].
   State parameterStringEntry(String text, State nextState) {
     if (text.isEmpty) {
       return nextState;
@@ -246,17 +239,11 @@ class StateMachine {
     return _parameterStringChains[key] = tail;
   }
 
-  /// Get or create a chain of states for checking a parameter predicate.
+  /// Generates a chain of states for a parameter-based lookahead predicate.
   ///
-  /// Parameter predicates are evaluated at runtime to check if the parameter
-  /// value matches a specific string. This creates a chain of states that
-  /// consumes characters and ultimately returns if the entire string matches.
-  ///
-  /// Parameters:
-  ///   [text] - The string that the parameter must match
-  ///
-  /// Returns:
-  ///   The entry point state for this predicate check chain
+  /// This is similar to [parameterStringEntry], but the chain ends in a
+  /// [ReturnAction] instead of transitioning to another state. This allows the
+  /// predicate engine to resolve whether a parameter matches a specific string.
   State parameterPredicateEntry(String text) {
     // Predicates use the same cached chain idea, but end in a synthetic
     // return state so lookahead can resume the caller if the predicate matches.
@@ -286,25 +273,12 @@ class StateMachine {
     return _parameterPredicateChains[text] = tail;
   }
 
-  /// Connect a state to a pattern terminal.
+  /// Connects [state] to the entry point of the given [terminal] pattern.
   ///
-  /// This method is the core of state machine construction. It examines
-  /// the pattern type and creates appropriate transitions:
-  ///
-  /// - **Tokens**: Create [TokenAction] to consume specific input
-  /// - **Conjunctions**: Create [ConjunctionAction] for (A & B) intersection parsing
-  /// - **Boundaries**: Create [BoundaryAction] for start/EOF checks
-  /// - **Markers**: Create [MarkAction] for semantic backref capture
-  /// - **Predicates**: Create [PredicateAction] for (AND/NOT) lookahead
-  /// - **Rule calls**: Create [CallAction] or [TailCallAction] for function calls
-  /// - **Labels**: Create [LabelStartAction]/[LabelEndAction] for capture groups
-  /// - **Backreferences**: Create [BackreferenceAction] to match captured text
-  /// - **Parameters**: Create [ParameterAction]/[ParameterCallAction] for dynamic matching
-  ///
-  /// Parameters:
-  ///   [state] - The state to add the transition from
-  ///   [terminal] - The pattern to connect
-  ///   [currentRule] - Optional: the current rule (used for tail call detection)
+  /// This is the core recursive step of the Glushkov construction. It
+  /// determines which [StateAction] should be added to the source state to
+  /// reach the target pattern. It handles the full diversity of PEG patterns,
+  /// including tokens, rule calls, predicates, and dynamic parameters.
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token():
@@ -514,23 +488,13 @@ class StateMachine {
   ///
   String toDot() => _toDot(this);
 
-  /// Find all direct tail-self-call opportunities in a rule.
+  /// Analyzes a rule for tail-call optimization (TCO) opportunities.
   ///
-  /// Tail call optimization replaces recursive calls at the end of a sequence
-  /// with efficient loop jumps, avoiding stack growth for right-recursive patterns.
-  ///
-  /// This method identifies rules that can be optimized by checking:
-  /// 1. The rule has exactly two branches: base case and recursive case
-  /// 2. One branch is the base (non-recursive) case that consumes input
-  /// 3. The other is a sequence that ends with an immediate recursive call
-  /// 4. The base case must not be empty (to ensure progress)
-  /// 5. The prefix before the recursive call must consume input
-  ///
-  /// Parameters:
-  ///   [rule] - The rule to analyze for tail call opportunities
-  ///
-  /// Returns:
-  ///   Set of direct tail recursive calls in this rule (typically 0 or 1)
+  /// TCO is an essential optimization for right-recursive grammars. Instead of
+  /// allocating a new stack frame (GSS node) for a recursive call at the end of
+  /// a rule, the state machine can emit a [TailCallAction] which allows the
+  /// parser to "jump" back to the rule's entry point while staying in the
+  /// current context.
   Set<RuleCall> _findDirectTailSelfCalls(Rule rule) {
     var branches = _flattenAlternation(_stripTransparent(rule.body()));
     // Only optimize the simple shape:

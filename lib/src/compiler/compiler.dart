@@ -8,11 +8,23 @@ import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/sm_parser.dart";
 
-/// Compiles a GrammarFile into an executable Grammar
+/// Transforms a [GrammarFile] AST into an executable [Grammar] object.
+///
+/// The compiler converts high-level PEG declarations into the operational
+/// [Pattern] tree used by the Glushkov state machine. It handles rule stubs,
+/// parameter binding, lookahead predicates, and synthetic rule generation for
+/// guarded patterns (`if` expressions).
 class GrammarFileCompiler {
+  /// Creates a compiler for the given [grammarFile].
   GrammarFileCompiler(this.grammarFile);
+
+  /// The source AST to be compiled.
   final GrammarFile grammarFile;
+
+  /// A cache of compiled [Rule] objects indexed by their name.
   late final Map<String, Rule> _rules = {};
+
+  /// A mapping of rule names to their original AST definitions.
   late final Map<String, RuleDefinition> _definitions = {
     for (var rule in grammarFile.rules) rule.name: rule,
   };
@@ -26,7 +38,15 @@ class GrammarFileCompiler {
   List<String> _currentCaptures = const [];
   List<String> _currentParameters = const [];
 
-  /// Compile the grammar file into an executable Grammar
+  /// Orchestrates the compilation of all rules in the grammar file.
+  ///
+  /// The compilation is performed in two logical passes:
+  /// 1. **Stub Generation**: Every rule name is mapped to a [Rule] object with
+  ///     a lazy builder function. This allows rules to reference each other
+  ///     (including recursion) before their bodies are fully compiled.
+  /// 2. **Body Compilation**: When a rule is first accessed (usually during
+  ///     state machine construction), its builder function is executed to
+  ///     compile its [PatternExpr] body into a [Pattern] tree.
   Grammar compile({String? startRuleName}) {
     return GlushProfiler.measure("compiler.grammar_compile", () {
       // First pass: create rule stubs with builder functions
@@ -71,7 +91,17 @@ class GrammarFileCompiler {
     return Token(RangeToken(range.startCode, range.endCode));
   }
 
-  /// Compile a pattern expression into a Pattern
+  /// Recursively transforms a [PatternExpr] AST node into a [Pattern].
+  ///
+  /// This method performs the heavy lifting of lowering high-level grammar
+  /// features into the core parsing primitives. Key transformations include:
+  /// - **Guarded Rules**: Lowering `if (condition)` into synthetic rules with
+  ///   semantic guards.
+  /// - **Rule Calls**: Resolving references to other rules, parameters, or
+  ///   backreferences.
+  /// - **Literals and Ranges**: Converting strings and character classes into
+  ///   token patterns.
+  /// - **Captures**: Tracking and establishing [Label] boundaries for groups.
   Pattern _compilePattern(PatternExpr expr) {
     switch (expr) {
       case PrecedenceExpr(:var level, :var pattern):
@@ -325,6 +355,11 @@ class GrammarFileCompiler {
     }
   }
 
+  /// Resolves arguments for a rule call and binds them to parameter names.
+  ///
+  /// This method ensures that positional and named arguments provided in the
+  /// [RuleRefPattern] match the [parameters] expected by the target rule. It
+  /// produces a stable mapping of names to [CallArgumentValue] objects.
   Map<String, CallArgumentValue> _compileCallArguments(
     RuleRefPattern expr,
     List<String> parameters,
@@ -427,6 +462,11 @@ class GrammarFileCompiler {
     };
   }
 
+  /// Resolves named arguments for a call to a dynamic parameter.
+  ///
+  /// When a parameter itself is invoked (e.g., `$p(arg: val)`), positional
+  /// arguments are disallowed because the target's parameter list is unknown
+  /// at compile time.
   Map<String, CallArgumentValue> _compileParameterCallArguments(RuleRefPattern expr) {
     var compiled = <String, CallArgumentValue>{};
     for (var argument in expr.arguments) {

@@ -16,8 +16,17 @@ import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
-/// Stateful cursor for manual state-machine parsing.
+/// A stateful object that tracks the progress of a single parsing session.
+///
+/// [ParseState] maintains all the transient state required to drive the
+/// [StateMachine] over an input stream, including:
+/// - The current set of active [frames].
+/// - The input [historyByPosition] (for lookahead recovery).
+/// - Memoized callers for the Graph-Shared Stack.
+/// - The [sppfTable] for incremental forest construction.
+/// - Sub-parse [trackers] for lookahead predicates and conjunctions.
 final class ParseState {
+  /// Creates a [ParseState] for a specific [parser].
   ParseState(
     this.parser, {
     required List<Frame> initialFrames,
@@ -36,40 +45,62 @@ final class ParseState {
     tracer?.onStart(parser.stateMachine);
   }
 
+  /// The active parser frames at the current input position.
   List<Frame> frames;
+
+  /// The parser engine driving this state.
   final GlushParser parser;
+
+  /// Whether this parse session allows and tracks ambiguous derivation paths.
   final bool isSupportingAmbiguity;
+
+  /// Whether raw input tokens should be added to the semantic mark stream.
   final bool captureTokensAsMarks;
+
+  /// Optional tracer for debugging and profiling the parse step-by-step.
   final ParseTracer? tracer;
+
+  /// A history of processed tokens, used to resolve lookahead predicates.
   final List<int> historyByPosition = [];
+
+  /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
 
-  /// Shared BSPPF node table for this parse session.
+  /// The Shared Packed Parse Forest table for this session.
   ///
-  /// All [IntermediateNode], [SymbolNode], [TerminalNode], and [EpsilonNode]
-  /// objects are deduplicated here, enabling structural sharing across
-  /// concurrent derivation paths.
+  /// This table deduplicates all interior and leaf nodes, ensuring that the
+  /// resulting forest is compact and shared.
   final SppfTable sppfTable = SppfTable();
 
-  // ignore: comment_references
-  /// The root [SymbolNode] of the completed BSPPF, set by [_processAcceptAction].
+  /// The root node of the constructed parse forest.
   ///
-  /// Null until the parse accepts. In ambiguous grammars, all derivations are
-  /// packed into this single shared node.
+  /// This is only set if the parse completes successfully.
   SymbolNode? bsppfRoot;
 
-  /// Memoized call sites keyed by rule, precedence constraints, and call arguments.
+  /// Memoized call sites for rules with simple (integer-key) arguments.
   final Map<int, Caller> callersInt = {};
+
+  /// Memoized call sites for rules with complex (object-key) arguments.
   final Map<ComplexCallerCacheKey, Caller> callersComplex = {};
 
+  /// A fast lookup map for rules by their unique names.
   final Map<RuleName, Rule> rulesByName;
+
+  /// A fast lookup map for rules by their numeric symbol IDs.
   final Map<int, Rule> rulesById;
 
+  /// The current index in the input stream (zero-based).
   int position = 0;
+
+  /// Internal counter used to assign unique IDs to GSS [Caller] nodes.
   int callerCounter = 1;
+
   Step? _lastStep;
 
-  /// Process one input code unit and advance the parser by one position.
+  /// Advances the parser by processing a single [unit] (token).
+  ///
+  /// This method updates the [frames] for the next position and logs
+  /// diagnostic information if a [tracer] is present.
   Step processToken(int unit) {
     historyByPosition.add(unit);
     tracer?.onStepStart(position, unit, frames);
@@ -86,26 +117,23 @@ final class ParseState {
     });
     GlushProfiler.increment("parser.process_token.calls");
 
-    // Combine next-position frames with any deferred frames for the next position
     frames = step.nextFrames;
     var deferredForNext = step.deferredFramesByPosition.remove(position + 1);
     if (deferredForNext != null) {
       frames.addAll(deferredForNext);
     }
 
-    // Track active trackers
-    GlushProfiler.increment("parser.trackers.active", trackers.length);
-    GlushProfiler.increment("parser.callers.total", callersInt.length + callersComplex.length);
-
     position++;
     _lastStep = step;
     return step;
   }
 
-  /// Finalize the parse at end-of-input.
+  /// Completes the parse session after all input has been processed.
+  ///
+  /// This triggers final transitions (including end-of-input markers) and
+  /// returns the final [Step] containing the acceptance status.
   Step finish() {
     GlushProfiler.increment("parser.steps.finish");
-    GlushProfiler.increment("parser.frames.finish", frames.length);
     tracer?.onStepStart(position, null, frames);
 
     var step = GlushProfiler.measure("parser.finish", () {
@@ -119,23 +147,32 @@ final class ParseState {
       );
     });
 
-    // Record final cache statistics
-    GlushProfiler.increment("parser.cache.trackers_final", trackers.length);
-
     _lastStep = step;
     tracer?.finalize();
     return step;
   }
 
+  /// Returns the complete parse forest as a lazy list of semantic marks.
+  ///
+  /// This merges all accepted derivation paths into a single branched list.
   LazyGlushList<Mark>? get forest => _lastStep
       ?.acceptedContexts
-      .values //
+      .values
       .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched);
 
+  /// Returns the results of the most recent [processToken] or [finish] call.
   Step? get lastStep => _lastStep;
+
+  /// Returns the underlying state machine.
   StateMachine get stateMachine => parser.stateMachine;
+
+  /// Returns the grammar being parsed.
   GrammarInterface get grammar => parser.grammar;
+
+  /// Returns true if the input has been fully accepted.
   bool get accept => _lastStep?.accept ?? false;
+
+  /// Returns true if there are still active frames to be processed.
   bool get hasPendingWork => frames.isNotEmpty;
 
   List<SubparseKey> _findActiveKeys(Context context) => [
@@ -145,12 +182,15 @@ final class ParseState {
       ConjunctionKey(con.left, con.right, con.startPosition),
   ];
 
+  /// Increments the pending frame count for all active trackers in [context].
+  ///
+  /// This ensures that trackers (e.g., for conjunctions) know how many
+  /// concurrent paths are still being explored.
   void incrementTrackers(Context context, String reason) {
     for (var key in _findActiveKeys(context)) {
       var tracker = trackers[key];
       if (tracker != null) {
         tracker.addPendingFrame();
-        GlushProfiler.increment("parser.tracker_frames.added");
         tracer?.onTrackerUpdate(
           tracker.runtimeType.toString(),
           tracker.toString(),
@@ -161,13 +201,12 @@ final class ParseState {
     }
   }
 
+  /// Decrements the pending frame count for all active trackers in [context].
   void decrementTrackers(Context context, [String? reason]) {
     for (var key in _findActiveKeys(context)) {
       var tracker = trackers[key];
-      // Conjunctions might have 0 active frames if they finished early but the frame is still being processed
       if (tracker != null && tracker.activeFrames > 0) {
         tracker.removePendingFrame();
-        GlushProfiler.increment("parser.tracker_frames.removed");
         if (reason != null) {
           tracer?.onTrackerUpdate(
             tracker.runtimeType.toString(),

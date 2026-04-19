@@ -12,13 +12,23 @@ import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:meta/meta.dart";
 
+/// Abstract base class for keys used to identify and memoize rule calls with arguments.
+///
+/// In a grammar with parameterized rules, the identity of a rule call is not
+/// just the rule name, but the name combined with its specific arguments.
+/// [CallArgumentsKey] provides a way to uniquely identify these combinations.
 @immutable
 sealed class CallArgumentsKey {
+  /// Base constructor for [CallArgumentsKey].
   const CallArgumentsKey();
 }
 
+/// A [CallArgumentsKey] that represents a simple string-based identifier.
 final class StringCallArgumentsKey extends CallArgumentsKey {
+  /// Creates a [StringCallArgumentsKey] with the given [key].
   const StringCallArgumentsKey(this.key);
+
+  /// The raw string key.
   final String key;
 
   @override
@@ -31,7 +41,11 @@ final class StringCallArgumentsKey extends CallArgumentsKey {
   String toString() => key;
 }
 
+/// A [CallArgumentsKey] representing an empty set of arguments.
+///
+/// This is used for standard rule calls that don't take any parameters.
 final class EmptyCallArgumentsKey extends CallArgumentsKey {
+  /// Creates an [EmptyCallArgumentsKey].
   const EmptyCallArgumentsKey();
 
   @override
@@ -44,7 +58,13 @@ final class EmptyCallArgumentsKey extends CallArgumentsKey {
   String toString() => "";
 }
 
+/// A complex [CallArgumentsKey] used for guarding and memoizing semantic predicates.
+///
+/// This key includes information about the capture signature, rule context,
+/// and precedence levels to ensure that guards are evaluated correctly
+/// across different parsing contexts.
 final class GuardValuesKey extends CallArgumentsKey {
+  /// Creates a [GuardValuesKey] with all necessary context for a guard.
   const GuardValuesKey({
     required this.captureSignature,
     required this.ruleName,
@@ -54,11 +74,22 @@ final class GuardValuesKey extends CallArgumentsKey {
     required this.precedenceLevel,
   });
 
+  /// A canonical signature of the captures available in the guard's scope.
   final String captureSignature;
+
+  /// The name of the rule containing the guard.
   final RuleName ruleName;
+
+  /// The current position in the input stream.
   final int position;
+
+  /// The starting position of the current rule call.
   final int callStart;
+
+  /// The minimum precedence level allowed in the current context.
   final int? minPrecedenceLevel;
+
+  /// The specific precedence level of the current expression.
   final int? precedenceLevel;
 
   @override
@@ -82,8 +113,12 @@ final class GuardValuesKey extends CallArgumentsKey {
   );
 }
 
+/// A [CallArgumentsKey] that aggregates multiple values into a single identity.
 final class CompositeCallArgumentsKey extends CallArgumentsKey {
+  /// Creates a [CompositeCallArgumentsKey] from a list of [values].
   const CompositeCallArgumentsKey(this.values);
+
+  /// The list of values contributing to the key's identity.
   final List<Object?> values;
 
   @override
@@ -99,9 +134,18 @@ final class CompositeCallArgumentsKey extends CallArgumentsKey {
   String toString() => values.join(",");
 }
 
+/// A [CallArgumentsKey] that combines two existing keys.
+///
+/// This is used when a rule call inherits arguments from its caller and
+/// adds its own local arguments.
 final class MergedCallArgumentsKey extends CallArgumentsKey {
+  /// Creates a [MergedCallArgumentsKey] from [left] and [right] components.
   const MergedCallArgumentsKey(this.left, this.right);
+
+  /// The primary (often inherited) key.
   final CallArgumentsKey? left;
+
+  /// The secondary (often local) key.
   final CallArgumentsKey? right;
 
   @override
@@ -237,6 +281,11 @@ void _writeCanonicalValue(StringBuffer buffer, Object? value) {
   }
 }
 
+/// Normalizes a semantic value for deterministic comparison and storage.
+///
+/// This method recursively traverses structured values (lists, maps, captures)
+/// and ensures they are in a canonical form. This is critical for the
+/// parser's memoization system to correctly identify identical sub-results.
 Object? normalizeSemanticValue(Object? value) {
   return switch (value) {
     CallArgumentValue argument => normalizeSemanticValue(argument.resolveData()),
@@ -286,9 +335,11 @@ String _formatObjectList<T>(List<T> items) {
   return buffer.toString();
 }
 
+/// Formats a map of objects into a deterministic string representation.
 String _formatObjectMap(Map<String, Object?> items) {
   // Maps are also formatted recursively, but with stable key ordering so the
-  // output does not depend on insertion order.
+  // output does not depend on insertion order. This ensures that the same
+  // semantic context always produces the same identity string.
   var entries = items.entries.toList()..sort(_compareMapEntriesByKey);
   var buffer = StringBuffer();
   buffer.write("{");
@@ -306,35 +357,67 @@ String _formatObjectMap(Map<String, Object?> items) {
   return buffer.toString();
 }
 
+/// Represents a deferred or structured value passed as a rule argument.
+///
+/// In Glush's parameterized rule system, arguments are not just simple scalars.
+/// They can be literals, references to other parameters, patterns (for higher-order
+/// rules), or even rules themselves. This hierarchy captures those possibilities
+/// and provides methods for resolving them into concrete values at runtime.
 sealed class CallArgumentValue {
+  /// Base constructor for [CallArgumentValue].
   const CallArgumentValue();
 
   // Call arguments are stored in a tagged sealed hierarchy so the compiler
   // and runtime can tell literals, parser objects, and capture references apart
   // without falling back to `Object?` everywhere.
+
+  /// Creates a [CallArgumentValue] from a raw literal.
   factory CallArgumentValue.literal(Object? value) = _CallArgumentLiteralValue;
+
+  /// Creates a [CallArgumentValue] that refers to a parameter by [name].
   factory CallArgumentValue.reference(String name) = _CallArgumentReferenceValue;
+
+  /// Creates a [CallArgumentValue] that passes a [rule].
   factory CallArgumentValue.rule(Rule rule) = _CallArgumentRuleValue;
+
+  /// Creates a [CallArgumentValue] that passes a [pattern].
   factory CallArgumentValue.pattern(Pattern pattern) = _CallArgumentPatternValue;
+
+  /// Creates a [CallArgumentValue] from a pre-captured callable thunk.
   factory CallArgumentValue.callable(PatternClosureValue callable) = _CallArgumentCallableValue;
+
+  /// Creates a [CallArgumentValue] representing a unary expression.
   factory CallArgumentValue.unary(ExpressionUnaryOperator operator, CallArgumentValue operand) =
       _CallArgumentUnaryValue;
+
+  /// Creates a [CallArgumentValue] representing a member access.
   factory CallArgumentValue.member(CallArgumentValue target, String member) =
       _CallArgumentMemberValue;
+
+  /// Creates a [CallArgumentValue] representing a binary expression.
   factory CallArgumentValue.binary(
     CallArgumentValue left,
     ExpressionBinaryOperator operator,
     CallArgumentValue right,
   ) = _CallArgumentBinaryValue;
+
+  /// Creates a [CallArgumentValue] representing an arithmetic expression.
   factory CallArgumentValue.arithmetic(
     CallArgumentValue left,
     ExpressionBinaryOperator operator,
     CallArgumentValue right,
   ) = _CallArgumentBinaryValue;
+
+  /// Creates a [CallArgumentValue] that refers to the rule currently being executed.
   factory CallArgumentValue.currentRule() = _CallArgumentCurrentRuleValue;
+
+  /// Creates a [CallArgumentValue] from a list of other argument values.
   factory CallArgumentValue.list(List<CallArgumentValue> values) = _CallArgumentListValue;
+
+  /// Creates a [CallArgumentValue] from a map of other argument values.
   factory CallArgumentValue.map(Map<String, CallArgumentValue> values) = _CallArgumentMapValue;
 
+  /// Deserializes a [CallArgumentValue] from its JSON representation.
   factory CallArgumentValue.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
     var type = json["type"]! as String;
     return switch (type) {
@@ -372,13 +455,25 @@ sealed class CallArgumentValue {
     };
   }
 
+  /// Serializes this argument to a JSON-compatible map.
   Map<String, Object?> toJson();
 
+  /// Resolves the argument into a concrete value using the provided [env].
+  ///
+  /// This is called during semantic action or guard evaluation to turn
+  /// references and expressions into the actual data they represent.
   Object? resolve(GuardEnvironment env);
+
+  /// Resolves the argument into raw data for serialization or comparison.
   Object? resolveData();
+
+  /// Returns a human-readable string representation of the argument.
   String format();
 
+  /// Recursively collects all rules referenced by this argument.
   void collectRules(Set<Rule> rules);
+
+  /// Recursively collects all parameter names referred to by this argument.
   void collectReferredNames(Set<String> names);
 
   /// Rewrite any nested pattern values before the argument is resolved.
@@ -740,14 +835,26 @@ final class _CallArgumentCallableValue extends CallArgumentValue {
 ///
 /// This keeps the callable surface explicit when semantic actions need to
 /// return a higher-order parser value as ordinary data.
+/// A captured callable pattern coupled with its lexical environment.
+///
+/// This represents a higher-order pattern (like a function) that can be passed
+/// as an argument. It keeps the callable body explicit when semantic actions
+/// need to return a higher-order parser value as ordinary data. This is
+/// critical for implementing grammar-level generic transformations.
 final class PatternClosureValue {
+  /// Creates a [PatternClosureValue] wrapping a [body] and its [environment].
   const PatternClosureValue(this.body, this.environment);
 
+  /// The pattern that will be instantiated when this closure is called.
   final Pattern body;
+
+  /// The environment (lexical scope) captured when the closure was created.
   final GuardEnvironment environment;
 
+  /// A unique canonical key identifying this specific closure instance.
   String get key => _patternClosureKey(body, environment);
 
+  /// Instantiates the closure by merging new [arguments] into its environment.
   PatternClosureValue apply(Map<String, Object?> arguments) {
     if (arguments.isEmpty) {
       return this;
@@ -755,12 +862,14 @@ final class PatternClosureValue {
     return PatternClosureValue(body, environment.mergeWith(arguments));
   }
 
+  /// Serializes the closure to JSON.
   Map<String, Object?> toJson() => {
     "body": body.toJson(),
     "ruleName": environment.rule.name,
     "arguments": environment.arguments,
   };
 
+  /// Evaluates the closure into a concrete [Pattern] in the given [currentEnvironment].
   Pattern materialize([GuardEnvironment? currentEnvironment]) {
     var merged = currentEnvironment == null ? environment : environment.merge(currentEnvironment);
     return _resolvePatternValue(body, merged);
@@ -1165,7 +1274,13 @@ GuardEnvironment _mergeGuardEnvironments(GuardEnvironment base, GuardEnvironment
 }
 
 /// Runtime environment exposed to data-driven guard expressions.
+///
+/// This environment acts as a bridge between the parser's internal state (marks,
+/// rules, current position) and the semantic expressions defined in the grammar.
+/// It provides scoped resolution for parameters, captures, and built-in keywords
+/// like 'rule' or 'capture'.
 final class GuardEnvironment {
+  /// Creates a [GuardEnvironment] with the provided execution context.
   GuardEnvironment({
     required this.rule,
     LazyGlushList<Mark> marks = const LazyGlushList<Mark>.empty(),
@@ -1182,13 +1297,28 @@ final class GuardEnvironment {
                ? const EmptyCallArgumentsKey()
                : StringCallArgumentsKey(_formatObjectMap(values)));
 
+  /// The rule currently being evaluated.
   final Rule rule;
+
+  /// The internal forest of marks available for capture resolution.
   final LazyGlushList<Mark> _marksForest;
+
+  /// Parameter arguments passed explicitly to the rule.
   final Map<String, Object?> arguments;
+
+  /// Explicit local values injected into the environment.
   final Map<String, Object?> values;
+
+  /// A canonical key identifying the set of values in this environment.
   final CallArgumentsKey valuesKey;
+
+  /// An optional resolver for looking up arbitrary names in a parent scope.
   final Object? Function(String name)? valueResolver;
+
+  /// An optional resolver for extracting [CaptureValue]s from the mark forest.
   final CaptureValue? Function(LazyGlushList<Mark>, String)? captureResolver;
+
+  /// A map of all rules currently known to the grammar, used for cross-references.
   final Map<RuleName, Rule> rulesByName;
 
   final Map<String, CaptureValue?> _captureCache = {};
@@ -1203,6 +1333,14 @@ final class GuardEnvironment {
     return capture;
   }
 
+  /// Resolves a [name] within the environment's tiered scopes.
+  ///
+  /// The resolution follows this order:
+  /// 1. Rule parameters (arguments).
+  /// 2. Explicit runtime values or external resolver overrides.
+  /// 3. Built-in keywords ('rule', 'capture').
+  /// 4. Named captures from the mark forest.
+  /// 5. Global rule references by name.
   Object? resolve(String name) {
     // Stage 1: Parameters (arguments passed to the rule)
     if (arguments.containsKey(name)) {
@@ -1246,9 +1384,15 @@ final class GuardEnvironment {
   GuardEnvironment merge(GuardEnvironment other) => _mergeGuardEnvironments(this, other);
 }
 
+/// Represents a value that can be retrieved and evaluated within a guard expression.
+///
+/// Guard values differentiate between raw literals, named arguments, and
+/// structural references like rule identities.
 sealed class GuardValue {
+  /// Base constructor for [GuardValue].
   const GuardValue();
 
+  /// Deserializes a [GuardValue] from JSON.
   factory GuardValue.fromJson(Map<String, Object?> json) {
     var type = json["type"]! as String;
     return switch (type) {
@@ -1263,33 +1407,63 @@ sealed class GuardValue {
   // Guard values are typed separately from call arguments so expression
   // evaluation can tell runtime data, rule references, and the special `rule`
   // symbol apart.
+
+  /// Creates a [GuardValue] from a raw literal.
   factory GuardValue.literal(Object? value) = _GuardLiteralValue;
+
+  /// Creates a [GuardValue] that refers to a named argument.
   factory GuardValue.argument(String name) = _GuardArgumentValue;
+
+  /// Creates a [GuardValue] that refers to a named capture or rule.
   factory GuardValue.name(String name) = _GuardNameValue;
+
+  /// Creates a [GuardValue] representing the special 'rule' keyword.
   factory GuardValue.rule() = _GuardRuleValue;
 
+  /// Evaluates this value within the given [env].
   Object? evaluate(GuardEnvironment env);
+
+  /// Recursively collects all names referenced by this value.
   void collectReferredNames(Set<String> names);
 
+  /// Serializes the value to JSON.
   Map<String, Object?> toJson();
 
+  /// Helper to create an equality comparison guard.
   GuardExpr eq(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.eq);
+
+  /// Helper to create a non-equality comparison guard.
   GuardExpr ne(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.ne);
+
+  /// Helper to create a greater-than comparison guard.
   GuardExpr gt(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.gt);
+
+  /// Helper to create a greater-than-or-equal comparison guard.
   GuardExpr gte(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.gte);
+
+  /// Helper to create a less-than comparison guard.
   GuardExpr lt(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.lt);
+
+  /// Helper to create a less-than-or-equal comparison guard.
   GuardExpr lte(Object? other) =>
       _GuardComparison(this, _coerceGuardValue(other), _GuardComparisonKind.lte);
 }
 
+/// Represents a boolean expression used to guard a parsing path.
+///
+/// Guard expressions form a small AST that can be evaluated during the parse
+/// to determine if a specific transition is valid based on semantic context
+/// and prior results.
 sealed class GuardExpr {
+  /// Base constructor for [GuardExpr].
   const GuardExpr();
 
+  /// Deserializes a [GuardExpr] from JSON.
   factory GuardExpr.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
     var type = json["type"]! as String;
     return switch (type) {
@@ -1316,21 +1490,41 @@ sealed class GuardExpr {
 
   // Guard expressions are a tiny boolean AST that the runtime can evaluate
   // directly inside the state machine.
+
+  /// Creates a [GuardExpr] from a constant boolean value.
   factory GuardExpr.literal(bool value) = _GuardLiteralExpr;
+
+  /// Creates a [GuardExpr] that evaluates a single [GuardValue].
   factory GuardExpr.value(GuardValue value) = GuardValueExpr;
+
+  /// Creates a [GuardExpr] that evaluates a complex [CallArgumentValue].
   factory GuardExpr.expression(CallArgumentValue value) = _GuardExpressionExpr;
 
+  /// Evaluates the expression within the given [env].
   bool evaluate(GuardEnvironment env);
+
+  /// Recursively collects all names referenced by this expression.
   void collectReferredNames(Set<String> names);
 
+  /// Serializes the expression to JSON.
   Map<String, Object?> toJson();
 
+  /// Combines this expression with another using logical AND.
   GuardExpr and(GuardExpr other) => GuardAnd(this, other);
+
+  /// Combines this expression with another using logical OR.
   GuardExpr or(GuardExpr other) => GuardOr(this, other);
+
+  /// Negates this expression.
   GuardExpr not() => GuardNot(this);
 
+  /// Operator alias for [and].
   GuardExpr operator &(GuardExpr other) => and(other);
+
+  /// Operator alias for [or].
   GuardExpr operator |(GuardExpr other) => or(other);
+
+  /// Operator alias for [not].
   GuardExpr operator ~() => not();
 }
 
@@ -1626,31 +1820,68 @@ bool _guardValuesEqual(Object? left, Object? right) {
   return left == right;
 }
 
-/// Resolved capture data from a labeled mark span.
+/// Represents a captured result from a labeled mark span.
+///
+/// When a part of the input is matched by a [Label] pattern, the parser
+/// extracts the consumed text and its boundaries into a [CaptureValue].
+/// This value is then available in semantic actions and guards to perform
+/// context-sensitive logic or to build an AST.
 final class CaptureValue {
+  /// Creates a [CaptureValue] with the specified span and content.
   const CaptureValue(this.startPosition, this.endPosition, this.value);
 
+  /// The absolute starting position of the capture in the input stream.
   final int startPosition;
+
+  /// The absolute ending position of the capture in the input stream.
   final int endPosition;
+
+  /// The raw string content of the capture.
   final String value;
 
+  /// The number of characters consumed by this capture.
   int get length => endPosition - startPosition;
+
+  /// Whether the capture matched an empty string (epsilon).
   bool get isEmpty => length == 0;
+
+  /// Whether the capture matched at least one character.
   bool get isNotEmpty => !isEmpty;
 
   @override
   String toString() => value;
 }
 
+/// The abstract base class for all grammar patterns in the Glush system.
+///
+/// A [Pattern] defines a fragment of a grammar that can be matched against
+/// an input stream. It includes primitive tokens, anchors, and higher-level
+/// combinators like sequences and alternations. The pattern system is designed
+/// to be extensible and allows for complex semantic extensions such as
+/// actions, guards, and conjunctions.
 sealed class Pattern {
+  /// Base constructor for [Pattern].
   Pattern();
 
+  /// Creates a [Token] pattern that matches a single character.
   factory Pattern.char(String char) = Token.char;
+
+  /// Creates an anchor that matches only at the start of the stream.
   factory Pattern.start() = StartAnchor;
+
+  /// Creates an anchor that matches only at the end of the stream.
   factory Pattern.eof() = EofAnchor;
+
+  /// Creates a token that matches any single character.
   factory Pattern.any() = Token.any;
+
+  /// Creates a retreat pattern that moves the parse position backward.
   factory Pattern.retreat() = Retreat;
 
+  /// Creates a [Pattern] from a string literal.
+  ///
+  /// This factory converts a string into a sequence of tokens. If the string
+  /// is empty, it returns an epsilon ([Eps]) pattern.
   factory Pattern.string(String pattern) {
     if (pattern.isEmpty) {
       return Eps();
@@ -1671,6 +1902,7 @@ sealed class Pattern {
     return result;
   }
 
+  /// Deserializes a [Pattern] from its JSON representation.
   factory Pattern.fromJson(Map<String, Object?> json, Map<String, Rule> ruleMap) {
     var type = json["type"]! as String;
     Pattern pattern = switch (type) {
@@ -1744,20 +1976,24 @@ sealed class Pattern {
     }
     return pattern;
   }
+
+  /// Serializes this pattern to JSON.
   Map<String, Object?> toJson() => {"type": _symbolPrefix, "symbolId": symbolId};
 
-  /// Symbol ID assigned by the grammar this pattern belongs to.
-  /// Initially null, assigned during Grammar.finalize()
+  /// A unique ID assigned to this pattern during grammar compilation.
+  ///
+  /// This ID is used by the state machine and SPPF to identify transitions
+  /// and nodes efficiently without object identity overhead.
   PatternSymbol? symbolId;
 
   bool? _isEmptyComputed;
   bool? _isEmpty;
   bool _consumed = false;
 
-  /// Copy this pattern, resetting consumption state
+  /// Creates a copy of this pattern with reset state.
   Pattern copy();
 
-  /// Mark this pattern as consumed
+  /// Marks this pattern as consumed in the current branch.
   Pattern consume() {
     if (_consumed) {
       return copy().consume();
@@ -1766,7 +2002,10 @@ sealed class Pattern {
     return this;
   }
 
-  /// Check if this pattern can match empty input
+  /// Returns whether this pattern can match an empty input (epsilon).
+  ///
+  /// This is computed during the grammar's normalization phase and is
+  /// essential for correct first/last set calculation and nullability analysis.
   bool empty() {
     if (_isEmptyComputed != null) {
       return _isEmpty ?? false;
@@ -1774,76 +2013,84 @@ sealed class Pattern {
     throw StateError("empty is not computed for $runtimeType");
   }
 
-  /// Set the empty flag (computed by grammar)
+  /// Manually sets the nullability status of this pattern.
   void setEmpty(bool value) {
     _isEmpty = value;
     _isEmptyComputed = true;
   }
 
-  /// Check if this pattern is a single token
+  /// Whether this pattern represents a single atomic token.
   bool singleToken() => false;
 
-  /// Check if the pattern matches a token
+  /// Whether this pattern matches the provided [token].
   bool match(int? token) {
     throw UnimplementedError("match not implemented for $runtimeType");
   }
 
-  /// Invert this pattern  (matches everything except this)
+  /// Returns a pattern that matches the inverse of this one.
   Pattern invert() {
     throw UnimplementedError("invert not implemented for $runtimeType");
   }
 
-  /// Calculate if pattern is empty
+  /// Calculates the nullability of this pattern based on rule references.
   bool calculateEmpty(Set<Rule> emptyRules) {
     throw UnimplementedError("calculateEmpty not implemented for $runtimeType");
   }
 
-  /// Check if pattern is "static" (can appear in empty position)
+  /// Whether this pattern is "static" (matches a zero-width span at any position).
+  ///
+  /// This is true for epsilon, anchors, and markers.
   bool isStatic() {
     throw UnimplementedError("isStatic not implemented for $runtimeType");
   }
 
-  /// Get first set (patterns at the beginning)
+  /// Returns the set of initial sub-patterns that can start a match of this pattern.
   Set<Pattern> firstSet() {
     throw UnimplementedError("firstSet not implemented for $runtimeType");
   }
 
-  /// Get last set (patterns at the end)
+  /// Returns the set of final sub-patterns that can complete a match of this pattern.
   Set<Pattern> lastSet() {
     throw UnimplementedError("lastSet not implemented for $runtimeType");
   }
 
-  /// Iterate over (a, b) pairs where a is connected to b
+  /// Yields all internal connections (a, b) where pattern 'a' can be followed by 'b'.
   Iterable<(Pattern, Pattern)> eachPair() sync* {}
 
-  /// Collect all Rule instances referenced in this pattern
+  /// Collects all [Rule]s that this pattern recursively refers to.
   void collectRules(Set<Rule> rules) {}
 
-  /// Operator overloads for DSL
+  /// DSL operator for sequential composition ([Seq]).
   Seq operator >>(Pattern other) => Seq(this, other);
+
+  /// DSL operator for alternation ([Alt]).
   Alt operator |(Pattern other) => Alt(this, other);
+
+  /// DSL operator for parallel conjunction ([Conj]).
   Conj operator &(Pattern other) => Conj(this, other);
 
-  /// Retreat operator — verifies the current pattern matches, then moves the
-  /// parsing position back by one before continuing with the next pattern.
-  /// Example: 'a' < 'ab' matches 'ab' at the current position, given 'a' matched.
+  /// Retreat operator — verifies this pattern matches, then moves the
+  /// parsing position back by one before continuing.
   Pattern operator <(Pattern other) => this >> Retreat() >> other;
 
-  /// Attach a semantic action to this pattern.
-  /// The callback receives (span, childResults) where:
-  ///   - span: the matched substring
-  ///   - childResults: list of evaluated semantic values from children
+  /// Attaches a semantic [callback] to this pattern.
+  ///
+  /// The callback receives the matched input span and the results of any
+  /// child semantic actions.
   Action<T> withAction<T>(T Function(String span, List<Object?> childResults) callback) {
     return Action<T>(this, callback);
   }
 
-  /// Repetition operators
+  /// DSL helper for one-or-more repetition ([Plus]).
   Pattern plus() => Plus(this);
+
+  /// DSL helper for zero-or-more repetition ([Star]).
   Pattern star() => Star(this);
+
+  /// DSL helper for optional matches ([Opt]).
   Pattern opt() => Opt(this);
 
-  /// This discriminates the type of the pattern from the symbol
-  ///   without making an entire rule object.
+  /// Internal tag used for JSON serialization and discrimination.
   String get _symbolPrefix {
     return switch (this) {
       Token() => "tok",
@@ -1874,26 +2121,26 @@ sealed class Pattern {
     };
   }
 
+  /// DSL helper for an optional variant of this pattern.
   Alt maybe() => this | Eps();
 
-  /// Positive lookahead predicate (AND) - succeeds if pattern matches at current position
-  /// without consuming input. Allows lookahead without consumption.
-  /// Example: &token('a') >> token('a') matches 'a' only when 'a' is present
+  /// DSL helper for positive lookahead (AND predicate).
   And and() => And(this);
 
-  /// Negative lookahead predicate (NOT) - succeeds if pattern does NOT match at current position
-  /// without consuming input. Prevents matching when pattern would succeed.
-  /// Example: !token('x') >> token('a') matches 'a' only when NOT 'x'
+  /// DSL helper for negative lookahead (NOT predicate).
   Not not() => Not(this);
 
-  /// Inline guard — succeeds only if the condition evaluates to true.
-  /// If the condition is false, the branch fails without consuming input.
+  /// DSL helper for an inline semantic guard.
   IfCond when(GuardExpr condition) => IfCond(condition, this);
 }
 
 /// Sealed class hierarchy for token choice — replaces the former Object? field.
+/// Abstract base for defining how a token choice matches input.
 sealed class TokenChoice {
+  /// Base constructor for [TokenChoice].
   const TokenChoice(this.capturesAsMark);
+
+  /// Deserializes a [TokenChoice] from JSON.
   factory TokenChoice.fromJson(Map<String, Object?> json) {
     var type = json["type"]! as String;
     return switch (type) {
@@ -1906,9 +2153,13 @@ sealed class TokenChoice {
     };
   }
 
+  /// Serializes this choice to JSON.
   Map<String, Object?> toJson();
 
+  /// Whether this choice should be automatically wrapped in a mark when captured.
   final bool capturesAsMark;
+
+  /// Returns true if this choice matches the provided [value].
   bool matches(int? value);
 }
 
@@ -1987,19 +2238,29 @@ final class GreaterToken extends TokenChoice {
   Map<String, Object?> toJson() => {"type": "greater", "bound": bound};
 }
 
-/// Single token pattern
+/// A pattern that matches a single atomic token from the input stream.
 class Token extends Pattern {
+  /// Creates a [Token] with the specified [choice] logic.
   Token(this.choice);
 
+  /// Deserializes a [Token] from JSON.
   factory Token.fromJson(Map<String, Object?> json) {
     return Token(TokenChoice.fromJson(json["choice"]! as Map<String, Object?>));
   }
+
+  /// Creates a [Token] matching a single character [char].
   Token.char(String char) //
     : assert(char.length == 1, "Character patterns should have only one value!"),
       choice = ExactToken(utf8.encode(char).single);
+
+  /// Creates a [Token] matching a range of characters from [from] to [to].
   Token.charRange(String from, String to)
     : choice = RangeToken(utf8.encode(from).first, utf8.encode(to).first);
+
+  /// Creates a [Token] that matches any single character.
   Token.any() : choice = const RangeToken(0, 255);
+
+  /// The matching logic for this token.
   final TokenChoice choice;
 
   @override
@@ -2008,6 +2269,7 @@ class Token extends Pattern {
   @override
   bool match(int? token) => choice.matches(token);
 
+  /// Whether this token's captures should be treated as marks.
   bool get capturesAsMark => choice.capturesAsMark;
 
   @override
@@ -2051,10 +2313,17 @@ class Token extends Pattern {
   String toString() => choice.toString();
 }
 
-/// Marker for parse tracking
+/// A pattern that emits a semantic marker when matched.
+///
+/// Markers are zero-width patterns that are used to track the progress of the
+/// parse or to insert custom semantic indicators into the mark forest.
 class Marker extends Pattern {
+  /// Creates a [Marker] with the specified [name].
   Marker(this.name);
+
+  /// The name of the marker.
   final String name;
+
   @override
   Map<String, Object?> toJson() => {"type": "mar", "name": name};
 
@@ -2080,7 +2349,10 @@ class Marker extends Pattern {
   String toString() => "mark($name)";
 }
 
-/// Epsilon (empty pattern)
+/// The empty pattern (epsilon).
+///
+/// This pattern always matches successfully without consuming any input. It is
+/// the identity element for sequential composition.
 class Eps extends Pattern {
   static const Set<Pattern> _emptySet = <Pattern>{};
 
@@ -2200,10 +2472,19 @@ final class Retreat extends Pattern {
   String toString() => "<";
 }
 
-/// Alternation (choice between patterns)
+/// A pattern that matches one of two alternative patterns.
+///
+/// [Alt] implements ordered choice by default in some engines, but in Glush it
+/// represents a branch in the parse forest. If both patterns match, the result
+/// is ambiguous unless disambiguated by precedence or other guards.
 class Alt extends Pattern {
+  /// Creates an [Alt] between [left] and [right] patterns.
   Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
+
+  /// The first alternative pattern.
   Pattern left;
+
+  /// The second alternative pattern.
   Pattern right;
 
   @override
@@ -2261,10 +2542,19 @@ class Alt extends Pattern {
   String toString() => "alt($left, $right)";
 }
 
-/// Sequence (patterns in order)
+/// A pattern that matches two patterns in sequence.
+///
+/// [Seq] is the fundamental building block of hierarchical grammars,
+/// ensuring that the [left] pattern is fully matched before the [right]
+/// pattern begins.
 class Seq extends Pattern {
+  /// Creates a [Seq] of [left] followed by [right].
   Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
+
+  /// The pattern that must match first.
   Pattern left;
+
+  /// The pattern that must match second.
   Pattern right;
 
   @override
@@ -2329,10 +2619,16 @@ class Seq extends Pattern {
   String toString() => "seq($left, $right)";
 }
 
-/// Optional pattern (zero-or-one) with ordered-choice semantics.
-/// This is modeled as a first-class node instead of rewriting to Alt(child, Eps).
+/// A pattern that matches a child pattern zero or one times.
+///
+/// [Opt] is a first-class node in Glush to preserve the original grammar's
+/// structure for better error reporting and SPPF node naming, rather than
+/// immediately lowering it to an [Alt] with epsilon.
 class Opt extends Pattern {
+  /// Creates an [Opt] wrapping the [child] pattern.
   Opt(Pattern child) : child = child.consume();
+
+  /// The optional child pattern.
   Pattern child;
 
   @override
@@ -2371,9 +2667,15 @@ class Opt extends Pattern {
   String toString() => "opt($child)";
 }
 
-/// Zero-or-more repetition
+/// A pattern that matches a child pattern zero or more times.
+///
+/// [Star] (Kleene Star) represents a repeating loop in the grammar. In Glush,
+/// this is handled by the state machine's back-edges and epsilon transitions.
 class Star extends Pattern {
+  /// Creates a [Star] wrapping the [child] pattern.
   Star(Pattern child) : child = child.consume();
+
+  /// The repeating child pattern.
   Pattern child;
 
   @override
@@ -2399,7 +2701,8 @@ class Star extends Pattern {
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     yield* child.eachPair();
 
-    // Prefer staying in the repetition before exiting in non-ambiguity mode.
+    // Loopback edges: any pattern at the end of the child can be followed
+    // by any pattern at the start of the child.
     for (var a in child.lastSet()) {
       for (var b in child.firstSet()) {
         yield (a, b);
@@ -2419,9 +2722,15 @@ class Star extends Pattern {
   String toString() => "star($child)";
 }
 
-/// One-or-more repetition
+/// A pattern that matches a child pattern one or more times.
+///
+/// [Plus] is similar to [Star] but requires at least one successful match
+/// of the [child].
 class Plus extends Pattern {
+  /// Creates a [Plus] wrapping the [child] pattern.
   Plus(Pattern child) : child = child.consume();
+
+  /// The repeating child pattern.
   Pattern child;
 
   @override
@@ -2447,7 +2756,7 @@ class Plus extends Pattern {
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     yield* child.eachPair();
 
-    // Prefer staying in the repetition before exiting in non-ambiguity mode.
+    // Loopback edges similar to Star.
     for (var a in child.lastSet()) {
       for (var b in child.firstSet()) {
         yield (a, b);
@@ -2467,11 +2776,19 @@ class Plus extends Pattern {
   String toString() => "plus($child)";
 }
 
-/// Conjunction (both patterns must match)
+/// A pattern representing the parallel conjunction of two patterns.
+///
+/// In a conjunction, BOTH [left] and [right] must match the exact same span
+/// of input for the conjunction to succeed. This is used for context-sensitive
+/// checks, refined tokenization, or implementing Boolean grammars.
 class Conj extends Pattern {
+  /// Creates a [Conj] of [left] and [right].
   Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
+  /// The first pattern to verify.
   Pattern left;
+
+  /// The second pattern to verify.
   Pattern right;
 
   @override
@@ -2517,10 +2834,16 @@ class Conj extends Pattern {
   String toString() => "conj($left, $right)";
 }
 
-/// Positive lookahead predicate (AND) - matches if pattern succeeds without consuming
-/// Example: &('a' >> 'b') >> 'a' will only match 'a' if followed by 'b'
+/// A positive lookahead predicate (syntactic AND).
+///
+/// Succeeds if the [pattern] matches at the current position, but does NOT
+/// consume any input. This allows for checking future input without moving
+/// the parse head.
 class And extends Pattern {
+  /// Creates an [And] lookahead wrapping [p].
   And(Pattern p) : pattern = p.consume();
+
+  /// The lookahead pattern.
   Pattern pattern;
 
   @override
@@ -2562,10 +2885,15 @@ class And extends Pattern {
   String toString() => "and($pattern)";
 }
 
-/// Negative lookahead predicate (NOT) - matches if pattern fails without consuming
-/// Example: !('a' >> 'b') >> 'a' will only match 'a' if NOT followed by 'b'
+/// A negative lookahead predicate (syntactic NOT).
+///
+/// Succeeds if the [pattern] does NOT match at the current position. Like [And],
+/// it does not consume any input.
 class Not extends Pattern {
+  /// Creates a [Not] lookahead wrapping [p].
   Not(Pattern p) : pattern = p.consume();
+
+  /// The lookahead pattern to be negated.
   Pattern pattern;
 
   @override
@@ -2607,10 +2935,19 @@ class Not extends Pattern {
   String toString() => "not($pattern)";
 }
 
-/// Inline guard pattern - matches child pattern only if condition is true.
+/// A pattern that matches a child pattern only if a semantic condition is met.
+///
+/// [IfCond] provides fine-grained control over parsing paths by evaluating
+/// a [condition] expression against the current [GuardEnvironment]. If the
+/// condition is false, the branch is immediately pruned.
 class IfCond extends Pattern {
+  /// Creates an [IfCond] wrapping [p] with a [condition].
   IfCond(this.condition, Pattern p) : pattern = p.consume();
+
+  /// The semantic condition to evaluate.
   final GuardExpr condition;
+
+  /// The child pattern to match if the condition holds.
   Pattern pattern;
 
   @override
@@ -2659,24 +2996,38 @@ IfCond if_(GuardExpr condition, Pattern pattern) => IfCond(condition, pattern);
 
 extension type RuleName(String symbol) {}
 
-/// Grammar rule
+/// A high-level grammar rule that encapsulates a parsing fragment.
+///
+/// Rules are the primary unit of reuse in a grammar. They can be recursive,
+/// parameterized, and guarded. A rule has a [name] and a [body] (the pattern it
+/// implements), and it can be called from other patterns using [RuleCall].
 class Rule extends Pattern {
+  /// Creates a [Rule] with a [name] and a [_code] thunk for its body.
   Rule(String name, this._code) : name = RuleName(name), uid = _uidCounter++;
 
   static int _uidCounter = 1;
 
+  /// The unique name of this rule within the grammar.
   final RuleName name;
+
+  /// The thunk that generates the rule's body pattern.
   final Pattern Function() _code;
+
+  /// A list of all calls made to this rule, used for tracking and expansion.
   final List<RuleCall> calls = [];
 
-  /// Unique serial ID assigned during Rule creation.
-  /// Used for fast integer-packed cache keys.
+  /// A unique numeric ID for fast indexing in the state machine caches.
   final int uid;
 
   Pattern? _body;
+
+  /// An optional guard that must pass for this rule to be considered valid.
   GuardExpr? guard;
+
+  /// The rule that 'owns' or defines this rule if it was generated (e.g., a guard rule).
   Rule? guardOwner;
 
+  /// Creates a [RuleCall] to this rule with the given [arguments] and [minPrecedenceLevel].
   RuleCall call({Map<String, CallArgumentValue> arguments = const {}, int? minPrecedenceLevel}) {
     var name = "${this.name}_${calls.length}";
     var call = RuleCall(name, this, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
@@ -2684,14 +3035,15 @@ class Rule extends Pattern {
     return call;
   }
 
-  /// Attach a guard that must evaluate to true before the rule body is entered.
-  ///
-  /// Guards are enforced by the state machine, alongside precedence filtering.
+  /// Attaches a [guard] expression to this rule.
   Rule guardedBy(GuardExpr guard) {
     this.guard = guard;
     return this;
   }
 
+  /// Evaluates the thunk and returns the rule's [Pattern] body.
+  ///
+  /// The body is memoized after the first call to avoid redundant evaluations.
   Pattern body() {
     if (_body == null) {
       _body = _code().consume();
@@ -2700,6 +3052,7 @@ class Rule extends Pattern {
     return _body!;
   }
 
+  /// Manually overrides the rule's body pattern.
   // ignore: use_setters_to_change_properties
   void setBody(Pattern body) {
     _body = body;
@@ -2755,8 +3108,12 @@ class Rule extends Pattern {
   String toString() => "<$name>";
 }
 
-/// Call to a rule with optional precedence constraint
+/// An invocation of a rule within another pattern.
+///
+/// [RuleCall] represents a specific use of a rule, potentially with
+/// [arguments] for parameters and a [minPrecedenceLevel] for disambiguation.
 class RuleCall extends Pattern {
+  /// Creates a [RuleCall] to the specified [rule] with the given parameters.
   RuleCall(
     this.name,
     this.rule, {
@@ -2765,15 +3122,24 @@ class RuleCall extends Pattern {
   }) : arguments = Map<String, CallArgumentValue>.unmodifiable(arguments),
        argumentsKey = _callArgumentSourceKey(arguments),
        _argumentNames = _sortedArgumentNames(arguments.keys, const []);
+
+  /// A local name for this call instance.
   final String name;
+
+  /// The rule being called.
   final Rule rule;
+
+  /// The arguments passed to the rule's parameters.
   final Map<String, CallArgumentValue> arguments;
+
+  /// A pre-computed key representing the static structure of the arguments.
   final String argumentsKey;
   final List<String> _argumentNames;
 
-  /// Minimum precedence level filter. If set, only alternatives in the rule
-  /// with precedenceLevel >= minPrecedenceLevel will match.
-  /// This implements EXPR^N syntax where N is the minimum precedence level.
+  /// Minimum precedence level filter.
+  ///
+  /// If set, only alternatives in the rule with precedenceLevel >=
+  /// minPrecedenceLevel will match. This implements EXPR^N syntax.
   final int? minPrecedenceLevel;
 
   @override
@@ -2790,13 +3156,15 @@ class RuleCall extends Pattern {
   RuleCall copy() =>
       RuleCall(name, rule, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
+  /// Resolves the call's arguments into concrete objects for the runtime.
+  ///
+  /// Returns both the resolved arguments map and a unique [CallArgumentsKey]
+  /// for memoizing the call's results in the SPPF.
   ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
     GuardEnvironment env,
   ) {
     // Resolve the typed call-argument model once at the call boundary, then
     // hand the state machine a plain resolved map and a memoization key.
-    // Arguments are resolved once at the call boundary so the runtime sees a
-    // plain map and a stable memoization key.
     var resolved = <String, Object?>{};
     var resolvedValues = <Object?>[];
 
@@ -2842,7 +3210,6 @@ class RuleCall extends Pattern {
     for (var arg in arguments.values) {
       arg.collectRules(rules);
     }
-    // Don't call rule.body() here to avoid circular initialization issues
   }
 
   @override
@@ -2859,13 +3226,16 @@ class RuleCall extends Pattern {
   }
 }
 
-/// Reference to a rule parameter used in a rule body.
+/// A pattern that references a rule parameter.
 ///
-/// This is resolved at runtime from the current caller's argument map so rule
-/// bodies can treat parameters as first-class parser values.
+/// This is used in rule bodies to stand in for a pattern that will be passed
+/// in at runtime. For example, in `repeat(content)`, `content` is a
+/// [ParameterRefPattern].
 class ParameterRefPattern extends Pattern {
+  /// Creates a [ParameterRefPattern] with the given [name].
   ParameterRefPattern(this.name);
 
+  /// The name of the parameter being referenced.
   final String name;
 
   @override
@@ -2897,23 +3267,30 @@ class ParameterRefPattern extends Pattern {
   String toString() => "param($name)";
 }
 
-/// Invocation of a rule parameter with call arguments.
+/// A pattern that calls a rule parameter with its own arguments.
 ///
-/// This is used when a grammar body needs to call a parameterized rule value
-/// as `content(piece: atom)` instead of just reading `content`.
+/// This supports higher-order rules where a parameter itself takes parameters.
+/// For example, if `wrapper` is a parameter, `wrapper(inner: atom)` is a
+/// [ParameterCallPattern].
 class ParameterCallPattern extends Pattern {
+  /// Creates a [ParameterCallPattern] for parameter [name].
   ParameterCallPattern(
     this.name, {
     Map<String, CallArgumentValue> arguments = const {},
     this.minPrecedenceLevel,
   }) : arguments = Map<String, CallArgumentValue>.unmodifiable(arguments),
-       argumentsKey = _callArgumentSourceKey(arguments),
-       _argumentNames = _sortedArgumentNames(arguments.keys, const []);
+       argumentsKey = _callArgumentSourceKey(arguments);
 
+  /// The name of the parameter being called.
   final String name;
+
+  /// The arguments passed to the parameter's own parameters.
   final Map<String, CallArgumentValue> arguments;
+
+  /// A pre-computed key representing the static structure of the arguments.
   final String argumentsKey;
-  final List<String> _argumentNames;
+
+  /// Optional precedence filter for the parameter call.
   final int? minPrecedenceLevel;
 
   @override
@@ -2928,29 +3305,9 @@ class ParameterCallPattern extends Pattern {
   ParameterCallPattern copy() =>
       ParameterCallPattern(name, arguments: arguments, minPrecedenceLevel: minPrecedenceLevel);
 
-  ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
-    GuardEnvironment env,
-  ) {
-    var resolved = <String, Object?>{};
-    var resolvedValues = <Object?>[];
-
-    for (var i = 0; i < _argumentNames.length; i++) {
-      var name = _argumentNames[i];
-      var value = arguments[name]!.resolve(env);
-      resolved[name] = value;
-      resolvedValues.add(value);
-    }
-
-    var key = switch (resolvedValues.length) {
-      0 => StringCallArgumentsKey(argumentsKey),
-      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
-    };
-
-    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
-  }
-
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
+    // Higher-order calls are runtime-dependent.
     setEmpty(false);
     return false;
   }
@@ -2985,11 +3342,19 @@ class ParameterCallPattern extends Pattern {
   }
 }
 
-/// Semantic action pattern - executes a callback when child pattern matches.
-/// The callback receives (span, childResults) where childResults are the evaluated semantic values.
+/// A pattern that executes a semantic callback when its child pattern matches.
+///
+/// [Action] is used to transform the raw parse forest into a semantic domain
+/// model. The callback is executed during the structure evaluation phase,
+/// receiving the matched span and the list of child results.
 class Action<T> extends Pattern {
+  /// Creates an [Action] wrapping [child] with a [callback].
   Action(this.child, this.callback);
+
+  /// The child pattern that triggers the action.
   Pattern child;
+
+  /// The callback to execute when the child matches.
   final T Function(String span, List<Object?> childResults) callback;
 
   @override
@@ -3033,13 +3398,20 @@ class Action<T> extends Pattern {
   String toString() => "action($child)";
 }
 
-/// Pattern labeled with a precedence level for operator precedence parsing.
-/// When this pattern is part of a rule body alternation, the precedence level
-/// determines which alternatives can match based on precedence constraints.
-/// Example: In "6| $add EXPR^6 ... EXPR^7", the entire sequence gets precedenceLevel=6
+/// A pattern that assigns a precedence level to its child.
+///
+/// Precedence levels are used by the [Rule] system and [RuleCall] to disambiguate
+/// grammars using the EXPR^N syntax. When multiple alternatives in a rule
+/// could match, the ones with the highest [precedenceLevel] are preferred
+/// according to the minPrecedenceLevel constraint of the caller.
 class Prec extends Pattern {
+  /// Creates a [Prec] wrapper with [precedenceLevel] for [child].
   Prec(this.precedenceLevel, this.child);
+
+  /// The numeric precedence level (higher values typically bind tighter).
   final int precedenceLevel;
+
+  /// The child pattern being labeled.
   Pattern child;
 
   @override
@@ -3087,14 +3459,23 @@ class Prec extends Pattern {
   String toString() => "[$precedenceLevel] $child";
 }
 
-/// Pattern that labels its child
+/// A pattern that labels its child with a [name] for capture.
+///
+/// Labeled patterns are used to extract specific parts of a match into
+/// the [GuardEnvironment] for semantic predicates or actions.
 class Label extends Pattern {
+  /// Creates a [Label] with the given [name] for [child].
   Label(this.name, Pattern child) : child = child.consume() {
     _start = LabelStart(name);
     _end = LabelEnd(name);
   }
+
+  /// The capture name.
   final String name;
+
+  /// The pattern being labeled.
   Pattern child;
+
   late final LabelStart _start;
   late final LabelEnd _end;
 
@@ -3143,8 +3524,12 @@ class Label extends Pattern {
   String toString() => "$name:($child)";
 }
 
+/// A marker pattern indicating the start of a labeled span.
 class LabelStart extends Pattern {
+  /// Creates a [LabelStart] for [name].
   LabelStart(this.name);
+
+  /// The name of the label.
   final String name;
 
   @override
@@ -3172,8 +3557,12 @@ class LabelStart extends Pattern {
   String toString() => "label_start($name)";
 }
 
+/// A marker pattern indicating the end of a labeled span.
 class LabelEnd extends Pattern {
+  /// Creates a [LabelEnd] for [name].
   LabelEnd(this.name);
+
+  /// The name of the label.
   final String name;
 
   @override
@@ -3201,8 +3590,15 @@ class LabelEnd extends Pattern {
   String toString() => "label_end($name)";
 }
 
+/// A pattern that references a previously captured labeled span.
+///
+/// Backreferences allow the grammar to match input that is identical to what
+/// was matched by a previous label. This is a context-sensitive feature.
 class Backreference extends Pattern {
+  /// Creates a [Backreference] to the label [name].
   Backreference(this.name);
+
+  /// The name of the label to reference.
   final String name;
 
   @override

@@ -12,9 +12,11 @@ import "package:meta/meta.dart";
 /// Signature for an evaluation handler.
 typedef EvaluatorHandler<T extends Object> = Object? Function(EvaluationContext<T> ctx);
 
-/// A context object passed to evaluation handlers.
+/// A context object provided to [EvaluatorHandler] functions during evaluation.
 ///
-/// This provides a clean API for accessing children and text content.
+/// The context manages the traversal of a specific node's children, allowing
+/// handlers to look up children by label, iterate through them sequentially,
+/// or access the raw text [span] of the current node.
 class EvaluationContext<T extends Object> {
   EvaluationContext(this.evaluator, this.node, this.it);
   final Evaluator<T> evaluator;
@@ -95,12 +97,16 @@ class EvaluationContext<T extends Object> {
   String get span => node.span;
 }
 
-/// A generic evaluator for mark-based parse results and nested entry structures.
+/// A generic framework for transforming a parse forest into a high-level data model.
 ///
-/// This evaluator is designed to be "porting safe" across languages:
-/// 1. Uses explicit types instead of dynamic/any.
-/// 2. Uses a simple class-based handler system instead of complex closures.
-/// 3. Uses a stateful iterator for consuming child nodes.
+/// The [Evaluator] works by traversing a [ParseNode] tree and applying registered
+/// [handlers] based on the labels (marks) found at each node. It is designed to
+/// be modular and type-safe, allowing developers to define how specific grammar
+/// constructs (like "binary_expression" or "function_call") should be converted
+/// into Dart objects.
+///
+/// The evaluation process is often recursive: a handler for a parent node will
+/// typically invoke the evaluator on its children to build its own state.
 class Evaluator<T extends Object> {
   Evaluator(this.handlers);
 
@@ -223,12 +229,15 @@ class NodeIterator {
   List<(String, ParseNode)> takeAll() => _nodes.sublist(_index);
 }
 
-/// Base class for all nodes in the structured parse tree.
+/// The common interface for all nodes in a structured parse result.
+///
+/// A [ParseNode] represents a successful match of a grammar pattern, either
+/// as a leaf [TokenResult] or a branch [ParseResult].
 sealed class ParseNode {
   /// The full text content of this node.
   String get span;
 
-  /// Simplified representation of this node.
+  /// Returns a simplified, JSON-compatible version of the subtree for debugging.
   Object simple();
 }
 
@@ -324,8 +333,15 @@ class ParseResult extends ParseNode {
   int get hashCode => Object.hash(span, Object.hashAll(children));
 }
 
-/// Evaluator that produces a structured tree of results based on labels.
+/// Transforms a flat stream of [Mark] objects into a structured [ParseResult] tree.
+///
+/// While the state machine produces a linear sequence of events (token matches,
+/// labels, conjunctions), the [StructuredEvaluator] reconstructs the hierarchical
+/// relationship between these events. It uses a stack-based approach to group
+/// marks into nested [ParseResult] nodes, ensuring that labels correctly
+/// encapsulate their corresponding sub-parses.
 class StructuredEvaluator {
+  /// Creates a structured evaluator.
   const StructuredEvaluator({this.sppfTable});
 
   /// When set, label spans derived from marks are cross-checked against the
