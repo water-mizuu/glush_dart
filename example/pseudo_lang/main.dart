@@ -73,8 +73,7 @@ fn main() {
   var outcome = parser.parse(input, captureTokensAsMarks: true);
 
   if (outcome is ParseSuccess) {
-    var result = outcome.result;
-    var tree = result.rawMarks.evaluateStructure(input);
+    var tree = outcome.rawMarks.evaluateStructure(input);
 
     print("\nSTRUCTURED TREE:");
     _printTree(tree, 0);

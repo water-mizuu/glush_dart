@@ -24,7 +24,40 @@ import "package:meta/meta.dart";
 class Context {
   /// Creates a [Context] with the given configuration.
   Context(
-    this.caller, {
+    CallerKey caller, {
+    Map<String, Object?> arguments = const <String, Object?>{},
+    CaptureBindings captures = const CaptureBindings.empty(),
+    GlushList<PredicateCallerKey> predicateStack = const GlushList<PredicateCallerKey>.empty(),
+    int callStart = 0,
+    int position = 0,
+    int? minPrecedenceLevel,
+    int? precedenceLevel,
+  }) : this._(
+         caller,
+         Object.hash(
+           caller,
+           callStart,
+           position,
+           minPrecedenceLevel,
+           precedenceLevel,
+           captures,
+           predicateStack,
+           _mapHashCode(arguments),
+         ),
+         isSimple: predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty,
+         arguments: arguments,
+         captures: captures,
+         predicateStack: predicateStack,
+         callStart: callStart,
+         position: position,
+         minPrecedenceLevel: minPrecedenceLevel,
+         precedenceLevel: precedenceLevel,
+       );
+
+  const Context._(
+    this.caller,
+    this._hash, {
+    required this.isSimple,
     this.arguments = const <String, Object?>{},
     this.captures = const CaptureBindings.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
@@ -32,17 +65,7 @@ class Context {
     this.position = 0,
     this.minPrecedenceLevel,
     this.precedenceLevel,
-  }) : _hash = Object.hash(
-         caller,
-         callStart,
-         position,
-         minPrecedenceLevel,
-         precedenceLevel,
-         captures,
-         predicateStack,
-         _mapHashCode(arguments),
-       ),
-       isSimple = predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty;
+  });
 
   final int _hash;
 

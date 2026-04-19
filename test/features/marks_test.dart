@@ -18,7 +18,7 @@ void main() {
       var outcome = parser.parse("user:michael", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
-      var result = (outcome as ParseSuccess).result;
+      var result = outcome as ParseSuccess;
 
       var marks = result.rawMarks;
       var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
@@ -40,7 +40,7 @@ void main() {
       var outcome = parser.parse("alice:secret", captureTokensAsMarks: true);
 
       expect(outcome, isA<ParseSuccess>());
-      var result = (outcome as ParseSuccess).result;
+      var result = outcome as ParseSuccess;
 
       var evaluator = StructuredEvaluator(sppfTable: result.sppfTable);
       var tree = evaluator.evaluate(result.rawMarks, input: "alice:secret");
@@ -60,14 +60,14 @@ void main() {
 
       var firstOutcome = parser.parse("a", captureTokensAsMarks: true);
       expect(firstOutcome, isA<ParseSuccess>());
-      var firstResult = (firstOutcome as ParseSuccess).result;
+      var firstResult = firstOutcome.success()!;
       var firstEvaluator = StructuredEvaluator(sppfTable: firstResult.sppfTable);
       var firstTree = firstEvaluator.evaluate(firstResult.rawMarks, input: "a");
       expect(firstTree["choice.prec"].first.span, equals("a"));
 
       var secondOutcome = parser.parse("b", captureTokensAsMarks: true);
       expect(secondOutcome, isA<ParseSuccess>());
-      var secondResult = (secondOutcome as ParseSuccess).result;
+      var secondResult = secondOutcome.success()!;
       var secondEvaluator = StructuredEvaluator(sppfTable: secondResult.sppfTable);
       var secondTree = secondEvaluator.evaluate(secondResult.rawMarks, input: "b");
       expect(secondTree["choice.first"].first.span, equals("b"));

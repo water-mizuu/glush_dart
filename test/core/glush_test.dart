@@ -132,9 +132,8 @@ void main() {
 
       expect(result, isA<ParseSuccess>());
       if (result is ParseSuccess) {
-        var parserResult = result.result;
-        expect(parserResult.marks, isNotEmpty);
-        expect(parserResult.marks[0], "mark");
+        expect(result.marks, isNotEmpty);
+        expect(result.marks[0], "mark");
       }
     });
 

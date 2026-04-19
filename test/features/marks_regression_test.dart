@@ -307,7 +307,7 @@ void main() {
       var outcome = parser.parse("abc", captureTokensAsMarks: true);
       expect(outcome, isA<ParseSuccess>());
 
-      var result = (outcome as ParseSuccess).result;
+      var result = outcome as ParseSuccess;
       expect(result.marks, equals(["start.outer", "first", "a", "middle", "b", "last", "c"]));
 
       var tree = const StructuredEvaluator().evaluate(result.rawMarks, input: "abc");

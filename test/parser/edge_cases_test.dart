@@ -14,10 +14,7 @@ void main() {
   /// Extracts marks from either ParseSuccess or ParseSuccess
   List<String> getMarks(Object outcome) {
     if (outcome is ParseSuccess) {
-      return outcome.result.marks;
-    }
-    if (outcome is ParseSuccess) {
-      return outcome.result.marks;
+      return outcome.marks;
     }
     return [];
   }

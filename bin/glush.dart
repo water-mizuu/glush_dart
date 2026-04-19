@@ -39,13 +39,13 @@ Grammar parseGrammar(String input) {
     # Allow trailing trivia after a rule body so line comments behave
     # like whitespace instead of becoming the next token stream.
     rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
-        | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
+         | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
 
     choice = $rest left:choice _ (prec:number _)? '|' _ right:branch
-          | $first ((prec:number _)? '|' _)? body:branch
+           | $first ((prec:number _)? '|' _)? body:branch
 
     branch = $cond "if" _ "(" _ cond:argExpr _ ")"_ body:seq
-          | $none body:seq
+           | $none body:seq
 
     seq = $seq left:seq _ &isContinuation right:conj
         | conj
@@ -54,8 +54,8 @@ Grammar parseGrammar(String input) {
           | prefix
 
     prefix = $and '&' atom:rep
-          | $not '!' atom:rep
-          | rep
+           | $not '!' atom:rep
+           | rep
 
     rep = $rep atom:primary kind:repKind
         | primary
@@ -76,15 +76,15 @@ Grammar parseGrammar(String input) {
 
     # Helpers
     isContinuation = ident !(_ [=]) !isRuleDeclarationAhead
-                    | literal | charRange
-                    | '[' | '(' | '.' | '!' | '&'
+                   | literal | charRange
+                   | '[' | '(' | '.' | '!' | '&'
 
     isRuleDeclarationAhead = !$ balancedParenthesis? _ "="
     balancedParenthesis = "(" balancedParenthesis ")"
                         | !")" .
 
     params = $params left:params _ ',' _ right:param
-          | $param  right:param
+           | $param  right:param
 
     param = ident
 

@@ -72,10 +72,7 @@ final class ParseError implements ParseOutcome, Exception {
 
     List<String> inputRows = input.replaceAll("\r", "").split("\n");
 
-    List<(int, String)> displayedRows = inputRows.indexed
-        .skip(max(row - 3, 0))
-        .take(3)
-        .toList();
+    List<(int, String)> displayedRows = inputRows.indexed.skip(max(row - 3, 0)).take(3).toList();
 
     int longest = displayedRows.map((e) => (e.$1 + 1).toString().length).reduce(max);
 
@@ -109,9 +106,6 @@ final class ParseSuccess implements ParseOutcome {
 
   /// Returns the mark names as a simple list of strings.
   List<String> get marks => rawMarks.toMarkStrings();
-
-  /// Returns this result instance (for backward compatibility).
-  ParseSuccess get result => this;
 
   @override
   ParseError? error() => null;

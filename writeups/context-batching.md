@@ -28,8 +28,8 @@
 ### Location & Key Files
 
 - **Core Batching Logic**: [lib/src/parser/common/step.dart](../lib/src/parser/common/step.dart) (lines 70-750)
-- **Context Definition**: [lib/src/parser/common/context.dart:10-268](../lib/src/parser/common/context.dart#L10-L268)
-- **Batching Orchestration**: [lib/src/parser/common/step.dart:292-410](../lib/src/parser/common/step.dart#L292-L410)
+- **ContextGroup**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 193-270)
+- **Context**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 19-180)
 
 ---
 
@@ -47,7 +47,7 @@ class Context {
   final int position;                  // Current parse position
   final int? minPrecedenceLevel;       // Precedence constraint
   final int? precedenceLevel;          // Rule's precedence level
-  
+
   final bool isSimple; // No predicates, captures, or arguments
 }
 ```
@@ -55,33 +55,41 @@ class Context {
 ### Components
 
 **CallerKey**: The call stack (Graph-Shared Stack node)
+
 - Represents the sequence of rule invocations leading to current position
 - Immutable and shared across frames
 
 **arguments**: Rule-specific arguments passed to parameterized rules
+
 - `Map<String, Object?>`
 - Only populated for rules with data-driven parameters
 
 **captures**: Data-captured labels (from capture bindings)
+
 - Maps label names to extracted values
 - Accumulated during parsing
 
 **predicateStack**: Active lookahead predicates
+
 - `GlushList<PredicateCallerKey>`
 - Tracks which predicates are currently active
 - Used for nested predicate handling
 
 **callStart**: Start position of the current rule invocation
+
 - Used to compute span indices for SPPF nodes
 
 **position**: Current parse position in the input
+
 - Most frequently changing field
 
 **minPrecedenceLevel**: Precedence constraint for disambiguation
+
 - Used in precedence-climbing rules
 - Optional (null when unconstrained)
 
 **precedenceLevel**: The rule's declared precedence
+
 - Set when entering a precedence-aware rule
 
 ### Context Equality
@@ -110,28 +118,28 @@ bool contextEquals(Context a, Context b) {
 ```dart
 final class ContextGroup {
   ContextGroup(this.state, this.context);
-  
+
   final State state;
   final Context context;
-  
+
   // Batch mark accumulation
   LazyGlushList<Mark>? _single;      // First mark
   List<LazyGlushList<Mark>>? _batch; // Multiple marks (lazy list)
-  
+
   // Shared BSPPF node (first-write wins)
   SppfNode? sppfNode;
-  
+
   // Label stacks (first-write wins)
   OpenLabel? openLabels;
   ClosedLabel? closedLabels;
-  
+
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
       return _buildBalanced(batch, 0, batch.length);
     }
     return _single ?? const LazyGlushList<Mark>.empty();
   }
-  
+
   void addMarks(LazyGlushList<Mark> marks) {
     if (_single == null && _batch == null) {
       _single = marks;  // First mark: store directly
@@ -183,11 +191,11 @@ For "simple" contexts (no predicates, captures, or arguments), use bit-packed in
 
 ```dart
 if (nextContext.isSimple) {
-  var packedId = 
+  var packedId =
     (nextContext.caller.uid << 32) |  // Caller ID (upper bits)
     (state.id << 8) |                 // State ID (middle bits)
     (nextContext.minPrecedenceLevel ?? 0xFF); // Precedence (lower bits)
-  
+
   // Check existing group
   var group = _currentFrameGroupsInt[packedId];
   if (group != null) {
@@ -195,7 +203,7 @@ if (nextContext.isSimple) {
     group.addSppfNode(sppfNode);
     return;
   }
-  
+
   // Create new group
   _currentFrameGroupsInt[packedId] = ContextGroup(state, nextContext)
     ..addMarks(marks)
@@ -206,6 +214,7 @@ if (nextContext.isSimple) {
 **Performance**: Single integer hash lookup (O(1)).
 
 **Conditions for "simple"**:
+
 - No active predicates (`predicateStack.isEmpty`)
 - No data-captured labels (`captures.isEmpty`)
 - No rule arguments (`arguments.isEmpty`)
@@ -238,6 +247,7 @@ _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
 **Performance**: Hash-based map lookup with full context comparison.
 
 **When used**:
+
 - Active predicates present
 - Captured labels present
 - Rule arguments present
@@ -249,7 +259,7 @@ _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
 class StepWorklist {
   final Map<int, ContextGroup> _currentFrameGroupsInt = {};      // Fast
   final Map<Object, ContextGroup> _currentFrameGroupsComplex = {}; // Slow
-  
+
   final Map<int, ContextGroup> _nextFrameGroupsInt = {};         // Fast (next position)
   final Map<Object, ContextGroup> _nextFrameGroupsComplex = {};  // Slow (next position)
 }
@@ -284,13 +294,13 @@ Bit layout (64-bit):
 
 ```dart
 // Simple context: position 5, caller is main, state 10
-var packedId = 
+var packedId =
   (mainCallerUid << 32) |  // Main caller ID
   (10 << 8) |              // State 10
   (0xFF);                  // No precedence constraint
 
 // Exact same context again
-var packedId2 = 
+var packedId2 =
   (mainCallerUid << 32) |
   (10 << 8) |
   (0xFF);
@@ -312,7 +322,7 @@ assert(packedId == packedId2);  // Batching occurs!
 class ComplexContextKey {
   final State state;
   final Context context;
-  
+
   @override
   int get hashCode => Object.hash(
     state.id,
@@ -324,7 +334,7 @@ class ComplexContextKey {
     context.minPrecedenceLevel,
     context.precedenceLevel,
   );
-  
+
   @override
   bool operator ==(Object other) =>
     other is ComplexContextKey &&
@@ -376,7 +386,7 @@ static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int s
   if (len == 0) return const LazyGlushList<Mark>.empty();
   if (len == 1) return items[start];
   if (len == 2) return LazyGlushList.branched(items[start], items[start + 1]);
-  
+
   var mid = start + (len >> 1);
   return LazyGlushList.branched(
     _buildBalanced(items, start, mid),      // Left half
@@ -473,12 +483,12 @@ void finalize() {
 
 ### Distinction
 
-| Aspect | Current-Position | Next-Position |
-|--------|------------------|---------------|
-| **Token Consumed** | No (ε transitions) | Yes (token actions) |
-| **Storage** | `_currentFrameGroups*` | `_nextFrameGroups*` |
-| **Processing** | Immediate | Deferred to `finalize()` |
-| **Purpose** | Immediate closure | Batch work for next position |
+| Aspect             | Current-Position       | Next-Position                |
+| ------------------ | ---------------------- | ---------------------------- |
+| **Token Consumed** | No (ε transitions)     | Yes (token actions)          |
+| **Storage**        | `_currentFrameGroups*` | `_nextFrameGroups*`          |
+| **Processing**     | Immediate              | Deferred to `finalize()`     |
+| **Purpose**        | Immediate closure      | Batch work for next position |
 
 ### Why Separate?
 
@@ -514,6 +524,7 @@ This ensures deterministic, ordered processing.
 The term "grouping" is sometimes used for `ContextGroup` (the batching mechanism) and sometimes for context-equivalence classes (frames with identical context).
 
 **Clarification**:
+
 - **ContextGroup**: The `ContextGroup` class; holds batched marks, SPPF node, labels
 - **Context Equivalence**: Two frames with identical `Context` objects are equivalent
 - **Batching**: Merging equivalent frames into a single `ContextGroup`
@@ -532,6 +543,7 @@ var merged = group.mergedMarks;  // Now balanced tree is built
 ```
 
 **Why Lazy?**:
+
 - Defers work until needed (if marks are never accessed, no overhead)
 - Allows more marks to arrive before deciding merge strategy
 - Reduces peak memory during parsing
@@ -547,6 +559,7 @@ void addSppfNode(SppfNode? node) {
 ```
 
 **Why First-Write?**:
+
 - All frames in a context group parse the same rule over the same span
 - Via `SppfTable` deduplication, they all reach the same node anyway
 - Storing only the first avoids redundant entries
@@ -563,6 +576,7 @@ void addOpenLabels(OpenLabel? labels) {
 ```
 
 **Why First-Write?**:
+
 - All frames in the group execute the same rule
 - Label stacks accumulate in the same order
 - Only the first frame's labels are semantically significant
@@ -647,7 +661,7 @@ var sppfNode = frame.sppfNode;
 if (nextContext.isSimple) {
   var packedId = (nextContext.caller.uid << 32) | (7 << 8) | 0xFF;
   var group = _nextFrameGroupsInt[packedId];
-  
+
   if (group != null) {
     // Found existing group for same context
     group.addMarks(marks);

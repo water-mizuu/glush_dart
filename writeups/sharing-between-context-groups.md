@@ -40,13 +40,13 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 
 ## Five Sharing Mechanisms
 
-| Mechanism | What's Shared | How | Why |
-|-----------|---------------|-----|-----|
-| **SPPF Nodes** | Parse forest nodes | Deduplication table | Convergence on same rule/span |
-| **Mark Trees** | Semantic annotations | Lazy branching | Multiple derivations |
-| **Label Stacks** | Captured labels | First-write | Same rule, same labels |
-| **Contexts** | Parser state | Immutability | Reuse across frames |
-| **Caller Stacks** | Call trace | GSS nodes | Common call prefixes |
+| Mechanism         | What's Shared        | How                 | Why                           |
+| ----------------- | -------------------- | ------------------- | ----------------------------- |
+| **SPPF Nodes**    | Parse forest nodes   | Deduplication table | Convergence on same rule/span |
+| **Mark Trees**    | Semantic annotations | Lazy branching      | Multiple derivations          |
+| **Label Stacks**  | Captured labels      | First-write         | Same rule, same labels        |
+| **Contexts**      | Parser state         | Immutability        | Reuse across frames           |
+| **Caller Stacks** | Call trace           | GSS nodes           | Common call prefixes          |
 
 ---
 
@@ -76,7 +76,7 @@ The `SppfTable` maintains identity-based maps keyed by (type, start, end):
 class SppfTable {
   final Map<int, SymbolNode> _symbolsFast = {};
   final Map<Object, SymbolNode> _symbolsComplex = {};
-  
+
   SymbolNode symbol(PatternSymbol rule, int start, int end) {
     if (rule.id < 0xFFFF && start < 0xFFFF && end < 0xFFFF) {
       // Fast path: bit-pack key
@@ -107,7 +107,7 @@ While the node is shared, different derivations are tracked via **families**:
 ```dart
 class SymbolNode extends SppfNode {
   List<SppfNode?> families = [];  // One entry per derivation
-  
+
   void addFamily(SppfNode? left, SppfNode right) {
     families.add(SppfFamily(left, right));
   }
@@ -145,12 +145,14 @@ Both derivations that span `[0..2]` reuse the same `SymbolNode(S, 0, 2)`, just w
 ### Memory Impact
 
 Without sharing:
+
 ```
 n inputs × C_n derivations × nodes_per_tree
 = exponential space
 ```
 
 With sharing:
+
 ```
 O(n²) nodes (one per span)
 + linear families overhead
@@ -176,7 +178,7 @@ sealed class LazyGlushList<T> {
     LazyGlushList<T> left,
     LazyGlushList<T> right,
   ) = _BranchedList;
-  
+
   GlushList<T> evaluate();
   int get length;
 }
@@ -265,11 +267,11 @@ class ClosedLabel {
 class ContextGroup {
   OpenLabel? openLabels;      // First non-null value stored
   ClosedLabel? closedLabels;  // First non-null value stored
-  
+
   void addOpenLabels(OpenLabel? labels) {
     openLabels ??= labels;  // Only set if currently null
   }
-  
+
   void addClosedLabels(ClosedLabel? labels) {
     closedLabels ??= labels;
   }
@@ -279,6 +281,7 @@ class ContextGroup {
 ### Why First-Write?
 
 All frames in a context group:
+
 - Parse the same rule (identical context)
 - Accumulate labels in the same order
 - Execute the same label actions in sequence
@@ -312,7 +315,7 @@ With sharing:    1 label_stack per group + frames point to it
 
 ### Location & Structure
 
-**Location**: [lib/src/parser/common/context.dart:20-183](lib/src/parser/common/context.dart#L20-L183)
+**Location**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart)
 
 ```dart
 class Context {
@@ -324,7 +327,7 @@ class Context {
   final int position;
   final int? minPrecedenceLevel;
   final int? precedenceLevel;
-  
+
   Context copyWith({...}) {
     return Context(...);  // Creates new context only if something changes
   }
@@ -363,6 +366,7 @@ context.advancePosition(position)
 ### Result: Massive Sharing
 
 The same `Context` object is referenced by:
+
 - Multiple frames
 - Multiple context groups
 - Multiple derivation paths
@@ -422,7 +426,7 @@ class Caller extends CallerKey {
   final PatternSymbol ruleId;       // Which rule was called
   final Map<String, Object?> arguments; // Rule args
   final int startPosition;          // Where rule started
-  
+
   const Caller({
     required this.parent,
     required this.ruleId,
@@ -459,12 +463,14 @@ assert(identical(caller_a, caller_b));  // Might be true!
 ### Memory Impact
 
 Without sharing:
+
 ```
 N frames × depth of recursion × pointer chain
 = exponential memory for deep recursive rules
 ```
 
 With sharing:
+
 ```
 O(recursion depth) shared prefix
 + path-specific divergence
@@ -503,13 +509,13 @@ Check if another frame reached the same state with the same context:
 ```dart
 if (nextContext.isSimple) {
   var packedId = (nextContext.caller.uid << 32) | (state.id << 8) | 0xFF;
-  
+
   // Mechanism 1: SPPF dedup via table
   // Mechanism 3: Label sharing (first-write)
   // Mechanism 5: Caller stack sharing (caller in context)
-  
+
   var group = _nextFrameGroupsInt[packedId];
-  
+
   if (group != null) {
     // Mechanism 2: Mark tree branching
     group.addMarks(nextMarks);  // Lazy push, not evaluation
@@ -570,7 +576,7 @@ void finalize() {
     //   LazyGlushList.push(prevMarks, Mark("consume_a")),
     //   LazyGlushList.push(otherMarks, Mark("alt_derive")),
     // )
-    
+
     // Mechanism 1: Shared SPPF node
     var frame = Frame(
       nextGroup.context,  // Mechanism 4: Immutable, shared
@@ -578,7 +584,7 @@ void finalize() {
       sppfNode: nextGroup.sppfNode,  // Mechanism 1: Shared SymbolNode
       openLabels: nextGroup.openLabels,  // Mechanism 3: Shared (first-write)
     );
-    
+
     nextFrames.add(frame);
   }
 }
@@ -606,6 +612,7 @@ forest.allMarkPaths()  // Mechanism 2: Enumerate via mark tree
 ### 1. Prevents Exponential Explosion
 
 Without sharing:
+
 ```
 Grammar: S → S S | 'a'
 Input: "aaaaa"
@@ -614,6 +621,7 @@ Memory: Exponential
 ```
 
 With sharing:
+
 ```
 Grammar: S → S S | 'a'
 Input: "aaaaa"

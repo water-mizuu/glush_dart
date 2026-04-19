@@ -225,8 +225,8 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          expect(result.result.marks, isNotEmpty);
-          var addMarks = result.result.marks.where((m) => m == "add").toList();
+          expect(result.marks, isNotEmpty);
+          var addMarks = result.marks.where((m) => m == "add").toList();
           expect(addMarks, isNotEmpty);
         }
       });
@@ -320,9 +320,9 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          expect(result.result.marks, isNotEmpty);
-          expect(result.result.marks.length, equals(1));
-          expect(result.result.marks[0], equals("add"));
+          expect(result.marks, isNotEmpty);
+          expect(result.marks.length, equals(1));
+          expect(result.marks[0], equals("add"));
         }
       });
 
@@ -347,8 +347,8 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          expect(result.result.marks, isNotEmpty);
-          var markNames = result.result.marks;
+          expect(result.marks, isNotEmpty);
+          var markNames = result.marks;
           // Should have both markers
           expect(markNames, contains("add"));
           expect(markNames, contains("mul"));
@@ -380,8 +380,8 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          expect(result.result.marks, isNotEmpty);
-          var markNames = result.result.marks;
+          expect(result.marks, isNotEmpty);
+          var markNames = result.marks;
           // Should have all three operators
           expect(markNames.toSet(), equals({"add", "mul", "pow"}));
         }
@@ -403,7 +403,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markNames = result.result.marks;
+          var markNames = result.marks;
           expect(markNames, equals(["op", "op"]));
         }
       });
@@ -427,7 +427,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markNames = result.result.marks;
+          var markNames = result.marks;
           // (1 + (2 * 3)) + 4 has structure: add, mul, add
           expect(markNames.length, equals(3));
           expect(markNames.where((m) => m == "add").length, equals(2));
@@ -504,7 +504,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markNames = result.result.marks;
+          var markNames = result.marks;
           expect(markNames.length, equals(3));
           expect(markNames.toSet(), equals({"plus", "minus", "times"}));
         }
@@ -547,7 +547,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markNames = result.result.marks;
+          var markNames = result.marks;
           expect(markNames, equals(["value"]));
         }
       });
@@ -567,7 +567,7 @@ void main() {
         expect(result, isA<ParseSuccess>());
 
         if (result is ParseSuccess) {
-          var markNames = result.result.marks;
+          var markNames = result.marks;
           expect(markNames, equals(["marked"]));
         }
       });

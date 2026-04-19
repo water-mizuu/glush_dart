@@ -23,12 +23,9 @@ A **Shared Packed Parse Forest (SPPF)** is a compact, graph-based representation
 
 ### Location & Key Files
 
-- **TerminalNode**: [lib/src/core/sppf.dart:31-51](../lib/src/core/sppf.dart#L31-L51)
-- **EpsilonNode**: [lib/src/core/sppf.dart:54-74](../lib/src/core/sppf.dart#L54-L74)
-- **SppfFamily**: [lib/src/core/sppf.dart:85-101](../lib/src/core/sppf.dart#L85-L101)
-- **IntermediateNode**: [lib/src/core/sppf.dart:108-160](../lib/src/core/sppf.dart#L108-L160)
-- **SymbolNode**: [lib/src/core/sppf.dart:167-262](../lib/src/core/sppf.dart#L167-L262)
-- **SppfTable**: [lib/src/parser/common/sppf_table.dart:18-301](../lib/src/parser/common/sppf_table.dart#L18-L301)
+- **Core Definition**: [lib/src/core/sppf.dart](../lib/src/core/sppf.dart)
+- **Deduplication Table**: [lib/src/parser/common/sppf_table.dart](../lib/src/parser/common/sppf_table.dart)
+- **Frame Integration**: [lib/src/parser/common/frame.dart](../lib/src/parser/common/frame.dart)
 
 ---
 
@@ -65,13 +62,13 @@ SppfNode (abstract)
 
 **TerminalNode** represents a single consumed input token.
 
-**Location**: [lib/src/core/sppf.dart:31-51](../lib/src/core/sppf.dart#L31-L51)
+**Location**: [lib/src/core/sppf.dart:26](../lib/src/core/sppf.dart#L26-L35)
 
 ```dart
 class TerminalNode extends SppfNode {
   const TerminalNode(this.position);
   final int position;
-  
+
   @override int get start => position;
   @override int get end => position + 1;
 }
@@ -87,6 +84,7 @@ class TerminalNode extends SppfNode {
 ### Example
 
 For input "abc":
+
 - `TerminalNode(0)` represents 'a'
 - `TerminalNode(1)` represents 'b'
 - `TerminalNode(2)` represents 'c'
@@ -97,7 +95,7 @@ For input "abc":
 
 **EpsilonNode** represents zero-width derivations (where nothing is consumed).
 
-**Location**: [lib/src/core/sppf.dart:54-74](../lib/src/core/sppf.dart#L54-L74)
+**Location**: [lib/src/core/sppf.dart:37](../lib/src/core/sppf.dart#L37-L50)
 
 ### Properties
 
@@ -113,6 +111,7 @@ For a rule like `optional = 'x' | ε`, the ε alternative produces an `EpsilonNo
 ### Why Position-Keyed?
 
 Epsilon nodes are keyed by position because:
+
 1. An ε derivation doesn't advance the input cursor
 2. Two ε productions at the same position represent the same event
 3. Sharing ε nodes reduces memory footprint
@@ -123,7 +122,7 @@ Epsilon nodes are keyed by position because:
 
 **IntermediateNode** represents partial parse progress within a rule.
 
-**Location**: [lib/src/core/sppf.dart:108-160](../lib/src/core/sppf.dart#L108-L160)
+**Location**: [lib/src/core/sppf.dart:100](../lib/src/core/sppf.dart#L100-L145)
 
 ### Key Concept
 
@@ -132,14 +131,14 @@ In Glush, the state machine is **already binarized**: a rule like `S = A B C` co
 ```dart
 class IntermediateNode extends SppfNode {
   IntermediateNode(this.slotId, this.start, this.end);
-  
+
   final int slotId;          // State machine state ID
   @override final int start;
   @override final int end;
-  
+
   SppfFamily? _singleFamily; // Optimized single-derivation case
   List<SppfFamily>? _multipleFamilies; // Ambiguous case
-  
+
   void addFamily(SppfNode? left, SppfNode right) {
     // Deduplicates by identity; multiple derivations create separate entries
   }
@@ -164,13 +163,13 @@ void addFamily(SppfNode? left, SppfNode right) {
     _singleFamily = SppfFamily(left, right);  // First derivation
     return;
   }
-  
+
   // Switch to multi-derivation mode
   if (_multipleFamilies == null) {
     _multipleFamilies = [_singleFamily!];
     _singleFamily = null;
   }
-  
+
   _multipleFamilies!.add(SppfFamily(left, right));  // Second+ derivations
 }
 ```
@@ -181,7 +180,7 @@ void addFamily(SppfNode? left, SppfNode right) {
 
 **SymbolNode** represents a complete derivation of a grammar rule.
 
-**Location**: [lib/src/core/sppf.dart:167-262](../lib/src/core/sppf.dart#L167-L262)
+**Location**: [lib/src/core/sppf.dart:155](../lib/src/core/sppf.dart#L155-L180)
 
 ### Key Concept
 
@@ -190,11 +189,11 @@ When a rule completes (a `ReturnAction` fires), the parser creates or reuses a `
 ```dart
 class SymbolNode extends SppfNode {
   SymbolNode(this.ruleSymbol, this.start, this.end);
-  
+
   final PatternSymbol ruleSymbol;
   @override final int start;
   @override final int end;
-  
+
   List<SppfNode?> families = [];  // One entry per derivation
   Map<String, List<(int start, int end)>>? _labelMap; // Data-driven labels
 }
@@ -225,14 +224,14 @@ This enables **data-driven parsing**: post-parse queries for specific labeled su
 
 **SppfFamily** represents one binary split within a node.
 
-**Location**: [lib/src/core/sppf.dart:85-101](../lib/src/core/sppf.dart#L85-L101)
+**Location**: [lib/src/core/sppf.dart:82](../lib/src/core/sppf.dart#L82-L100)
 
 ### Binarization Representation
 
 ```dart
 class SppfFamily {
   const SppfFamily(this.left, this.right);
-  
+
   final SppfNode? left;   // Accumulated prefix (previous IntermediateNode or null for ε)
   final SppfNode? right;  // Rightmost child just completed
 }
@@ -252,10 +251,10 @@ Before binarization:
 After binarization (implicit via state machine):
   IntermediateNode(slot0, start, i)        ← after A
     └─ SppfFamily(null, A)
-  
+
   IntermediateNode(slot1, start, j)        ← after A, B
     └─ SppfFamily(IntermediateNode(slot0), B)
-  
+
   SymbolNode(Rule, start, end)             ← after A, B, C
     └─ SppfFamily(IntermediateNode(slot1), C)
 ```
@@ -271,7 +270,7 @@ After binarization (implicit via state machine):
 
 ## Deduplication via SppfTable
 
-The **`SppfTable.getNodeP`**: The primary entry point for binarized node creation during parsing. It handles the Rendezvous logic for ambiguous path merging. (Line 80)
+The **SppfTable** is the central authority for node creation and deduplication. All SPPF nodes go through it to ensure sharing.
 
 **Location**: [lib/src/parser/common/sppf_table.dart](../lib/src/parser/common/sppf_table.dart)
 
@@ -294,7 +293,7 @@ class SppfTable {
   final Map<int, EpsilonNode> _epsilons = {};
   final Map<int, IntermediateNode> _intermediateSimple = {};
   final Map<Object, IntermediateNode> _intermediateComplex = {};
-  
+
   IntermediateNode intermediate(int slotId, int start, int end) {
     if (slotId < 0xFFFF && start < 0xFFFF && end < 0xFFFF) {
       // Fast path: bit-pack into single int
@@ -339,7 +338,7 @@ nodeB.addFamily(leftB, rightB);
 
 ### 1. Automatic Binarization
 
-Glush's state machine is **already binarized**: `S = A B C` compiles implicitly as `S = ((A B) C)` through a chain of states. 
+Glush's state machine is **already binarized**: `S = A B C` compiles implicitly as `S = ((A B) C)` through a chain of states.
 
 Each `IntermediateNode` maps directly to a state machine slot (state ID), requiring no explicit re-binarization. This makes SPPF construction straightforward: each action produces at most one new node.
 
@@ -348,12 +347,14 @@ Each `IntermediateNode` maps directly to a state machine slot (state ID), requir
 Two parse paths that produce the same node (same type, start, end) **reuse the same object**. This prevents exponential explosion:
 
 **Without sharing**: S → S S | 'a' with input "aaaaa"
+
 ```
 Time: O(2^n) where n = input length
 Space: Exponential trees
 ```
 
 **With sharing**: Multiple derivations collapse into families within shared nodes
+
 ```
 Time: O(n³) - cubic in input length
 Space: O(n²) - polynomial deduplication
@@ -386,6 +387,7 @@ class Frame {
 ```
 
 **Timing**:
+
 - Marks are accumulated during parsing
 - Mark trees are merged lazily via `LazyGlushList.branched()`
 - Full evaluation only occurs post-parse when needed
@@ -489,14 +491,6 @@ Evaluating overlapping or nested labels requires careful mark processing:
 ### 4. Cycles in Grammars
 
 Left-recursive rules require special handling to avoid infinite loops. Glush uses the GSS (Graph Shared Stack) to detect and handle cycles.
-
----
-
-## Related Files & Tools
-
-- **`test/diagnostic/sppf_dot_test.dart`**: Test that generates DOT files for SPPF visualization.
-- **`lib/src/core/sppf.dart`**: Core SPPF node definitions.
-- **`lib/src/parser/common/sppf_table.dart`**: Node deduplication and DOT generation logic.
 
 ---
 
