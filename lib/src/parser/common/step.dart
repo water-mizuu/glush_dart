@@ -3,14 +3,12 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/core/sppf.dart";
 import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/common/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
-import "package:glush/src/parser/common/sppf_table.dart" show SppfTable;
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/branch_key.dart";
@@ -401,24 +399,6 @@ class Step {
     });
     GlushProfiler.increment("parser.capture.cache_assign");
 
-    assert(() {
-      if (capture == null) {
-        return true;
-      }
-      var start = capture.startPosition;
-      var end = capture.endPosition;
-      for (var sym in parseState.sppfTable.allSymbolNodes) {
-        var sppfSpan = sym.labelFor(target);
-        if (sppfSpan == null) {
-          continue;
-        }
-        if (sppfSpan.$1 == start && sppfSpan.$2 == end) {
-          return true;
-        }
-      }
-      return true;
-    }(), "Stuff should match.");
-
     return capture;
   }
 
@@ -582,9 +562,6 @@ class Step {
       frame.context,
       Ref(frame.marks),
       ParseNodeKey(currentState.id, position, frame.context.caller),
-      callerSppfNode: frame.sppfNode,
-      callerOpenLabels: frame.openLabels,
-      callerClosedLabels: frame.closedLabels,
     );
     if (isNewWaiter) {
       GlushProfiler.increment("parser.callers.new_waiter");
@@ -625,9 +602,6 @@ class Step {
           source: ParseNodeKey(currentState.id, position, frame.context.caller),
           action: action,
           callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
-          parentSppfNode: frame.sppfNode,
-          parentOpenLabels: frame.openLabels,
-          parentClosedLabels: frame.closedLabels,
         );
       }
     }
@@ -657,9 +631,6 @@ class Step {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
-    SppfNode? sppfNode,
-    OpenLabel? openLabels,
-    ClosedLabel? closedLabels,
   }) {
     GlushProfiler.increment("parser.enqueue.calls");
     GlushProfiler.increment("parser.frames.processed");
@@ -673,15 +644,7 @@ class Step {
       GlushProfiler.increment("parser.enqueue.requeued");
       GlushProfiler.increment("parser.frames.requeued");
       parseState.tracer?.onEnqueue(state, targetPosition, "future position");
-      requeue(
-        Frame(
-          nextContext,
-          marks,
-          sppfNode: sppfNode,
-          openLabels: openLabels,
-          closedLabels: closedLabels,
-        )..nextStates.add(state),
-      );
+      requeue(Frame(nextContext, marks)..nextStates.add(state));
       return;
     }
 
@@ -702,18 +665,11 @@ class Step {
       if (group != null) {
         GlushProfiler.incrementHit("parser.enqueue.merged");
         group.addMarks(marks);
-        group.addSppfNode(sppfNode);
-        group.addOpenLabels(openLabels);
-        group.addClosedLabels(closedLabels);
         return;
       }
 
       GlushProfiler.incrementMiss("parser.enqueue.merged");
-      var newGroup = ContextGroup(state, nextContext)
-        ..addMarks(marks)
-        ..addSppfNode(sppfNode)
-        ..addOpenLabels(openLabels)
-        ..addClosedLabels(closedLabels);
+      var newGroup = ContextGroup(state, nextContext)..addMarks(marks);
       _currentFrameGroupsInt[packedId] = newGroup;
 
       parseState.incrementTrackers(nextContext, "enqueue");
@@ -734,9 +690,6 @@ class Step {
     if (group != null) {
       GlushProfiler.incrementHit("parser.enqueue.merged");
       group.addMarks(marks);
-      group.addSppfNode(sppfNode);
-      group.addOpenLabels(openLabels);
-      group.addClosedLabels(closedLabels);
       return;
     }
 
@@ -746,11 +699,7 @@ class Step {
     parseState.incrementTrackers(nextContext, "enqueue");
 
     // Initialize group and store initial marks.
-    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
-      ..addMarks(marks)
-      ..addSppfNode(sppfNode)
-      ..addOpenLabels(openLabels)
-      ..addClosedLabels(closedLabels);
+    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
     _workQueue.add(key);
     _workQueue.add(state);
   }
@@ -817,10 +766,6 @@ class Step {
   ///
   /// This method applies call-site precedence filtering and merges marks as:
   /// `parent marks (prefix) + returned marks (call result)`.
-  ///
-  /// For BSPPF: the completed callee produces a [SymbolNode]. We call
-  /// [SppfTable.getNodeP] to accumulate it into the parent's prefix, producing
-  /// a new [IntermediateNode] that replaces the parent's [SppfNode].
   /// Triggers a return from a rule call back to its caller.
   ///
   /// This method handles precedence filtering, merges the result into the
@@ -837,9 +782,6 @@ class Step {
     ParseNodeKey? source,
     StateAction? action,
     ParseNodeKey? callSite,
-    SppfNode? parentSppfNode,
-    OpenLabel? parentOpenLabels,
-    ClosedLabel? parentClosedLabels,
   }) {
     // Call-site can reject returns below its minimum precedence threshold.
     if (minPrecedence != null &&
@@ -862,23 +804,6 @@ class Step {
 
     var nextMarks = parentMarks.addList(returnProxy);
 
-    // BSPPF: get the SymbolNode for the completed callee, then accumulate it.
-    SppfNode? nextSppfNode;
-    if (caller.rule.symbolId case var ruleSymbol?) {
-      var calleeSymbol = parseState.sppfTable.symbol(
-        ruleSymbol,
-        caller.startPosition,
-        returnContext.position,
-      );
-      nextSppfNode = parseState.sppfTable.getNodeP(
-        nextState.id,
-        parentContext.callStart,
-        returnContext.position,
-        parentSppfNode,
-        calleeSymbol,
-      );
-    }
-
     CaptureBindings mergedCaptures;
     if (parentContext.captures.isEmpty) {
       mergedCaptures = returnContext.captures;
@@ -899,17 +824,7 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    _enqueue(
-      nextState,
-      nextContext,
-      nextMarks,
-      source: source,
-      action: action,
-      callSite: callSite,
-      sppfNode: nextSppfNode,
-      openLabels: parentOpenLabels,
-      closedLabels: parentClosedLabels,
-    );
+    _enqueue(nextState, nextContext, nextMarks, source: source, action: action, callSite: callSite);
   }
 
   /// Materialize batched token transitions into next-position frames.
@@ -934,26 +849,11 @@ class Step {
     }
 
     if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
-      _process(
-        Frame(
-          context,
-          branchedMarks,
-          sppfNode: nextGroup.sppfNode,
-          openLabels: nextGroup.openLabels,
-          closedLabels: nextGroup.closedLabels,
-        ),
-        nextGroup.state,
-      );
+      _process(Frame(context, branchedMarks), nextGroup.state);
       return;
     }
 
-    var nextFrame = Frame(
-      context,
-      branchedMarks,
-      sppfNode: nextGroup.sppfNode,
-      openLabels: nextGroup.openLabels,
-      closedLabels: nextGroup.closedLabels,
-    );
+    var nextFrame = Frame(context, branchedMarks);
     nextFrame.nextStates.add(nextGroup.state);
 
     parseState.incrementTrackers(context, "finalize nextGroup");
@@ -966,14 +866,7 @@ class Step {
     GlushProfiler.increment("parser.frames.processed");
     for (var state in frame.nextStates) {
       parseState.tracer?.onProcessState(frame, state);
-      _enqueue(
-        state,
-        frame.context,
-        frame.marks,
-        sppfNode: frame.sppfNode,
-        openLabels: frame.openLabels,
-        closedLabels: frame.closedLabels,
-      );
+      _enqueue(state, frame.context, frame.marks);
     }
   }
 
@@ -999,16 +892,7 @@ class Step {
 
       parseState.decrementTrackers(context, "processBatch");
 
-      _process(
-        Frame(
-          context,
-          marks,
-          sppfNode: group.sppfNode,
-          openLabels: group.openLabels,
-          closedLabels: group.closedLabels,
-        ),
-        state,
-      );
+      _process(Frame(context, marks), state);
     }
 
     if (_workQueueHead != 0) {
@@ -1045,23 +929,7 @@ class Step {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
       }
 
-      var termNode = parseState.sppfTable.terminal(frameContext.position);
-      var newSppfNode = parseState.sppfTable.getNodeP(
-        action.nextState.id,
-        frameContext.callStart,
-        frameContext.position + 1,
-        frame.sppfNode,
-        termNode,
-      );
-
-      _enqueueToNextPosition(
-        action.nextState,
-        frameContext,
-        newMarks,
-        sppfNode: newSppfNode,
-        openLabels: frame.openLabels,
-        closedLabels: frame.closedLabels,
-      );
+      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
       parseState.tracer?.onAction(action, " rejected");
@@ -1069,14 +937,7 @@ class Step {
   }
 
   /// Batches a frame to be processed at the next input position.
-  void _enqueueToNextPosition(
-    State nextState,
-    Context context,
-    LazyGlushList<Mark> marks, {
-    SppfNode? sppfNode,
-    OpenLabel? openLabels,
-    ClosedLabel? closedLabels,
-  }) {
+  void _enqueueToNextPosition(State nextState, Context context, LazyGlushList<Mark> marks) {
     if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
       var packedId =
           (context.caller.uid << 32) | (nextState.id << 8) | (context.minPrecedenceLevel ?? 0xFF);
@@ -1084,17 +945,12 @@ class Step {
       if (nextGroup != null) {
         GlushProfiler.incrementHit("parser.next_pos.frame_merge");
         nextGroup.addMarks(marks);
-        nextGroup.addSppfNode(sppfNode);
-        nextGroup.addOpenLabels(openLabels);
-        nextGroup.addClosedLabels(closedLabels);
       } else {
         GlushProfiler.incrementMiss("parser.next_pos.frame_merge");
-        _nextFrameGroupsInt[packedId] =
-            ContextGroup(nextState, context.advancePosition(position + 1))
-              ..addMarks(marks)
-              ..addSppfNode(sppfNode)
-              ..addOpenLabels(openLabels)
-              ..addClosedLabels(closedLabels);
+        _nextFrameGroupsInt[packedId] = ContextGroup(
+          nextState,
+          context.advancePosition(position + 1),
+        )..addMarks(marks);
       }
     } else {
       var complexKey = ComplexContextKey(nextState, context.advancePosition(position + 1));
@@ -1102,17 +958,12 @@ class Step {
       if (nextGroup != null) {
         GlushProfiler.incrementHit("parser.next_pos.frame_merge_complex");
         nextGroup.addMarks(marks);
-        nextGroup.addSppfNode(sppfNode);
-        nextGroup.addOpenLabels(openLabels);
-        nextGroup.addClosedLabels(closedLabels);
       } else {
         GlushProfiler.incrementMiss("parser.next_pos.frame_merge_complex");
-        _nextFrameGroupsComplex[complexKey] =
-            ContextGroup(nextState, context.advancePosition(position + 1))
-              ..addMarks(marks)
-              ..addSppfNode(sppfNode)
-              ..addOpenLabels(openLabels)
-              ..addClosedLabels(closedLabels);
+        _nextFrameGroupsComplex[complexKey] = ContextGroup(
+          nextState,
+          context.advancePosition(position + 1),
+        )..addMarks(marks);
       }
     }
   }
@@ -1125,16 +976,7 @@ class Step {
 
     var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
     if (isMatch) {
-      _enqueue(
-        action.nextState,
-        frameContext,
-        frame.marks,
-        source: source,
-        action: action,
-        sppfNode: frame.sppfNode,
-        openLabels: frame.openLabels,
-        closedLabels: frame.closedLabels,
-      );
+      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
     }
   }
 
@@ -1148,22 +990,7 @@ class Step {
       if (captureTokensAsMarks) {
         newMarks = newMarks.add(StringMarkVal(String.fromCharCode(action.codeUnit), position));
       }
-      var termNode = parseState.sppfTable.terminal(frameContext.position);
-      var newSppfNode = parseState.sppfTable.getNodeP(
-        action.nextState.id,
-        frameContext.callStart,
-        frameContext.position + 1,
-        frame.sppfNode,
-        termNode,
-      );
-      _enqueueToNextPosition(
-        action.nextState,
-        frameContext,
-        newMarks,
-        sppfNode: newSppfNode,
-        openLabels: frame.openLabels,
-        closedLabels: frame.closedLabels,
-      );
+      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     }
   }
 
@@ -1178,9 +1005,6 @@ class Step {
       frame.marks.add(NamedMarkVal(action.name, position)),
       source: source,
       action: action,
-      sppfNode: frame.sppfNode,
-      openLabels: frame.openLabels,
-      closedLabels: frame.closedLabels,
     );
   }
 
@@ -1189,17 +1013,12 @@ class Step {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    var newOpen = OpenLabel(action.name, position, frame.openLabels);
-
     _enqueue(
       action.nextState,
       frameContext,
       frame.marks.add(LabelStartVal(action.name, position)),
       source: source,
       action: action,
-      sppfNode: frame.sppfNode,
-      openLabels: newOpen,
-      closedLabels: frame.closedLabels,
     );
   }
 
@@ -1208,23 +1027,12 @@ class Step {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    OpenLabel? newOpen = frame.openLabels;
-    ClosedLabel? newClosed = frame.closedLabels;
-    var popped = popOpenLabel(frame.openLabels, action.name);
-    if (popped != null) {
-      newOpen = popped.$1;
-      newClosed = ClosedLabel(action.name, popped.$2, position, frame.closedLabels);
-    }
-
     _enqueue(
       action.nextState,
       frameContext,
       frame.marks.add(LabelEndVal(action.name, position)),
       source: source,
       action: action,
-      sppfNode: frame.sppfNode,
-      openLabels: newOpen,
-      closedLabels: newClosed,
     );
   }
 
@@ -1239,9 +1047,6 @@ class Step {
       frame.marks.add(ExpandingMarkVal(action.name, position)),
       source: source,
       action: action,
-      sppfNode: frame.sppfNode,
-      openLabels: frame.openLabels,
-      closedLabels: frame.closedLabels,
     );
   }
 
@@ -1390,45 +1195,21 @@ class Step {
     switch (value) {
       case String text:
         if (text.isEmpty) {
-          _enqueue(
-            action.nextState,
-            frame.context,
-            frame.marks,
-            source: source,
-            action: action,
-            openLabels: frame.openLabels,
-            closedLabels: frame.closedLabels,
-          );
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
           return;
         }
         var entryState = parseState.parser.stateMachine.parameterStringEntry(
           text,
           action.nextState,
         );
-        _enqueue(
-          entryState,
-          frame.context,
-          frame.marks,
-          source: source,
-          action: action,
-          openLabels: frame.openLabels,
-          closedLabels: frame.closedLabels,
-        );
+        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
         return;
       case CaptureValue captureValue:
         var entryState = parseState.parser.stateMachine.parameterStringEntry(
           captureValue.value,
           action.nextState,
         );
-        _enqueue(
-          entryState,
-          frame.context,
-          frame.marks,
-          source: source,
-          action: action,
-          openLabels: frame.openLabels,
-          closedLabels: frame.closedLabels,
-        );
+        _enqueue(entryState, frame.context, frame.marks, source: source, action: action);
       case RuleCall callValue:
         var resolvedCall = _resolveCallArgumentValues(callValue.arguments, frame, callValue.rule);
         _seedRuleCall(
@@ -1455,38 +1236,14 @@ class Step {
           currentState: state,
         );
       case Eps():
-        _enqueue(
-          action.nextState,
-          frame.context,
-          frame.marks,
-          source: source,
-          action: action,
-          openLabels: frame.openLabels,
-          closedLabels: frame.closedLabels,
-        );
+        _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
       case Pattern pattern when pattern.singleToken():
         if (token != null && pattern.match(token)) {
-          _enqueue(
-            action.nextState,
-            frame.context,
-            frame.marks,
-            source: source,
-            action: action,
-            openLabels: frame.openLabels,
-            closedLabels: frame.closedLabels,
-          );
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
         }
       case bool matches:
         if (matches) {
-          _enqueue(
-            action.nextState,
-            frame.context,
-            frame.marks,
-            source: source,
-            action: action,
-            openLabels: frame.openLabels,
-            closedLabels: frame.closedLabels,
-          );
+          _enqueue(action.nextState, frame.context, frame.marks, source: source, action: action);
         }
       case Pattern pattern:
         throw UnsupportedError(
@@ -1831,18 +1588,6 @@ class Step {
       return;
     }
 
-    if (caller is Caller) {
-      if (caller.rule.symbolId case var ruleSymbol?) {
-        var sym = parseState.sppfTable.symbol(ruleSymbol, caller.startPosition, returnPosition);
-        sym.addFamily(frame.sppfNode ?? parseState.sppfTable.epsilon(returnPosition));
-        var label = frame.closedLabels;
-        while (label != null) {
-          sym.recordLabel(label.name, label.start, label.end);
-          label = label.tail;
-        }
-      }
-    }
-
     if (!isSupportingAmbiguity && !_returnedCallersPositionAware.add((caller, returnPosition))) {
       return;
     }
@@ -1852,16 +1597,7 @@ class Step {
       if (caller.addReturn(returnContext, frame.marks)) {
         parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
 
-        for (var WaiterInfo(
-              :nextState,
-              :minPrecedence,
-              :parentContext,
-              :parentMarks,
-              :callSite,
-              :parentSppfNode,
-              :parentOpenLabels,
-              :parentClosedLabels,
-            )
+        for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
             in caller.waiters) {
           _triggerReturn(
             caller,
@@ -1874,9 +1610,6 @@ class Step {
             source: ParseNodeKey(state.id, returnPosition, caller),
             action: action,
             callSite: callSite,
-            parentSppfNode: parentSppfNode,
-            parentOpenLabels: parentOpenLabels,
-            parentClosedLabels: parentClosedLabels,
           );
         }
       }
@@ -1891,10 +1624,5 @@ class Step {
     } else {
       acceptedContexts[frame.context] = frame.marks;
     }
-
-    var startSym = parseState.parser.stateMachine.grammar.startSymbol;
-    parseState.bsppfRoot = parseState.sppfTable.allSymbolNodes
-        .where((s) => s.ruleSymbol == startSym && s.start == 0 && s.end == position)
-        .firstOrNull;
   }
 }

@@ -1,7 +1,5 @@
 // ignore_for_file: strict_raw_type, unreachable_from_main
 
-import "dart:convert";
-
 import "package:glush/glush.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
 
@@ -11,13 +9,7 @@ void main() {
   var result = parser.parseAmbiguous("sss");
 
   if (result case ParseAmbiguousSuccess result) {
-    var sppf = result.sppfTable;
-    print(
-      sppf!.toDot(
-        nameOf: (sym) => parser.stateMachine.allRules[sym]?.name.toString() ?? "?($sym)",
-        input: utf8.encode("sss"),
-      ),
-    );
+    print(result);
     print("\nAll paths have balanced marks ✓");
   } else if (result case ParseError(:var position)) {
     print("✗ Parse failed at position $position");

@@ -1,7 +1,6 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -229,15 +228,6 @@ final class ContextGroup {
   LazyGlushList<Mark>? _single;
   List<LazyGlushList<Mark>>? _batch;
 
-  /// The Shared Packed Parse Forest node shared by all paths in this group.
-  SppfNode? sppfNode;
-
-  /// The open-label stack shared by all paths in this group.
-  OpenLabel? openLabels;
-
-  /// The closed-label log shared by all paths in this group.
-  ClosedLabel? closedLabels;
-
   /// Returns the merged mark list for all paths that joined this group.
   ///
   /// This generates a branched lazy list if multiple paths contributed marks.
@@ -260,21 +250,6 @@ final class ContextGroup {
     } else {
       _batch!.add(marks);
     }
-  }
-
-  /// Records the [node] for this group.
-  void addSppfNode(SppfNode? node) {
-    sppfNode ??= node;
-  }
-
-  /// Records the [labels] stack for this group.
-  void addOpenLabels(OpenLabel? labels) {
-    openLabels ??= labels;
-  }
-
-  /// Records the closed [labels] log for this group.
-  void addClosedLabels(ClosedLabel? labels) {
-    closedLabels ??= labels;
   }
 
   static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int start, int end) {

@@ -30,7 +30,6 @@ class GrammarFileCompiler {
   };
 
   final Map<IfPattern, Rule> _guardedRules = {};
-  // final Map<String, Rule> _backReferences = {};
   Rule? _backreferenceRule;
 
   Rule? _currentOwnerRule;
@@ -220,7 +219,8 @@ class GrammarFileCompiler {
           /// S = s:'s' m'(s)
           /// m'($) = $
           var rule = _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
-          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)});
+          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)}) >>
+              Backreference(expr.ruleName);
         }
 
         if (expr.ruleName == "start" && expr.arguments.isEmpty) {

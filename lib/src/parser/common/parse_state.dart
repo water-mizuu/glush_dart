@@ -3,10 +3,8 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/core/sppf.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
-import "package:glush/src/parser/common/sppf_table.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
@@ -65,17 +63,6 @@ final class ParseState {
 
   /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
-
-  /// The Shared Packed Parse Forest table for this session.
-  ///
-  /// This table deduplicates all interior and leaf nodes, ensuring that the
-  /// resulting forest is compact and shared.
-  final SppfTable sppfTable = SppfTable();
-
-  /// The root node of the constructed parse forest.
-  ///
-  /// This is only set if the parse completes successfully.
-  SymbolNode? bsppfRoot;
 
   /// Memoized call sites for rules with simple (integer-key) arguments.
   final Map<int, Caller> callersInt = {};
@@ -155,10 +142,10 @@ final class ParseState {
   /// Returns the complete parse forest as a lazy list of semantic marks.
   ///
   /// This merges all accepted derivation paths into a single branched list.
-  LazyGlushList<Mark>? get forest => _lastStep
-      ?.acceptedContexts
-      .values
-      .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched);
+  LazyGlushList<Mark>? get forest => _lastStep?.acceptedContexts.values.fold<LazyGlushList<Mark>>(
+    const LazyGlushList.empty(),
+    LazyGlushList.branched,
+  );
 
   /// Returns the results of the most recent [processToken] or [finish] call.
   Step? get lastStep => _lastStep;

@@ -157,7 +157,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         var results = lastStep.acceptedContexts.values.first;
         var onlyPath = results.evaluate().allMarkPaths().first;
 
-        return ParseSuccess(onlyPath, sppfTable: parseState.sppfTable);
+        return ParseSuccess(onlyPath);
       } else {
         return ParseError(parseState.position);
       }
@@ -191,7 +191,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
             .values //
             .fold<LazyGlushList<Mark>>(const LazyGlushList.empty(), LazyGlushList.branched);
 
-        return ParseAmbiguousSuccess(branches, sppfTable: parseState.sppfTable);
+        return ParseAmbiguousSuccess(branches);
       } else {
         return ParseError(parseState.position);
       }
@@ -204,28 +204,5 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// result without fully evaluating all paths.
   int countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
-  }
-
-  /// Parses the [input] and generates a Graphviz DOT representation of the SPPF.
-  ///
-  /// The resulting graph visualizes the Shared Packed Parse Forest, showing
-  /// all successful derivation paths, intermediate nodes, and labels.
-  String parseToDot(String input) {
-    var bytes = utf8.encode(input);
-    var parseState = createParseState();
-
-    for (var byte in bytes) {
-      parseState.processToken(byte);
-      if (!parseState.hasPendingWork) {
-        break;
-      }
-    }
-    parseState.finish();
-
-    return parseState.sppfTable.toDot(
-      nameOf: (sym) => stateMachine.allRules[sym]?.name.toString() ?? "?($sym)",
-      slotOf: (slotId) => stateMachine.keyOf(slotId)?.toString() ?? "slot $slotId",
-      input: bytes,
-    );
   }
 }

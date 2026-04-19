@@ -6,7 +6,6 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/parser/common/sppf_table.dart";
 import "package:meta/meta.dart";
 
 /// Signature for an evaluation handler.
@@ -342,12 +341,7 @@ class ParseResult extends ParseNode {
 /// encapsulate their corresponding sub-parses.
 class StructuredEvaluator {
   /// Creates a structured evaluator.
-  const StructuredEvaluator({this.sppfTable});
-
-  /// When set, label spans derived from marks are cross-checked against the
-  /// SPPF label index inside an [assert]. This is zero-cost in production
-  /// (asserts are compiled out) and validates SPPF/marks parity in debug/test.
-  final SppfTable? sppfTable;
+  const StructuredEvaluator();
 
   void expandMarks(List<Mark> marks, int start, int end) {
     for (int i = end - 1; i >= start; --i) {
@@ -397,13 +391,13 @@ class StructuredEvaluator {
     LazyGlushList<Mark> lazyMarks, {
     required String input,
   }) {
-    var stack = <_EvaluationFrame>[_EvaluationFrame("root", input: input)];
+    var stack = <_EvaluationFrame>[_EvaluationFrame("root", input: input, children: [])];
 
     for (var mark in lazyMarks.evaluate().iterate()) {
       switch (mark) {
         case LabelStartMark(:var name, :var position):
           stack.last.recordRange(position, position);
-          stack.add(_EvaluationFrame(name, input: input, startPosition: position));
+          stack.add(_EvaluationFrame(name, input: input, startPosition: position, children: []));
         case LabelEndMark(:var name, :var position):
           stack.last.recordRange(position, position);
           _closeStrictLabel(stack, name, position);
@@ -469,37 +463,6 @@ class StructuredEvaluator {
     var start = frame.startPosition ?? frame.minPosition ?? position;
     stack.last.recordRange(start, position);
     stack.last.addChild(frame.name, frame.toResult(endPosition: position));
-
-    // SPPF parity check: assert that the SPPF index contains at least one
-    // SymbolNode that agrees with the marks-derived label span.
-    // Different SymbolNodes for the same rule may have shorter spans (e.g. for
-    // greedy '+' rules with intermediate completions) — that is expected.
-    assert(() {
-      var table = sppfTable;
-      if (table == null) {
-        return true;
-      }
-      for (var sym in table.allSymbolNodes) {
-        var sppfSpan = sym.labelFor(name);
-        if (sppfSpan == null) {
-          continue;
-        }
-        if (sppfSpan.$1 == start && sppfSpan.$2 == position) {
-          return true;
-        }
-      }
-      // No node matched. This is acceptable during in-flight parses where
-      // ReturnAction hasn't fired for the enclosing rule yet. Only hard-fail
-      // if the table already has label entries for this name but none match.
-      var hasAnyEntry = table.allSymbolNodes.any((s) => s.labelFor(name) != null);
-      assert(
-        !hasAnyEntry,
-        'SPPF has entries for label "$name" but none match marks span '
-        "[$start..$position). SPPF entries: "
-        '${table.allSymbolNodes.where((s) => s.labelFor(name) != null).map((s) => '${s.labelFor(name)}@${s.start}..${s.end}').join(', ')}',
-      );
-      return true;
-    }());
   }
 }
 
@@ -509,11 +472,12 @@ extension StructuredEvaluatorExtension on List<Mark> {
 }
 
 class _EvaluationFrame {
-  _EvaluationFrame(this.name, {required this.input, this.startPosition});
+  _EvaluationFrame(this.name, {required this.input, required this.children, this.startPosition});
+
   final String name;
   final String input;
   final int? startPosition;
-  final List<(String label, ParseNode node)> children = [];
+  final List<(String label, ParseNode node)> children;
 
   /// Minimum and maximum positions seen in marks within this frame
   int? minPosition;

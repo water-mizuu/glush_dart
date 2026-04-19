@@ -3,7 +3,6 @@ import "dart:math" show max;
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/list_mark_extensions.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/parser/common/sppf_table.dart";
 
 /// The base type for all results returned by the parser.
 ///
@@ -93,16 +92,12 @@ final class ParseError implements ParseOutcome, Exception {
 /// Represents a successful parse where exactly one derivation path was found.
 ///
 /// This result contains the semantic [rawMarks] extracted from the input
-/// and an optional [sppfTable] for forest inspection.
 final class ParseSuccess implements ParseOutcome {
-  /// Creates a [ParseSuccess] with the given [rawMarks] and optional [sppfTable].
-  const ParseSuccess(this.rawMarks, {this.sppfTable});
+  /// Creates a [ParseSuccess] with the given [rawMarks].
+  const ParseSuccess(this.rawMarks);
 
   /// The list of semantic marks captured during the parse.
   final List<Mark> rawMarks;
-
-  /// The Shared Packed Parse Forest table generated during the parse.
-  final SppfTable? sppfTable;
 
   /// Returns the mark names as a simple list of strings.
   List<String> get marks => rawMarks.toMarkStrings();
@@ -122,14 +117,11 @@ final class ParseSuccess implements ParseOutcome {
 /// This result provides the full [forest] of all possible derivation paths
 /// represented as a [LazyGlushList] of marks.
 final class ParseAmbiguousSuccess implements ParseOutcome {
-  /// Creates a [ParseAmbiguousSuccess] with the given [forest] and optional [sppfTable].
-  const ParseAmbiguousSuccess(this.forest, {this.sppfTable});
+  /// Creates a [ParseAmbiguousSuccess] with the given [forest].
+  const ParseAmbiguousSuccess(this.forest);
 
   /// The lazy list representing the entire parse forest of semantic marks.
   final LazyGlushList<Mark> forest;
-
-  /// The Shared Packed Parse Forest table generated during the parse.
-  final SppfTable? sppfTable;
 
   @override
   ParseError? error() => null;
