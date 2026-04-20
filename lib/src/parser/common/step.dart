@@ -769,7 +769,7 @@ class Step {
   /// Triggers a return from a rule call back to its caller.
   ///
   /// This method handles precedence filtering, merges the result into the
-  /// caller's mark stream and SPPF node, and enqueues the caller's next state
+  /// caller's mark stream, and enqueues the caller's next state
   /// for processing.
   void _triggerReturn(
     Caller caller,
@@ -1011,43 +1011,83 @@ class Step {
   /// Processes a [LabelStartAction], beginning a labeled capture.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
     var frameContext = frame.context;
+    var val = LabelStartVal(action.name, position);
+    var nextContext = frameContext.copyWith(openLabels: frameContext.openLabels.add(val));
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    _enqueue(
-      action.nextState,
-      frameContext,
-      frame.marks.add(LabelStartVal(action.name, position)),
-      source: source,
-      action: action,
-    );
+    _enqueue(action.nextState, nextContext, frame.marks.add(val), source: source, action: action);
   }
 
   /// Processes a [LabelEndAction], completing a labeled capture.
   void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
     var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    var nextContext = frameContext;
 
+    // Find the matching label by searching the branching stack.
+    LabelStartVal? matchedLabel;
+    var openLabels = frameContext.openLabels;
+    if (openLabels case Push<LabelStartVal>(:var parent, :var data) when data.name == action.name) {
+      matchedLabel = data;
+      nextContext = nextContext.copyWith(openLabels: parent);
+    } else {
+      // Fallback: search deeper in the stack (handles non-strictly nested cases if any)
+      var labels = <LabelStartVal>[];
+      var current = openLabels;
+      while (current is Push<LabelStartVal>) {
+        if (current.data.name == action.name) {
+          matchedLabel = current.data;
+          var newStack = current.parent;
+          for (var i = labels.length - 1; i >= 0; i--) {
+            newStack = newStack.add(labels[i]);
+          }
+          nextContext = nextContext.copyWith(openLabels: newStack);
+          break;
+        }
+        labels.add(current.data);
+        current = current.parent;
+      }
+    }
+
+    if (matchedLabel != null) {
+      var start = matchedLabel.position;
+      var end = position;
+      var text = _captureText(start, end);
+      var capture = CaptureValue(start, end, text);
+      nextContext = nextContext.copyWith(
+        captures: nextContext.captures.overlay(CaptureBindings.withCapture(action.name, capture)),
+      );
+    }
+
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
     _enqueue(
       action.nextState,
-      frameContext,
+      nextContext,
       frame.marks.add(LabelEndVal(action.name, position)),
       source: source,
       action: action,
     );
   }
 
-  /// Processes a [BackreferenceAction], emitting an expanding mark.
+  /// Processes a [BackreferenceAction], resolving a dynamic backreference match.
   void _processBackreferenceAction(Frame frame, State state, BackreferenceAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    _enqueue(
-      action.nextState,
-      frameContext,
-      frame.marks.add(ExpandingMarkVal(action.name, position)),
-      source: source,
-      action: action,
-    );
+    var capture = frameContext.captures[action.name];
+    if (capture == null) {
+      // If no capture exists, the backreference cannot match.
+      return;
+    }
+
+    var text = capture.value;
+    if (text.isEmpty) {
+      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
+      return;
+    }
+
+    // Use the state machine's parameter string mechanism to match the dynamic text.
+    var entryState = parseState.parser.stateMachine.parameterStringEntry(text, action.nextState);
+    _enqueue(entryState, frameContext, frame.marks, source: source, action: action);
   }
 
   /// Processes a [PredicateAction], initiating a lookahead check.
@@ -1529,7 +1569,7 @@ class Step {
   ///
   /// This method performs precedence filtering and manages the settlement of
   /// predicate and conjunction trackers. For rule calls, it records the result
-  /// in the GSS and SPPF, then notifies all waiting callers.
+  /// in the GSS, then notifies all waiting callers.
   void _processReturnAction(Frame frame, State state, ReturnAction action) {
     if (frame.context.minPrecedenceLevel != null &&
         action.precedenceLevel != null &&

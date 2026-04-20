@@ -21,7 +21,6 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// - The current set of active [frames].
 /// - The input [historyByPosition] (for lookahead recovery).
 /// - Memoized callers for the Graph-Shared Stack.
-/// - The [sppfTable] for incremental forest construction.
 /// - Sub-parse [trackers] for lookahead predicates and conjunctions.
 final class ParseState {
   /// Creates a [ParseState] for a specific [parser].

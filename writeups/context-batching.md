@@ -23,7 +23,6 @@
 
 1. Reduces duplicate state exploration
 2. Merges mark streams efficiently
-3. Amortizes SPPF node creation across multiple derivations
 
 ### Location & Key Files
 
@@ -77,8 +76,6 @@ class Context {
 
 **callStart**: Start position of the current rule invocation
 
-- Used to compute span indices for SPPF nodes
-
 **position**: Current parse position in the input
 
 - Most frequently changing field
@@ -125,9 +122,6 @@ final class ContextGroup {
   // Batch mark accumulation
   LazyGlushList<Mark>? _single;      // First mark
   List<LazyGlushList<Mark>>? _batch; // Multiple marks (lazy list)
-
-  // Shared BSPPF node (first-write wins)
-  SppfNode? sppfNode;
 
   // Label stacks (first-write wins)
   OpenLabel? openLabels;
@@ -200,14 +194,12 @@ if (nextContext.isSimple) {
   var group = _currentFrameGroupsInt[packedId];
   if (group != null) {
     group.addMarks(marks);      // Merge into existing batch
-    group.addSppfNode(sppfNode);
     return;
   }
 
   // Create new group
   _currentFrameGroupsInt[packedId] = ContextGroup(state, nextContext)
-    ..addMarks(marks)
-    ..addSppfNode(sppfNode);
+    ..addMarks(marks);
 }
 ```
 
@@ -230,7 +222,6 @@ var key = ComplexContextKey(state, nextContext);
 var group = _currentFrameGroupsComplex[key];
 if (group != null) {
   group.addMarks(marks);
-  group.addSppfNode(sppfNode);
   group.addOpenLabels(openLabels);
   group.addClosedLabels(closedLabels);
   return;
@@ -239,7 +230,6 @@ if (group != null) {
 // Create new group
 _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
   ..addMarks(marks)
-  ..addSppfNode(sppfNode)
   ..addOpenLabels(openLabels)
   ..addClosedLabels(closedLabels);
 ```
@@ -525,7 +515,7 @@ The term "grouping" is sometimes used for `ContextGroup` (the batching mechanism
 
 **Clarification**:
 
-- **ContextGroup**: The `ContextGroup` class; holds batched marks, SPPF node, labels
+- **ContextGroup**: The `ContextGroup` class; holds batched marks and labels
 - **Context Equivalence**: Two frames with identical `Context` objects are equivalent
 - **Batching**: Merging equivalent frames into a single `ContextGroup`
 
@@ -548,24 +538,8 @@ var merged = group.mergedMarks;  // Now balanced tree is built
 - Allows more marks to arrive before deciding merge strategy
 - Reduces peak memory during parsing
 
-### 3. SPPF Node "First-Write"
 
-The SPPF node stored in a `ContextGroup` is the **first non-null** one encountered.
-
-```dart
-void addSppfNode(SppfNode? node) {
-  sppfNode ??= node;  // Only set if currently null
-}
-```
-
-**Why First-Write?**:
-
-- All frames in a context group parse the same rule over the same span
-- Via `SppfTable` deduplication, they all reach the same node anyway
-- Storing only the first avoids redundant entries
-- All subsequent frames in the group will add families to this node
-
-### 4. Label Stack Sharing
+### 3. Label Stack Sharing
 
 Open and closed label stacks are shared with first-write semantics:
 
@@ -612,21 +586,7 @@ group.addMarks(marks3);  // O(1) append
 var merged = group.mergedMarks;  // O(log n) balanced merge when accessed
 ```
 
-### 3. SPPF Amortization
-
-Multiple derivations of the same span add families to a single shared node:
-
-```dart
-// All three frames reach SymbolNode(S, 0, 5)
-frame1.sppfNode = symbolNode;
-frame2.sppfNode = symbolNode;
-frame3.sppfNode = symbolNode;
-
-// Each frame adds its derivation as a family
-symbolNode.families = [family1, family2, family3];
-```
-
-### 4. Scalability
+### 3. Scalability
 
 Enables handling ambiguous grammars without exponential state explosion:
 
@@ -652,7 +612,6 @@ Parser consumes token 'a' at position 3, transitioning to State 7.
 // Inside step() method
 var nextContext = context.advancePosition(4);
 var marks = LazyGlushList.push(currentMarks, Mark("token_a"));
-var sppfNode = frame.sppfNode;
 ```
 
 ### Step 2: Check for Existing Group
@@ -665,7 +624,6 @@ if (nextContext.isSimple) {
   if (group != null) {
     // Found existing group for same context
     group.addMarks(marks);
-    group.addSppfNode(sppfNode);
     return;  // No new work generated
   }
 }
@@ -675,8 +633,7 @@ if (nextContext.isSimple) {
 
 ```dart
 _nextFrameGroupsInt[packedId] = ContextGroup(State(7), nextContext)
-  ..addMarks(marks)
-  ..addSppfNode(sppfNode);
+  ..addMarks(marks);
 ```
 
 ### Step 4: Finalization
@@ -691,7 +648,6 @@ void finalize() {
     var frame = Frame(
       nextGroup.context,
       mergedMarks,
-      sppfNode: nextGroup.sppfNode,
     );
     nextFrames.add(frame);
   }
@@ -702,11 +658,10 @@ void finalize() {
 
 - All frames with identical context/state are merged into one frame
 - Marks from all frames are lazily combined
-- SPPF node is shared
 - Single frame advances to next position
 
 ---
 
 ## Summary
 
-Context batching is a two-tier optimization that groups equivalent frames to avoid re-exploring identical parser states. By using bit-packed integer keys for simple contexts and hash-based maps for complex ones, Glush minimizes comparison overhead while maximizing deduplication. Marks are merged lazily into balanced trees, and SPPF nodes are shared via first-write semantics. The result is efficient, deterministic exploration of ambiguous grammars without exponential state explosion.
+Context batching is a two-tier optimization that groups equivalent frames to avoid re-exploring identical parser states. By using bit-packed integer keys for simple contexts and hash-based maps for complex ones, Glush minimizes comparison overhead while maximizing deduplication. Marks are merged lazily into balanced trees, and label stacks are shared via first-write semantics. The result is efficient, deterministic exploration of ambiguous grammars without exponential state explosion.

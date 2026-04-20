@@ -30,7 +30,6 @@ class GrammarFileCompiler {
   };
 
   final Map<IfPattern, Rule> _guardedRules = {};
-  Rule? _backreferenceRule;
 
   Rule? _currentOwnerRule;
 
@@ -212,15 +211,7 @@ class GrammarFileCompiler {
 
         // If we found it on the capture list:
         if (_currentCaptures.contains(expr.ruleName)) {
-          /// S = s:'s' s
-          ///
-          /// is rewritten as
-          ///
-          /// S = s:'s' m'(s)
-          /// m'($) = $
-          var rule = _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
-          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)}) >>
-              Backreference(expr.ruleName);
+          return Backreference(expr.ruleName);
         }
 
         if (expr.ruleName == "start" && expr.arguments.isEmpty) {
@@ -241,20 +232,20 @@ class GrammarFileCompiler {
 
       case AlternationPattern():
         var beforeCaptures = _currentCaptures;
+        var collected = <String>{...beforeCaptures};
 
         // Compile each alternative
         Pattern result = _compilePattern(expr.patterns[0]);
-
-        // Put back the before captures
-        _currentCaptures = beforeCaptures;
+        collected.addAll(_currentCaptures);
 
         for (int i = 1; i < expr.patterns.length; i++) {
-          var altPattern = _compilePattern(expr.patterns[i]);
-          // Put back the before captures
           _currentCaptures = beforeCaptures;
+          var altPattern = _compilePattern(expr.patterns[i]);
+          collected.addAll(_currentCaptures);
           result = result | altPattern;
         }
 
+        _currentCaptures = collected.toList();
         return result;
 
       case ConjunctionPattern():

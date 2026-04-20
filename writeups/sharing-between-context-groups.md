@@ -3,16 +3,15 @@
 ## Table of Contents
 
 1. [Core Concept](#core-concept)
-2. [Five Sharing Mechanisms](#five-sharing-mechanisms)
-3. [Mechanism 1: SPPF Node Sharing](#mechanism-1-sppf-node-sharing)
-4. [Mechanism 2: Mark Tree Branching](#mechanism-2-mark-tree-branching)
-5. [Mechanism 3: Label Stack Sharing](#mechanism-3-label-stack-sharing)
-6. [Mechanism 4: Context Reuse via Immutability](#mechanism-4-context-reuse-via-immutability)
-7. [Mechanism 5: Caller Stack Sharing via GSS](#mechanism-5-caller-stack-sharing-via-gss)
-8. [Integration: End-to-End Example](#integration-end-to-end-example)
-9. [Why Sharing is Critical](#why-sharing-is-critical)
-10. [Consequences of Sharing](#consequences-of-sharing)
-11. [Practical Examples](#practical-examples)
+2. [Four Sharing Mechanisms](#four-sharing-mechanisms)
+3. [Mechanism 1: Mark Tree Branching](#mechanism-1-mark-tree-branching)
+4. [Mechanism 2: Label Stack Sharing](#mechanism-2-label-stack-sharing)
+5. [Mechanism 3: Context Reuse via Immutability](#mechanism-3-context-reuse-via-immutability)
+6. [Mechanism 4: Caller Stack Sharing via GSS](#mechanism-4-caller-stack-sharing-via-gss)
+7. [Integration: End-to-End Example](#integration-end-to-end-example)
+8. [Why Sharing is Critical](#why-sharing-is-critical)
+9. [Consequences of Sharing](#consequences-of-sharing)
+10. [Practical Examples](#practical-examples)
 
 ---
 
@@ -20,11 +19,10 @@
 
 Context groups don't exist in isolation. They share structural components across multiple derivation paths:
 
-1. **SPPF nodes** via the deduplication table
-2. **Mark forests** through lazy branching
-3. **Label stacks** with "first-write" semantics
-4. **Parsing context** (caller, position, arguments)
-5. **Caller stacks** via the Graph-Shared Stack
+1. **Mark forests** through lazy branching
+2. **Label stacks** with "first-write" semantics
+3. **Parsing context** (caller, position, arguments)
+4. **Caller stacks** via the Graph-Shared Stack
 
 This sharing is the foundation of Glush's ability to handle ambiguous grammars efficiently without exponential blowup.
 
@@ -38,11 +36,10 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 
 ---
 
-## Five Sharing Mechanisms
+## Four Sharing Mechanisms
 
 | Mechanism         | What's Shared        | How                 | Why                           |
 | ----------------- | -------------------- | ------------------- | ----------------------------- |
-| **SPPF Nodes**    | Parse forest nodes   | Deduplication table | Convergence on same rule/span |
 | **Mark Trees**    | Semantic annotations | Lazy branching      | Multiple derivations          |
 | **Label Stacks**  | Captured labels      | First-write         | Same rule, same labels        |
 | **Contexts**      | Parser state         | Immutability        | Reuse across frames           |
@@ -50,118 +47,10 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 
 ---
 
-## Mechanism 1: SPPF Node Sharing
-
-### Via SppfTable Deduplication
-
-All SPPF nodes are created through `SppfTable`, ensuring sharing:
-
-```dart
-// Frame A reaches a symbol node for S over [0..5]
-var nodeA = sppfTable.symbol(S_ID, 0, 5);
-
-// Frame B (different derivation) reaches the same symbol
-var nodeB = sppfTable.symbol(S_ID, 0, 5);
-
-assert(identical(nodeA, nodeB)); // Same object in memory!
-```
-
-### How Deduplication Works
-
-**Location**: [lib/src/parser/common/sppf_table.dart](../lib/src/parser/common/sppf_table.dart)
-
-The `SppfTable` maintains identity-based maps keyed by (type, start, end):
-
-```dart
-class SppfTable {
-  final Map<int, SymbolNode> _symbolsFast = {};
-  final Map<Object, SymbolNode> _symbolsComplex = {};
-
-  SymbolNode symbol(PatternSymbol rule, int start, int end) {
-    if (rule.id < 0xFFFF && start < 0xFFFF && end < 0xFFFF) {
-      // Fast path: bit-pack key
-      var key = (rule.id << 32) | (start << 16) | end;
-      return _symbolsFast[key] ??= SymbolNode(rule, start, end);
-    }
-    // Slow path: Object.hash
-    var key = Object.hash(rule, start, end);
-    return _symbolsComplex[key] ??= SymbolNode(rule, start, end);
-  }
-}
-```
-
-### Result: Convergence
-
-Multiple derivation paths that span the same rule over the same input range converge on a single node:
-
-```
-Derivation Path 1: ... → SymbolNode(S, 0, 5)
-Derivation Path 2: ... → SymbolNode(S, 0, 5)  ← Same object!
-Derivation Path 3: ... → SymbolNode(S, 0, 5)  ← Same object!
-```
-
-### Families Track Differences
-
-While the node is shared, different derivations are tracked via **families**:
-
-```dart
-class SymbolNode extends SppfNode {
-  List<SppfNode?> families = [];  // One entry per derivation
-
-  void addFamily(SppfNode? left, SppfNode right) {
-    families.add(SppfFamily(left, right));
-  }
-}
-
-// All three paths update the same node
-nodeA.addFamily(leftA, rightA);  // families = [family1]
-nodeB.addFamily(leftB, rightB);  // families = [family1, family2]
-nodeC.addFamily(leftC, rightC);  // families = [family1, family2, family3]
-```
-
-### Example: Highly Ambiguous Grammar
-
-```
-S → S S | 'a'
-Input: "aa"
-```
-
-Parse forest:
-
-```
-        SymbolNode(S, 0, 2)  ← SHARED
-       /                    \
-    S[0..1]                 S[1..2]
-    /
-  'a'[0..1]
-
-        SymbolNode(S, 0, 2)  ← SAME NODE
-       /                    \
-    S[0..2]                 S[2..2]    (impossible, but illustrates sharing)
-```
-
-Both derivations that span `[0..2]` reuse the same `SymbolNode(S, 0, 2)`, just with different `families`.
-
-### Memory Impact
-
-Without sharing:
-
-```
-n inputs × C_n derivations × nodes_per_tree
-= exponential space
-```
-
-With sharing:
-
-```
-O(n²) nodes (one per span)
-+ linear families overhead
-= polynomial space
-```
 
 ---
 
-## Mechanism 2: Mark Tree Branching
+## Mechanism 1: Mark Tree Branching
 
 **Marks** are semantic annotations (e.g., token matches, rule actions) organized as lazy trees (`LazyGlushList<Mark>`). When context groups accumulate multiple mark streams, they're combined via **lazy branching**.
 
@@ -236,7 +125,7 @@ LazyGlushList.branched(mark1, mark2).evaluate()
 
 ---
 
-## Mechanism 3: Label Stack Sharing
+## Mechanism 2: Label Stack Sharing
 
 Open and closed label stacks are shared with **first-write** semantics.
 
@@ -309,7 +198,7 @@ With sharing:    1 label_stack per group + frames point to it
 
 ---
 
-## Mechanism 4: Context Reuse via Immutability
+## Mechanism 3: Context Reuse via Immutability
 
 `Context` objects are **immutable** and widely shared. The same context object can be reused across multiple frames and groups.
 
@@ -386,7 +275,7 @@ All four frames share the same Context object!
 
 ---
 
-## Mechanism 5: Caller Stack Sharing via GSS
+## Mechanism 4: Caller Stack Sharing via GSS
 
 The **Graph-Shared Stack (GSS)** is represented as a linked list of `Caller` nodes. Multiple parse paths share common `Caller` prefixes.
 
@@ -492,14 +381,12 @@ Parser processes token 'a' at position 3, advancing to position 4:
 frame = Frame(
   context: Context(caller: rule1_caller, position: 3, ...),
   marks: LazyGlushList.push(prevMarks, Mark("enter_rule")),
-  sppfNode: SymbolNode(rule1_partial, 2, 3),
   openLabels: OpenLabel("expr", 2, null),
 );
 
 // Action fires: consume token, create new context
-nextContext = frame.context.copyWith(position: 4);  // Mechanism 4: Immutable copy
+nextContext = frame.context.copyWith(position: 4);  // Mechanism 3: Immutable copy
 nextMarks = LazyGlushList.push(frame.marks, Mark("consume_a"));
-nextSppfNode = sppfTable.symbol(rule1, 2, 4);  // Mechanism 1: Dedup table
 ```
 
 ### Step 2: Batching Lookup
@@ -510,16 +397,14 @@ Check if another frame reached the same state with the same context:
 if (nextContext.isSimple) {
   var packedId = (nextContext.caller.uid << 32) | (state.id << 8) | 0xFF;
 
-  // Mechanism 1: SPPF dedup via table
-  // Mechanism 3: Label sharing (first-write)
-  // Mechanism 5: Caller stack sharing (caller in context)
+  // Mechanism 2: Label sharing (first-write)
+  // Mechanism 4: Caller stack sharing (caller in context)
 
   var group = _nextFrameGroupsInt[packedId];
 
   if (group != null) {
-    // Mechanism 2: Mark tree branching
+    // Mechanism 1: Mark tree branching
     group.addMarks(nextMarks);  // Lazy push, not evaluation
-    group.addSppfNode(nextSppfNode);
     group.addOpenLabels(frame.openLabels);  // First-write
     return;  // No new frame created
   }
@@ -528,7 +413,6 @@ if (nextContext.isSimple) {
 // First time reaching this context/state
 _nextFrameGroupsInt[packedId] = ContextGroup(state, nextContext)
   ..addMarks(nextMarks)
-  ..addSppfNode(nextSppfNode)
   ..addOpenLabels(frame.openLabels);
 ```
 
@@ -539,16 +423,14 @@ Different derivation path, same rule/state:
 ```dart
 // Frame 2 (different derivation path)
 frame2 = Frame(
-  context: Context(caller: rule1_caller, position: 3, ...),  // Mechanism 4: Same context
+  context: Context(caller: rule1_caller, position: 3, ...),  // Mechanism 3: Same context
   marks: LazyGlushList.push(otherMarks, Mark("alt_derive")),
-  sppfNode: SymbolNode(rule1, 2, 4),  // Mechanism 1: Same node!
-  openLabels: OpenLabel("expr", 2, null),  // Mechanism 3: First-write
+  openLabels: OpenLabel("expr", 2, null),  // Mechanism 2: First-write
 );
 
 // Action fires, creates nextContext
-nextContext2 = frame2.context.copyWith(position: 4);  // Mechanism 4: Identity == nextContext
+nextContext2 = frame2.context.copyWith(position: 4);  // Mechanism 3: Identity == nextContext
 nextMarks2 = LazyGlushList.push(otherMarks, Mark("alt_derive"));
-nextSppfNode2 = sppfTable.symbol(rule1, 2, 4);  // Mechanism 1: Identical node!
 
 // Batching lookup
 var packedId2 = (nextContext2.caller.uid << 32) | (state.id << 8) | 0xFF;
@@ -557,9 +439,9 @@ assert(packedId2 == packedId);  // Same key!
 var group = _nextFrameGroupsInt[packedId2];
 assert(group != null);  // Already exists from Frame 1
 
-// Mechanism 2: Lazy mark merging (not yet evaluated)
+// Mechanism 1: Lazy mark merging (not yet evaluated)
 group.addMarks(nextMarks2);  // Just appends to batch
-// Mechanism 3: Label sharing
+// Mechanism 2: Label sharing
 group.addOpenLabels(frame2.openLabels);  // ✗ Ignored, already set (first-write)
 ```
 
@@ -577,12 +459,11 @@ void finalize() {
     //   LazyGlushList.push(otherMarks, Mark("alt_derive")),
     // )
 
-    // Mechanism 1: Shared SPPF node
+    // Mechanism 1: Mark tree branching
     var frame = Frame(
-      nextGroup.context,  // Mechanism 4: Immutable, shared
-      branchedMarks,      // Mechanism 2: Lazy tree with both paths
-      sppfNode: nextGroup.sppfNode,  // Mechanism 1: Shared SymbolNode
-      openLabels: nextGroup.openLabels,  // Mechanism 3: Shared (first-write)
+      nextGroup.context,  // Mechanism 3: Immutable, shared
+      branchedMarks,      // Mechanism 1: Lazy tree with both paths
+      openLabels: nextGroup.openLabels,  // Mechanism 2: Shared (first-write)
     );
 
     nextFrames.add(frame);
@@ -596,7 +477,7 @@ Enumerate all derivations:
 
 ```dart
 // Later, after parsing completes
-forest.allMarkPaths()  // Mechanism 2: Enumerate via mark tree
+forest.allMarkPaths()  // Mechanism 1: Enumerate via mark tree
   .evaluate()          // Lazy evaluation of branched structure
   .forEach((marks) {
     // Process each derivation
@@ -629,17 +510,7 @@ Frames with sharing: ~5-10 context groups
 Memory: Polynomial
 ```
 
-### 2. Enables Ambiguity
-
-Multiple derivations add to families in a single shared SPPF node:
-
-```dart
-// All 42 derivations of S over [0..5] share one SymbolNode
-symbolNode = sppfTable.symbol(S, 0, 5);
-symbolNode.families.length == 42;  // All tracked
-```
-
-### 3. Memory Efficiency
+### 2. Memory Efficiency
 
 Structural sharing reduces footprint:
 
@@ -648,13 +519,12 @@ Without sharing: N frames × context_size × mark_tree_size × ...
 With sharing:
   - Same context reused
   - Same marks lazily combined
-  - Same SPPF node shared
   - Same label stacks first-write
   - Same caller prefixes in GSS
 → Polynomial memory
 ```
 
-### 4. Lazy Evaluation
+### 3. Lazy Evaluation
 
 Defers work until needed:
 
@@ -667,15 +537,6 @@ group.addMarks(m3);
 
 // Only when we need paths
 forest.allMarkPaths().evaluate();  // Now it's expensive, but only once
-```
-
-### 5. Data-Driven Parsing
-
-Label index on SymbolNode enables O(1) queries:
-
-```dart
-// Can query labels without post-traversal
-symbolNode.labelFor("identifier");  // O(1) lookup
 ```
 
 ---
@@ -699,27 +560,19 @@ Sequence 2: [frame3, frame1, frame2]
 Despite multiple derivations:
 
 ```dart
-// Frame A, B, C all reach SymbolNode(S, 0, 5)
-// Regardless of exploration order, same node is shared
-// Same families recorded
+// Frame A, B, C all reach same rule/state with same context
+// Regardless of exploration order, same context group is shared
 // Enumerating derivations always produces same set
 ```
 
 ### 3. Memory Sharing is Transparent
 
-Users don't need to think about sharing:
-
-```dart
-// Just write grammars; sharing happens automatically
-rule = inner | other;
-
 // Glush handles deduplication internally
 // No manual memoization needed
-```
 
 ### 4. Identity Can Be Relied Upon
 
-Context/SPPF node identity is meaningful:
+Context identity is meaningful:
 
 ```dart
 // If two frames have identical context objects
@@ -746,12 +599,12 @@ S → S '+' S | num
 // Derivation 2: 1 + (2 + 3)
 
 // Sharing:
-SymbolNode(S, 0, 5)  ← Shared!
-  ├─ Family 1: left=S[0..3], right=S[3..5]  (+ 3)
-  └─ Family 2: left=S[0..1], right=S[1..5]  (1 + ...)
+ContextGroup(S, [0..5])  ← Shared!
+  ├─ Path 1: (1 + 2) + 3
+  └─ Path 2: 1 + (2 + 3)
 
-// Memory: One SymbolNode
-// Without sharing: Two separate parse trees
+// Memory: One ContextGroup
+// Without sharing: Two separate parse frames
 ```
 
 ### Example 2: Highly Ambiguous
@@ -762,11 +615,11 @@ S → S S | 'a'
 
 // Input: "aaaa"
 
-// All derivations share via SPPF deduplication:
-SymbolNode(S, 0, 4)  ← All 14 derivations converge!
-  ├─ Family 1: S[0..1] S[1..4]
-  ├─ Family 2: S[0..2] S[2..4]
-  ├─ Family 3: S[0..3] S[3..4]
+// All derivations share via deduplication:
+ContextGroup(S, [0..4])  ← All 14 derivations converge!
+  ├─ Path 1: S[0..1] S[1..4]
+  ├─ Path 2: S[0..2] S[2..4]
+  ├─ Path 3: S[0..3] S[3..4]
   └─ ...
 
 // Mark trees branch for different paths:
@@ -804,12 +657,11 @@ frame_a    frame_b
 
 ## Summary
 
-Sharing between context groups is achieved through five complementary mechanisms:
+Sharing between context groups is achieved through four complementary mechanisms:
 
-1. **SPPF Nodes**: Deduplication table ensures convergence on same (rule, span)
-2. **Mark Trees**: Lazy branching combines multiple derivations without evaluation
-3. **Label Stacks**: First-write semantics reduces overhead
-4. **Contexts**: Immutable, reused across frames and groups
-5. **Caller Stacks**: GSS shares common call prefixes
+1. **Mark Trees**: Lazy branching combines multiple derivations without evaluation
+2. **Label Stacks**: First-write semantics reduces overhead
+3. **Contexts**: Immutable, reused across frames and groups
+4. **Caller Stacks**: GSS shares common call prefixes
 
 Together, these mechanisms transform exponential memory and time complexity into polynomial, enabling Glush to efficiently handle highly ambiguous grammars. Sharing is transparent to the user—Glush handles deduplication automatically while maintaining deterministic, complete parse results.

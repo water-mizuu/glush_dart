@@ -222,7 +222,7 @@ class Grammar implements GrammarInterface {
   ///
   /// If a predicate wraps an anonymous pattern, this method hoists that pattern
   /// into a new synthetic rule. This is necessary because the state machine
-  /// and SPPF logic rely on rule boundaries for correct evaluation and memoization.
+  /// and evaluation logic rely on rule boundaries for correct evaluation and memoization.
   void _normalizePredicates() {
     for (int i = 0; i < rules.length; i++) {
       var rule = rules[i];
@@ -245,7 +245,7 @@ class Grammar implements GrammarInterface {
   ///
   /// This is the core logic for hoisting anonymous patterns into synthetic rules.
   /// It specifically targets patterns that require rule-level anchoring for
-  /// correct SPPF construction, such as branches of a conjunction or
+  /// correct forest construction, such as branches of a conjunction or
   /// patterns used in predicates.
   Pattern _normalizePattern(Pattern pattern, Set<Pattern> seen) {
     if (!seen.add(pattern)) {

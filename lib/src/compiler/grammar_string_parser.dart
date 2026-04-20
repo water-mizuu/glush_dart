@@ -6,7 +6,6 @@ import "package:glush/src/compiler/compiler.dart";
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
 import "package:glush/src/core/grammar.dart";
-import "package:glush/src/core/list.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 import "package:glush/src/representation/evaluator.dart";

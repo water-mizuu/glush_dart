@@ -112,6 +112,10 @@ final class CaptureBindings {
   const CaptureBindings._(this.parent, this.delta);
   const CaptureBindings.empty() : parent = null, delta = null;
 
+  factory CaptureBindings.withCapture(String name, CaptureValue? value) {
+    return CaptureBindings._(null, {name: value});
+  }
+
   final CaptureBindings? parent;
   final Map<String, CaptureValue?>? delta;
 

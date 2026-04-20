@@ -4,18 +4,10 @@ import "package:glush/glush.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
 
 void main() {
-  var grammar = r"S = 's'+";
+  var grammar = r"S = s:(S) | 's' S?";
   var parser = grammar.toSMParser(startRuleName: "S");
-  var result = parser.parseAmbiguous("sss");
-
-  if (result case ParseAmbiguousSuccess result) {
-    print(result);
-    print("\nAll paths have balanced marks ✓");
-  } else if (result case ParseError(:var position)) {
-    print("✗ Parse failed at position $position");
-  } else {
-    print("✗ Unexpected result type: ${result.runtimeType}");
-  }
+  var result = parser.parseAmbiguous("s").ambiguousSuccess()!;
+  print(result.forest.inner.toDot());
 }
 
 Grammar parseGrammar(String input) {

@@ -117,11 +117,13 @@ final class ParseSuccess implements ParseOutcome {
 /// This result provides the full [forest] of all possible derivation paths
 /// represented as a [LazyGlushList] of marks.
 final class ParseAmbiguousSuccess implements ParseOutcome {
+  ParseAmbiguousSuccess(LazyGlushList<Mark> forest) : this._(MarkForest(forest));
+
   /// Creates a [ParseAmbiguousSuccess] with the given [forest].
-  const ParseAmbiguousSuccess(this.forest);
+  const ParseAmbiguousSuccess._(this.forest);
 
   /// The lazy list representing the entire parse forest of semantic marks.
-  final LazyGlushList<Mark> forest;
+  final MarkForest forest;
 
   @override
   ParseError? error() => null;
@@ -131,4 +133,19 @@ final class ParseAmbiguousSuccess implements ParseOutcome {
 
   @override
   ParseAmbiguousSuccess ambiguousSuccess() => this;
+}
+
+class MarkForest with Iterable<List<Mark>> {
+  const MarkForest(this.inner);
+
+  final LazyGlushList<Mark> inner;
+
+  int get derivationCount => inner.countDerivations();
+
+  @override
+  Iterator<List<Mark>> get iterator => inner.allMarkPaths().iterator;
+
+  Iterable<List<Mark>> allMarkPaths() => inner.allMarkPaths();
+  int countDerivations() => inner.countDerivations();
+  GlushList<Mark> evaluate() => inner.evaluate();
 }

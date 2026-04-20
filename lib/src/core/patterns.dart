@@ -1982,7 +1982,7 @@ sealed class Pattern {
 
   /// A unique ID assigned to this pattern during grammar compilation.
   ///
-  /// This ID is used by the state machine and SPPF to identify transitions
+  /// This ID is used by the state machine to identify transitions
   /// and nodes efficiently without object identity overhead.
   PatternSymbol? symbolId;
 
@@ -2622,7 +2622,7 @@ class Seq extends Pattern {
 /// A pattern that matches a child pattern zero or one times.
 ///
 /// [Opt] is a first-class node in Glush to preserve the original grammar's
-/// structure for better error reporting and SPPF node naming, rather than
+/// structure for better error reporting, rather than
 /// immediately lowering it to an [Alt] with epsilon.
 class Opt extends Pattern {
   /// Creates an [Opt] wrapping the [child] pattern.
@@ -3159,7 +3159,7 @@ class RuleCall extends Pattern {
   /// Resolves the call's arguments into concrete objects for the runtime.
   ///
   /// Returns both the resolved arguments map and a unique [CallArgumentsKey]
-  /// for memoizing the call's results in the SPPF.
+  /// for memoizing the call's results.
   ({Map<String, Object?> arguments, CallArgumentsKey key}) resolveArgumentsAndKey(
     GuardEnvironment env,
   ) {

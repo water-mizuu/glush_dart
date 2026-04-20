@@ -267,7 +267,7 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
     grammar = ShellGrammar(
       startSymbol: startSymbol,
-      childrenRegistry: const {}, // SPPF will degrade for non-matched rules
+      childrenRegistry: const {},
       rules: ruleMap.values.toList(),
       startCall: startCall,
     );

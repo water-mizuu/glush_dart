@@ -105,7 +105,7 @@ final class LabelStartAction implements StateAction {
 ///
 /// This action marks the end of a group started by a [LabelStartAction]. It
 /// calculates the final span of the captured input and records it in the
-/// SPPF and mark stream.
+/// Mark stream.
 final class LabelEndAction implements StateAction {
   /// Creates a label end action for the given [name].
   const LabelEndAction(this.name, this.nextState);

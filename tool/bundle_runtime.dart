@@ -9,8 +9,6 @@ void main() {
     "patterns.dart",
     "grammar.dart",
     "state_machine.dart",
-    "sppf.dart",
-    "bsr.dart",
     "sm_parser.dart",
   ];
 

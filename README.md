@@ -9,7 +9,7 @@ Glush is a **push-based CFG / CSG (context-sensitive)** parsing toolkit for Dart
 
 Traditional parsers (LL, LR, PEG) often force you to refactor your grammar into a specific shape, losing clarity and intent. Glush liberates you from these constraints:
 
-- 🚀 **Ambiguity is First-Class**: Parse any context-free grammar, even highly ambiguous ones. Obtain all possible derivations in a Shared Packed Parse Forest (SPPF).
+- 🚀 **Ambiguity is First-Class**: Parse any context-free grammar, even highly ambiguous ones. Obtain all possible derivations in a semantic parse forest.
 - 🧠 **Context-Sensitive (CSG) Logic**: Rules can take parameters and use `if (guard)` expressions for sophisticated data-driven parsing.
 - ⚡ **Push-Based Performance**: Hybrid architecture using a push-based state-machine transition model. It optimizes for deterministic paths while maintaining generalized power where needed.
 - 💎 **Ergonomic Evaluation**: Stop indexing children by position (`children[0][1]`). Use the label-driven `Evaluator<T>` API to pull data by name.
@@ -159,7 +159,7 @@ final evaluator = Evaluator<MyNode>({
 
 ## 🛠️ Performance Features
 
-1.  **Push-Based State Machine**: Glush avoids the massive GSS/SPPF overhead of traditional GLL/GLR for deterministic parts of your grammar by using an efficient state-machine transition model.
+1.  **Push-Based State Machine**: Glush avoids the massive GSS overhead of traditional GLL/GLR for deterministic parts of your grammar by using an efficient state-machine transition model.
 2.  **Streaming Interface**: Support for `parseWithForestAsync(stream)` allows you to parse Multi-GB files without loading them into memory.
 3.  **GlushList**: A specialized, low-allocation internal data structure for managing large forests with identity-based interning and identity-based deduplication.
 

@@ -806,37 +806,49 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
       generateNodeId(node);
       var nodeId = nodeIds[node]!;
 
-      if (node is LazyPush<T>) {
-        buf.writeln('  $nodeId [label="LazyPush(thunk)", style="filled", fillcolor="lightblue"];');
-        generateNodeId(node.parent);
-        buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
-        buildGraph(node.parent, buf);
-      } else if (node is LazyConcat<T>) {
-        buf.writeln('  $nodeId [label="LazyConcat", style="filled", fillcolor="lightyellow"];');
-        generateNodeId(node.left);
-        generateNodeId(node.right);
-        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
-        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
-        buildGraph(node.left, buf);
-        buildGraph(node.right, buf);
-      } else if (node is LazyConjunction<T>) {
-        buf.writeln('  $nodeId [label="LazyParallel", style="filled", fillcolor="lightcyan"];');
-        generateNodeId(node.left);
-        generateNodeId(node.right);
-        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
-        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
-        buildGraph(node.left, buf);
-        buildGraph(node.right, buf);
-      } else if (node is LazyBranched<T>) {
-        buf.writeln('  $nodeId [label="LazyBranched", style="filled", fillcolor="lightgreen"];');
-        generateNodeId(node.left);
-        generateNodeId(node.right);
-        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
-        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
-        buildGraph(node.left, buf);
-        buildGraph(node.right, buf);
-      } else if (node is LazyEvaluated<T>) {
-        buf.writeln('  $nodeId [label="LazyEvaluated", style="filled", fillcolor="gray"];');
+      switch (node) {
+        case LazyEmpty<T>():
+          buf.writeln('  $nodeId [label="LazyEmpty", style="filled", fillcolor="gray"];');
+        case LazyEvaluated<T>():
+          buf.writeln('  $nodeId [label="LazyEvaluated", style="filled", fillcolor="gray"];');
+
+        case LazyPush<T> node:
+          buf.writeln(
+            '  $nodeId [label="LazyPush(thunk)", style="filled", fillcolor="lightblue"];',
+          );
+          generateNodeId(node.parent);
+          buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
+          buildGraph(node.parent, buf);
+        case LazyBranched<T>():
+          buf.writeln('  $nodeId [label="LazyBranched", style="filled", fillcolor="lightgreen"];');
+          generateNodeId(node.left);
+          generateNodeId(node.right);
+          buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
+          buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
+          buildGraph(node.left, buf);
+          buildGraph(node.right, buf);
+        case LazyConcat<T>():
+          buf.writeln('  $nodeId [label="LazyConcat", style="filled", fillcolor="lightyellow"];');
+          generateNodeId(node.left);
+          generateNodeId(node.right);
+          buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
+          buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
+          buildGraph(node.left, buf);
+          buildGraph(node.right, buf);
+        case LazyConjunction<T>():
+          buf.writeln('  $nodeId [label="LazyParallel", style="filled", fillcolor="lightcyan"];');
+          generateNodeId(node.left);
+          generateNodeId(node.right);
+          buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
+          buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
+          buildGraph(node.left, buf);
+          buildGraph(node.right, buf);
+        case LazyReturn<T>():
+          buf.writeln('  $nodeId [label="LazyReturn", style="filled", fillcolor="lightyellow"];');
+          var result = node.provider();
+          generateNodeId(result);
+          buf.writeln('  $nodeId -> ${nodeIds[result]!} [label="provider"];');
+          buildGraph(result, buf);
       }
     }
 
