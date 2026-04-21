@@ -30,7 +30,7 @@ class GrammarFileCompiler {
   };
 
   final Map<IfPattern, Rule> _guardedRules = {};
-
+  Rule? _backreferenceRule;
   Rule? _currentOwnerRule;
 
   List<String> _currentCaptures = const [];
@@ -57,15 +57,16 @@ class GrammarFileCompiler {
           _currentOwnerRule = rule;
           _currentParameters = ruleDef.parameters;
           _currentCaptures = [];
-          try {
-            return GlushProfiler.measure("compiler.compile_pattern", () {
-              return _compilePattern(ruleDef.pattern);
-            });
-          } finally {
+
+          return GlushProfiler.measure("compiler.compile_pattern", () {
+            var compiled = _compilePattern(ruleDef.pattern);
+
             _currentOwnerRule = previousOwner;
             _currentParameters = previousParameters;
             _currentCaptures = previousCaptures;
-          }
+
+            return compiled;
+          });
         });
         _rules[ruleDef.name] = rule;
         GlushProfiler.increment("compiler.rules_compiled");
@@ -76,7 +77,14 @@ class GrammarFileCompiler {
         throw Exception("No rules defined in grammar");
       }
 
-      var startRule = _rules[startRuleName ?? grammarFile.rules.first.name]!;
+      var startRule = _rules[startRuleName ?? grammarFile.rules.first.name];
+      if (startRule == null) {
+        throw StateError(
+          "Rule name '$startRuleName' was given, "
+          "but did not exist in the grammar.",
+        );
+      }
+
       return Grammar(() => startRule);
     });
   }
@@ -211,7 +219,14 @@ class GrammarFileCompiler {
 
         // If we found it on the capture list:
         if (_currentCaptures.contains(expr.ruleName)) {
-          return Backreference(expr.ruleName);
+          /// S = s:'s' s
+          ///
+          /// is rewritten as
+          ///
+          /// S = s:'s' m'(s)
+          /// m'($) = $
+          var rule = _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
+          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)});
         }
 
         if (expr.ruleName == "start" && expr.arguments.isEmpty) {
@@ -227,25 +242,29 @@ class GrammarFileCompiler {
         Pattern result = _compilePattern(expr.patterns[0]);
         for (int i = 1; i < expr.patterns.length; i++) {
           result = result >> _compilePattern(expr.patterns[i]);
+
+          /// Shortcut for reducing !A . --> ~A.
+          if (result case Seq(
+            left: Not(pattern: Token tok),
+            right: Token(choice: RangeToken(start: 0, end: 255) || AnyToken()),
+          )) {
+            return Token(NotToken(tok.choice));
+          }
         }
         return result;
 
       case AlternationPattern():
         var beforeCaptures = _currentCaptures;
-        var collected = <String>{...beforeCaptures};
 
-        // Compile each alternative
         Pattern result = _compilePattern(expr.patterns[0]);
-        collected.addAll(_currentCaptures);
+        _currentCaptures = beforeCaptures;
 
         for (int i = 1; i < expr.patterns.length; i++) {
-          _currentCaptures = beforeCaptures;
           var altPattern = _compilePattern(expr.patterns[i]);
-          collected.addAll(_currentCaptures);
+          _currentCaptures = beforeCaptures;
           result = result | altPattern;
         }
 
-        _currentCaptures = collected.toList();
         return result;
 
       case ConjunctionPattern():

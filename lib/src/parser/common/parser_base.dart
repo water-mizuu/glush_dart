@@ -54,7 +54,7 @@ abstract base class GlushParserBase implements GlushParser {
     bool changed = true;
     while (changed) {
       changed = false;
-      var toRemove = <SubparseKey>{};
+      var toRemove = <SubparseKey>[];
       for (var entry in parseState.trackers.entries) {
         if (entry.value case PredicateTracker tracker) {
           if (!tracker.exhausted && tracker.canResolveFalse) {
@@ -80,9 +80,7 @@ abstract base class GlushParserBase implements GlushParser {
           }
         }
       }
-      for (var key in toRemove) {
-        parseState.trackers.remove(key);
-      }
+      toRemove.forEach(parseState.trackers.remove);
     }
   }
 

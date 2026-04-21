@@ -80,8 +80,6 @@ class FileTracer implements ParseTracer {
           next = action.nextState;
         } else if (action is LabelEndAction) {
           next = action.nextState;
-        } else if (action is BackreferenceAction) {
-          next = action.nextState;
         } else if (action is ParameterAction) {
           next = action.nextState;
         } else if (action is ConjunctionAction) {

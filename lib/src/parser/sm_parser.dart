@@ -39,6 +39,7 @@ import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parser_base.dart";
+import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -118,9 +119,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// This is the most efficient way to validate input, as it avoids building
   /// a full parse forest or calculating semantic marks.
   @override
-  bool recognize(String input) {
+  bool recognize(String input, {ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.recognize", () {
-      var parseState = createParseState();
+      var parseState = createParseState(tracer: tracer);
 
       for (var byte in utf8.encode(input)) {
         parseState.processToken(byte);
@@ -141,9 +142,9 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// [captureTokensAsMarks] can be set to true to include raw tokens in the
   /// resulting mark stream.
   @override
-  ParseOutcome parse(String input, {bool captureTokensAsMarks = false}) {
+  ParseOutcome parse(String input, {bool captureTokensAsMarks = false, ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.parse", () {
-      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks);
+      var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks, tracer: tracer);
 
       for (var byte in utf8.encode(input)) {
         parseState.processToken(byte);
@@ -169,11 +170,16 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// This is used for ambiguous grammars where multiple derivation paths may
   /// exist for the same input.
   @override
-  ParseOutcome parseAmbiguous(String input, {bool captureTokensAsMarks = false}) {
+  ParseOutcome parseAmbiguous(
+    String input, {
+    bool captureTokensAsMarks = false,
+    ParseTracer? tracer,
+  }) {
     return GlushProfiler.measure("parser.parse_ambiguous", () {
       var parseState = createParseState(
         isSupportingAmbiguity: true,
         captureTokensAsMarks: captureTokensAsMarks,
+        tracer: tracer,
       );
 
       for (var byte in utf8.encode(input)) {

@@ -430,9 +430,6 @@ String generateColoredDot(
       } else if (action is LabelEndAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label end ${action.name}"];');
-      } else if (action is BackreferenceAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="backref ${action.name}"];');
       } else if (action is ParameterAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param ${action.name}"];');

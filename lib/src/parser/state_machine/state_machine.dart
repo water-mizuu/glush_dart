@@ -365,10 +365,6 @@ class StateMachine {
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelEndAction(terminal.name, nextState);
         state.actions.add(action);
-      case Backreference():
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = BackreferenceAction(terminal.name, nextState);
-        state.actions.add(action);
       case ParameterRefPattern():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = ParameterAction(terminal.name, nextState);
@@ -708,7 +704,6 @@ class StateMachine {
       EofAnchor() ||
       LabelStart() ||
       LabelEnd() ||
-      Backreference() ||
       Rule() ||
       RuleCall() ||
       Retreat() => true,
@@ -877,11 +872,6 @@ String _toDot(StateMachine machine) {
       else if (action is LabelEndAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label end ${action.name}"];');
-      }
-      // BackreferenceAction: match a previously captured group
-      else if (action is BackreferenceAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="backref ${action.name}"];');
       }
       // ParameterAction: consume a parameter value
       else if (action is ParameterAction) {

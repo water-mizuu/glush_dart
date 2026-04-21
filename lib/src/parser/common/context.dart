@@ -45,14 +45,11 @@ class Context {
            openLabels,
            _mapHashCode(arguments),
          ),
-         isSimple: predicateStack.isEmpty &&
-             captures.isEmpty &&
-             arguments.isEmpty &&
-             openLabels.isEmpty,
+         isSimple:
+             predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty && openLabels.isEmpty,
          arguments: arguments,
          captures: captures,
          predicateStack: predicateStack,
-         openLabels: openLabels,
          callStart: callStart,
          position: position,
          minPrecedenceLevel: minPrecedenceLevel,
@@ -66,7 +63,6 @@ class Context {
     this.arguments = const <String, Object?>{},
     this.captures = const CaptureBindings.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
-    this.openLabels = const GlushList<LabelStartVal>.empty(),
     this.callStart = 0,
     this.position = 0,
     this.minPrecedenceLevel,
@@ -97,11 +93,6 @@ class Context {
   final GlushList<PredicateCallerKey> predicateStack;
 
   /// The stack of open labels in the current branch.
-  ///
-  /// This allows structured span tracking in ambiguous parsing scenarios
-  /// where multiple derivation paths may coexist.
-  final GlushList<LabelStartVal> openLabels;
-
   /// The position in the input where the current rule call was initiated.
   final int callStart;
 
@@ -123,7 +114,6 @@ class Context {
     Map<String, Object?>? arguments,
     CaptureBindings? captures,
     GlushList<PredicateCallerKey>? predicateStack,
-    GlushList<LabelStartVal>? openLabels,
     int? callStart,
     int? position,
     int? minPrecedenceLevel,
@@ -134,7 +124,6 @@ class Context {
       arguments: arguments ?? this.arguments,
       captures: captures ?? this.captures,
       predicateStack: predicateStack ?? this.predicateStack,
-      openLabels: openLabels ?? this.openLabels,
       callStart: callStart ?? this.callStart,
       position: position ?? this.position,
       minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
@@ -155,7 +144,6 @@ class Context {
       arguments: arguments,
       captures: captures,
       predicateStack: predicateStack,
-      openLabels: openLabels,
       callStart: callStart,
       position: newPosition,
       minPrecedenceLevel: minPrecedenceLevel,
@@ -174,7 +162,6 @@ class Context {
           arguments ?? (nextCaller is Caller ? nextCaller.arguments : const <String, Object?>{}),
       captures: captures,
       predicateStack: predicateStack,
-      openLabels: openLabels,
       callStart: callStart,
       position: position,
       minPrecedenceLevel: minPrecedenceLevel,
@@ -194,7 +181,6 @@ class Context {
           precedenceLevel == other.precedenceLevel &&
           captures == other.captures &&
           predicateStack == other.predicateStack &&
-          openLabels == other.openLabels &&
           _mapEquals(arguments, other.arguments);
 
   static bool _mapEquals(Map<Object?, Object?>? a, Map<Object?, Object?>? b) {

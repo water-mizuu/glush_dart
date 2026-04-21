@@ -81,7 +81,6 @@ S = $1 (S) | $2 (S) | $3 's' | $4 't'
 
     if (result is ParseAmbiguousSuccess) {
       var paths = result.forest.allMarkPaths().take(10).toList();
-      print(paths);
       // Should have a reasonable number of paths, not exponential explosion
       expect(paths.length, greaterThan(0));
       expect(

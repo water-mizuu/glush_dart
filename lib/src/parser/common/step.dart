@@ -7,7 +7,6 @@ import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/label_capture.dart";
-import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
@@ -15,6 +14,7 @@ import "package:glush/src/parser/key/branch_key.dart";
 import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
+import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -64,8 +64,7 @@ class Step {
   final Map<ComplexContextKey, ContextGroup> _currentFrameGroupsComplex = {};
 
   /// Groups of frames for the next position, used during token transition batching.
-  final Map<int, ContextGroup> _nextFrameGroupsInt = {};
-  final Map<ComplexContextKey, ContextGroup> _nextFrameGroupsComplex = {};
+  final List<ContextGroup> _nextFrameGroups = [];
 
   /// Deduplication sets used in non-ambiguity mode to prune redundant paths.
   final Set<int> _activeContextKeysInt = {};
@@ -736,8 +735,6 @@ class Step {
           _processLabelStartAction(frame, state, action);
         case LabelEndAction():
           _processLabelEndAction(frame, state, action);
-        case BackreferenceAction():
-          _processBackreferenceAction(frame, state, action);
         case PredicateAction():
           _processPredicateAction(frame, state, action);
         case ConjunctionAction():
@@ -830,11 +827,9 @@ class Step {
   /// Materialize batched token transitions into next-position frames.
   /// Finalizes the step, processing any pending next-position frames.
   void finalize() {
-    for (var nextGroup in _nextFrameGroupsInt.values.followedBy(_nextFrameGroupsComplex.values)) {
+    for (var nextGroup in _nextFrameGroups) {
       _processNextGroup(nextGroup);
     }
-    _nextFrameGroupsInt.clear();
-    _nextFrameGroupsComplex.clear();
   }
 
   /// Processes a group of frames that have transitioned to the next position.
@@ -938,34 +933,9 @@ class Step {
 
   /// Batches a frame to be processed at the next input position.
   void _enqueueToNextPosition(State nextState, Context context, LazyGlushList<Mark> marks) {
-    if (context.predicateStack.isEmpty && context.captures.isEmpty && context.arguments.isEmpty) {
-      var packedId =
-          (context.caller.uid << 32) | (nextState.id << 8) | (context.minPrecedenceLevel ?? 0xFF);
-      var nextGroup = _nextFrameGroupsInt[packedId];
-      if (nextGroup != null) {
-        GlushProfiler.incrementHit("parser.next_pos.frame_merge");
-        nextGroup.addMarks(marks);
-      } else {
-        GlushProfiler.incrementMiss("parser.next_pos.frame_merge");
-        _nextFrameGroupsInt[packedId] = ContextGroup(
-          nextState,
-          context.advancePosition(position + 1),
-        )..addMarks(marks);
-      }
-    } else {
-      var complexKey = ComplexContextKey(nextState, context.advancePosition(position + 1));
-      var nextGroup = _nextFrameGroupsComplex[complexKey];
-      if (nextGroup != null) {
-        GlushProfiler.incrementHit("parser.next_pos.frame_merge_complex");
-        nextGroup.addMarks(marks);
-      } else {
-        GlushProfiler.incrementMiss("parser.next_pos.frame_merge_complex");
-        _nextFrameGroupsComplex[complexKey] = ContextGroup(
-          nextState,
-          context.advancePosition(position + 1),
-        )..addMarks(marks);
-      }
-    }
+    _nextFrameGroups.add(
+      ContextGroup(nextState, context.advancePosition(position + 1))..addMarks(marks),
+    );
   }
 
   /// Processes a [BoundaryAction], checking for start or end of input.
@@ -1011,83 +981,29 @@ class Step {
   /// Processes a [LabelStartAction], beginning a labeled capture.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
     var frameContext = frame.context;
-    var val = LabelStartVal(action.name, position);
-    var nextContext = frameContext.copyWith(openLabels: frameContext.openLabels.add(val));
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    _enqueue(action.nextState, nextContext, frame.marks.add(val), source: source, action: action);
-  }
-
-  /// Processes a [LabelEndAction], completing a labeled capture.
-  void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
-    var frameContext = frame.context;
-    var nextContext = frameContext;
-
-    // Find the matching label by searching the branching stack.
-    LabelStartVal? matchedLabel;
-    var openLabels = frameContext.openLabels;
-    if (openLabels case Push<LabelStartVal>(:var parent, :var data) when data.name == action.name) {
-      matchedLabel = data;
-      nextContext = nextContext.copyWith(openLabels: parent);
-    } else {
-      // Fallback: search deeper in the stack (handles non-strictly nested cases if any)
-      var labels = <LabelStartVal>[];
-      var current = openLabels;
-      while (current is Push<LabelStartVal>) {
-        if (current.data.name == action.name) {
-          matchedLabel = current.data;
-          var newStack = current.parent;
-          for (var i = labels.length - 1; i >= 0; i--) {
-            newStack = newStack.add(labels[i]);
-          }
-          nextContext = nextContext.copyWith(openLabels: newStack);
-          break;
-        }
-        labels.add(current.data);
-        current = current.parent;
-      }
-    }
-
-    if (matchedLabel != null) {
-      var start = matchedLabel.position;
-      var end = position;
-      var text = _captureText(start, end);
-      var capture = CaptureValue(start, end, text);
-      nextContext = nextContext.copyWith(
-        captures: nextContext.captures.overlay(CaptureBindings.withCapture(action.name, capture)),
-      );
-    }
-
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
     _enqueue(
       action.nextState,
-      nextContext,
-      frame.marks.add(LabelEndVal(action.name, position)),
+      frameContext,
+      frame.marks.add(LabelStartVal(action.name, position)),
       source: source,
       action: action,
     );
   }
 
-  /// Processes a [BackreferenceAction], resolving a dynamic backreference match.
-  void _processBackreferenceAction(Frame frame, State state, BackreferenceAction action) {
+  /// Processes a [LabelEndAction], completing a labeled capture.
+  void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
 
-    var capture = frameContext.captures[action.name];
-    if (capture == null) {
-      // If no capture exists, the backreference cannot match.
-      return;
-    }
-
-    var text = capture.value;
-    if (text.isEmpty) {
-      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
-      return;
-    }
-
-    // Use the state machine's parameter string mechanism to match the dynamic text.
-    var entryState = parseState.parser.stateMachine.parameterStringEntry(text, action.nextState);
-    _enqueue(entryState, frameContext, frame.marks, source: source, action: action);
+    _enqueue(
+      action.nextState,
+      frameContext,
+      frame.marks.add(LabelEndVal(action.name, position)),
+      source: source,
+      action: action,
+    );
   }
 
   /// Processes a [PredicateAction], initiating a lookahead check.

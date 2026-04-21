@@ -1967,7 +1967,6 @@ sealed class Pattern {
       ),
       "las" => LabelStart(json["name"]! as String),
       "lae" => LabelEnd(json["name"]! as String),
-      "bac" => Backreference(json["name"]! as String),
       "ret" => Retreat(),
       _ => throw UnsupportedError("Unknown pattern type: $type"),
     };
@@ -2115,7 +2114,6 @@ sealed class Pattern {
       Label() => "lab",
       LabelStart() => "las",
       LabelEnd() => "lae",
-      Backreference() => "bac",
       IfCond() => "if",
       Retreat() => "ret",
     };
@@ -2149,6 +2147,7 @@ sealed class TokenChoice {
       "range" => RangeToken(json["start"]! as int, json["end"]! as int),
       "less" => LessToken(json["bound"]! as int),
       "greater" => GreaterToken(json["bound"]! as int),
+      "not" => NotToken(TokenChoice.fromJson(json["inner"]! as Map<String, Object?>)),
       _ => throw UnsupportedError("Unknown token choice type: $type"),
     };
   }
@@ -2175,6 +2174,20 @@ final class AnyToken extends TokenChoice {
 
   @override
   Map<String, Object?> toJson() => {"type": "any"};
+}
+
+final class NotToken extends TokenChoice {
+  const NotToken(this.inner) : super(true);
+  final TokenChoice inner;
+
+  @override
+  bool matches(int? value) => !inner.matches(value);
+
+  @override
+  String toString() => "not($inner)";
+
+  @override
+  Map<String, Object?> toJson() => {"type": "not", "inner": inner.toJson()};
 }
 
 /// Matches an exact code-point value
@@ -3588,42 +3601,6 @@ class LabelEnd extends Pattern {
 
   @override
   String toString() => "label_end($name)";
-}
-
-/// A pattern that references a previously captured labeled span.
-///
-/// Backreferences allow the grammar to match input that is identical to what
-/// was matched by a previous label. This is a context-sensitive feature.
-class Backreference extends Pattern {
-  /// Creates a [Backreference] to the label [name].
-  Backreference(this.name);
-
-  /// The name of the label to reference.
-  final String name;
-
-  @override
-  Backreference copy() => Backreference(name);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(false);
-    return false;
-  }
-
-  @override
-  bool isStatic() => true;
-
-  @override
-  Set<Pattern> firstSet() => {this};
-
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  Map<String, Object?> toJson() => {"type": "bac", "name": name};
-
-  @override
-  String toString() => "(\\$name)";
 }
 
 // ---------------------------------------------------------------------------

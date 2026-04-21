@@ -39,11 +39,6 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "name": action.name,
       "nextState": stateIdMap[action.nextState],
     },
-    BackreferenceAction() => {
-      "type": "backreference",
-      "name": action.name,
-      "nextState": stateIdMap[action.nextState],
-    },
     ParameterAction() => {
       "type": "parameter",
       "name": action.name,
@@ -98,10 +93,7 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "rightSymbol": action.rightSymbol,
       "nextState": stateIdMap[action.nextState],
     },
-    RetreatAction() => {
-      "type": "retreat",
-      "nextState": stateIdMap[action.nextState],
-    },
+    RetreatAction() => {"type": "retreat", "nextState": stateIdMap[action.nextState]},
   };
 }
 
@@ -124,7 +116,6 @@ StateAction _deserializeAction(
     ),
     "labelStart" => LabelStartAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "labelEnd" => LabelEndAction(json["name"]! as String, stateMap[json["nextState"]]!),
-    "backreference" => BackreferenceAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "parameter" => ParameterAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "parameterCall" => ParameterCallAction(
       json["target"]! as String,
@@ -170,9 +161,7 @@ StateAction _deserializeAction(
       rightSymbol: json["rightSymbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
-    "retreat" => RetreatAction(
-      stateMap[json["nextState"]]!,
-    ),
+    "retreat" => RetreatAction(stateMap[json["nextState"]]!),
     _ => throw UnsupportedError("Unknown action type: $type"),
   };
 }

@@ -117,22 +117,6 @@ final class LabelEndAction implements StateAction {
   final State nextState;
 }
 
-/// An action that matches the currently consumed input against a previous label.
-///
-/// Backreferences allow for context-sensitive parsing. This action retrieves
-/// the text captured by the named label and ensures that the subsequent input
-/// matches it exactly.
-final class BackreferenceAction implements StateAction {
-  /// Creates a backreference check for the label [name].
-  const BackreferenceAction(this.name, this.nextState);
-
-  /// The name of the label to compare against.
-  final String name;
-
-  /// The state to transition to if the input matches the captured label text.
-  final State nextState;
-}
-
 /// An action that resolves a dynamic parameter and branches accordingly.
 ///
 /// Parameters in `glush_dart` allow rules to be customized at runtime. This
