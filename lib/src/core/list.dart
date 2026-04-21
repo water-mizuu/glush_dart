@@ -814,11 +814,13 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
 
         case LazyPush<T> node:
           buf.writeln(
-            '  $nodeId [label="LazyPush(thunk)", style="filled", fillcolor="lightblue"];',
+            '  $nodeId [label="LazyPush(() => ${node.val.evaluate()})", style="filled", fillcolor="lightblue"];',
           );
-          generateNodeId(node.parent);
-          buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
-          buildGraph(node.parent, buf);
+          if (!node.parent.evaluate().isEmpty) {
+            generateNodeId(node.parent);
+            buf.writeln('  $nodeId -> ${nodeIds[node.parent]!} [label="parent"];');
+            buildGraph(node.parent, buf);
+          }
         case LazyBranched<T>():
           buf.writeln('  $nodeId [label="LazyBranched", style="filled", fillcolor="lightgreen"];');
           generateNodeId(node.left);
@@ -846,9 +848,11 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
         case LazyReturn<T>():
           buf.writeln('  $nodeId [label="LazyReturn", style="filled", fillcolor="lightyellow"];');
           var result = node.provider();
-          generateNodeId(result);
-          buf.writeln('  $nodeId -> ${nodeIds[result]!} [label="provider"];');
-          buildGraph(result, buf);
+          if (!result.evaluate().isEmpty) {
+            generateNodeId(result);
+            buf.writeln('  $nodeId -> ${nodeIds[result]!} [label="provider"];');
+            buildGraph(result, buf);
+          }
       }
     }
 

@@ -1,4 +1,5 @@
 import "package:glush/glush.dart";
+import "package:glush/src/compiler/metagrammar_evaluator.dart";
 import "package:test/test.dart";
 
 void main() {
@@ -7,112 +8,6 @@ void main() {
     late SMParser metaParser;
 
     // The meta grammar definition as a string
-    const metaGrammarString = r"""
-        # ==========================
-        #   Full Meta Grammar
-        # ==========================
-        full = $full start _ file:file _ eof
-
-        file = $rules left:file _ right:rule
-             | rule
-
-        # Allow trailing trivia after a rule body so line comments behave
-        # like whitespace instead of becoming the next token stream.
-        rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
-             | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
-
-        choice = $rest left:choice _ (prec:number _)? '|' _ right:branch
-               | $first ((prec:number _)? '|' _)? body:branch
-
-        branch = $cond "if" _ "(" _ cond:argExpr _ ")"_ body:seq
-               | $none body:seq
-
-        seq = $seq left:seq _ &isContinuation right:conj
-            | conj
-
-        conj = $conj left:conj _ "&&" _ right:prefix
-             | prefix
-
-        prefix = $and '&' atom:rep
-               | $not '!' atom:rep
-               | rep
-
-        rep = $rep atom:primary kind:repKind
-            | primary
-
-        repKind = $star '*'      | $plus '+'
-                | $starBang "*!" | $plusBang "+!"
-                | $question '?'
-
-        primary = $group '(' _ inner:choice _ ')'
-                | $label name:ident ':' atom:primary
-                | $mark '$' name:ident
-                | $start "start"
-                | $end "eof"
-                | $call name:ident ('(' _ args:args? _ ')')? ( '^' prec:number )?
-                | $lit literal
-                | $range charRange
-                | $any '.'
-
-        # Helpers
-        isContinuation = ident !(_ [=])
-                       | literal | charRange
-                       | '[' | '(' | '.' | '!' | '&'
-
-        params = $params left:params _ ',' _ right:param
-               | $param  right:param
-
-        param = ident
-
-        args = $args left:args _ ',' _ right:arg
-             | $arg right:arg
-
-        arg = $namedArg name:ident _ ':' _ expr:argExpr^0
-            | $posArg expr:argExpr^0
-
-        argExpr =
-              # Logical Operations
-              1 | $argOr   left:argExpr^1 _ '||' _ right:argExpr^2
-              2 | $argAnd  left:argExpr^2 _ '&&' _ right:argExpr^3
-
-              # Equality & Relational Operations
-              3 | $argEq   left:argExpr^5 _ '==' _ right:argExpr^5
-              3 | $argNeq  left:argExpr^5 _ '!=' _ right:argExpr^5
-              4 | $argLt   left:argExpr^5 _ '<'  _ right:argExpr^5
-              4 | $argLte  left:argExpr^5 _ '<=' _ right:argExpr^5
-              4 | $argGt   left:argExpr^5 _ '>'  _ right:argExpr^5
-              4 | $argGte  left:argExpr^5 _ '>=' _ right:argExpr^5
-
-              # Arithmetic Operations
-              6 | $argAdd  left:argExpr^6  _ '+' _ right:argExpr^7
-              6 | $argSub  left:argExpr^6  _ '-' _ right:argExpr^7
-              7 | $argMul  left:argExpr^7 _ '*' _ right:argExpr^8
-              7 | $argDiv  left:argExpr^7 _ '/' _ right:argExpr^8
-              7 | $argMod  left:argExpr^7 _ '%' _ right:argExpr^8
-
-              # Unary Operations (Prefix)
-             10 | $argNot  '!' _ right:argExpr^10
-             10 | $argNeg  '-' _ right:argExpr^10
-             10 | $argPos  '+' _ right:argExpr^10
-
-              # Atomic Values
-             20 | $argInt  number
-             20 | $argStr  literal
-             20 | $argIdent ident
-             20 | $argGroup '(' _ expr:argExpr^0 _ ')'
-
-        # Terminals
-        ident = [A-Za-z$_] [A-Za-z$_0-9]*!
-        literal = ['] ([\] . | !['] .)*! [']
-                | ["] ([\] . | !["] .)*! ["]
-        charRange = '[' (!']' .)*! ']'
-        number = [0-9]+
-
-        _ = $ws (plain_ws | comment | newline)*!
-        comment = '#' (!newline .)* (newline | eof)
-        plain_ws = [ \t]+!
-        newline = [\n\r]+!
-      """;
 
     setUp(() {
       // Compile the meta grammar
