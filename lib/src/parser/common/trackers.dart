@@ -2,7 +2,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
-import "package:glush/src/parser/common/parse_node_key.dart";
+import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// A parked continuation representing a parse path waiting for a sub-parse to complete.
