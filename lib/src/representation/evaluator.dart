@@ -1,5 +1,6 @@
 // ignore_for_file: must_be_immutable
 
+import "dart:convert";
 import "dart:math";
 
 import "package:glush/src/core/list.dart";
@@ -330,6 +331,46 @@ class ParseResult extends ParseNode {
 
   @override
   int get hashCode => Object.hash(span, Object.hashAll(children));
+}
+
+/// Extension methods for converting parse trees to JSON-like structures.
+extension ParseNodeJsonConversion on ParseNode {
+  /// Converts a single labeled ParseNode into a simple JSON-like structure.
+  ///
+  /// Returns: {name: "label", span: "text", children: [{...}, ...]}
+  Map<String, Object?> nodeToJson(String name) {
+    var map = <String, Object?>{"name": name, "span": span};
+
+    if (this case ParseResult parseResult when parseResult.children.isNotEmpty) {
+      map["children"] = [
+        for (final (label, child) in parseResult.children) child.nodeToJson(label),
+      ];
+    }
+
+    return map;
+  }
+
+  /// Converts a ParseNode tree into a simple JSON-like structure.
+  ///
+  /// Returns a list of the direct children with their labels and spans.
+  List<Map<String, Object?>> toJson() {
+    if (this case ParseResult parseResult when parseResult.children.isNotEmpty) {
+      return [for (final (label, child) in parseResult.children) child.nodeToJson(label)];
+    }
+    return [];
+  }
+
+  /// Pretty-prints this parse tree as formatted JSON.
+  String toJsonString() {
+    var json = toJson();
+    return jsonEncode(json);
+  }
+
+  /// Pretty-prints this parse tree as formatted JSON with indentation.
+  String toJsonStringPretty({String indent = "  "}) {
+    var json = toJson();
+    return JsonEncoder.withIndent(indent).convert(json);
+  }
 }
 
 /// Transforms a flat stream of [Mark] objects into a structured [ParseResult] tree.

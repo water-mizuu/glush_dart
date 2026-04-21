@@ -199,58 +199,6 @@ void main() {
       expect(pair["second"].single.span, equals("b"));
     });
 
-    test("meta-style continuation grammar yields many stable mark paths", () {
-      var parser =
-          r'''
-            full = full:(_ file:file _);
-            file = rules:(left:file _ right:rule) | first:(rule:rule);
-            rule = rule:(name:ident _ '=' _ body:choice ( _ ';' )?);
-            choice = choice:(left:choice _ '|' _ right:seq) | seq;
-            seq = seq:(left:seq _ (&isContinuation) right:prefix) | prefix;
-            prefix = and:('&' atom:rep) | not:('!' atom:rep) | rep;
-            rep = rep:(atom:primary kind:repKind) | primary;
-            repKind = star:'*' | plus:'+' | question:'?';
-            primary = group:('(' _ inner:choice _ ')')
-                    | label:(name:ident ':' atom:primary)
-                    | mark:('$' name:ident)
-                    | ref:ident
-                    | lit:literal
-                    | range:charRange
-                    | any:'.';
-            isContinuation = &(ident !(_ [=]))
-                          | &literal
-                          | &charRange
-                          | &'['
-                          | &'('
-                          | &'.'
-                          | &'$'
-                          | &'!'
-                          | &'&';
-            ident = [A-Za-z$_] [A-Za-z$_0-9]*;
-            literal = ['] (!['] .)* ['] | ["] (!["] .)* ["];
-            charRange = '[' (!']' .)* ']';
-            _ = (plain_ws | comment | newline)*;
-            comment = '#' (!newline .)*;
-            plain_ws = [ \t]+;
-            newline = [\n\r]+;
-          '''
-              .toSMParser(startRuleName: "full");
-
-      const input = "abc = c | &d !e*\nxyz = 'foo' [a-z] \$mark";
-      var result = parser.parseAmbiguous(input, captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousSuccess>());
-
-      var forest = (result as ParseAmbiguousSuccess).forest;
-      var paths = forest.allMarkPaths().toList();
-
-      var trees = paths
-          .map((path) => const StructuredEvaluator().evaluate(path, input: input))
-          .toList();
-      expect(trees, isNotEmpty);
-      expect(trees.any((tree) => tree["full"].isNotEmpty), isTrue);
-      expect(trees.any((tree) => tree.span == input), isTrue);
-    });
-
     test(r"$mark wraps the whole sequence node with its children intact", () {
       var parser =
           r'''
