@@ -59,6 +59,9 @@ class Step {
   /// Frames that have consumed the current token and are ready for the next position.
   final List<Frame> nextFrames = [];
 
+  /// Exhaustible predicates discovered while processing this step.
+  List<PredicateKey>? exhaustedPredicatesSink;
+
   /// Groups of frames at the current position, optimized for fast context lookup.
   final Map<int, ContextGroup> _currentFrameGroupsInt = {};
   final Map<ComplexContextKey, ContextGroup> _currentFrameGroupsComplex = {};
@@ -97,7 +100,7 @@ class Step {
   /// parsing position-ordered: same-position closure is completed before
   /// processing frames that lag behind (frames from sub-parses, predicates, etc.).
   ///
-  /// If the frame belongs to a predicate stack, we increase `activeFrames`
+  /// If the frame belongs to a predicate stack, we increase the tracker pending count
   /// because the predicate still has pending work.
   /// Requeues a [frame] for processing at a later position or in a different
   /// context.
@@ -834,7 +837,7 @@ class Step {
       var marks = group.mergedMarks;
       var context = group.context;
 
-      parseState.decrementTrackers(context, "processBatch");
+      exhaustedPredicatesSink?.addAll(parseState.decrementTrackers(context, "processBatch"));
 
       _process(Frame(context, marks), state);
     }
@@ -1509,7 +1512,9 @@ class Step {
       parseState.memoizePredicateOutcome(key, isMatched: true);
 
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
-        parseState.decrementTrackers(parentContext, "childMatched");
+        exhaustedPredicatesSink?.addAll(
+          parseState.decrementTrackers(parentContext, "childMatched"),
+        );
 
         if (tracker.isAnd) {
           _resumeLaggedPredicateContinuation(
@@ -1524,7 +1529,7 @@ class Step {
       }
 
       tracker.waiters.clear();
-      parseState.trackers.remove(key);
+      parseState.removeTracker(key);
       return;
     }
 

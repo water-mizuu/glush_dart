@@ -35,14 +35,37 @@ abstract base class GlushParserBase implements GlushParser {
     workQueue.addFrame(frame.context.position, frame);
   }
 
-  void _resolveExhaustedPredicatesAt(
+  void _enqueueFramesByPosition(
+    ParseState parseState,
+    _PositionWorkQueue workQueue,
+    List<Frame> frames, {
+    String decrementReason = "transfer batch",
+    String enqueueReason = "enqueue list",
+    List<PredicateKey>? exhaustedPredicates,
+  }) {
+    if (frames.isEmpty) {
+      return;
+    }
+
+    var buckets = <int, List<Frame>>{};
+    for (var frame in frames) {
+      exhaustedPredicates?.addAll(parseState.decrementTrackers(frame.context, decrementReason));
+      parseState.incrementTrackers(frame.context, enqueueReason);
+      buckets.putIfAbsent(frame.context.position, () => []).add(frame);
+    }
+
+    buckets.forEach(workQueue.addFrames);
+  }
+
+  void _resolveExhaustedPredicates(
     ParseState parseState,
     _PositionWorkQueue workQueue,
     int currentPosition,
-    Iterable<SubparseKey> keys,
+    List<PredicateKey> exhaustedPredicates,
   ) {
-    for (var key in keys) {
-      _handleTrackerExhaustion(parseState, workQueue, currentPosition, key);
+    while (exhaustedPredicates.isNotEmpty) {
+      var key = exhaustedPredicates.removeLast();
+      _handleTrackerExhaustion(parseState, workQueue, currentPosition, key, exhaustedPredicates);
     }
   }
 
@@ -57,57 +80,69 @@ abstract base class GlushParserBase implements GlushParser {
     int? token,
     List<Frame> items,
   ) {
+    var exhaustedPredicates = <PredicateKey>[];
+
     var step = stepsAtPosition[position] ??= Step(
       parseState,
-      position == currentPosition
-          ? token
-          : position < parseState.historyByPosition.length
+      position < parseState.historyByPosition.length
           ? parseState.historyByPosition[position]
           : null,
       position,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
     );
+    step.exhaustedPredicatesSink = exhaustedPredicates;
 
     for (var item in items) {
-      parseState.decrementTrackers(item.context, "process position queue");
+      exhaustedPredicates.addAll(
+        parseState.decrementTrackers(item.context, "process position queue"),
+      );
       step.processFrameEnqueue(item);
     }
 
     step.processFrameFinalize();
     step.finalize();
 
-    // Transfer survivors to next position
-    for (var frame in step.nextFrames) {
-      parseState.decrementTrackers(frame.context, "transfer next");
-      _enqueueFrameForPosition(parseState, workQueue, frame);
-    }
+    // Transfer survivors in position batches (reduces queue churn for lagging paths).
+    _enqueueFramesByPosition(
+      parseState,
+      workQueue,
+      step.nextFrames,
+      decrementReason: "transfer next",
+      exhaustedPredicates: exhaustedPredicates,
+    );
     step.nextFrames.clear();
 
-    // Requeue frames for the same position (epsilon transitions)
-    for (var frame in step.requeued) {
-      parseState.decrementTrackers(frame.context, "transfer requeue");
-      _enqueueFrameForPosition(parseState, workQueue, frame);
-    }
+    // Requeue epsilon/lagging frames in position batches.
+    _enqueueFramesByPosition(
+      parseState,
+      workQueue,
+      step.requeued,
+      decrementReason: "transfer requeue",
+      exhaustedPredicates: exhaustedPredicates,
+    );
     step.requeued.clear();
+
+    _resolveExhaustedPredicates(parseState, workQueue, currentPosition, exhaustedPredicates);
   }
 
   void _handleTrackerExhaustion(
     ParseState parseState,
     _PositionWorkQueue workQueue,
     int currentPosition,
-    SubparseKey key,
+    PredicateKey key,
+    List<PredicateKey> exhaustedPredicates,
   ) {
     var tracker = parseState.trackers[key];
-    if (tracker is! PredicateTracker || !tracker.canResolveFalse) {
+    if (tracker is! PredicateTracker || !parseState.canResolvePredicateFalse(key, tracker)) {
       return;
     }
 
     tracker.exhausted = true;
-    parseState.memoizePredicateOutcome(key as PredicateKey, isMatched: false);
+    parseState.memoizePredicateOutcome(key, isMatched: false);
 
     for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
-      parseState.decrementTrackers(parentContext, "childExhausted");
+      exhaustedPredicates.addAll(parseState.decrementTrackers(parentContext, "childExhausted"));
 
       if (!tracker.isAnd) {
         var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
@@ -115,7 +150,7 @@ abstract base class GlushParserBase implements GlushParser {
       }
     }
     tracker.waiters.clear();
-    parseState.trackers.remove(key);
+    parseState.removeTracker(key);
   }
 
   /// Creates a new [ParseState] initialized with this parser's grammar and
@@ -157,10 +192,6 @@ abstract base class GlushParserBase implements GlushParser {
     }
 
     var workQueue = _PositionWorkQueue();
-    var pendingExhaustions = <SubparseKey>{};
-    parseState.onTrackerExhausted = (key) {
-      pendingExhaustions.add(key);
-    };
 
     var stepsAtPosition = <int, Step>{};
     for (var frame in frames) {
@@ -187,12 +218,6 @@ abstract base class GlushParserBase implements GlushParser {
         token,
         items,
       );
-
-      while (pendingExhaustions.isNotEmpty) {
-        var keys = pendingExhaustions.toList(growable: false);
-        pendingExhaustions.clear();
-        _resolveExhaustedPredicatesAt(parseState, workQueue, currentPosition, keys);
-      }
     }
 
     var steps = stepsAtPosition[currentPosition];
@@ -219,7 +244,6 @@ abstract base class GlushParserBase implements GlushParser {
       captureTokensAsMarks: captureTokensAsMarks,
     );
     step.finalize();
-    parseState.onTrackerExhausted = null;
     return step;
   }
 }
@@ -231,7 +255,7 @@ abstract base class GlushParserBase implements GlushParser {
 /// incremental parsing.
 final class _PositionWorkQueue {
   final List<int> _priorities = [];
-  final List<Frame> _items = [];
+  final Map<int, List<Frame>> _itemsByPosition = {};
 
   bool get isEmpty => _priorities.isEmpty;
   bool get isNotEmpty => _priorities.isNotEmpty;
@@ -243,35 +267,48 @@ final class _PositionWorkQueue {
       return const <Frame>[];
     }
 
-    var list = <Frame>[];
     var min = _priorities.first;
+    var items = _itemsByPosition.remove(min) ?? const <Frame>[];
 
-    while (_priorities.isNotEmpty && _priorities.first == min) {
-      var last = _priorities.length - 1;
-      var firstItem = _items.first;
+    var last = _priorities.length - 1;
+    _priorities[0] = _priorities[last];
+    _priorities.removeLast();
 
-      _priorities[0] = _priorities[last];
-      _items[0] = _items[last];
-      list.add(firstItem);
-
-      _priorities.removeLast();
-      _items.removeLast();
-
-      if (_priorities.isNotEmpty) {
-        _siftDown(0);
-      }
+    if (_priorities.isNotEmpty) {
+      _siftDown(0);
     }
 
-    return list;
+    return items;
   }
 
   void addFrame(int position, Frame frame) {
-    _add(position, frame);
+    var existing = _itemsByPosition[position];
+    if (existing != null) {
+      existing.add(frame);
+      return;
+    }
+
+    _itemsByPosition[position] = [frame];
+    _addPriority(position);
   }
 
-  void _add(int priority, Frame item) {
+  void addFrames(int position, List<Frame> frames) {
+    if (frames.isEmpty) {
+      return;
+    }
+
+    var existing = _itemsByPosition[position];
+    if (existing != null) {
+      existing.addAll(frames);
+      return;
+    }
+
+    _itemsByPosition[position] = List<Frame>.from(frames);
+    _addPriority(position);
+  }
+
+  void _addPriority(int priority) {
     _priorities.add(priority);
-    _items.add(item);
     _siftUp(_priorities.length - 1);
   }
 
@@ -279,10 +316,6 @@ final class _PositionWorkQueue {
     var priority = _priorities[a];
     _priorities[a] = _priorities[b];
     _priorities[b] = priority;
-
-    var item = _items[a];
-    _items[a] = _items[b];
-    _items[b] = item;
   }
 
   void _siftUp(int index) {

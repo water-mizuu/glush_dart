@@ -60,11 +60,11 @@ final class ParseState {
   /// A history of processed tokens, used to resolve lookahead predicates.
   final List<int> historyByPosition = [];
 
-  /// Callback triggered immediately when a tracker hits zero active frames.
-  void Function(SubparseKey key)? onTrackerExhausted;
-
   /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
+
+  /// Pending frame counts for active sub-parses, keyed by tracker key.
+  final Map<SubparseKey, int> _trackerFrameCounts = {};
 
   /// Memoized boolean outcomes for resolved predicate lookaheads.
   final Map<PredicateKey, bool> predicateOutcomes = {};
@@ -178,35 +178,65 @@ final class ParseState {
     _forEachActiveTrackerKey(context, (key) {
       var tracker = trackers[key];
       if (tracker != null) {
-        tracker.addPendingFrame();
-        _traceTrackerUpdate(tracker, reason);
+        var next = (_trackerFrameCounts[key] ?? 0) + 1;
+        _trackerFrameCounts[key] = next;
+        _traceTrackerUpdate(tracker, reason, pendingFrames: next);
       }
     });
   }
 
   /// Decrements the pending frame count for all active trackers in [context].
-  void decrementTrackers(Context context, [String? reason]) {
+  ///
+  /// Returns predicate keys that are now exhaustible (no pending frames and no match).
+  List<PredicateKey> decrementTrackers(Context context, [String? reason]) {
+    var exhaustedPredicates = <PredicateKey>[];
+
     _forEachActiveTrackerKey(context, (key) {
       var tracker = trackers[key];
       if (tracker != null) {
-        tracker.removePendingFrame();
-        if (key is PredicateKey && tracker is PredicateTracker && tracker.canResolveFalse) {
-          onTrackerExhausted?.call(key);
+        var current = _trackerFrameCounts[key] ?? 0;
+        assert(
+          current > 0,
+          "${tracker.runtimeType} underflow: decrementTrackers() called with no pending frames for $key.",
+        );
+
+        var next = current - 1;
+        _trackerFrameCounts[key] = next;
+        if (key is PredicateKey &&
+            tracker is PredicateTracker &&
+            !tracker.matched &&
+            !tracker.exhausted &&
+            next == 0) {
+          exhaustedPredicates.add(key);
         }
+
         if (reason != null) {
-          _traceTrackerUpdate(tracker, reason);
+          _traceTrackerUpdate(tracker, reason, pendingFrames: next);
         }
       }
     });
+
+    return exhaustedPredicates;
   }
 
-  void _traceTrackerUpdate(SubparseTracker tracker, String reason) {
+  void _traceTrackerUpdate(SubparseTracker tracker, String reason, {required int pendingFrames}) {
     tracer?.onTrackerUpdate(
       tracker.runtimeType.toString(),
       tracker.toString(),
-      tracker.activeFrames,
+      pendingFrames,
       reason,
     );
+  }
+
+  int trackerPendingFrames(SubparseKey key) => _trackerFrameCounts[key] ?? 0;
+
+  bool canResolvePredicateFalse(PredicateKey key, PredicateTracker tracker) {
+    return !tracker.matched && !tracker.exhausted && trackerPendingFrames(key) == 0;
+  }
+
+  void removeTracker(SubparseKey key) {
+    trackers.remove(key);
+    _trackerFrameCounts.remove(key);
   }
 
   /// Memoizes the outcome of a resolved predicate.

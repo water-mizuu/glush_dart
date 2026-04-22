@@ -39,7 +39,7 @@ abstract class ParseTracer {
   void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd});
 
   /// Called when a tracker (predicate or conjunction) is updated.
-  void onTrackerUpdate(String type, String key, int activeFrames, String action);
+  void onTrackerUpdate(String type, String key, int pendingFrames, String action);
 
   /// Records an arbitrary diagnostic message.
   void onMessage(String message);
@@ -154,8 +154,8 @@ class FileTracer implements ParseTracer {
   }
 
   @override
-  void onTrackerUpdate(String type, String key, int activeFrames, String action) {
-    _sink.writeln("  [T Tracker] $type($key) -> $action (activeFrames: $activeFrames)");
+  void onTrackerUpdate(String type, String key, int pendingFrames, String action) {
+    _sink.writeln("  [T Tracker] $type($key) -> $action (pendingFrames: $pendingFrames)");
   }
 
   @override

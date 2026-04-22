@@ -19,39 +19,17 @@ typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 ///
 /// Trackers are used to manage derivation paths that diverge from the main
 /// linear token stream, such as lookahead predicates or intersecting
-/// conjunctions. They keep track of how many active frames belong to the
-/// sub-parse and manage a list of [waiters] that should be resumed when certain
-/// conditions are met.
+/// conjunctions. They manage a list of [waiters] that should be resumed when
+/// certain conditions are met.
 sealed class SubparseTracker {
-  /// How many frames owned by this sub-parse are currently in flight.
-  int activeFrames = 0;
-
   /// Parked continuations waiting for this sub-parse to complete.
   final List<Waiter> waiters = [];
-
-  /// Mark one sub-parse-owned frame as live.
-  void addPendingFrame() {
-    activeFrames++;
-  }
-
-  /// Mark one sub-parse-owned frame as finished.
-  void removePendingFrame() {
-    assert(
-      activeFrames > 0,
-      "$runtimeType underflow: removePendingFrame() called with no pending frames.",
-    );
-    activeFrames--;
-  }
-
-  /// True when the sub-parse has no more work to do.
-  bool get isExhausted => activeFrames == 0;
 }
 
 /// Coordinates the execution of a lookahead predicate (&pattern or !pattern).
 ///
 /// A [PredicateTracker] ensures that a lookahead sub-parse is only initiated
-/// once for a given (pattern, position) pair. It tracks the progress of all
-/// branches within that sub-parse using [activeFrames].
+/// once for a given (pattern, position) pair.
 ///
 /// If any branch completes successfully, the predicate is marked as [matched].
 /// When all branches are finished, the predicate is marked as [exhausted].
@@ -66,9 +44,6 @@ class PredicateTracker extends SubparseTracker {
   bool matched = false;
   bool exhausted = false;
   int? longestMatch;
-
-  /// True when the predicate can no longer succeed and has not matched.
-  bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
 
   @override
   String toString() => "pred($symbol @ $startPosition)";
