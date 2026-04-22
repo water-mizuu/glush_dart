@@ -1014,6 +1014,24 @@ class Step {
   }) {
     var frameContext = frame.context;
     var frameToken = _getTokenFor(frame);
+    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
+    var memoizedOutcome = parseState.getMemoizedPredicateOutcome(subParseKey);
+    if (memoizedOutcome != null) {
+      GlushProfiler.increment("parser.predicates.memoized_hit");
+      if (memoizedOutcome == isAnd) {
+        _resumeLaggedPredicateContinuation(
+          source: source,
+          parentContext: frame.context,
+          parentMarks: frame.marks,
+          nextState: nextState,
+          isAnd: isAnd,
+          symbol: symbol,
+          branchKey: action != null ? ActionBranchKey(action) : null,
+        );
+      }
+      return;
+    }
+
     var admissible = parseState.parser.stateMachine.canRuleStartWith(
       symbol,
       frameToken,
@@ -1035,7 +1053,6 @@ class Step {
       return;
     }
 
-    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
     var isFirst = !parseState.trackers.containsKey(subParseKey);
 
     var tracker =
@@ -1053,6 +1070,7 @@ class Step {
     );
 
     if (tracker.matched) {
+      parseState.memoizePredicateOutcome(subParseKey, isMatched: true);
       if (tracker.isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
@@ -1068,6 +1086,7 @@ class Step {
     }
 
     if (tracker.exhausted) {
+      parseState.memoizePredicateOutcome(subParseKey, isMatched: false);
       if (!isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
@@ -1509,7 +1528,7 @@ class Step {
         caller.pattern,
         caller.startPosition,
         isAnd: caller.isAnd,
-        name: caller.name,
+        // name: caller.name,
       );
       var tracker = parseState.trackers[key] as PredicateTracker?;
       if (tracker == null) {
@@ -1522,6 +1541,7 @@ class Step {
       }
       tracker.longestMatch = returnPosition;
       tracker.matched = true;
+      parseState.memoizePredicateOutcome(key, isMatched: true);
 
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
         parseState.decrementTrackers(parentContext, "childMatched");

@@ -60,14 +60,14 @@ final class ParseState {
   /// A history of processed tokens, used to resolve lookahead predicates.
   final List<int> historyByPosition = [];
 
+  /// Callback triggered immediately when a tracker hits zero active frames.
+  void Function(SubparseKey key)? onTrackerExhausted;
+
   /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
 
-  /// Predicates that may have just become fully pruned/exhausted.
-  ///
-  /// This lets the parse loop resolve only affected predicates instead of
-  /// scanning all trackers.
-  Set<PredicateKey> _pendingPredicateExhaustion = {};
+  /// Memoized boolean outcomes for resolved predicate lookaheads.
+  final Map<PredicateKey, bool> predicateOutcomes = {};
 
   /// Memoized call sites for rules with complex (object-key) arguments.
   final Map<CallerCacheKey, Caller> callersComplex = {};
@@ -164,65 +164,56 @@ final class ParseState {
   /// Returns true if there are still active frames to be processed.
   bool get hasPendingWork => frames.isNotEmpty;
 
-  List<SubparseKey> _findActiveKeys(Context context) => [
-    if (context.predicateStack.lastOrNull case var pk?)
-      PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name),
-    if (context.caller case ConjunctionCallerKey con)
-      ConjunctionKey(con.left, con.right, con.startPosition),
-  ];
+  void _forEachActiveTrackerKey(Context context, void Function(SubparseKey key) action) {
+    if (context.predicateStack.lastOrNull case var pk?) {
+      action(PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name));
+    }
+    if (context.caller case ConjunctionCallerKey con) {
+      action(ConjunctionKey(con.left, con.right, con.startPosition));
+    }
+  }
 
   /// Increments the pending frame count for all active trackers in [context].
-  ///
-  /// This ensures that trackers (e.g., for conjunctions) know how many
-  /// concurrent paths are still being explored.
   void incrementTrackers(Context context, String reason) {
-    for (var key in _findActiveKeys(context)) {
+    _forEachActiveTrackerKey(context, (key) {
       var tracker = trackers[key];
       if (tracker != null) {
-        if (key is PredicateKey) {
-          _pendingPredicateExhaustion.remove(key);
-        }
         tracker.addPendingFrame();
-        tracer?.onTrackerUpdate(
-          tracker.runtimeType.toString(),
-          tracker.toString(),
-          tracker.activeFrames,
-          reason,
-        );
+        _traceTrackerUpdate(tracker, reason);
       }
-    }
+    });
   }
 
   /// Decrements the pending frame count for all active trackers in [context].
   void decrementTrackers(Context context, [String? reason]) {
-    for (var key in _findActiveKeys(context)) {
+    _forEachActiveTrackerKey(context, (key) {
       var tracker = trackers[key];
       if (tracker != null) {
         tracker.removePendingFrame();
         if (key is PredicateKey && tracker is PredicateTracker && tracker.canResolveFalse) {
-          _pendingPredicateExhaustion.add(key);
+          onTrackerExhausted?.call(key);
         }
         if (reason != null) {
-          tracer?.onTrackerUpdate(
-            tracker.runtimeType.toString(),
-            tracker.toString(),
-            tracker.activeFrames,
-            reason,
-          );
+          _traceTrackerUpdate(tracker, reason);
         }
       }
-    }
+    });
   }
 
-  /// Returns and clears predicates that need exhaustion resolution.
-  Set<PredicateKey> takePendingPredicateExhaustion() {
-    if (_pendingPredicateExhaustion.isEmpty) {
-      return const {};
-    }
-
-    var pending = _pendingPredicateExhaustion;
-    _pendingPredicateExhaustion = {};
-
-    return pending;
+  void _traceTrackerUpdate(SubparseTracker tracker, String reason) {
+    tracer?.onTrackerUpdate(
+      tracker.runtimeType.toString(),
+      tracker.toString(),
+      tracker.activeFrames,
+      reason,
+    );
   }
+
+  /// Memoizes the outcome of a resolved predicate.
+  void memoizePredicateOutcome(PredicateKey key, {required bool isMatched}) {
+    predicateOutcomes[key] = isMatched;
+  }
+
+  /// Returns a memoized predicate outcome, if one exists.
+  bool? getMemoizedPredicateOutcome(PredicateKey key) => predicateOutcomes[key];
 }

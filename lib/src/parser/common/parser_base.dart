@@ -6,6 +6,7 @@ import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
+import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 
 /// An abstract base class providing the core logic for a state-machine parser.
@@ -35,44 +36,91 @@ abstract base class GlushParserBase implements GlushParser {
     workQueue.addFrame(frame.context.position, frame);
   }
 
-  void _checkExhaustedPredicates(
+  void _resolveExhaustedPredicatesAt(
     ParseState parseState,
     _PositionWorkQueue workQueue,
     int currentPosition,
+    List<Object> items,
   ) {
-    while (true) {
-      var pending = parseState.takePendingPredicateExhaustion();
-      if (pending.isEmpty) {
-        break;
-      }
-
-      for (var key in pending) {
-        var tracker = parseState.trackers[key];
-        if (tracker is! PredicateTracker) {
-          continue;
-        }
-        if (tracker.matched || tracker.exhausted || !tracker.canResolveFalse) {
-          continue;
-        }
-
-        tracker.exhausted = true;
-        for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
-          parseState.decrementTrackers(parentContext, "childExhausted");
-
-          if (!tracker.isAnd) {
-            var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
-            _enqueueFrameForPosition(
-              parseState,
-              workQueue,
-              nextFrame,
-              reason: "resumeNotPredicate",
-            );
-          }
-        }
-        tracker.waiters.clear();
-        parseState.trackers.remove(key);
+    for (var item in items) {
+      if (item is SubparseKey) {
+        _handleTrackerExhaustion(parseState, workQueue, currentPosition, item);
       }
     }
+  }
+
+  void _processFramesAt(
+    ParseState parseState,
+    _PositionWorkQueue workQueue,
+    Map<int, Step> stepsAtPosition,
+    bool isSupportingAmbiguity,
+    bool captureTokensAsMarks,
+    int currentPosition,
+    int position,
+    int? token,
+    List<Object> items,
+  ) {
+    var step = stepsAtPosition[position] ??= Step(
+      parseState,
+      position == currentPosition
+          ? token
+          : position < parseState.historyByPosition.length
+          ? parseState.historyByPosition[position]
+          : null,
+      position,
+      isSupportingAmbiguity: isSupportingAmbiguity,
+      captureTokensAsMarks: captureTokensAsMarks,
+    );
+
+    for (var item in items) {
+      if (item is Frame) {
+        parseState.decrementTrackers(item.context, "process position queue");
+        step.processFrameEnqueue(item);
+      }
+    }
+
+    step.processFrameFinalize();
+    step.finalize();
+
+    // Transfer survivors to next position
+    for (var frame in step.nextFrames) {
+      parseState.decrementTrackers(frame.context, "transfer next");
+      _enqueueFrameForPosition(parseState, workQueue, frame);
+    }
+    step.nextFrames.clear();
+
+    // Requeue frames for the same position (epsilon transitions)
+    for (var frame in step.requeued) {
+      parseState.decrementTrackers(frame.context, "transfer requeue");
+      _enqueueFrameForPosition(parseState, workQueue, frame);
+    }
+    step.requeued.clear();
+  }
+
+  void _handleTrackerExhaustion(
+    ParseState parseState,
+    _PositionWorkQueue workQueue,
+    int currentPosition,
+    SubparseKey key,
+  ) {
+    var tracker = parseState.trackers[key];
+    if (tracker is! PredicateTracker || !tracker.canResolveFalse) {
+      return;
+    }
+
+    tracker.exhausted = true;
+    parseState.memoizePredicateOutcome(key as PredicateKey, isMatched: false);
+
+    for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+      parseState.decrementTrackers(parentContext, "childExhausted");
+
+      if (!tracker.isAnd) {
+        var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
+        _enqueueFrameForPosition(parseState, workQueue, nextFrame, reason: "resumeNotPredicate");
+      }
+    }
+    tracker.waiters.clear();
+    parseState.trackers.remove(key);
   }
 
   /// Creates a new [ParseState] initialized with this parser's grammar and
@@ -113,69 +161,57 @@ abstract base class GlushParserBase implements GlushParser {
       parseState.historyByPosition.add(token);
     }
 
-    var stepsAtPosition = <int, Step>{};
     var workQueue = _PositionWorkQueue();
+    parseState.onTrackerExhausted = (key) {
+      workQueue.addResolutionJob(currentPosition, key);
+    };
+
+    var stepsAtPosition = <int, Step>{};
     for (var frame in frames) {
       _enqueueFrameForPosition(parseState, workQueue, frame);
     }
 
     while (workQueue.isNotEmpty) {
-      var position = workQueue.firstKeyOrNull!;
+      var priority = workQueue.firstPriorityOrNull!;
+      var position = priority >> 1;
+      var isResolutionPhase = (priority & 1) == 1;
+
       if (token != null && position > currentPosition) {
         break;
       }
 
-      var positionFrames = workQueue.removeFirst();
+      var items = workQueue.removeFirst();
 
-      if (stepsAtPosition[position] == null) {
-        stepsAtPosition[position] = Step(
-          parseState,
-          position == currentPosition
-              ? token
-              : position < parseState.historyByPosition.length
-              ? parseState.historyByPosition[position]
-              : null,
-          position,
-          isSupportingAmbiguity: isSupportingAmbiguity,
-          captureTokensAsMarks: captureTokensAsMarks,
-        );
-      }
-      var currentStep = stepsAtPosition[position]!;
-
-      for (var frame in positionFrames) {
-        parseState.decrementTrackers(frame.context, "process position queue");
-        currentStep.processFrameEnqueue(frame);
-      }
-      currentStep.processFrameFinalize();
-      currentStep.finalize();
-
-      var nextQueuedPosition = workQueue.firstKeyOrNull;
-      if (nextQueuedPosition == null || nextQueuedPosition > currentPosition) {
-        _checkExhaustedPredicates(parseState, workQueue, currentPosition);
+      if (isResolutionPhase) {
+        _resolveExhaustedPredicatesAt(parseState, workQueue, currentPosition, items);
+        continue;
       }
 
-      for (var frame in currentStep.nextFrames) {
-        parseState.decrementTrackers(frame.context, "transfer next");
-        _enqueueFrameForPosition(parseState, workQueue, frame);
-      }
-      currentStep.nextFrames.clear();
-
-      for (var frame in currentStep.requeued) {
-        parseState.decrementTrackers(frame.context, "transfer requeue");
-        _enqueueFrameForPosition(parseState, workQueue, frame);
-      }
-      currentStep.requeued.clear();
+      _processFramesAt(
+        parseState,
+        workQueue,
+        stepsAtPosition,
+        isSupportingAmbiguity,
+        captureTokensAsMarks,
+        currentPosition,
+        position,
+        token,
+        items,
+      );
     }
 
     var steps = stepsAtPosition[currentPosition];
 
     while (workQueue.isNotEmpty) {
-      var futurePos = workQueue.firstKeyOrNull!;
-      var futureFrames = workQueue.removeFirst();
+      var priority = workQueue.firstPriorityOrNull!;
+      var futurePos = priority >> 1;
+      var items = workQueue.removeFirst();
 
-      for (var frame in futureFrames) {
-        parseState.decrementTrackers(frame.context, "defer to Step.deferredFramesByPosition");
-        steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(frame);
+      for (var item in items) {
+        if (item is Frame) {
+          parseState.decrementTrackers(item.context, "defer to Step.deferredFramesByPosition");
+          steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(item);
+        }
       }
     }
 
@@ -191,6 +227,7 @@ abstract base class GlushParserBase implements GlushParser {
       captureTokensAsMarks: captureTokensAsMarks,
     );
     step.finalize();
+    parseState.onTrackerExhausted = null;
     return step;
   }
 }
@@ -201,34 +238,34 @@ abstract base class GlushParserBase implements GlushParser {
 /// order, which is essential for lookahead predicate resolution and
 /// incremental parsing.
 final class _PositionWorkQueue {
-  final List<int> _positions = [];
-  final List<Frame> _frames = [];
+  final List<int> _priorities = [];
+  final List<Object> _items = [];
 
-  bool get isEmpty => _positions.isEmpty;
-  bool get isNotEmpty => _positions.isNotEmpty;
+  bool get isEmpty => _priorities.isEmpty;
+  bool get isNotEmpty => _priorities.isNotEmpty;
 
-  int? get firstKeyOrNull => _positions.isEmpty ? null : _positions.first;
+  int? get firstPriorityOrNull => _priorities.isEmpty ? null : _priorities.first;
 
-  List<Frame> removeFirst() {
-    if (_positions.isEmpty) {
+  List<Object> removeFirst() {
+    if (_priorities.isEmpty) {
       return const [];
     }
 
-    var list = <Frame>[];
-    var min = _positions.first;
+    var list = <Object>[];
+    var min = _priorities.first;
 
-    while (_positions.isNotEmpty && _positions.first == min) {
-      var last = _positions.length - 1;
-      var firstFrame = _frames.first;
+    while (_priorities.isNotEmpty && _priorities.first == min) {
+      var last = _priorities.length - 1;
+      var firstItem = _items.first;
 
-      _positions[0] = _positions[last];
-      _frames[0] = _frames[last];
-      list.add(firstFrame);
+      _priorities[0] = _priorities[last];
+      _items[0] = _items[last];
+      list.add(firstItem);
 
-      _positions.removeLast();
-      _frames.removeLast();
+      _priorities.removeLast();
+      _items.removeLast();
 
-      if (_positions.isNotEmpty) {
+      if (_priorities.isNotEmpty) {
         _siftDown(0);
       }
     }
@@ -237,25 +274,33 @@ final class _PositionWorkQueue {
   }
 
   void addFrame(int position, Frame frame) {
-    _positions.add(position);
-    _frames.add(frame);
-    _siftUp(_positions.length - 1);
+    _add((position << 1) | 0, frame);
+  }
+
+  void addResolutionJob(int position, SubparseKey key) {
+    _add((position << 1) | 1, key);
+  }
+
+  void _add(int priority, Object item) {
+    _priorities.add(priority);
+    _items.add(item);
+    _siftUp(_priorities.length - 1);
   }
 
   void _swap(int a, int b) {
-    var position = _positions[a];
-    _positions[a] = _positions[b];
-    _positions[b] = position;
+    var priority = _priorities[a];
+    _priorities[a] = _priorities[b];
+    _priorities[b] = priority;
 
-    var frame = _frames[a];
-    _frames[a] = _frames[b];
-    _frames[b] = frame;
+    var item = _items[a];
+    _items[a] = _items[b];
+    _items[b] = item;
   }
 
   void _siftUp(int index) {
     while (index > 0) {
       int parent = (index - 1) >> 1;
-      if (_positions[parent] <= _positions[index]) {
+      if (_priorities[parent] <= _priorities[index]) {
         break;
       }
       _swap(parent, index);
@@ -269,10 +314,10 @@ final class _PositionWorkQueue {
       int left = (index << 1) + 1;
       int right = (index << 1) + 2;
 
-      if (left < _positions.length && _positions[left] < _positions[smallest]) {
+      if (left < _priorities.length && _priorities[left] < _priorities[smallest]) {
         smallest = left;
       }
-      if (right < _positions.length && _positions[right] < _positions[smallest]) {
+      if (right < _priorities.length && _priorities[right] < _priorities[smallest]) {
         smallest = right;
       }
 

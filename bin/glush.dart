@@ -3,14 +3,18 @@
 import "package:glush/glush.dart";
 
 void main() {
-  var grammar = r"S= $2 &(S S) S S | $1 's'";
+  var grammar = r"S= $2 &(a:S S) S S | $1 's'";
   var parser = grammar.toSMParser();
   var input = "ssss";
   var parseResult = parser
       .parseAmbiguous(input)
       .ambiguousSuccess()!
       .forest
-      .map((v) => v.evaluateStructure(input).toJson())
+      .map(
+        (v) => Evaluator({r"S.2": (ctx) => "(${ctx.next()}${ctx.next()})", r"S.1": (ctx) => "s"})(
+          v.evaluateStructure(input),
+        ),
+      )
       .toList();
   print(parseResult.join("\n"));
 }

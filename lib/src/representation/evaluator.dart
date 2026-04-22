@@ -1,6 +1,5 @@
 // ignore_for_file: must_be_immutable
 
-import "dart:convert";
 import "dart:math";
 
 import "package:glush/src/core/list.dart";
@@ -360,16 +359,26 @@ extension ParseNodeJsonConversion on ParseNode {
     return [];
   }
 
-  /// Pretty-prints this parse tree as formatted JSON.
-  String toJsonString() {
-    var json = toJson();
-    return jsonEncode(json);
+  Map<String, Object?> nodeToSimple(String name) {
+    return {
+      if (this case ParseResult parseResult when parseResult.children.isNotEmpty)
+        name: [
+          if (this case ParseResult parseResult when parseResult.children.isNotEmpty)
+            for (var (label, child) in parseResult.children) child.nodeToSimple(label),
+        ]
+      else
+        name: span,
+    };
   }
 
-  /// Pretty-prints this parse tree as formatted JSON with indentation.
-  String toJsonStringPretty({String indent = "  "}) {
-    var json = toJson();
-    return JsonEncoder.withIndent(indent).convert(json);
+  /// Converts a ParseNode tree into a simple JSON-like structure.
+  ///
+  /// Returns a list of the direct children with their labels and spans.
+  List<Map<String, Object?>> toSimple() {
+    if (this case ParseResult parseResult when parseResult.children.isNotEmpty) {
+      return [for (final (label, child) in parseResult.children) child.nodeToJson(label)];
+    }
+    return [];
   }
 }
 
