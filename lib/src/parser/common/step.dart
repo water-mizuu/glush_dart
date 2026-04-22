@@ -506,54 +506,29 @@ class Step {
       return;
     }
 
-    var isSimpleCall = callArgumentsKey is StringCallArgumentsKey && callArgumentsKey.key.isEmpty;
-    Caller? caller;
     var isNewCaller = false;
-
-    if (isSimpleCall && frame.context.predicateStack.isEmpty) {
-      var packedId = (position << 32) | (targetRule.uid << 8) | (minPrecedenceLevel ?? 0xFF);
-      caller = parseState.callersInt[packedId];
-      if (caller == null) {
-        isNewCaller = true;
-        GlushProfiler.incrementMiss("parser.callers.cache");
-        caller = parseState.callersInt[packedId] = Caller(
-          targetRule,
-          position,
-          minPrecedenceLevel,
-          callArguments,
-          frame.context.predicateStack,
-          parseState.callerCounter++,
-        );
-        GlushProfiler.increment("parser.callers.cache_assign");
-        GlushProfiler.increment("parser.callers.created_simple");
-      } else {
-        GlushProfiler.incrementHit("parser.callers.cache");
-      }
-    } else {
-      var key = ComplexCallerCacheKey(
+    var key = CallerCacheKey(
+      targetRule,
+      position,
+      minPrecedenceLevel,
+      callArgumentsKey,
+      frame.context.predicateStack,
+    );
+    var caller = parseState.callersComplex[key];
+    if (caller == null) {
+      isNewCaller = true;
+      GlushProfiler.incrementMiss("parser.callers.cache");
+      caller = parseState.callersComplex[key] = Caller(
         targetRule,
         position,
         minPrecedenceLevel,
-        callArgumentsKey,
+        callArguments,
         frame.context.predicateStack,
+        parseState.callerCounter++,
       );
-      caller = parseState.callersComplex[key];
-      if (caller == null) {
-        isNewCaller = true;
-        GlushProfiler.incrementMiss("parser.callers.cache");
-        caller = parseState.callersComplex[key] = Caller(
-          targetRule,
-          position,
-          minPrecedenceLevel,
-          callArguments,
-          frame.context.predicateStack,
-          parseState.callerCounter++,
-        );
-        GlushProfiler.increment("parser.callers.cache_assign");
-        GlushProfiler.increment("parser.callers.created_complex");
-      } else {
-        GlushProfiler.incrementHit("parser.callers.cache");
-      }
+      GlushProfiler.increment("parser.callers.cache_assign");
+    } else {
+      GlushProfiler.incrementHit("parser.callers.cache");
     }
     var isNewWaiter = caller.addWaiter(
       returnState,

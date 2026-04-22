@@ -26,12 +26,6 @@ sealed class GrammarInterface {
   /// into concrete logic during execution.
   Map<PatternSymbol, Pattern> get registry;
 
-  /// A mapping from a pattern's symbol ID to the symbol IDs of its direct children.
-  ///
-  /// This structural information is used to navigate the grammar's hierarchy
-  /// during analysis or transformation passes.
-  Map<PatternSymbol, List<PatternSymbol>> get childrenRegistry;
-
   /// The entry point call for the grammar.
   ///
   /// This represents the starting point of any parse attempt using this grammar.
@@ -90,10 +84,6 @@ class Grammar implements GrammarInterface {
   @override
   final Map<PatternSymbol, Pattern> registry = {};
 
-  /// The mapping of parent-child relationships between pattern symbols.
-  @override
-  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry = {};
-
   /// Fast lookup map for rules by their symbol ID.
   @override
   final Map<PatternSymbol, Rule> allRules = {};
@@ -139,7 +129,6 @@ class Grammar implements GrammarInterface {
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
-    _fillChildrenMapping();
 
     _computeEmpty();
     _computeTransitions();
@@ -169,41 +158,6 @@ class Grammar implements GrammarInterface {
       if (pattern is Rule) {
         allRules[actualSymbolId] = pattern;
       }
-    }
-  }
-
-  /// Populates the [childrenRegistry] by mapping each pattern to its direct sub-patterns.
-  ///
-  /// This structural map is essential for algorithms that need to traverse
-  /// the grammar's hierarchy without performing expensive runtime type checks
-  /// or reflection.
-  void _fillChildrenMapping() {
-    for (var pattern in allPatterns) {
-      childrenRegistry[pattern.symbolId!] = switch (pattern) {
-        Token() ||
-        Marker() ||
-        StartAnchor() ||
-        EofAnchor() ||
-        Eps() ||
-        ParameterRefPattern() ||
-        ParameterCallPattern() ||
-        LabelStart() ||
-        LabelEnd() ||
-        Retreat() => [],
-        Alt(:var left, :var right) ||
-        Seq(:var left, :var right) ||
-        Conj(:var left, :var right) => [left.symbolId!, right.symbolId!],
-        Label(:var child) ||
-        Action(:var child) ||
-        Prec(:var child) ||
-        Opt(:var child) ||
-        Plus(:var child) ||
-        Star(:var child) => [child.symbolId!],
-        Rule rule => [rule.body().symbolId!],
-        RuleCall(:var rule) => [rule.symbolId!],
-        And(:var pattern) || Not(:var pattern) => [pattern.symbolId!],
-        IfCond(:var pattern) => [pattern.symbolId!],
-      };
     }
   }
 
@@ -634,12 +588,7 @@ class Grammar implements GrammarInterface {
 /// without the overhead of full compilation or state machine generation.
 class ShellGrammar implements GrammarInterface {
   /// Constructs a [ShellGrammar] with the required structural components.
-  ShellGrammar({
-    required this.startSymbol,
-    required this.childrenRegistry,
-    required this.rules,
-    required this.startCall,
-  }) {
+  ShellGrammar({required this.startSymbol, required this.rules, required this.startCall}) {
     for (var rule in rules) {
       allRules[rule.symbolId!] = rule;
     }
@@ -648,10 +597,6 @@ class ShellGrammar implements GrammarInterface {
   /// The pattern registry (often empty in a shell grammar).
   @override
   final Map<PatternSymbol, Pattern> registry = {};
-
-  /// The child-parent relationship mapping.
-  @override
-  final Map<PatternSymbol, List<PatternSymbol>> childrenRegistry;
 
   /// Fast lookup map for rules.
   @override

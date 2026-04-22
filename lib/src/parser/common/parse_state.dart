@@ -63,11 +63,8 @@ final class ParseState {
   /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
 
-  /// Memoized call sites for rules with simple (integer-key) arguments.
-  final Map<int, Caller> callersInt = {};
-
   /// Memoized call sites for rules with complex (object-key) arguments.
-  final Map<ComplexCallerCacheKey, Caller> callersComplex = {};
+  final Map<CallerCacheKey, Caller> callersComplex = {};
 
   /// A fast lookup map for rules by their unique names.
   final Map<RuleName, Rule> rulesByName;
@@ -191,7 +188,7 @@ final class ParseState {
   void decrementTrackers(Context context, [String? reason]) {
     for (var key in _findActiveKeys(context)) {
       var tracker = trackers[key];
-      if (tracker != null && tracker.activeFrames > 0) {
+      if (tracker != null) {
         tracker.removePendingFrame();
         if (reason != null) {
           tracer?.onTrackerUpdate(
