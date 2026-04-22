@@ -163,7 +163,7 @@ class Step {
     int endPosition,
     LazyGlushList<Mark> left,
     LazyGlushList<Mark> right,
-    List<(ParseNodeKey? source, Context, State, LazyGlushList<Mark>)> targetWaiters,
+    List<Waiter> targetWaiters,
   ) {
     // Create a Parallel node representing the cartesian product of left and right marks
     // at the same span. This captures all combinations of parallel marks.
@@ -496,6 +496,20 @@ class Step {
     required State currentState,
   }) {
     GlushProfiler.increment("parser.rule_calls.considered");
+    var symbol = targetRule.symbolId;
+    if (symbol != null) {
+      var frameToken = _getTokenFor(frame);
+      var admissible = parseState.parser.stateMachine.canRuleStartWith(
+        symbol,
+        frameToken,
+        isAtStart: frame.context.position == 0,
+      );
+      if (!admissible) {
+        GlushProfiler.increment("parser.rule_calls.admissibility_rejected");
+        return;
+      }
+    }
+
     if (!_ruleGuardPasses(
       targetRule,
       frame,
@@ -999,6 +1013,28 @@ class Step {
     StateAction? action,
   }) {
     var frameContext = frame.context;
+    var frameToken = _getTokenFor(frame);
+    var admissible = parseState.parser.stateMachine.canRuleStartWith(
+      symbol,
+      frameToken,
+      isAtStart: frameContext.position == 0,
+    );
+    if (!admissible) {
+      GlushProfiler.increment("parser.predicates.admissibility_rejected");
+      if (!isAnd) {
+        _resumeLaggedPredicateContinuation(
+          source: source,
+          parentContext: frame.context,
+          parentMarks: frame.marks,
+          nextState: nextState,
+          isAnd: isAnd,
+          symbol: symbol,
+          branchKey: action != null ? ActionBranchKey(action) : null,
+        );
+      }
+      return;
+    }
+
     var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
     var isFirst = !parseState.trackers.containsKey(subParseKey);
 

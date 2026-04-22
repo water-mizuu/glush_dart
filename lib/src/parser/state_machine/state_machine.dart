@@ -121,6 +121,8 @@ class StateMachine {
         firstState.actions.add(ReturnAction(rule.symbolId!));
       }
     }
+
+    _precompileRuleStartAdmissibility();
   }
 
   /// Internal constructor for pre-built state machines (imported).
@@ -146,6 +148,227 @@ class StateMachine {
 
   final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
+  final Map<(PatternSymbol, int?, bool), bool> _ruleStartAdmissibilityCache = {};
+  final Map<PatternSymbol, _RuleStartAdmissibilityTable> _ruleStartAdmissibilityTables = {};
+
+  static const int _precompiledTokenMin = 0;
+  static const int _precompiledTokenMax = 255;
+
+  /// Returns true if [symbol] can potentially begin matching at [token].
+  ///
+  /// This check is conservative: it returns false only when the rule is
+  /// definitely impossible to start at this token. Unknown constructs default to
+  /// true to avoid pruning valid parses.
+  bool canRuleStartWith(PatternSymbol symbol, int? token, {required bool isAtStart}) {
+    var table = _ruleStartAdmissibilityTables[symbol]!;
+    if (token == null) {
+      return isAtStart ? table.eofAtStart : table.eofNotAtStart;
+    }
+    if (token >= _precompiledTokenMin && token <= _precompiledTokenMax) {
+      return isAtStart ? table.atStart[token] : table.notAtStart[token];
+    }
+
+    var key = (symbol, token, isAtStart);
+    if (_ruleStartAdmissibilityCache[key] case var cached?) {
+      return cached;
+    }
+
+    var result = _canRuleStartWith(
+      symbol,
+      token,
+      isAtStart: isAtStart,
+      visitingRules: <PatternSymbol>{},
+    );
+    _ruleStartAdmissibilityCache[key] = result;
+    return result;
+  }
+
+  void _precompileRuleStartAdmissibility() {
+    for (var symbol in ruleFirst.keys) {
+      var atStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+      var notAtStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+
+      for (var token = _precompiledTokenMin; token <= _precompiledTokenMax; token++) {
+        var startValue = _canRuleStartWith(
+          symbol,
+          token,
+          isAtStart: true,
+          visitingRules: <PatternSymbol>{},
+        );
+        var nonStartValue = _canRuleStartWith(
+          symbol,
+          token,
+          isAtStart: false,
+          visitingRules: <PatternSymbol>{},
+        );
+        atStart[token] = startValue;
+        notAtStart[token] = nonStartValue;
+
+        _ruleStartAdmissibilityCache[(symbol, token, true)] = startValue;
+        _ruleStartAdmissibilityCache[(symbol, token, false)] = nonStartValue;
+      }
+
+      var eofAtStart = _canRuleStartWith(
+        symbol,
+        null,
+        isAtStart: true,
+        visitingRules: <PatternSymbol>{},
+      );
+      var eofNotAtStart = _canRuleStartWith(
+        symbol,
+        null,
+        isAtStart: false,
+        visitingRules: <PatternSymbol>{},
+      );
+      _ruleStartAdmissibilityTables[symbol] = _RuleStartAdmissibilityTable(
+        atStart: atStart,
+        notAtStart: notAtStart,
+        eofAtStart: eofAtStart,
+        eofNotAtStart: eofNotAtStart,
+      );
+      _ruleStartAdmissibilityCache[(symbol, null, true)] = eofAtStart;
+      _ruleStartAdmissibilityCache[(symbol, null, false)] = eofNotAtStart;
+    }
+  }
+
+  bool _canRuleStartWith(
+    PatternSymbol symbol,
+    int? token, {
+    required bool isAtStart,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    if (visitingRules.contains(symbol)) {
+      // Cycles are treated as unknown/possible to avoid unsound pruning.
+      return true;
+    }
+
+    var entry = ruleFirst[symbol];
+    if (entry == null) {
+      return true;
+    }
+
+    visitingRules.add(symbol);
+    var result = _stateCanStartWith(
+      entry,
+      token,
+      isAtStart: isAtStart,
+      visitingStates: <int>{},
+      visitingRules: visitingRules,
+    );
+    visitingRules.remove(symbol);
+    return result;
+  }
+
+  bool _stateCanStartWith(
+    State state,
+    int? token, {
+    required bool isAtStart,
+    required Set<int> visitingStates,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    if (!visitingStates.add(state.id)) {
+      return false;
+    }
+
+    for (var action in state.actions) {
+      switch (action) {
+        case TokenAction(:var choice):
+          if (token != null && choice.matches(token)) {
+            return true;
+          }
+        case ParameterStringAction(:var codeUnit):
+          if (token != null && token == codeUnit) {
+            return true;
+          }
+        case MarkAction(:var nextState):
+          if (_stateCanStartWith(
+            nextState,
+            token,
+            isAtStart: isAtStart,
+            visitingStates: visitingStates,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case LabelStartAction(:var nextState):
+          if (_stateCanStartWith(
+            nextState,
+            token,
+            isAtStart: isAtStart,
+            visitingStates: visitingStates,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case LabelEndAction(:var nextState):
+          if (_stateCanStartWith(
+            nextState,
+            token,
+            isAtStart: isAtStart,
+            visitingStates: visitingStates,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case BoundaryAction(:var kind, :var nextState):
+          if (kind == BoundaryKind.start && !isAtStart) {
+            continue;
+          }
+          if (kind == BoundaryKind.eof && token != null) {
+            continue;
+          }
+          if (_stateCanStartWith(
+            nextState,
+            token,
+            isAtStart: isAtStart,
+            visitingStates: visitingStates,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case CallAction(:var ruleSymbol):
+          if (_canRuleStartWith(
+            ruleSymbol,
+            token,
+            isAtStart: isAtStart,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case TailCallAction(:var ruleSymbol):
+          if (_canRuleStartWith(
+            ruleSymbol,
+            token,
+            isAtStart: isAtStart,
+            visitingRules: visitingRules,
+          )) {
+            return true;
+          }
+        case ReturnAction():
+          // The rule can complete without consuming input.
+          return true;
+        case AcceptAction():
+          // Accept state is also a zero-consumption success path.
+          return true;
+        case PredicateAction() ||
+            ConjunctionAction() ||
+            ParameterAction() ||
+            ParameterCallAction() ||
+            ParameterPredicateAction() ||
+            RetreatAction():
+          // Runtime-dependent behavior: treat as possible.
+          return true;
+      }
+    }
+
+    return false;
+  }
+
+  void _ensureRuleStartAdmissibilityPrecompiled() {
+    if (_ruleStartAdmissibilityTables.isEmpty && ruleFirst.isNotEmpty) {
+      _precompileRuleStartAdmissibility();
+    }
+  }
 
   /// Initialize the state structure for imported state machines.
   ///
@@ -160,6 +383,7 @@ class StateMachine {
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
+    _ensureRuleStartAdmissibilityPrecompiled();
   }
 
   Map<int, StateKey>? _idToKey;
@@ -188,6 +412,7 @@ class StateMachine {
     if (initialStates.isNotEmpty) {
       _stateMapping[const InitStateKey()] = initialStates[0];
     }
+    _ensureRuleStartAdmissibilityPrecompiled();
   }
 
   /// Retrieves an existing state or creates a new one for the given [key].
@@ -720,6 +945,20 @@ class StateMachine {
       Label(:var child) => _isDefinitelyNonEmpty(child),
     };
   }
+}
+
+final class _RuleStartAdmissibilityTable {
+  const _RuleStartAdmissibilityTable({
+    required this.atStart,
+    required this.notAtStart,
+    required this.eofAtStart,
+    required this.eofNotAtStart,
+  });
+
+  final List<bool> atStart;
+  final List<bool> notAtStart;
+  final bool eofAtStart;
+  final bool eofNotAtStart;
 }
 
 /// Converts a [StateMachine] into Graphviz DOT format for visualization.
