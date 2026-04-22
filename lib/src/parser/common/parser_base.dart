@@ -39,12 +39,10 @@ abstract base class GlushParserBase implements GlushParser {
     ParseState parseState,
     _PositionWorkQueue workQueue,
     int currentPosition,
-    List<Object> items,
+    Iterable<SubparseKey> keys,
   ) {
-    for (var item in items) {
-      if (item is SubparseKey) {
-        _handleTrackerExhaustion(parseState, workQueue, currentPosition, item);
-      }
+    for (var key in keys) {
+      _handleTrackerExhaustion(parseState, workQueue, currentPosition, key);
     }
   }
 
@@ -57,7 +55,7 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     int position,
     int? token,
-    List<Object> items,
+    List<Frame> items,
   ) {
     var step = stepsAtPosition[position] ??= Step(
       parseState,
@@ -72,10 +70,8 @@ abstract base class GlushParserBase implements GlushParser {
     );
 
     for (var item in items) {
-      if (item is Frame) {
-        parseState.decrementTrackers(item.context, "process position queue");
-        step.processFrameEnqueue(item);
-      }
+      parseState.decrementTrackers(item.context, "process position queue");
+      step.processFrameEnqueue(item);
     }
 
     step.processFrameFinalize();
@@ -161,8 +157,9 @@ abstract base class GlushParserBase implements GlushParser {
     }
 
     var workQueue = _PositionWorkQueue();
+    var pendingExhaustions = <SubparseKey>{};
     parseState.onTrackerExhausted = (key) {
-      workQueue.addResolutionJob(currentPosition, key);
+      pendingExhaustions.add(key);
     };
 
     var stepsAtPosition = <int, Step>{};
@@ -171,20 +168,13 @@ abstract base class GlushParserBase implements GlushParser {
     }
 
     while (workQueue.isNotEmpty) {
-      var priority = workQueue.firstPriorityOrNull!;
-      var position = priority >> 1;
-      var isResolutionPhase = (priority & 1) == 1;
+      var position = workQueue.firstPriorityOrNull!;
 
       if (token != null && position > currentPosition) {
         break;
       }
 
       var items = workQueue.removeFirst();
-
-      if (isResolutionPhase) {
-        _resolveExhaustedPredicatesAt(parseState, workQueue, currentPosition, items);
-        continue;
-      }
 
       _processFramesAt(
         parseState,
@@ -197,20 +187,23 @@ abstract base class GlushParserBase implements GlushParser {
         token,
         items,
       );
+
+      while (pendingExhaustions.isNotEmpty) {
+        var keys = pendingExhaustions.toList(growable: false);
+        pendingExhaustions.clear();
+        _resolveExhaustedPredicatesAt(parseState, workQueue, currentPosition, keys);
+      }
     }
 
     var steps = stepsAtPosition[currentPosition];
 
     while (workQueue.isNotEmpty) {
-      var priority = workQueue.firstPriorityOrNull!;
-      var futurePos = priority >> 1;
+      var futurePos = workQueue.firstPriorityOrNull!;
       var items = workQueue.removeFirst();
 
       for (var item in items) {
-        if (item is Frame) {
-          parseState.decrementTrackers(item.context, "defer to Step.deferredFramesByPosition");
-          steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(item);
-        }
+        parseState.decrementTrackers(item.context, "defer to Step.deferredFramesByPosition");
+        steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(item);
       }
     }
 
@@ -238,19 +231,19 @@ abstract base class GlushParserBase implements GlushParser {
 /// incremental parsing.
 final class _PositionWorkQueue {
   final List<int> _priorities = [];
-  final List<Object> _items = [];
+  final List<Frame> _items = [];
 
   bool get isEmpty => _priorities.isEmpty;
   bool get isNotEmpty => _priorities.isNotEmpty;
 
   int? get firstPriorityOrNull => _priorities.isEmpty ? null : _priorities.first;
 
-  List<Object> removeFirst() {
+  List<Frame> removeFirst() {
     if (_priorities.isEmpty) {
-      return const [];
+      return const <Frame>[];
     }
 
-    var list = <Object>[];
+    var list = <Frame>[];
     var min = _priorities.first;
 
     while (_priorities.isNotEmpty && _priorities.first == min) {
@@ -273,14 +266,10 @@ final class _PositionWorkQueue {
   }
 
   void addFrame(int position, Frame frame) {
-    _add((position << 1) | 0, frame);
+    _add(position, frame);
   }
 
-  void addResolutionJob(int position, SubparseKey key) {
-    _add((position << 1) | 1, key);
-  }
-
-  void _add(int priority, Object item) {
+  void _add(int priority, Frame item) {
     _priorities.add(priority);
     _items.add(item);
     _siftUp(_priorities.length - 1);
