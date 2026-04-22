@@ -448,37 +448,6 @@ class Step {
     return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
   }
 
-  ({Map<String, Object?> arguments, CallArgumentsKey key})? _resolveParameterCallArguments(
-    String targetName,
-    Map<String, CallArgumentValue> callArgs,
-    Frame frame,
-    Rule rule,
-  ) {
-    var callerRule = switch (frame.context.caller) {
-      Caller(rule: var callerRule) => callerRule,
-      _ => rule,
-    };
-    var callerArguments = frame.context.arguments;
-    var env = _buildGuardEnvironment(rule: callerRule, frame: frame, arguments: callerArguments);
-
-    var resolved = <String, Object?>{};
-    var resolvedValues = <Object?>[];
-
-    var sortedNames = callArgs.keys.toList()..sort();
-    for (var name in sortedNames) {
-      var value = callArgs[name]!.resolve(env);
-      resolved[name] = value;
-      resolvedValues.add(value);
-    }
-
-    var key = switch (resolvedValues.length) {
-      0 => const EmptyCallArgumentsKey(),
-      _ => CompositeCallArgumentsKey(List<Object?>.unmodifiable(resolvedValues)),
-    };
-
-    return (arguments: Map<String, Object?>.unmodifiable(resolved), key: key);
-  }
-
   /// Initiates a rule call and manages caller memoization.
   ///
   /// This method checks guards, looks up or creates a [Caller] node in the GSS,
@@ -918,6 +887,19 @@ class Step {
     );
   }
 
+  /// Enqueues a same-position transition after appending one semantic mark.
+  void _enqueueWithAddedMark(
+    Frame frame,
+    State state,
+    StateAction action,
+    State nextState,
+    LazyVal<Mark> mark,
+  ) {
+    var frameContext = frame.context;
+    var source = ParseNodeKey(state.id, position, frameContext.caller);
+    _enqueue(nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+  }
+
   /// Processes a [BoundaryAction], checking for start or end of input.
   void _processBoundaryAction(Frame frame, State state, BoundaryAction action) {
     var frameContext = frame.context;
@@ -946,43 +928,34 @@ class Step {
 
   /// Processes a [MarkAction], emitting a named mark.
   void _processMarkAction(Frame frame, State state, MarkAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-
-    _enqueue(
+    _enqueueWithAddedMark(
+      frame,
+      state,
+      action,
       action.nextState,
-      frameContext,
-      frame.marks.add(NamedMarkVal(action.name, position)),
-      source: source,
-      action: action,
+      NamedMarkVal(action.name, position),
     );
   }
 
   /// Processes a [LabelStartAction], beginning a labeled capture.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-
-    _enqueue(
+    _enqueueWithAddedMark(
+      frame,
+      state,
+      action,
       action.nextState,
-      frameContext,
-      frame.marks.add(LabelStartVal(action.name, position)),
-      source: source,
-      action: action,
+      LabelStartVal(action.name, position),
     );
   }
 
   /// Processes a [LabelEndAction], completing a labeled capture.
   void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-
-    _enqueue(
+    _enqueueWithAddedMark(
+      frame,
+      state,
+      action,
       action.nextState,
-      frameContext,
-      frame.marks.add(LabelEndVal(action.name, position)),
-      source: source,
-      action: action,
+      LabelEndVal(action.name, position),
     );
   }
 
@@ -1265,15 +1238,7 @@ class Step {
           currentState: state,
         );
       case Rule rule:
-        var resolvedCall = _resolveParameterCallArguments(
-          action.targetParameter,
-          action.arguments,
-          frame,
-          rule,
-        );
-        if (resolvedCall == null) {
-          return;
-        }
+        var resolvedCall = _resolveCallArgumentValues(action.arguments, frame, rule);
         _seedRuleCall(
           targetRule: rule,
           callArguments: resolvedCall.arguments,

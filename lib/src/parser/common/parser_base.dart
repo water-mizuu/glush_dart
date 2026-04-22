@@ -1,5 +1,4 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
-import "package:glush/glush.dart" show SMParser;
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/step.dart";

@@ -270,6 +270,25 @@ class StateMachine {
       return false;
     }
 
+    bool canStartViaState(State nextState) {
+      return _stateCanStartWith(
+        nextState,
+        token,
+        isAtStart: isAtStart,
+        visitingStates: visitingStates,
+        visitingRules: visitingRules,
+      );
+    }
+
+    bool canStartViaRule(PatternSymbol ruleSymbol) {
+      return _canRuleStartWith(
+        ruleSymbol,
+        token,
+        isAtStart: isAtStart,
+        visitingRules: visitingRules,
+      );
+    }
+
     for (var action in state.actions) {
       switch (action) {
         case TokenAction(:var choice):
@@ -281,33 +300,15 @@ class StateMachine {
             return true;
           }
         case MarkAction(:var nextState):
-          if (_stateCanStartWith(
-            nextState,
-            token,
-            isAtStart: isAtStart,
-            visitingStates: visitingStates,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaState(nextState)) {
             return true;
           }
         case LabelStartAction(:var nextState):
-          if (_stateCanStartWith(
-            nextState,
-            token,
-            isAtStart: isAtStart,
-            visitingStates: visitingStates,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaState(nextState)) {
             return true;
           }
         case LabelEndAction(:var nextState):
-          if (_stateCanStartWith(
-            nextState,
-            token,
-            isAtStart: isAtStart,
-            visitingStates: visitingStates,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaState(nextState)) {
             return true;
           }
         case BoundaryAction(:var kind, :var nextState):
@@ -317,31 +318,15 @@ class StateMachine {
           if (kind == BoundaryKind.eof && token != null) {
             continue;
           }
-          if (_stateCanStartWith(
-            nextState,
-            token,
-            isAtStart: isAtStart,
-            visitingStates: visitingStates,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaState(nextState)) {
             return true;
           }
         case CallAction(:var ruleSymbol):
-          if (_canRuleStartWith(
-            ruleSymbol,
-            token,
-            isAtStart: isAtStart,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaRule(ruleSymbol)) {
             return true;
           }
         case TailCallAction(:var ruleSymbol):
-          if (_canRuleStartWith(
-            ruleSymbol,
-            token,
-            isAtStart: isAtStart,
-            visitingRules: visitingRules,
-          )) {
+          if (canStartViaRule(ruleSymbol)) {
             return true;
           }
         case ReturnAction():

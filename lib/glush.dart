@@ -1,8 +1,8 @@
 export "src/compiler/compiler.dart";
+export "src/compiler/errors.dart";
 export "src/compiler/format.dart";
 export "src/compiler/grammar_string_parser.dart";
 export "src/compiler/parser.dart";
-export "src/core/errors.dart";
 export "src/core/grammar.dart";
 export "src/core/list.dart";
 export "src/core/list_mark_extensions.dart";

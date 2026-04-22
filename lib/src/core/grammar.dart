@@ -124,8 +124,7 @@ class Grammar implements GrammarInterface {
     }
 
     rules.addAll(discoveredRules);
-    _normalizePredicates();
-    _normalizeHigherOrderPatterns();
+    _normalizePatterns();
 
     // Discover and assign symbol IDs to all patterns used in this grammar
     _assignPatternSymbols();
@@ -171,27 +170,27 @@ class Grammar implements GrammarInterface {
   /// A counter for generating unique names for synthetic rules created during normalization.
   static int _syntheticRuleCounter = 0;
 
-  /// Ensures that all predicates (And/Not) are anchored to named rules.
+  /// Normalizes rule bodies by hoisting predicate/callable subpatterns and
+  /// rewriting nested argument patterns into callable form where needed.
   ///
-  /// If a predicate wraps an anonymous pattern, this method hoists that pattern
-  /// into a new synthetic rule. This is necessary because the state machine
-  /// and evaluation logic rely on rule boundaries for correct evaluation and memoization.
-  void _normalizePredicates() {
+  /// The loop intentionally uses an index against [rules] so synthetic
+  /// rules appended during normalization are processed in the same pass.
+  void _normalizePatterns() {
     for (int i = 0; i < rules.length; i++) {
       var rule = rules[i];
       rule.setBody(_normalizePattern(rule.body(), <Pattern>{}));
     }
   }
 
-  /// Normalizes higher-order patterns, such as parameterized rule calls.
-  ///
-  /// This ensures that complex call structures are simplified and that
-  /// all nested patterns are correctly hoisted or anchored as needed.
-  void _normalizeHigherOrderPatterns() {
-    for (int i = 0; i < rules.length; i++) {
-      var rule = rules[i];
-      rule.setBody(_normalizePattern(rule.body(), <Pattern>{}));
+  /// Ensures [pattern] is anchored by a rule call, hoisting it when needed.
+  Pattern _ensureRuleCallPattern(Pattern pattern, String syntheticPrefix) {
+    if (pattern is RuleCall) {
+      return pattern;
     }
+    var syntheticName = "$syntheticPrefix\$${_syntheticRuleCounter++}";
+    var syntheticRule = Rule(syntheticName, () => pattern);
+    rules.add(syntheticRule);
+    return syntheticRule.call();
   }
 
   /// Recursively normalizes a pattern and its children.
@@ -224,47 +223,22 @@ class Grammar implements GrammarInterface {
 
     if (pattern is And) {
       pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      var child = pattern.pattern;
-      if (child is! RuleCall) {
-        var syntheticName = "pred\$${_syntheticRuleCounter++}";
-        var syntheticRule = Rule(syntheticName, () => child);
-        rules.add(syntheticRule);
-        pattern.pattern = syntheticRule.call();
-        // No need to recurse again as child was already normalized or is new
-      }
+      pattern.pattern = _ensureRuleCallPattern(pattern.pattern, "pred");
       return pattern;
     }
 
     if (pattern is Not) {
       pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      var child = pattern.pattern;
-      if (child is! RuleCall) {
-        var syntheticName = "pred\$${_syntheticRuleCounter++}";
-        var syntheticRule = Rule(syntheticName, () => child);
-        rules.add(syntheticRule);
-        pattern.pattern = syntheticRule.call();
-      }
+      pattern.pattern = _ensureRuleCallPattern(pattern.pattern, "pred");
       return pattern;
     }
 
     if (pattern is Conj) {
       pattern.left = _normalizePattern(pattern.left, seen);
-      var left = pattern.left;
-      if (left is! RuleCall) {
-        var syntheticName = "conj\$${_syntheticRuleCounter++}";
-        var syntheticRule = Rule(syntheticName, () => left);
-        rules.add(syntheticRule);
-        pattern.left = syntheticRule.call();
-      }
+      pattern.left = _ensureRuleCallPattern(pattern.left, "conj");
 
       pattern.right = _normalizePattern(pattern.right, seen);
-      var right = pattern.right;
-      if (right is! RuleCall) {
-        var syntheticName = "conj\$${_syntheticRuleCounter++}";
-        var syntheticRule = Rule(syntheticName, () => right);
-        rules.add(syntheticRule);
-        pattern.right = syntheticRule.call();
-      }
+      pattern.right = _ensureRuleCallPattern(pattern.right, "conj");
       return pattern;
     }
 

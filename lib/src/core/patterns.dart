@@ -5,8 +5,8 @@ library glush.patterns;
 
 import "dart:convert";
 
+import "package:glush/src/compiler/errors.dart";
 import "package:glush/src/compiler/format.dart";
-import "package:glush/src/core/errors.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/profiling.dart";
