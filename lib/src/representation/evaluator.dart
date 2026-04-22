@@ -450,16 +450,6 @@ class StructuredEvaluator {
         case LabelEndMark(:var name, :var position):
           stack.last.recordRange(position, position);
           _closeStrictLabel(stack, name, position);
-        case NamedMark(:var name, :var position):
-          stack.last.recordRange(position, position);
-          if (stack.last.children.isNotEmpty) {
-            var lastChild = stack.last.children.removeLast();
-            var newNode = ParseResult([(lastChild.$1, lastChild.$2)], lastChild.$2.span);
-            stack.last.addChild(name, newNode);
-          } else {
-            var newNode = ParseResult([], "");
-            stack.last.addChild(name, newNode);
-          }
         case ExpandingMark():
           throw UnsupportedError("Marks has not been expanded.");
 
@@ -478,9 +468,6 @@ class StructuredEvaluator {
           for (var child in rightEval.result.children) {
             stack.last.children.add(child);
           }
-        case StringMark(:var position, :var value):
-          stack.last.recordRange(position, position + value.length);
-          stack.last.addChild("", TokenResult(value));
       }
     }
 

@@ -67,18 +67,6 @@ void main() {
       }
     });
 
-    test("5. Epsilon (Empty Match) in Shared Forest", () {
-      var parser = r"S = $OPT 'a'? $END 'b'".toSMParser();
-      expect(parser.parseAmbiguous("ab", captureTokensAsMarks: true), isA<ParseAmbiguousSuccess>());
-      var result = parser.parseAmbiguous("b", captureTokensAsMarks: true);
-      expect(result, isA<ParseAmbiguousSuccess>());
-
-      var forest = (result as ParseAmbiguousSuccess).forest;
-      var marksConcat = forest.allMarkPaths().single.toStringList().join(" ");
-      expect(marksConcat, contains("S.OPT"));
-      expect(marksConcat, contains("END"));
-    });
-
     test("6. Cyclic Epsilon Grammar (Protection)", () {
       var parser = "S = S | 'a'".toSMParser();
 
@@ -88,7 +76,7 @@ void main() {
     test("7. Mark Collision and Nesting", () {
       var parser =
           r"""
-    S = $M A $M B
+    S = $M A B
     A = 'a'
     B = 'b'
     """
@@ -97,11 +85,6 @@ void main() {
 
       var result = parser.parseAmbiguous("ab", captureTokensAsMarks: true);
       expect(result, isA<ParseAmbiguousSuccess>());
-
-      var forest = (result as ParseAmbiguousSuccess).forest;
-      var marks = forest.allMarkPaths().first.toMarkStrings();
-      expect(marks, contains("S.M"));
-      expect(marks, contains("M"));
     });
 
     test("8. Dangling Else (Precedence)", () {

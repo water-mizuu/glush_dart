@@ -17,7 +17,7 @@ class Frame {
   /// Creates a [Frame] with the given [context] and [marks].
   Frame(this.context, this.marks) : nextStates = {};
 
-  /// The shared parsing context (caller, arguments, etc.) for this frame.
+  /// The shared parsing context (caller, identity, etc.) for this frame.
   final Context context;
 
   /// The accumulated semantic values (marks) for this derivation path.

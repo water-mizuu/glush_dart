@@ -44,9 +44,9 @@ void main() {
     );
 
     testBoth(
-      "Purely marker grammar",
+      "Purely label grammar",
       Grammar(() {
-        return Rule("start", () => Marker("m"));
+        return Rule("start", () => Label("m", Eps()));
       }),
       (parser) {
         expect(parser.recognize(""), isTrue);
@@ -302,12 +302,12 @@ void main() {
     );
   });
 
-  group("Edge Case Tests - Markers and Ambiguity", () {
+  group("Edge Case Tests - Labels and Ambiguity", () {
     testBoth(
-      "Markers in cyclic epsilon rule",
+      "Labels in cyclic epsilon rule",
       Grammar(() {
         late Rule s;
-        s = Rule("S", () => (Marker("loop") >> s()) | Eps());
+        s = Rule("S", () => Label("loop", s()) | Eps());
         return s;
       }),
       (parser) {
@@ -321,10 +321,10 @@ void main() {
     );
 
     testBoth(
-      "Overlapping patterns in Alt with markers",
+      "Overlapping patterns in Alt with labels",
       Grammar(() {
         var a = Token.char("a");
-        return Rule("start", () => (Marker("M1") >> a) | (Marker("M2") >> a >> a));
+        return Rule("start", () => Label("M1", a) | Label("M2", a >> a));
       }),
       (parser) {
         expect(parser.recognize("a"), isTrue);
@@ -358,18 +358,18 @@ void main() {
 
   group("Edge Case Tests - Heavyweight Ambiguity & Recursion", () {
     testBoth(
-      "Left recursion with markers in all positions",
+      "Left recursion with labels in all positions",
       Grammar(() {
         late Rule e;
         e = Rule(
           "E",
           () =>
-              (Marker("left") >>
+              Label("left",
                   e() >>
-                  Marker("mid") >>
+                  Label("mid",
                   Token.char("+") >>
-                  Marker("right") >>
-                  Token.char("a")) |
+                  Label("right",
+                  Token.char("a")))) |
               Token.char("a"),
         );
         return e;
@@ -384,7 +384,7 @@ void main() {
             var marks = result.forest
                 .allMarkPaths()
                 .first
-                .cast<NamedMark>()
+                .whereType<LabelStartMark>()
                 .map((m) => m.name)
                 .toList();
             expect(marks.where((m) => m == "left").length, equals(2));
@@ -452,12 +452,12 @@ void main() {
     );
 
     testBoth(
-      "Right recursion with markers",
+      "Right recursion with labels",
       Grammar(() {
         late Rule r;
         r = Rule(
           "R",
-          () => (Marker("head") >> Token.char("a") >> r()) | (Marker("last") >> Token.char("a")),
+          () => Label("head", Token.char("a") >> r()) | Label("last", Token.char("a")),
         );
         return r;
       }),
@@ -555,11 +555,11 @@ void main() {
     );
   });
 
-  group("Edge Cases - Adjacent Markers", () {
+  group("Edge Case Tests - Adjacent Labels", () {
     testBoth(
-      "Multiple consecutive markers",
+      "Multiple consecutive labels",
       Grammar(() {
-        return Rule("start", () => Marker("a") >> Marker("b") >> Marker("c") >> Token.char("x"));
+        return Rule("start", () => Label("a", Label("b", Label("c", Token.char("x")))));
       }),
       (parser) {
         var outcome = parser.parse("x");
@@ -569,9 +569,9 @@ void main() {
     );
 
     testBoth(
-      "Markers surrounding token",
+      "Labels surrounding token",
       Grammar(() {
-        return Rule("start", () => Marker("before") >> Token.char("a") >> Marker("after"));
+        return Rule("start", () => Label("before", Token.char("a") >> Label("after", Eps())));
       }),
       (parser) {
         var outcome = parser.parse("a");
@@ -581,9 +581,9 @@ void main() {
     );
 
     testBoth(
-      "Marker in star body",
+      "Label in star body",
       Grammar(() {
-        return Rule("start", () => (Marker("item") >> Token.char("a")).star());
+        return Rule("start", () => Label("item", Token.char("a")).star());
       }),
       (parser) {
         var outcome = parser.parse("aaa");
@@ -593,9 +593,9 @@ void main() {
     );
 
     testBoth(
-      "Marker in plus body",
+      "Label in plus body",
       Grammar(() {
-        return Rule("start", () => (Marker("item") >> Token.char("a")).plus());
+        return Rule("start", () => Label("item", Token.char("a")).plus());
       }),
       (parser) {
         var outcome = parser.parse("aa");
@@ -605,11 +605,11 @@ void main() {
     );
   });
 
-  group("Edge Cases - Markers and Repetition", () {
+  group("Edge Case Tests - Labels and Repetition", () {
     testBoth(
-      "Marker in star body repeats for every iteration",
+      "Label in star body repeats for every iteration",
       Grammar(() {
-        return Rule("start", () => (Marker("item") >> Token.char("a")).star());
+        return Rule("start", () => Label("item", Token.char("a")).star());
       }),
       (parser) {
         var outcome = parser.parse("aaa");
@@ -619,9 +619,9 @@ void main() {
     );
 
     testBoth(
-      "Marker in plus body repeats for every iteration",
+      "Label in plus body repeats for every iteration",
       Grammar(() {
-        return Rule("start", () => (Marker("item") >> Token.char("a")).plus());
+        return Rule("start", () => Label("item", Token.char("a")).plus());
       }),
       (parser) {
         var outcome = parser.parse("aa");
@@ -631,9 +631,9 @@ void main() {
     );
 
     testBoth(
-      "Marker before a star node fires once",
+      "Label before a star node fires once",
       Grammar(() {
-        return Rule("start", () => Marker("wrap") >> Token.char("a").star());
+        return Rule("start", () => Label("wrap", Token.char("a").star()));
       }),
       (parser) {
         var outcome = parser.parse("aaa");

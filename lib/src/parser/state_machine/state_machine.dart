@@ -46,7 +46,6 @@ class State {
 /// - **Predicates** (lookahead with AND/NOT)
 /// - **Conjunctions** (intersection of patterns)
 /// - **Negations** (complement of patterns)
-/// - **Parameters** (dynamic string/predicate matching)
 /// - **Labels** (capturing groups and backreferences)
 /// - **Marks** (for semantic actions)
 ///
@@ -290,10 +289,6 @@ class StateMachine {
           if (token != null && choice.matches(token)) {
             return true;
           }
-        case MarkAction(:var nextState):
-          if (canStartViaState(nextState)) {
-            return true;
-          }
         case LabelStartAction(:var nextState):
           if (canStartViaState(nextState)) {
             return true;
@@ -412,7 +407,7 @@ class StateMachine {
   /// This is the core recursive step of the Glushkov construction. It
   /// determines which [StateAction] should be added to the source state to
   /// reach the target pattern. It handles the full diversity of PEG patterns,
-  /// including tokens, rule calls, predicates, and dynamic parameters.
+  /// including tokens, rule calls, predicates, and markers.
   void _connect(State state, Pattern terminal, {Rule? currentRule}) {
     switch (terminal) {
       case Token():
@@ -432,10 +427,6 @@ class StateMachine {
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
         var action = BoundaryAction(kind, nextState);
-        state.actions.add(action);
-      case Marker():
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = MarkAction(terminal.name, nextState);
         state.actions.add(action);
       case And():
         // Positive lookahead: create predicate action
@@ -783,7 +774,6 @@ class StateMachine {
     return switch (pattern) {
       Eps() || Opt() || Star() => false,
       Token() ||
-      Marker() ||
       StartAnchor() ||
       EofAnchor() ||
       LabelStart() ||
@@ -863,7 +853,6 @@ String _toDot(StateMachine machine) {
 
   // Create nodes for all states in the state machine
   // Iterate through _stateMapping to ensure ALL states are included
-  // (including parameter states and predicate states)
   for (var entry in machine._stateMapping.entries) {
     var state = entry.value;
     var stateId = "S${state.id}";
@@ -876,12 +865,6 @@ String _toDot(StateMachine machine) {
       label = "init";
     } else if (key is PatternStateKey) {
       label = key.pattern.toString();
-    } else if (key is ParamStringStateKey) {
-      label = "param_str[${key.index}]";
-    } else if (key is ParamPredicateStateKey) {
-      label = "param_pred[${key.index}]";
-    } else if (key is ParamPredicateEndStateKey) {
-      label = "param_pred_end";
     }
 
     // Check if this state is an accept state
@@ -943,11 +926,6 @@ String _toDot(StateMachine machine) {
         buffer.writeln(
           '  "$fromStateId" -> "$returnNodeId" [label="return $labelStr", style=dashed, color=gray45];',
         );
-      }
-      // MarkAction: set a mark for later backreference
-      else if (action is MarkAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="mark ${action.name}"];');
       }
       // BoundaryAction: check start-of-input or end-of-input boundary
       else if (action is BoundaryAction) {

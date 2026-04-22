@@ -29,7 +29,6 @@ class GrammarFileCompiler {
   Rule? _currentOwnerRule;
 
   List<String> _currentCaptures = const [];
-  List<String> _currentParameters = const [];
 
   /// Orchestrates the compilation of all rules in the grammar file.
   ///
@@ -47,17 +46,14 @@ class GrammarFileCompiler {
         late Rule rule;
         rule = Rule(ruleDef.name, () {
           var previousOwner = _currentOwnerRule;
-          var previousParameters = _currentParameters;
           var previousCaptures = _currentCaptures;
           _currentOwnerRule = rule;
-          _currentParameters = ruleDef.parameters;
           _currentCaptures = [];
 
           return GlushProfiler.measure("compiler.compile_pattern", () {
             var compiled = _compilePattern(ruleDef.pattern);
 
             _currentOwnerRule = previousOwner;
-            _currentParameters = previousParameters;
             _currentCaptures = previousCaptures;
 
             return compiled;
@@ -136,9 +132,6 @@ class GrammarFileCompiler {
 
       case RetreatPattern():
         return Retreat();
-
-      case MarkerPattern(:var name):
-        return Marker(name);
 
       case RuleRefPattern():
 

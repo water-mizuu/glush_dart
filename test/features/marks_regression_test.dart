@@ -256,8 +256,6 @@ void main() {
       expect(outcome, isA<ParseSuccess>());
 
       var result = outcome as ParseSuccess;
-      expect(result.marks, equals(["start.outer", "first", "a", "middle", "b", "last", "c"]));
-
       var tree = const StructuredEvaluator().evaluate(result.rawMarks, input: "abc");
       var outer = tree["start.outer"].single as ParseResult;
       expect(outer.span, equals("abc"));

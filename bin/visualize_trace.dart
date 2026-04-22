@@ -417,9 +417,6 @@ String generateColoredDot(
             '  "$fromStateId" -> "__accept__" [label="accept", color="#d4d4d4", penwidth=1];',
           );
         }
-      } else if (action is MarkAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="mark ${action.name}"];');
       } else if (action is BoundaryAction) {
         var toStateId = "S${action.nextState.id}";
         var kindStr = action.kind == BoundaryKind.start ? "start" : "eof";

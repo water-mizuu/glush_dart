@@ -7,96 +7,6 @@ import "dart:convert";
 
 import "package:glush/src/compiler/errors.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:meta/meta.dart";
-
-/// Abstract base class for keys used to identify and memoize rule calls with arguments.
-///
-/// In a grammar with parameterized rules, the identity of a rule call is not
-/// just the rule name, but the name combined with its specific arguments.
-/// [CallArgumentsKey] provides a way to uniquely identify these combinations.
-@immutable
-sealed class CallArgumentsKey {
-  /// Base constructor for [CallArgumentsKey].
-  const CallArgumentsKey();
-}
-
-/// A [CallArgumentsKey] that represents a simple string-based identifier.
-final class StringCallArgumentsKey extends CallArgumentsKey {
-  /// Creates a [StringCallArgumentsKey] with the given [key].
-  const StringCallArgumentsKey(this.key);
-
-  /// The raw string key.
-  final String key;
-
-  @override
-  bool operator ==(Object other) => other is StringCallArgumentsKey && other.key == key;
-
-  @override
-  int get hashCode => key.hashCode;
-
-  @override
-  String toString() => key;
-}
-
-/// A [CallArgumentsKey] representing an empty set of arguments.
-///
-/// This is used for standard rule calls that don't take any parameters.
-final class EmptyCallArgumentsKey extends CallArgumentsKey {
-  /// Creates an [EmptyCallArgumentsKey].
-  const EmptyCallArgumentsKey();
-
-  @override
-  bool operator ==(Object other) => other is EmptyCallArgumentsKey;
-
-  @override
-  int get hashCode => (EmptyCallArgumentsKey).hashCode;
-
-  @override
-  String toString() => "";
-}
-
-/// A [CallArgumentsKey] that aggregates multiple values into a single identity.
-final class CompositeCallArgumentsKey extends CallArgumentsKey {
-  /// Creates a [CompositeCallArgumentsKey] from a list of [values].
-  const CompositeCallArgumentsKey(this.values);
-
-  /// The list of values contributing to the key's identity.
-  final List<Object?> values;
-
-  @override
-  bool operator ==(Object other) =>
-      other is CompositeCallArgumentsKey &&
-      other.values.length == values.length &&
-      Iterable<int>.generate(values.length).every((i) => other.values[i] == values[i]);
-
-  @override
-  int get hashCode => Object.hashAll(values);
-
-  @override
-  String toString() => values.join(",");
-}
-
-/// A [CallArgumentsKey] that combines two existing keys.
-///
-/// This is used when a rule call inherits arguments from its caller and
-/// adds its own local arguments.
-final class MergedCallArgumentsKey extends CallArgumentsKey {
-  /// Creates a [MergedCallArgumentsKey] from [left] and [right] components.
-  const MergedCallArgumentsKey(this.left, this.right);
-
-  /// The primary (often inherited) key.
-  final CallArgumentsKey? left;
-
-  /// The secondary (often local) key.
-  final CallArgumentsKey? right;
-
-  @override
-  bool operator ==(Object other) =>
-      other is MergedCallArgumentsKey && other.left == left && other.right == right;
-
-  @override
-  int get hashCode => Object.hash(left, right);
-}
 
 typedef PatternSymbol = int;
 
@@ -154,7 +64,6 @@ sealed class Pattern {
     var type = json["type"]! as String;
     Pattern pattern = switch (type) {
       "tok" => Token.fromJson(json),
-      "mar" => Marker(json["name"]! as String),
       "bos" => StartAnchor(),
       "eof" => EofAnchor(),
       "eps" => Eps(),
@@ -311,7 +220,6 @@ sealed class Pattern {
   String get _symbolPrefix {
     return switch (this) {
       Token() => "tok",
-      Marker() => "mar",
       StartAnchor() => "bos",
       EofAnchor() => "eof",
       Eps() => "eps",
@@ -535,42 +443,6 @@ class Token extends Pattern {
 
   @override
   String toString() => choice.toString();
-}
-
-/// A pattern that emits a semantic marker when matched.
-///
-/// Markers are zero-width patterns that are used to track the progress of the
-/// parse or to insert custom semantic indicators into the mark forest.
-class Marker extends Pattern {
-  /// Creates a [Marker] with the specified [name].
-  Marker(this.name);
-
-  /// The name of the marker.
-  final String name;
-
-  @override
-  Map<String, Object?> toJson() => {"type": "mar", "name": name};
-
-  @override
-  Marker copy() => Marker(name);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    setEmpty(false);
-    return false;
-  }
-
-  @override
-  bool isStatic() => true;
-
-  @override
-  Set<Pattern> firstSet() => {this};
-
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  String toString() => "mark($name)";
 }
 
 /// The empty pattern (epsilon).
@@ -1163,8 +1035,8 @@ extension type RuleName(String symbol) {}
 
 /// A high-level grammar rule that encapsulates a parsing fragment.
 ///
-/// Rules are the primary unit of reuse in a grammar. They can be recursive,
-/// parameterized, and guarded. A rule has a [name] and a [body] (the pattern it
+/// Rules are the primary unit of reuse in a grammar. They can be recursive
+/// and guarded. A rule has a [name] and a [body] (the pattern it
 /// implements), and it can be called from other patterns using [RuleCall].
 class Rule extends Pattern {
   /// Creates a [Rule] with a [name] and a [_code] thunk for its body.
@@ -1258,7 +1130,7 @@ class Rule extends Pattern {
 /// [RuleCall] represents a specific use of a rule, potentially with
 /// [minPrecedenceLevel] for disambiguation.
 class RuleCall extends Pattern {
-  /// Creates a [RuleCall] to the specified [rule] with the given parameters.
+  /// Creates a [RuleCall] to the specified [rule].
   RuleCall(this.name, this.rule, {this.minPrecedenceLevel});
 
   /// A local name for this call instance.
@@ -1307,10 +1179,8 @@ class RuleCall extends Pattern {
 
   @override
   String toString() {
-    var parts = <String>[];
-    var args = parts.isEmpty ? "" : "(${parts.join(', ')})";
     var prec = minPrecedenceLevel != null ? "^$minPrecedenceLevel" : "";
-    return "<$name$args$prec>";
+    return "<$name$prec>";
   }
 }
 

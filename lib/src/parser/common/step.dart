@@ -529,8 +529,6 @@ class Step {
           _processTokenAction(frame, state, action);
         case BoundaryAction():
           _processBoundaryAction(frame, state, action);
-        case MarkAction():
-          _processMarkAction(frame, state, action);
         case LabelStartAction():
           _processLabelStartAction(frame, state, action);
         case LabelEndAction():
@@ -697,15 +695,6 @@ class Step {
       GlushProfiler.increment("parser.token_actions.matched");
       parseState.tracer?.onAction(action, " matched");
       var newMarks = frame.marks;
-      var pattern = action.choice;
-
-      var shouldCapture = captureTokensAsMarks || (pattern is Token && pattern.capturesAsMark);
-
-      if (shouldCapture) {
-        GlushProfiler.increment("parser.marks.added");
-        newMarks = newMarks.add(StringMarkVal(String.fromCharCode(token), position));
-      }
-
       _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
@@ -743,17 +732,6 @@ class Step {
     if (isMatch) {
       _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
     }
-  }
-
-  /// Processes a [MarkAction], emitting a named mark.
-  void _processMarkAction(Frame frame, State state, MarkAction action) {
-    _enqueueWithAddedMark(
-      frame,
-      state,
-      action,
-      action.nextState,
-      NamedMarkVal(action.name, position),
-    );
   }
 
   /// Processes a [LabelStartAction], beginning a labeled capture.
@@ -948,9 +926,7 @@ class Step {
     );
   }
 
-  /// Processes a [TailCallAction], performing tail-call optimization.
-  ///
-  /// This method resolves arguments and checks guards, then jumps directly into
+  /// This method resolves caller identity and checks guards, then jumps directly into
   /// the rule's entry state using the [_tailCallTrampoline].
   void _processTailCallAction(Frame frame, State state, TailCallAction action) {
     var frameContext = frame.context;

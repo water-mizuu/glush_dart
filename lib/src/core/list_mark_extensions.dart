@@ -24,43 +24,16 @@ extension ListMarkExtractor on List<Mark> {
     var result = <String>[];
     String? currentStringMark;
     for (var mark in this) {
-      if (mark is NamedMark) {
+      if (mark is LabelStartMark) {
         if (currentStringMark != null) {
           result.add(currentStringMark);
           currentStringMark = null;
         }
         result.add(mark.name);
-      } else if (mark is LabelStartMark) {
-        if (currentStringMark != null) {
-          result.add(currentStringMark);
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-      } else if (mark is StringMark) {
-        currentStringMark = (currentStringMark ?? "") + mark.value;
       }
     }
     if (currentStringMark != null) {
       result.add(currentStringMark);
-    }
-    return result;
-  }
-
-  /// Extracts the string values or names from all marks in the list.
-  ///
-  /// Unlike [toStringList], this method does not perform any merging of
-  /// consecutive marks. It simply extracts the identifier or value from each
-  /// mark instance and returns them as a flat list of strings.
-  List<String> toMarkStrings() {
-    var result = <String>[];
-    for (var mark in this) {
-      if (mark is NamedMark) {
-        result.add(mark.name);
-      } else if (mark is LabelStartMark) {
-        result.add(mark.name);
-      } else if (mark is StringMark) {
-        result.add(mark.value);
-      }
     }
     return result;
   }

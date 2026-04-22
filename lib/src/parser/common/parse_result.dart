@@ -99,8 +99,8 @@ final class ParseSuccess implements ParseOutcome {
   /// The list of semantic marks captured during the parse.
   final List<Mark> rawMarks;
 
-  /// Returns the mark names as a simple list of strings.
-  List<String> get marks => rawMarks.toMarkStrings();
+  /// Returns a human-readable list of labels and captured names.
+  List<String> get marks => rawMarks.toShortMarks();
 
   @override
   ParseError? error() => null;

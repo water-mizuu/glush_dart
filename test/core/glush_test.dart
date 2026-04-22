@@ -122,7 +122,7 @@ void main() {
     test("handles marks", () {
       var grammar = Grammar(() {
         var rule = Rule("expr", () {
-          return Marker("mark") >> Token(const ExactToken(97));
+          return Label("mark", Token(const ExactToken(97)));
         });
         return rule;
       });

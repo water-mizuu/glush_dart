@@ -2,6 +2,7 @@
 library glush.grammar_file_parser;
 
 import "dart:convert";
+import "dart:math";
 
 import "package:glush/src/compiler/format.dart";
 import "package:glush/src/core/profiling.dart";
@@ -29,6 +30,32 @@ class GrammarFileParseError implements Exception {
       return "GrammarFileParseError at line $line, column $column: $message";
     }
     return "GrammarFileParseError: $message";
+  }
+
+  String displayError(String input) {
+    if (input.isEmpty) {
+      throw StateError("Input string is empty.");
+    }
+    List<String> inputRows = input.replaceAll("\r", "").split("\n");
+
+    List<(int, String)> displayedRows = inputRows.indexed.skip(max(line - 3, 0)).take(3).toList();
+
+    int longest = displayedRows.map((e) => (e.$1 + 1).toString().length).reduce(max);
+
+    StringBuffer buffer = StringBuffer();
+    buffer.writeln("Parse error at: ($line:$column); $message");
+
+    for (var (i, v) in displayedRows) {
+      String lineNumber = (i + 1).toString().padLeft(longest);
+      buffer.writeln(" $lineNumber | $v");
+    }
+
+    int gutterWidth = 1 + longest + 3;
+    int caretPadding = gutterWidth + (column - 1);
+
+    buffer.writeln("${' ' * caretPadding}^");
+
+    return buffer.toString();
   }
 }
 
@@ -348,7 +375,7 @@ class _Tokenizer {
 ///
 /// The [GrammarFileParser] transforms a sequence of tokens into a [GrammarFile]
 /// AST. It follows the PEG grammar structure, implementing precedence levels,
-/// rule calls with arguments, and expression-based guards.
+/// rule calls, and expression-based guards.
 class GrammarFileParser {
   /// Creates a parser for the given [source] text.
   GrammarFileParser(this.source) {
@@ -403,18 +430,13 @@ class GrammarFileParser {
     }
 
     var ruleName = _advance().value;
-    var parameters = <String>[];
-
-    if (_peek().type == _TokenType.lparen) {
-      parameters = _parseParameterList();
-    }
 
     if (_peek().type != _TokenType.equals) {
-      throw GrammarFileParseError(
-        'Expected "=" after rule name',
+      GrammarFileParseError(
+        'Expected "=" after rule name, received ${_peek()}',
         line: _peek().line,
         column: _peek().column,
-      );
+      ).displayError(source);
     }
 
     _advance(); // consume =
@@ -426,50 +448,7 @@ class GrammarFileParser {
       _advance();
     }
 
-    return RuleDefinition(name: ruleName, pattern: pattern, parameters: parameters);
-  }
-
-  List<String> _parseParameterList() {
-    _advance(); // consume (
-    var parameters = <String>[];
-
-    if (_peek().type == _TokenType.rparen) {
-      _advance();
-      return parameters;
-    }
-
-    while (true) {
-      if (_peek().type != _TokenType.identifier) {
-        throw GrammarFileParseError(
-          "Expected parameter name",
-          line: _peek().line,
-          column: _peek().column,
-        );
-      }
-      parameters.add(_advance().value);
-
-      if (_peek().type == _TokenType.comma) {
-        _advance();
-        if (_peek().type == _TokenType.rparen) {
-          _advance();
-          break;
-        }
-        continue;
-      }
-
-      if (_peek().type == _TokenType.rparen) {
-        _advance();
-        break;
-      }
-
-      throw GrammarFileParseError(
-        'Expected "," or ")" after parameter name',
-        line: _peek().line,
-        column: _peek().column,
-      );
-    }
-
-    return parameters;
+    return RuleDefinition(name: ruleName, pattern: pattern);
   }
 
   PatternExpr _parsePattern() {
@@ -572,19 +551,19 @@ class GrammarFileParser {
 
     PatternExpr result = parts.length == 1 ? parts[0] : SequencePattern(parts);
     if (startingMark != null) {
-      result = MainMarkPattern(startingMark.name, result);
+      result = MainMarkPattern(startingMark, result);
     }
 
     return result;
   }
 
-  MarkerPattern? _tryParseMainMark() {
+  String? _tryParseMainMark() {
     if (_peek().type == _TokenType.dollar &&
         tokenIndex + 1 < _tokens.length &&
         _tokens[tokenIndex + 1].type == _TokenType.identifier) {
       _advance(); // consume $
       var value = _advance().value;
-      return MarkerPattern(value);
+      return value;
     }
 
     return null;
@@ -715,18 +694,14 @@ class GrammarFileParser {
       return BackslashLiteralPattern(char);
     }
 
-    if (type == _TokenType.dollar) {
-      _advance(); // consume $
-      if (_peek().type != _TokenType.identifier) {
-        return const EofPattern();
-      }
-      var markName = _advance().value;
-      return MarkerPattern(markName);
-    }
-
     if (type == _TokenType.caret) {
       _advance();
       return const StartPattern();
+    }
+
+    if (type == _TokenType.dollar) {
+      _advance();
+      return const EofPattern();
     }
 
     if (type == _TokenType.identifier) {
@@ -796,10 +771,12 @@ class GrammarFileParser {
       return GroupPattern(pattern);
     }
 
-    throw GrammarFileParseError(
-      "Unexpected token: ${_peek().value}",
-      line: _peek().line,
-      column: _peek().column,
+    throw Exception(
+      GrammarFileParseError(
+        "Unexpected token: ${_peek().value}",
+        line: _peek().line,
+        column: _peek().column,
+      ).displayError(source),
     );
   }
 

@@ -36,26 +36,11 @@ if (outcome is ParseSuccess) {
 - **Readable**: Access data by meaningful names instead of index-based list scanning.
 - **Clean**: Only the data you explicitly label is captured in the structured map (though all tokens are available in the flat `allResults` list).
 
-## Flat Marks (Legacy/Advanced)
-
-Glush also supports a flatter mark system using named markers and automatic token capture.
-Forest reconstruction for these paths reads the existing `prefix:id:suffix`
-symbol encoding directly, so there is no separate pattern metadata table.
-
-### Types of Flat Marks
-- **NamedMark**: Created by `$nameTerm` or explicit `Marker` patterns. They carry a name and the position.
-- **StringMark**: Created automatically for variable tokens like ranges `[a-z]` or any token `.`.
-
-### Automatic Mark Capture
-
-When using `SMParser`, you can enable `captureTokensAsMarks: true` to force every token match into the mark stream as a `StringMark`. By default, only "variable" tokens (non-literals) are captured to save memory.
-
 ## Types of Marks in the Stream
 
 1. **LabelStartMark(name)**: Emitted at the start of a labeled pattern.
 2. **LabelEndMark(name)**: Emitted at the end of a labeled pattern.
 3. **StringMark(value)**: Emitted for matched tokens (when capture is enabled).
-4. **NamedMark(name)**: Emitted for legacy `$` markers.
 
 ## Choosing an Evaluator
 

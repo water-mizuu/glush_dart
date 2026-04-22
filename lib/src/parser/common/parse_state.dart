@@ -69,7 +69,7 @@ final class ParseState {
   /// Memoized boolean outcomes for resolved predicate lookaheads.
   final Map<PredicateKey, bool> predicateOutcomes = {};
 
-  /// Memoized call sites for rules with complex (object-key) arguments.
+  /// Memoized call sites for rules with complex (object-key) identities.
   final Map<CallerCacheKey, Caller> callersComplex = {};
 
   /// A fast lookup map for rules by their unique names.

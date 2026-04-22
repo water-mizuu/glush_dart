@@ -68,8 +68,6 @@ class FileTracer implements ParseTracer {
         State? next;
         if (action is TokenAction) {
           next = action.nextState;
-        } else if (action is MarkAction) {
-          next = action.nextState;
         } else if (action is CallAction) {
           next = action.returnState;
         } else if (action is PredicateAction) {

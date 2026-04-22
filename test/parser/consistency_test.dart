@@ -92,22 +92,6 @@ void main() {
       verifyConsistency(g, "ab");
     });
 
-    test("Dual choice matching (Ambiguous Choice)", () {
-      var g = Grammar(
-        () => Rule("S", () => (Marker("1") >> Token.char("a")) | (Marker("2") >> Token.char("a"))),
-      );
-      // Even though ambiguous, parse() result must be one of the paths.
-      verifyConsistency(g, "a", isAmbiguous: true);
-
-      var parser = SMParser(g);
-      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
-      expect(
-        ambig.allMarkPaths().length,
-        2,
-        reason: "Expected 2 parallel derivations for Choice(a, a) with distinct markers",
-      );
-    });
-
     test("Recursive sequence matching (Ambiguous Sequence)", () {
       // S -> S 'a' | 'a'
       var g = Grammar(() {
@@ -144,10 +128,10 @@ void main() {
     test("Nested conjunction ambiguity", () {
       // S -> (A | B) && (C | D) where all are 'a'
       var g = Grammar(() {
-        var a = Rule("A", () => Marker("A") >> Token.char("a"));
-        var b = Rule("B", () => Marker("B") >> Token.char("a"));
-        var c = Rule("C", () => Marker("C") >> Token.char("a"));
-        var d = Rule("D", () => Marker("D") >> Token.char("a"));
+        var a = Rule("A", () => Label("A", Token.char("a")));
+        var b = Rule("B", () => Label("B", Token.char("a")));
+        var c = Rule("C", () => Label("C", Token.char("a")));
+        var d = Rule("D", () => Label("D", Token.char("a")));
         return Rule("S", () => (a() | b()) & (c() | d()));
       });
 

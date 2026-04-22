@@ -49,7 +49,7 @@ sealed class GrammarInterface {
 /// The [Grammar] class is responsible for compiling a human-readable grammar
 /// definition (provided via a [GrammarBuilder]) into a structured, optimized
 /// form suitable for parsing. This involves discovering all reachable rules,
-/// normalizing complex patterns (like predicates and higher-order calls),
+/// normalizing complex patterns (like predicates and rule calls),
 /// assigning unique symbol IDs, and computing the state transitions required
 /// by the Glush parsing algorithm.
 class Grammar implements GrammarInterface {
@@ -167,8 +167,8 @@ class Grammar implements GrammarInterface {
   /// A counter for generating unique names for synthetic rules created during normalization.
   static int _syntheticRuleCounter = 0;
 
-  /// Normalizes rule bodies by hoisting predicate/callable subpatterns and
-  /// rewriting nested argument patterns into callable form where needed.
+  /// Normalizes rule bodies by hoisting predicate subpatterns into synthetic
+  /// rules where needed.
   ///
   /// The loop intentionally uses an index against [rules] so synthetic
   /// rules appended during normalization are processed in the same pass.
@@ -294,7 +294,6 @@ class Grammar implements GrammarInterface {
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
       case Token() ||
-          Marker() ||
           StartAnchor() ||
           EofAnchor() ||
           Eps() ||
@@ -376,10 +375,10 @@ class Grammar implements GrammarInterface {
       }
     }
 
-    // Use a marker Pattern for the success node
-    var successMarker = Marker("__start__");
-    transitions![startCall] ??= [];
-    transitions![startCall]!.add(successMarker);
+    // // Use a marker Pattern for the success node
+    // var successMarker = Marker("__start__");
+    // transitions![startCall] ??= [];
+    // transitions![startCall]!.add(successMarker);
   }
 }
 

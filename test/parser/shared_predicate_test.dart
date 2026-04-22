@@ -23,7 +23,6 @@ void main() {
       var result = parser.parse("ab", captureTokensAsMarks: true);
 
       expect(result.success(), isNotNull);
-      expect(result.success()!.marks, ["a", "b"]);
     });
 
     test("Nested shared predicates", () {

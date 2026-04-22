@@ -57,7 +57,7 @@ class Context {
 
   final int _hash;
 
-  /// Whether this context has no lookahead predicates, captures, or arguments.
+  /// Whether this context has no lookahead predicates or captures.
   ///
   /// Simple contexts are optimized for comparison and hashing, and are common
   /// in grammars that don't use advanced semantic features.
@@ -125,9 +125,9 @@ class Context {
     );
   }
 
-  /// Returns a new context with a new [nextCaller] and optional [arguments].
-  Context withCaller(CallerKey nextCaller, {Map<String, Object?>? arguments}) {
-    if (identical(nextCaller, caller) && arguments == null) {
+  /// Returns a new context with a new [nextCaller].
+  Context withCaller(CallerKey nextCaller) {
+    if (identical(nextCaller, caller)) {
       return this;
     }
     return Context(

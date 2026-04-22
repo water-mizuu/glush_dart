@@ -19,11 +19,6 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "choice": action.choice.toJson(),
       "nextState": stateIdMap[action.nextState],
     },
-    MarkAction() => {
-      "type": "mark",
-      "name": action.name,
-      "nextState": stateIdMap[action.nextState],
-    },
     BoundaryAction() => {
       "type": "boundary",
       "kind": action.kind.name,
@@ -84,7 +79,6 @@ StateAction _deserializeAction(
       TokenChoice.fromJson(json["choice"]! as Map<String, Object?>),
       stateMap[json["nextState"]]!,
     ),
-    "mark" => MarkAction(json["name"]! as String, stateMap[(json["nextState"]! as int)]!),
     "boundary" => BoundaryAction(
       json["kind"] == "start" ? BoundaryKind.start : BoundaryKind.eof,
       stateMap[json["nextState"]]!,

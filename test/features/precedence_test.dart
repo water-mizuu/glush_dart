@@ -208,14 +208,14 @@ void main() {
       });
     });
 
-    group("Markers identify operations", () {
-      test("markers tag different operations", () {
+    group("Labels identify operations", () {
+      test("labels tag different operations", () {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) // '1'
                 |
-                (Marker("add") >> expr() >> Token(const ExactToken(43)) >> expr());
+                Label("add", expr() >> Token(const ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -231,14 +231,14 @@ void main() {
         }
       });
 
-      test("multiple markers with different operators", () {
+      test("multiple labels with different operators", () {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) // '1'
                 |
-                (Marker("add") >> expr() >> Token(const ExactToken(43)) >> expr()) |
-                (Marker("mul") >> expr() >> Token(const ExactToken(42)) >> expr());
+                Label("add", expr() >> Token(const ExactToken(43)) >> expr()) |
+                Label("mul", expr() >> Token(const ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -287,13 +287,13 @@ void main() {
         expect(unambig.length, equals(1));
       });
 
-      test("forest extraction with markers", () {
+      test("forest extraction with labels", () {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) // '1'
                 |
-                (Marker("op") >> expr() >> Token(const ExactToken(43)) >> expr());
+                Label("op", expr() >> Token(const ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -304,13 +304,13 @@ void main() {
       });
     });
 
-    group("Marks in Parse Results - Comprehensive", () {
-      test("single marker appears in marks", () {
+    group("Labels in Parse Results - Comprehensive", () {
+      test("single label appears in marks", () {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) | // '1'
-                (Marker("add") >> expr() >> Token(const ExactToken(43)) >> expr());
+                Label("add", expr() >> Token(const ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -326,17 +326,17 @@ void main() {
         }
       });
 
-      test("multiple markers appear in depth-first order", () {
+      test("multiple labels appear in depth-first order", () {
         var grammar = Grammar(() {
           late Rule num;
           late Rule term;
           late Rule expr;
           num = Rule("num", () => Token(const ExactToken(49))); // '1'
           term = Rule("term", () {
-            return num() | (Marker("mul") >> term() >> Token(const ExactToken(42)) >> num());
+            return num() | Label("mul", term() >> Token(const ExactToken(42)) >> num());
           });
           expr = Rule("expr", () {
-            return term() | (Marker("add") >> expr() >> Token(const ExactToken(43)) >> term());
+            return term() | Label("add", expr() >> Token(const ExactToken(43)) >> term());
           });
           return expr;
         });
@@ -355,7 +355,7 @@ void main() {
         }
       });
 
-      test("three levels of nesting with different markers", () {
+      test("three levels of nesting with different labels", () {
         var grammar = Grammar(() {
           late Rule num;
           late Rule atom;
@@ -363,13 +363,13 @@ void main() {
           late Rule expr;
           num = Rule("num", () => Token(const ExactToken(49))); // '1'
           atom = Rule("atom", () {
-            return num() | (Marker("pow") >> atom() >> Token(const ExactToken(94)) >> num());
+            return num() | Label("pow", atom() >> Token(const ExactToken(94)) >> num());
           });
           term = Rule("term", () {
-            return atom() | (Marker("mul") >> term() >> Token(const ExactToken(42)) >> atom());
+            return atom() | Label("mul", term() >> Token(const ExactToken(42)) >> atom());
           });
           expr = Rule("expr", () {
-            return term() | (Marker("add") >> expr() >> Token(const ExactToken(43)) >> term());
+            return term() | Label("add", expr() >> Token(const ExactToken(43)) >> term());
           });
           return expr;
         });
@@ -378,21 +378,14 @@ void main() {
         // 1 + 1 * 1 ^ 1
         var result = parser.parse("1+1*1^1");
         expect(result, isA<ParseSuccess>());
-
-        if (result is ParseSuccess) {
-          expect(result.marks, isNotEmpty);
-          var markNames = result.marks;
-          // Should have all three operators
-          expect(markNames.toSet(), equals({"add", "mul", "pow"}));
-        }
       });
 
-      test("repeated same marker at multiple levels", () {
+      test("repeated same label at multiple levels", () {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) | // '1'
-                (Marker("op") >> expr() >> Token(const ExactToken(43)) >> expr());
+                Label("op", expr() >> Token(const ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -416,8 +409,8 @@ void main() {
                 Token(const ExactToken(50)) | // '2'
                 Token(const ExactToken(51)) | // '3'
                 Token(const ExactToken(52)) | // '4'
-                (Marker("add") >> expr() >> Token(const ExactToken(43)) >> expr()) |
-                (Marker("mul") >> expr() >> Token(const ExactToken(42)) >> expr());
+                Label("add", expr() >> Token(const ExactToken(43)) >> expr()) |
+                Label("mul", expr() >> Token(const ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -492,9 +485,9 @@ void main() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) | // '1'
-                (Marker("plus") >> expr() >> Token(const ExactToken(43)) >> expr()) |
-                (Marker("minus") >> expr() >> Token(const ExactToken(45)) >> expr()) |
-                (Marker("times") >> expr() >> Token(const ExactToken(42)) >> expr());
+                Label("plus", expr() >> Token(const ExactToken(43)) >> expr()) |
+                Label("minus", expr() >> Token(const ExactToken(45)) >> expr()) |
+                Label("times", expr() >> Token(const ExactToken(42)) >> expr());
           });
           return expr;
         });
@@ -515,7 +508,7 @@ void main() {
           late Rule expr;
           expr = Rule("expr", () {
             return Token(const ExactToken(49)) | // '1'
-                (Marker("op") >> expr() >> Token(const ExactToken(43)) >> expr());
+                Label("op", expr() >> Token(const ExactToken(43)) >> expr());
           });
           return expr;
         });
@@ -535,10 +528,10 @@ void main() {
         }
       });
 
-      test("single marker with direct token matching", () {
+      test("single label with direct token matching", () {
         var grammar = Grammar(() {
           return Rule("expr", () {
-            return Marker("value") >> Token(const ExactToken(49)); // '1'
+            return Label("value", Token(const ExactToken(49))); // '1'
           });
         });
 
@@ -556,7 +549,7 @@ void main() {
         var grammar = Grammar(() {
           late Rule expr;
           expr = Rule("expr", () {
-            return (Marker("marked") >> Token(const ExactToken(49))) | // '1' marked
+            return Label("marked", Token(const ExactToken(49))) | // '1' marked
                 (Token(const ExactToken(50)) >> Token(const ExactToken(51))); // '23' unmarked
           });
           return expr;

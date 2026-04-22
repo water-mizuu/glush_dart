@@ -16,7 +16,6 @@ file = $rules left:file _ right:rule
 # Allow trailing trivia after a rule body so line comments behave
 # like whitespace instead of becoming the next token stream.
 rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
-     | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
 
 choice = $rest left:choice _ (prec:number _)? '|' _ right:seq
        | $first ((prec:number _)? '|' _)? body:seq
@@ -40,7 +39,6 @@ repKind = $star '*'      | $plus '+'
 
 primary = $group '(' _ inner:choice _ ')'
         | $label name:ident ':' atom:primary
-        | $mark '$' name:ident
         | $start "start"
         | $end "eof"
         | $call name:ident ('^' prec:number)?
@@ -53,12 +51,8 @@ isContinuation = ident !(_ [=]) !isRuleDeclarationAhead
                | literal | charRange
                | '[' | '(' | '.' | '!' | '&'
 
-isRuleDeclarationAhead = !$ balancedParenthesis? _ "="
-balancedParenthesis    = "(" balancedParenthesis ")" | !")" .
-
-params = $params left:params _ ',' _ right:param
-       | $param  right:param
-param = ident
+isRuleDeclarationAhead = balancedParenthesis? _ "="
+balancedParenthesis    = "(" (balancedParenthesis | !")" .)* ")" | !")" .
 
 # Terminals
 ident = [A-Za-z$_] [A-Za-z$_0-9]*!
@@ -69,7 +63,7 @@ number = [0-9]+
 
 _ = $ws (plain_ws | comment | newline)*!
 comment = '#' (!newline .)* (newline | eof)
-plain_ws() = [ \t]+!
+plain_ws = [ \t]+!
 newline = [\n\r]+!
     """;
 
@@ -80,10 +74,9 @@ newline = [\n\r]+!
 /// the grammar AST (defined in `format.dart`).
 ///
 /// Each entry in the evaluator handles a specific grammar construct:
-/// - **Rule Definitions**: Capturing names, parameters, and bodies.
+/// - **Rule Definitions**: Capturing names and bodies.
 /// - **Parsing Expressions**: Building sequences, alternations, repetitions, etc.
 /// - **Guard Expressions**: Resolving comparisons and arithmetic in `if` guards.
-/// - **Arguments**: Binding values to parameters in rule calls.
 Evaluator<Object> createMetagrammarEvaluator() {
   return Evaluator<Object>({
     // Top level (rule-prefixed marks)
@@ -124,13 +117,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
       var name = ctx<String>("name");
       var body = ctx<PatternExpr>("body");
       return RuleDefinition(name: name, pattern: body);
-    },
-
-    "rule.dataRule": (ctx) {
-      var name = ctx<String>("name");
-      var params = ctx.optional<List<String>>("params") ?? [];
-      var body = ctx<PatternExpr>("body");
-      return RuleDefinition(name: name, pattern: body, parameters: params);
     },
 
     // Choice patterns (alternation - rule-prefixed marks)
@@ -269,11 +255,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
       return LabeledPattern(name, atom);
     },
 
-    "primary.mark": (ctx) {
-      var name = ctx<String>("name");
-      return MarkerPattern(name);
-    },
-
     "primary.start": (_) => const StartPattern(),
 
     "primary.end": (_) => const EofPattern(),
@@ -332,16 +313,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
     "charRange": (ctx) => ctx.span,
 
     "number": (ctx) => int.parse(ctx.span),
-
-    // Parameter lists (rule-prefixed marks)
-    "params.params": (ctx) {
-      var list = ctx.optional<List<String>>("left") ?? [];
-      var right = ctx<String>("right");
-      list.add(right);
-      return list;
-    },
-
-    "params.param": (ctx) => ctx<String>("right"),
 
     // Whitespace and comments - typically ignored (rule-prefixed marks)
     "_.ws": (_) => null,

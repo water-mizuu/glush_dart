@@ -1,4 +1,4 @@
-import "package:glush/glush.dart" show Caller, Mark, NamedMarkVal;
+import "package:glush/glush.dart" show Caller;
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
@@ -13,26 +13,6 @@ import "package:meta/meta.dart";
 sealed class StateAction {
   /// Base constructor for all state actions.
   const StateAction();
-}
-
-/// An action that records a named [Mark] at the current input position.
-///
-/// Markers are used for structural annotations and backreferences. When this
-/// action is executed, a [NamedMarkVal] is appended to the current derivation's
-/// mark stream, allowing the parser or an evaluator to retrieve the exact
-/// position where this marker was encountered.
-final class MarkAction implements StateAction {
-  /// Creates a mark action that emits [name] and transitions to [nextState].
-  const MarkAction(this.name, this.nextState);
-
-  /// The name of the mark to be emitted.
-  final String name;
-
-  /// The state to transition to after the mark is recorded.
-  final State nextState;
-
-  @override
-  String toString() => "Mark($name)";
 }
 
 /// An action that consumes a single token from the input stream.

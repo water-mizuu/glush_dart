@@ -40,8 +40,8 @@ void main() {
       var parser =
           r"""
         expr =
-           6 | $add expr^6 '+' expr^7
-           7 | $mul expr^7 '*' expr^8
+           6 | $add expr^6 PLUS:'+' expr^7
+           7 | $mul expr^7 STAR:'*' expr^8
           11 | 'n'
       """
               .toSMParser();
@@ -54,7 +54,7 @@ void main() {
 
       var paths = success.forest.allMarkPaths().map((p) => p.toShortMarks()).toList();
       expect(paths.length, equals(1));
-      expect(paths[0].join(), equals("expr.addn+expr.muln*n"));
+      expect(paths[0].join(), equals("expr.addPLUSexpr.mulSTAR"));
     });
 
     test("Predicate Catch-up and Sub-parse", () {
@@ -71,7 +71,7 @@ void main() {
       var success = result as ParseAmbiguousSuccess;
       var paths = success.forest.allMarkPaths().toList();
       expect(paths.length, equals(1));
-      expect(paths.single.toShortMarks().join(), equals("abc"));
+      expect(paths.single.evaluateStructure("abc").span, equals("abc"));
     });
 
     test("NOT Predicate Catch-up and Sub-parse", () {
@@ -90,7 +90,7 @@ void main() {
       var success = successResult as ParseAmbiguousSuccess;
       var paths = success.forest.allMarkPaths().toList();
       expect(paths.length, equals(1));
-      expect(paths.single.toShortMarks().join(), equals("ac"));
+      expect(paths.single.evaluateStructure("ac").span, equals("ac"));
 
       expect(parser.parseAmbiguous("ab", captureTokensAsMarks: true), isA<ParseError>());
     });
@@ -117,7 +117,7 @@ void main() {
             .expand((v) => v.evaluate().iterate())
             .toList()
             .toShortMarks(),
-        equals(["S.start", "abc"]),
+        equals(["S.start"]),
       );
     });
 
@@ -143,7 +143,7 @@ void main() {
             .expand((v) => v.evaluate().iterate())
             .toList()
             .toShortMarks(),
-        equals(["S.start", "ac"]),
+        equals(["S.start"]),
       );
     });
 

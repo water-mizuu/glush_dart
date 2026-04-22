@@ -23,9 +23,9 @@ void main() {
         late Rule s;
         s = Rule("S", () {
           return Token.char("s") | // s
-              (Marker("1") >> s() >> s()) |
-              (Marker("2") >> s() >> s() >> s()) |
-              (Marker("3") >> s() >> s() >> s() >> s());
+              Label("1", s() >> s()) |
+              Label("2", s() >> s() >> s()) |
+              Label("3", s() >> s() >> s() >> s());
         });
         return s;
       }),
@@ -35,11 +35,13 @@ void main() {
       Grammar(() {
         late Rule s;
         s = Rule("S", () {
-          return Marker("T") >>
-              ((Token.char("s")) | // s
-                  (s() >> s()) |
-                  (s() >> s() >> s()) |
-                  (s() >> s() >> s() >> s()));
+          return Label(
+            "T",
+            (Token.char("s")) | // s
+                (s() >> s()) |
+                (s() >> s() >> s()) |
+                (s() >> s() >> s() >> s()),
+          );
         });
         return s;
       }),

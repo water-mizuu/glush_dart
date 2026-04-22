@@ -103,7 +103,6 @@ void main() {
           const LabelStartMark("outer", 0),
           const LabelStartMark("inner", 1),
           const LabelEndMark("outer", 0),
-          const StringMark("x", 3),
         ], input: "x"),
         throwsA(
           isA<StateError>().having(

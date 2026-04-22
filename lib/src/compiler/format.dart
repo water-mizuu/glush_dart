@@ -4,12 +4,11 @@ library glush.grammar_file_format;
 /// Represents the high-level definition of a single grammar rule.
 ///
 /// A [RuleDefinition] is the primary structural element of a grammar file. It
-/// binds a [name] to a [pattern] expression and may declare a set of [parameters]
-/// that allow the rule to be customized when called from other rules.
+/// binds a [name] to a [pattern] expression and may be matched and evaluated
+/// using labels and identities.
 class RuleDefinition {
   /// Creates a rule definition for [name] with the given [pattern].
-  RuleDefinition({required this.name, required this.pattern, List<String>? parameters})
-    : parameters = parameters ?? const [];
+  RuleDefinition({required this.name, required this.pattern});
 
   /// The unique name of the rule within the grammar.
   final String name;
@@ -17,13 +16,9 @@ class RuleDefinition {
   /// The structural pattern that this rule matches.
   final PatternExpr pattern;
 
-  /// The list of parameter names that this rule accepts.
-  final List<String> parameters;
-
   @override
   String toString() {
-    var params = parameters.isEmpty ? "" : "(${parameters.join(', ')})";
-    return "Rule($name$params = $pattern)";
+    return "Rule($name = $pattern)";
   }
 }
 
@@ -99,19 +94,7 @@ class GreaterThanPattern implements PatternExpr {
   String toString() => ">=$codePoint";
 }
 
-/// Marker pattern (e.g., \$add)
-class MarkerPattern implements PatternExpr {
-  const MarkerPattern(this.name);
-  final String name;
-
-  @override
-  String toString() => "\$$name";
-}
-
 /// Leading `$name` applied to an entire sequence.
-///
-/// This is distinct from [MarkerPattern], which represents a `$name` used as a
-/// standalone primary expression inside a sequence.
 class MainMarkPattern implements PatternExpr {
   const MainMarkPattern(this.name, this.inner);
   final String name;
