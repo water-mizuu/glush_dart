@@ -63,6 +63,12 @@ final class ParseState {
   /// Active trackers for lookahead predicates and conjunctions.
   final Map<SubparseKey, SubparseTracker> trackers = {};
 
+  /// Predicates that may have just become fully pruned/exhausted.
+  ///
+  /// This lets the parse loop resolve only affected predicates instead of
+  /// scanning all trackers.
+  Set<PredicateKey> _pendingPredicateExhaustion = {};
+
   /// Memoized call sites for rules with complex (object-key) arguments.
   final Map<CallerCacheKey, Caller> callersComplex = {};
 
@@ -173,6 +179,9 @@ final class ParseState {
     for (var key in _findActiveKeys(context)) {
       var tracker = trackers[key];
       if (tracker != null) {
+        if (key is PredicateKey) {
+          _pendingPredicateExhaustion.remove(key);
+        }
         tracker.addPendingFrame();
         tracer?.onTrackerUpdate(
           tracker.runtimeType.toString(),
@@ -190,6 +199,9 @@ final class ParseState {
       var tracker = trackers[key];
       if (tracker != null) {
         tracker.removePendingFrame();
+        if (key is PredicateKey && tracker is PredicateTracker && tracker.canResolveFalse) {
+          _pendingPredicateExhaustion.add(key);
+        }
         if (reason != null) {
           tracer?.onTrackerUpdate(
             tracker.runtimeType.toString(),
@@ -200,5 +212,17 @@ final class ParseState {
         }
       }
     }
+  }
+
+  /// Returns and clears predicates that need exhaustion resolution.
+  Set<PredicateKey> takePendingPredicateExhaustion() {
+    if (_pendingPredicateExhaustion.isEmpty) {
+      return const {};
+    }
+
+    var pending = _pendingPredicateExhaustion;
+    _pendingPredicateExhaustion = {};
+
+    return pending;
   }
 }

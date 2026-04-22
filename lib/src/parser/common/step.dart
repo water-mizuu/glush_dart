@@ -1028,12 +1028,10 @@ class Step {
           branchKey: action != null ? ActionBranchKey(action) : null,
         );
       }
+      return;
     }
 
-    if (!tracker.exhausted) {
-      tracker.waiters.add((source, frameContext, nextState, frame.marks));
-      parseState.incrementTrackers(frameContext, "childPending");
-    } else if (tracker.canResolveFalse) {
+    if (tracker.exhausted) {
       if (!isAnd) {
         _resumeLaggedPredicateContinuation(
           source: source,
@@ -1045,7 +1043,11 @@ class Step {
           branchKey: action != null ? ActionBranchKey(action) : null,
         );
       }
+      return;
     }
+
+    tracker.waiters.add((source, frameContext, nextState, frame.marks));
+    parseState.incrementTrackers(frameContext, "childPending");
 
     if (isFirst) {
       _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
@@ -1499,6 +1501,10 @@ class Step {
           );
         }
       }
+
+      tracker.waiters.clear();
+      parseState.trackers.remove(key);
+      return;
     }
 
     if (caller is ConjunctionCallerKey) {

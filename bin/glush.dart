@@ -3,10 +3,14 @@
 import "package:glush/glush.dart";
 
 void main() {
-  var grammar = "S=group:(elem:'a')+ (if (pos == 3) '')";
+  var grammar = r"S= $2 &(S S) S S | $1 's'";
   var parser = grammar.toSMParser();
-  var input = "aaaa";
-  var parseResult = parser.parse(input).success()!.rawMarks.evaluateStructure(input);
-  print("Parse Tree (JSON):");
-  print(parseResult.toJsonStringPretty());
+  var input = "ssss";
+  var parseResult = parser
+      .parseAmbiguous(input)
+      .ambiguousSuccess()!
+      .forest
+      .map((v) => v.evaluateStructure(input).toJson())
+      .toList();
+  print(parseResult.join("\n"));
 }

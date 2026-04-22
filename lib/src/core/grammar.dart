@@ -564,14 +564,6 @@ class Grammar implements GrammarInterface {
         transitions![lastState] ??= [];
         transitions![lastState]!.add(rule);
       }
-
-      // Static rules (consisting only of markers/predicates) are allowed even if
-      // they don't return true for empty(), as they are handled by the state machine
-      // without consuming input.
-      if (!rule.body().empty() && rule.body().isStatic()) {
-        // This used to throw, but we allow it now to support nested predicates
-        // and markers in rules.
-      }
     }
 
     // Use a marker Pattern for the success node

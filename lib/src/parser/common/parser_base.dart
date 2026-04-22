@@ -6,7 +6,6 @@ import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
-import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
 
 /// An abstract base class providing the core logic for a state-machine parser.
@@ -36,51 +35,43 @@ abstract base class GlushParserBase implements GlushParser {
     workQueue.addFrame(frame.context.position, frame);
   }
 
-  void _enqueueFramesForPosition(
-    ParseState parseState,
-    _PositionWorkQueue workQueue,
-    List<Frame> frames,
-  ) {
-    for (var frame in frames) {
-      _enqueueFrameForPosition(parseState, workQueue, frame);
-    }
-  }
-
   void _checkExhaustedPredicates(
     ParseState parseState,
     _PositionWorkQueue workQueue,
     int currentPosition,
   ) {
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      var toRemove = <SubparseKey>[];
-      for (var entry in parseState.trackers.entries) {
-        if (entry.value case PredicateTracker tracker) {
-          if (!tracker.exhausted && tracker.canResolveFalse) {
-            tracker.exhausted = true;
-            for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
-              parseState.decrementTrackers(parentContext, "childExhausted");
+    while (true) {
+      var pending = parseState.takePendingPredicateExhaustion();
+      if (pending.isEmpty) {
+        break;
+      }
 
-              if (!tracker.isAnd) {
-                var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
-                _enqueueFrameForPosition(
-                  parseState,
-                  workQueue,
-                  nextFrame,
-                  reason: "resumeNotPredicate",
-                );
-              }
-            }
-            tracker.waiters.clear();
-            toRemove.add(entry.key);
-            changed = true;
-          } else if (tracker.matched || tracker.exhausted) {
-            toRemove.add(entry.key);
+      for (var key in pending) {
+        var tracker = parseState.trackers[key];
+        if (tracker is! PredicateTracker) {
+          continue;
+        }
+        if (tracker.matched || tracker.exhausted || !tracker.canResolveFalse) {
+          continue;
+        }
+
+        tracker.exhausted = true;
+        for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+          parseState.decrementTrackers(parentContext, "childExhausted");
+
+          if (!tracker.isAnd) {
+            var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
+            _enqueueFrameForPosition(
+              parseState,
+              workQueue,
+              nextFrame,
+              reason: "resumeNotPredicate",
+            );
           }
         }
+        tracker.waiters.clear();
+        parseState.trackers.remove(key);
       }
-      toRemove.forEach(parseState.trackers.remove);
     }
   }
 
@@ -124,8 +115,9 @@ abstract base class GlushParserBase implements GlushParser {
 
     var stepsAtPosition = <int, Step>{};
     var workQueue = _PositionWorkQueue();
-
-    _enqueueFramesForPosition(parseState, workQueue, frames);
+    for (var frame in frames) {
+      _enqueueFrameForPosition(parseState, workQueue, frame);
+    }
 
     while (workQueue.isNotEmpty) {
       var position = workQueue.firstKeyOrNull!;
