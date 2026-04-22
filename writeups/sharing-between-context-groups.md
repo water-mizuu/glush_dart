@@ -37,11 +37,11 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 
 ## Four Sharing Mechanisms
 
-| Mechanism         | What's Shared        | How                 | Why                           |
-| ----------------- | -------------------- | ------------------- | ----------------------------- |
-| **Mark Trees**    | Semantic annotations | Lazy branching      | Multiple derivations          |
+| Mechanism         | What's Shared        | How                 | Why                                   |
+| ----------------- | -------------------- | ------------------- | ------------------------------------- |
+| **Mark Trees**    | Semantic annotations | Lazy branching      | Multiple derivations                  |
 | **Contexts**      | Parser state         | Immutability        | Reuse across frames (includes Labels) |
-| **Caller Stacks** | Call trace           | GSS nodes           | Common call prefixes          |
+| **Caller Stacks** | Call trace           | GSS nodes           | Common call prefixes                  |
 
 ---
 

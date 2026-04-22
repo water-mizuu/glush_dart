@@ -3,7 +3,7 @@
 import "package:glush/glush.dart";
 
 void main() {
-  var grammar = r"S= $2 &(a:S S) S S | $1 's'";
+  var grammar = r"S= $2 &(a:S a) l:S r:S | $1 's'";
   var parser = grammar.toSMParser();
   var input = "ssss";
   var parseResult = parser
@@ -11,9 +11,10 @@ void main() {
       .ambiguousSuccess()!
       .forest
       .map(
-        (v) => Evaluator({r"S.2": (ctx) => "(${ctx.next()}${ctx.next()})", r"S.1": (ctx) => "s"})(
-          v.evaluateStructure(input),
-        ),
+        (v) => Evaluator({
+          r"S.2": (ctx) => "(${ctx("l")}${ctx("r")})",
+          r"S.1": (ctx) => "s",
+        }).evaluate(v.evaluateStructure(input)),
       )
       .toList();
   print(parseResult.join("\n"));
