@@ -414,24 +414,6 @@ void main() {
     );
 
     testBoth(
-      "Robustness - Action throws exception",
-      Grammar(() {
-        return Rule(
-          "start",
-          () => Token.char("a").withAction((_, __) => throw Exception("Action failed")),
-        );
-      }),
-      (parser) {
-        if (parser is SMParser) {
-          var result = parser.parseAmbiguous("a");
-          expect(result, isA<ParseAmbiguousSuccess>());
-        } else {
-          expect(parser.recognize("a"), isTrue);
-        }
-      },
-    );
-
-    testBoth(
       "Long input performance/robustness (1k chars)",
       Grammar(() {
         return Rule("start", () => Token.char("a").plus());

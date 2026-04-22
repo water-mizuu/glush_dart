@@ -18,11 +18,8 @@ file = $rules left:file _ right:rule
 rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
      | $dataRule name:ident '(' params:params? ')' _ '=' _ body:choice _ (';')?
 
-choice = $rest left:choice _ (prec:number _)? '|' _ right:branch
-       | $first ((prec:number _)? '|' _)? body:branch
-
-branch = $cond "if" _ "(" _ cond:argExpr _ ")"_ body:seq
-       | $none body:seq
+choice = $rest left:choice _ (prec:number _)? '|' _ right:seq
+       | $first ((prec:number _)? '|' _)? body:seq
 
 seq = $seq left:seq _ &isContinuation right:conj
     | conj
@@ -46,7 +43,7 @@ primary = $group '(' _ inner:choice _ ')'
         | $mark '$' name:ident
         | $start "start"
         | $end "eof"
-        | $call name:ident ('(' _ args:args? _ ')')? ('^' prec:number)?
+        | $call name:ident ('^' prec:number)?
         | $lit literal
         | $range charRange
         | $any '.'
@@ -62,43 +59,6 @@ balancedParenthesis    = "(" balancedParenthesis ")" | !")" .
 params = $params left:params _ ',' _ right:param
        | $param  right:param
 param = ident
-
-args = $args left:args _ ',' _ right:arg
-      | $arg right:arg
-
-arg = $namedArg name:ident _ ':' _ expr:argExpr^0
-    | $posArg expr:argExpr^0
-
-argExpr =
-      # Logical Operations
-      1 | $argOr   left:argExpr^1 _ '||' _ right:argExpr^2
-      2 | $argAnd  left:argExpr^2 _ '&&' _ right:argExpr^3
-
-      # Equality & Relational Operations
-      3 | $eq   left:argExpr^5 _ '==' _ right:argExpr^5
-        | $neq  left:argExpr^5 _ '!=' _ right:argExpr^5
-      4 | $lt   left:argExpr^5 _ '<'  _ right:argExpr^5
-        | $lte  left:argExpr^5 _ '<=' _ right:argExpr^5
-        | $gt   left:argExpr^5 _ '>'  _ right:argExpr^5
-        | $gte  left:argExpr^5 _ '>=' _ right:argExpr^5
-
-      # Arithmetic Operations
-      6 | $add  left:argExpr^6  _ '+' _ right:argExpr^7
-        | $sub  left:argExpr^6  _ '-' _ right:argExpr^7
-      7 | $mul  left:argExpr^7 _ '*' _ right:argExpr^8
-        | $div  left:argExpr^7 _ '/' _ right:argExpr^8
-        | $mod  left:argExpr^7 _ '%' _ right:argExpr^8
-
-      # Unary Operations (Prefix)
-      10 | $not  '!' _ right:argExpr^10
-         | $neg  '-' _ right:argExpr^10
-         | $pos  '+' _ right:argExpr^10
-
-      # Atomic Values
-      20 | $int  number
-         | $str  literal
-         | $ident ident
-         | $group '(' _ expr:argExpr^0 _ ')'
 
 # Terminals
 ident = [A-Za-z$_] [A-Za-z$_0-9]*!
@@ -230,13 +190,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
       return precedence != null ? PrecedenceExpr(precedence, body) : body;
     },
 
-    // Branch patterns (with optional if guards - rule-prefixed marks)
-    "branch.cond": (ctx) {
-      var guard = ctx<CallArgumentValueNode>("cond");
-      var body = ctx<PatternExpr>("body");
-      return IfPattern(guard, body);
-    },
-
     "branch.none": (ctx) {
       var body = ctx<PatternExpr>("body");
       return body;
@@ -279,12 +232,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
       // Predicate pattern in primary context
       var atom = ctx<PatternExpr>("atom");
       return PredicatePattern(atom, isAnd: false);
-    },
-
-    "argExpr.not": (ctx) {
-      // Unary NOT in argExpr context
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionUnaryNode(ExpressionUnaryOperator.logicalNot, right);
     },
 
     // Repetition (rule-prefixed marks)
@@ -333,7 +280,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
 
     "primary.call": (ctx) {
       var name = ctx<String>("name");
-      var args = ctx.optional<List<CallArgumentNode>>("args") ?? [];
 
       // Try to get prec - it might be null or might be an int
       int? prec;
@@ -352,7 +298,7 @@ Evaluator<Object> createMetagrammarEvaluator() {
         }
       }
 
-      return RuleRefPattern(name, arguments: args, precedenceConstraint: prec);
+      return RuleRefPattern(name, precedenceConstraint: prec);
     },
 
     "primary.lit": (ctx) {
@@ -396,133 +342,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
     },
 
     "params.param": (ctx) => ctx<String>("right"),
-
-    // Argument lists (for rule calls - rule-prefixed marks)
-    "args.args": (ctx) {
-      var list = ctx.optional<List<CallArgumentNode>>("left") ?? [];
-      var right = ctx<CallArgumentNode>("right");
-      list.add(right);
-      return list;
-    },
-
-    "args.arg": (ctx) => ctx<CallArgumentNode>("right"),
-
-    "arg.namedArg": (ctx) {
-      var name = ctx<String>("name");
-      var expr = ctx<CallArgumentValueNode>("expr");
-      return CallArgumentNode(expr, name: name);
-    },
-
-    "arg.posArg": (ctx) {
-      var expr = ctx<CallArgumentValueNode>("expr");
-      return CallArgumentNode(expr);
-    },
-
-    // Argument expressions (for guards and rule arguments - rule-prefixed marks)
-    "argExpr.argOr": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.logicalOr, right);
-    },
-
-    "argExpr.argAnd": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.logicalAnd, right);
-    },
-
-    "argExpr.eq": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.equals, right);
-    },
-
-    "argExpr.neq": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.notEquals, right);
-    },
-
-    "argExpr.lt": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.lessThan, right);
-    },
-
-    "argExpr.lte": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.lessOrEqual, right);
-    },
-
-    "argExpr.gt": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.greaterThan, right);
-    },
-
-    "argExpr.gte": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.greaterOrEqual, right);
-    },
-
-    "argExpr.add": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.add, right);
-    },
-
-    "argExpr.sub": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.subtract, right);
-    },
-
-    "argExpr.mul": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.multiply, right);
-    },
-
-    "argExpr.div": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.divide, right);
-    },
-
-    "argExpr.mod": (ctx) {
-      var left = ctx<CallArgumentValueNode>("left");
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionBinaryNode(left, ExpressionBinaryOperator.modulo, right);
-    },
-
-    "argExpr.neg": (ctx) {
-      // Unary negation in argExpr
-      var right = ctx<CallArgumentValueNode>("right");
-      return ExpressionUnaryNode(ExpressionUnaryOperator.negate, right);
-    },
-
-    "argExpr.pos": (ctx) {
-      // Unary plus in argExpr - keep the value as-is
-      var right = ctx<CallArgumentValueNode>("right");
-      return right;
-    },
-
-    // For atomic argExpr values (rule-prefixed marks)
-    "argExpr.int": (ctx) => int.parse(ctx.span),
-
-    "argExpr.str": (ctx) {
-      var literal = ctx<String>("literal");
-      return GuardStringLiteralNode(literal);
-    },
-
-    "argExpr.ident": (ctx) => GuardNameNode(ctx.span),
-
-    "argExpr.group": (ctx) {
-      var expr = ctx<CallArgumentValueNode>("expr");
-      return ExpressionGroupNode(expr);
-    },
 
     // Whitespace and comments - typically ignored (rule-prefixed marks)
     "_.ws": (_) => null,

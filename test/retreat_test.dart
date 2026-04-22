@@ -59,8 +59,8 @@ void main() {
     test("retreat combined with marks", () {
       var grammar = Grammar(() {
         var r = Rule("test", () {
-          var a = Token.char("a").withAction((span, _) => "A");
-          var b = Token.char("b").withAction((span, _) => "B");
+          var a = Token.char("a");
+          var b = Token.char("b");
           // match 'a', mark it, retreat, match 'ab', mark it
           return a < (a >> b);
         });

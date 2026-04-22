@@ -303,7 +303,7 @@ void main() {
         var r = Rule("test", () {
           var a = Token(const ExactToken(97));
           var b = Token(const ExactToken(98));
-          return (b.not() >> a).withAction((span, _) => "matched_$span");
+          return b.not() >> a;
         });
         return r;
       });

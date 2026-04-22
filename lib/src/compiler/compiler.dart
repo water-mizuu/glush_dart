@@ -25,12 +25,7 @@ class GrammarFileCompiler {
   late final Map<String, Rule> _rules = {};
 
   /// A mapping of rule names to their original AST definitions.
-  late final Map<String, RuleDefinition> _definitions = {
-    for (var rule in grammarFile.rules) rule.name: rule,
-  };
 
-  final Map<IfPattern, Rule> _guardedRules = {};
-  Rule? _backreferenceRule;
   Rule? _currentOwnerRule;
 
   List<String> _currentCaptures = const [];
@@ -101,8 +96,6 @@ class GrammarFileCompiler {
   ///
   /// This method performs the heavy lifting of lowering high-level grammar
   /// features into the core parsing primitives. Key transformations include:
-  /// - **Guarded Rules**: Lowering `if (condition)` into synthetic rules with
-  ///   semantic guards.
   /// - **Rule Calls**: Resolving references to other rules, parameters, or
   ///   backreferences.
   /// - **Literals and Ranges**: Converting strings and character classes into
@@ -112,38 +105,6 @@ class GrammarFileCompiler {
     switch (expr) {
       case PrecedenceExpr(:var level, :var pattern):
         return _compilePattern(pattern).atLevel(level);
-      // `if (...)` is lowered into a synthetic guarded rule so the compiler
-      // keeps the parser logic in the state machine instead of inventing a
-      // separate semantic side channel.
-      case IfPattern(:var guard, :var inner):
-        var owner = _currentOwnerRule;
-        var parameters = _currentParameters;
-        var guardedRule = _guardedRules[expr];
-        if (guardedRule == null) {
-          var syntheticName = "_if\$${_guardedRules.length}";
-          var rule = Rule(syntheticName, () {
-            var previousOwner = _currentOwnerRule;
-            var previousParameters = _currentParameters;
-            _currentOwnerRule = owner;
-            _currentParameters = parameters;
-            try {
-              return _compilePattern(inner);
-            } finally {
-              _currentOwnerRule = previousOwner;
-              _currentParameters = previousParameters;
-            }
-          });
-          rule.guardOwner = owner;
-          guardedRule = _guardedRules[expr] = rule;
-        }
-        guardedRule.guard = GuardExpr.expression(_compileCallArgumentValue(guard));
-        if (parameters.isEmpty) {
-          return guardedRule();
-        }
-        return guardedRule.call(
-          arguments: {for (var name in parameters) name: CallArgumentValue.reference(name)},
-        );
-
       case AnyPattern():
         return Token.any();
 
@@ -180,19 +141,6 @@ class GrammarFileCompiler {
         return Marker(name);
 
       case RuleRefPattern():
-        // A bare reference to one of the current rule's parameters must stay as
-        // a parameter lookup, not a global rule call, so call-site data can
-        // flow into the body without losing its source.
-        if (_currentParameters.contains(expr.ruleName)) {
-          if (expr.arguments.isNotEmpty) {
-            return ParameterCallPattern(
-              expr.ruleName,
-              arguments: _compileParameterCallArguments(expr),
-              minPrecedenceLevel: expr.precedenceConstraint,
-            );
-          }
-          return ParameterRefPattern(expr.ruleName);
-        }
 
         /// We check the existing rules first.
         ///   This allows us to use captures AND rules like:
@@ -203,39 +151,13 @@ class GrammarFileCompiler {
         ///   without it being rewritten as the backreference pattern.
         var rule = _rules[expr.ruleName];
         if (rule != null) {
-          var ruleDef = _definitions[expr.ruleName];
-          if (expr.arguments.isNotEmpty && (ruleDef?.parameters.isEmpty ?? true)) {
-            Pattern result = rule.call(minPrecedenceLevel: expr.precedenceConstraint);
-            for (var argument in expr.arguments) {
-              result = result >> _compileFallbackArgumentPattern(argument.value);
-            }
-            return result;
-          }
-          return rule.call(
-            arguments: _compileCallArguments(expr, ruleDef?.parameters ?? const []),
-            minPrecedenceLevel: expr.precedenceConstraint,
-          );
+          return rule.call(minPrecedenceLevel: expr.precedenceConstraint);
         }
 
-        // If we found it on the capture list:
-        if (_currentCaptures.contains(expr.ruleName)) {
-          /// S = s:'s' s
-          ///
-          /// is rewritten as
-          ///
-          /// S = s:'s' m'(s)
-          /// m'($) = $
-          _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
-
-          return _backreferenceRule!.call(
-            arguments: {r"$": CallArgumentValue.reference(expr.ruleName)},
-          );
-        }
-
-        if (expr.ruleName == "start" && expr.arguments.isEmpty) {
+        if (expr.ruleName == "start") {
           return Pattern.start();
         }
-        if (expr.ruleName == "eof" && expr.arguments.isEmpty) {
+        if (expr.ruleName == "eof") {
           return Pattern.eof();
         }
 
@@ -319,9 +241,6 @@ class GrammarFileCompiler {
         var ruleName = _currentOwnerRule?.name;
         return Label(ruleName == null ? name : "$ruleName.$name", compiled);
 
-      case ActionExpr():
-        throw Exception("ActionExpr cannot be compiled as a pattern");
-
       case PredicatePattern():
         var inner = _compilePattern(expr.pattern);
         if (expr.isAnd) {
@@ -366,132 +285,6 @@ class GrammarFileCompiler {
           _ => throw Exception("Unsupported backslash literal: \\$char"),
         };
     }
-  }
-
-  /// Resolves arguments for a rule call and binds them to parameter names.
-  ///
-  /// This method ensures that positional and named arguments provided in the
-  /// [RuleRefPattern] match the [parameters] expected by the target rule. It
-  /// produces a stable mapping of names to [CallArgumentValue] objects.
-  Map<String, CallArgumentValue> _compileCallArguments(
-    RuleRefPattern expr,
-    List<String> parameters,
-  ) {
-    if (expr.arguments.isEmpty) {
-      return const {};
-    }
-
-    if (parameters.isEmpty) {
-      throw Exception("Rule ${expr.ruleName} does not declare parameters");
-    }
-
-    var compiled = <String, CallArgumentValue>{};
-    var positionalIndex = 0;
-
-    for (var argument in expr.arguments) {
-      var name = argument.name;
-      if (name != null) {
-        if (!parameters.contains(name)) {
-          throw Exception("Unknown parameter '$name' for rule ${expr.ruleName}");
-        }
-        // Named arguments are normalized into the callee's declared parameter
-        // names so the runtime can resolve them in a stable order.
-        compiled[name] = _compileCallArgumentValue(argument.value);
-        continue;
-      }
-
-      if (positionalIndex >= parameters.length) {
-        throw Exception("Too many arguments for rule ${expr.ruleName}");
-      }
-      compiled[parameters[positionalIndex++]] = _compileCallArgumentValue(argument.value);
-    }
-
-    return compiled;
-  }
-
-  CallArgumentValue _compileCallArgumentValue(CallArgumentValueNode value) {
-    return switch (value) {
-      // Literal values remain typed as data here; whether they become parser
-      // material or guard data is decided later by the consuming rule.
-      GuardBoolLiteralNode(:var value) => CallArgumentValue.literal(value),
-      GuardNumberLiteralNode(:var value) => CallArgumentValue.literal(value),
-      GuardStringLiteralNode(:var value) => CallArgumentValue.literal(value),
-      ExpressionGroupNode(:var inner) => _compileCallArgumentValue(inner),
-      ExpressionMemberNode(:var target, :var member) => CallArgumentValue.member(
-        _compileCallArgumentValue(target),
-        member,
-      ),
-      ExpressionUnaryNode(:var operator, :var operand) => CallArgumentValue.unary(
-        operator,
-        _compileCallArgumentValue(operand),
-      ),
-      ExpressionBinaryNode(:var left, :var operator, :var right) => CallArgumentValue.binary(
-        _compileCallArgumentValue(left),
-        operator,
-        _compileCallArgumentValue(right),
-      ),
-      // A bare identifier means either "pass this rule object" or "look this
-      // name up at runtime", depending on what exists in the rule table.
-      GuardNameNode(:var name) =>
-        _currentParameters.contains(name)
-            ? CallArgumentValue.reference(name)
-            : _rules[name] != null
-            ? CallArgumentValue.rule(_rules[name]!)
-            : switch (name) {
-                "rule" => CallArgumentValue.currentRule(),
-                "start" => CallArgumentValue.pattern(Pattern.start()),
-                "eof" => CallArgumentValue.pattern(Pattern.eof()),
-                _ => CallArgumentValue.reference(name),
-              },
-      PatternExpr() => CallArgumentValue.pattern(_compilePattern(value)),
-    };
-  }
-
-  Pattern _compileFallbackArgumentPattern(CallArgumentValueNode value) {
-    return switch (value) {
-      // This fallback preserves the old "inline parser" behavior for rules
-      // that do not declare parameters of their own.
-      GuardStringLiteralNode(:var value) => Pattern.string(value),
-      GuardNumberLiteralNode(:var value) => Pattern.string(value.toString()),
-      GuardBoolLiteralNode(:var value) => Pattern.string(value.toString()),
-      ExpressionGroupNode(:var inner) => _compileFallbackArgumentPattern(inner),
-      ExpressionMemberNode() => throw Exception(
-        "Expression arguments require a parameterized rule",
-      ),
-      ExpressionUnaryNode() || ExpressionBinaryNode() => throw Exception(
-        "Expression arguments require a parameterized rule",
-      ),
-      GuardNameNode(:var name) =>
-        _currentParameters.contains(name)
-            ? ParameterRefPattern(name)
-            : _rules[name] != null
-            ? _rules[name]!.call()
-            : switch (name) {
-                "start" => Pattern.start(),
-                "eof" => Pattern.eof(),
-                _ => Pattern.string(name),
-              },
-      PatternExpr() => _compilePattern(value),
-    };
-  }
-
-  /// Resolves named arguments for a call to a dynamic parameter.
-  ///
-  /// When a parameter itself is invoked (e.g., `$p(arg: val)`), positional
-  /// arguments are disallowed because the target's parameter list is unknown
-  /// at compile time.
-  Map<String, CallArgumentValue> _compileParameterCallArguments(RuleRefPattern expr) {
-    var compiled = <String, CallArgumentValue>{};
-    for (var argument in expr.arguments) {
-      var name = argument.name;
-      if (name == null) {
-        throw Exception(
-          "Positional arguments are not supported when invoking a parameter: ${expr.ruleName}",
-        );
-      }
-      compiled[name] = _compileCallArgumentValue(argument.value);
-    }
-    return compiled;
   }
 }
 

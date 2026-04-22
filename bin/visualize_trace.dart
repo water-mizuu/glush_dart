@@ -430,24 +430,6 @@ String generateColoredDot(
       } else if (action is LabelEndAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label end ${action.name}"];');
-      } else if (action is ParameterAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param ${action.name}"];');
-      } else if (action is ParameterCallAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="param call ${_dotEscape(action.arguments.toString())}"];',
-        );
-      } else if (action is ParameterStringAction) {
-        var toStateId = "S${action.nextState.id}";
-        var char = String.fromCharCode(action.codeUnit);
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param str ${_dotEscape(char)}"];');
-      } else if (action is ParameterPredicateAction) {
-        var toStateId = "S${action.nextState.id}";
-        var pred = action.isAnd ? "&" : "!";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="param pred $pred${action.name}"];',
-        );
       } else if (action is PredicateAction) {
         var toStateId = "S${action.nextState.id}";
         var pred = action.isAnd ? "AND" : "NOT";

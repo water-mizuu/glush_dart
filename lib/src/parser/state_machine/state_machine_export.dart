@@ -39,40 +39,15 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "name": action.name,
       "nextState": stateIdMap[action.nextState],
     },
-    ParameterAction() => {
-      "type": "parameter",
-      "name": action.name,
-      "nextState": stateIdMap[action.nextState],
-    },
-    ParameterCallAction() => {
-      "type": "parameterCall",
-      "target": action.targetParameter,
-      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
-      "minPrecedenceLevel": action.minPrecedenceLevel,
-      "nextState": stateIdMap[action.nextState],
-    },
-    ParameterStringAction() => {
-      "type": "parameterString",
-      "codeUnit": action.codeUnit,
-      "nextState": stateIdMap[action.nextState],
-    },
-    ParameterPredicateAction() => {
-      "type": "parameterPredicate",
-      "isAnd": action.isAnd,
-      "name": action.name,
-      "nextState": stateIdMap[action.nextState],
-    },
     CallAction() => {
       "type": "call",
       "ruleName": action.ruleSymbol,
-      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
       "returnState": stateIdMap[action.returnState],
     },
     TailCallAction() => {
       "type": "tailCall",
       "ruleName": action.ruleSymbol,
-      "arguments": action.arguments.map((k, v) => MapEntry(k, v.toJson())),
       "minPrecedenceLevel": action.minPrecedenceLevel,
     },
     ReturnAction() => {
@@ -116,39 +91,12 @@ StateAction _deserializeAction(
     ),
     "labelStart" => LabelStartAction(json["name"]! as String, stateMap[json["nextState"]]!),
     "labelEnd" => LabelEndAction(json["name"]! as String, stateMap[json["nextState"]]!),
-    "parameter" => ParameterAction(json["name"]! as String, stateMap[json["nextState"]]!),
-    "parameterCall" => ParameterCallAction(
-      json["target"]! as String,
-      (json["arguments"]! as Map<String, Object?>).map(
-        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
-      ),
-      stateMap[(json["nextState"]! as int)]!,
-      json["minPrecedenceLevel"] as int?,
-    ),
-    "parameterString" => ParameterStringAction(
-      json["codeUnit"]! as int,
-      stateMap[json["nextState"]]!,
-    ),
-    "parameterPredicate" => ParameterPredicateAction(
-      isAnd: json["isAnd"]! as bool,
-      name: json["name"]! as String,
-      nextState: stateMap[json["nextState"]]!,
-    ),
     "call" => CallAction(
       json["ruleName"]! as int,
-      (json["arguments"]! as Map<String, Object?>).map(
-        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
-      ),
       stateMap[(json["returnState"]! as int)]!,
       json["minPrecedenceLevel"] as int?,
     ),
-    "tailCall" => TailCallAction(
-      json["ruleName"]! as int,
-      (json["arguments"]! as Map<String, Object?>).map(
-        (k, v) => MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
-      ),
-      json["minPrecedenceLevel"] as int?,
-    ),
+    "tailCall" => TailCallAction(json["ruleName"]! as int, json["minPrecedenceLevel"] as int?),
     "return" => ReturnAction(json["ruleName"]! as int, json["precedenceLevel"] as int?),
     "accept" => const AcceptAction(),
     "predicate" => PredicateAction(
@@ -185,13 +133,7 @@ extension StateMachineExport on StateMachine {
 
     var initialStateIds = initialStates.map((s) => s.id).toList();
     var rulesJson = allRules.values
-        .map(
-          (rule) => {
-            "symbolId": rule.symbolId,
-            "name": rule.name.symbol,
-            if (rule.guard != null) "guard": rule.guard!.toJson(),
-          },
-        )
+        .map((rule) => {"symbolId": rule.symbolId, "name": rule.name.symbol})
         .toList();
 
     var ruleFirstJson = <String, int>{};
@@ -244,9 +186,6 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
       var name = serializedRule["name"]! as String;
       var rule = Rule(name, () => Eps());
       rule.symbolId = serializedRule["symbolId"]! as int;
-      if (serializedRule.containsKey("guard")) {
-        rule.guard = GuardExpr.fromJson(serializedRule["guard"]! as Map<String, Object?>, ruleMap);
-      }
       ruleMap[name] = rule;
     }
 

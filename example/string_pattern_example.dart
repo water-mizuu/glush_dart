@@ -1,7 +1,5 @@
 import "package:glush/glush.dart";
 
-enum TokenType { if_, then, else_, identifier, number }
-
 void main() {
   print("=== String Pattern Abstraction (Seq of Tokens + Action) ===\n");
 
@@ -26,7 +24,7 @@ void main() {
   var grammar2 = Grammar(() {
     late Rule statement;
     statement = Rule("statement", () {
-      var ifKeyword = Pattern.string("if").withAction<TokenType>((span, _) => TokenType.if_);
+      var ifKeyword = Pattern.string("if");
       return ifKeyword >>
           Token(const ExactToken(32)) >>
           Token(const ExactToken(120)); // space + 'x'
@@ -44,8 +42,8 @@ void main() {
   var grammar3 = Grammar(() {
     late Rule msg;
     msg = Rule("msg", () {
-      var hello = Pattern.string("hello").withAction<String>((span, _) => span);
-      var world = Pattern.string("world").withAction<String>((span, _) => span);
+      var hello = Pattern.string("hello");
+      var world = Pattern.string("world");
       return hello >> Token(const ExactToken(32)) >> world;
     });
     return msg;
@@ -121,7 +119,7 @@ void main() {
   var grammar7 = Grammar(() {
     late Rule tagged;
     tagged = Rule("tagged", () {
-      return Pattern.string("const").withAction<String>((span, _) => "CONST_KEYWORD");
+      return Pattern.string("const");
     });
     return tagged;
   });

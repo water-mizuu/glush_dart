@@ -77,9 +77,6 @@ class Grammar implements GrammarInterface {
   /// The compiled state machine for this grammar.
   StateMachine? _stateMachine;
 
-  /// A cache of rules created when hoisting anonymous patterns into named rules.
-  final Map<(Pattern, String), Rule> _hoistedPatternRules = {};
-
   /// The registry for mapping symbol IDs to patterns.
   @override
   final Map<PatternSymbol, Pattern> registry = {};
@@ -209,15 +206,11 @@ class Grammar implements GrammarInterface {
     }
 
     if (pattern is RuleCall) {
-      var normalizedArguments = _normalizeCallArguments(pattern.arguments, seen);
-      if (!identical(normalizedArguments, pattern.arguments)) {
-        pattern = RuleCall(
-          pattern.name,
-          pattern.rule,
-          arguments: normalizedArguments,
-          minPrecedenceLevel: pattern.minPrecedenceLevel,
-        );
-      }
+      pattern = RuleCall(
+        pattern.name,
+        pattern.rule,
+        minPrecedenceLevel: pattern.minPrecedenceLevel,
+      );
       return pattern;
     }
 
@@ -242,39 +235,6 @@ class Grammar implements GrammarInterface {
       return pattern;
     }
 
-    if (pattern is ParameterCallPattern) {
-      var normalizedArguments = _normalizeCallArguments(pattern.arguments, seen);
-      if (!identical(normalizedArguments, pattern.arguments)) {
-        return ParameterCallPattern(
-          pattern.name,
-          arguments: normalizedArguments,
-          minPrecedenceLevel: pattern.minPrecedenceLevel,
-        );
-      }
-      return pattern;
-    }
-
-    if (pattern is IfCond) {
-      pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      var child = pattern.pattern;
-
-      var parameterNames = <String>{};
-      _collectParameterNames(child, parameterNames);
-      pattern.condition.collectReferredNames(parameterNames);
-
-      var sortedNames = parameterNames.toList()..sort();
-      var syntheticName = "if\$${_syntheticRuleCounter++}";
-      var syntheticRule = Rule(syntheticName, () => child).guardedBy(pattern.condition);
-      rules.add(syntheticRule);
-
-      if (sortedNames.isEmpty) {
-        return syntheticRule.call();
-      }
-      return syntheticRule.call(
-        arguments: {for (var name in sortedNames) name: CallArgumentValue.reference(name)},
-      );
-    }
-
     // Traditional discovery of children to continue walk
     switch (pattern) {
       case Seq seq:
@@ -283,8 +243,6 @@ class Grammar implements GrammarInterface {
       case Alt alt:
         alt.left = _normalizePattern(alt.left, seen);
         alt.right = _normalizePattern(alt.right, seen);
-      case Action<Object?> action:
-        action.child = _normalizePattern(action.child, seen);
       case Prec plp:
         plp.child = _normalizePattern(plp.child, seen);
       case Opt opt:
@@ -299,122 +257,6 @@ class Grammar implements GrammarInterface {
         break;
     }
     return pattern;
-  }
-
-  /// Normalizes a map of call arguments.
-  Map<String, CallArgumentValue> _normalizeCallArguments(
-    Map<String, CallArgumentValue> arguments,
-    Set<Pattern> seen,
-  ) {
-    var normalized = <String, CallArgumentValue>{};
-    var changed = false;
-    for (var entry in arguments.entries) {
-      var value = _normalizeCallArgumentValue(entry.value, seen);
-      normalized[entry.key] = value;
-      if (!identical(value, entry.value)) {
-        changed = true;
-      }
-    }
-    return changed ? Map<String, CallArgumentValue>.unmodifiable(normalized) : arguments;
-  }
-
-  /// Normalizes a single call argument value, ensuring any embedded patterns are also normalized.
-  CallArgumentValue _normalizeCallArgumentValue(CallArgumentValue value, Set<Pattern> seen) {
-    return value.transformPatterns((pattern) => _normalizeCallablePattern(pattern, seen));
-  }
-
-  /// Normalizes a pattern used as a callable argument.
-  ///
-  /// Patterns passed as arguments must be "callable" (i.e., rules or rule calls).
-  /// If a complex pattern is passed, it is hoisted into a synthetic rule to
-  /// ensure it can be correctly invoked during parsing.
-  Pattern _normalizeCallablePattern(Pattern pattern, Set<Pattern> seen) {
-    var normalized = _normalizePattern(pattern.copy(), seen);
-    if (normalized is Rule || normalized is RuleCall) {
-      return normalized;
-    }
-    if (normalized is Eps || normalized.singleToken()) {
-      return normalized;
-    }
-    return _hoistedPatternRule(normalized, seen);
-  }
-
-  /// Hoists a pattern into a named rule, creating a new rule if an equivalent one hasn't been cached.
-  Pattern _hoistedPatternRule(Pattern pattern, Set<Pattern> seen) {
-    var parameterNames = <String>{};
-    _collectParameterNames(pattern, parameterNames);
-    var sortedNames = parameterNames.toList()..sort();
-    var key = (pattern, sortedNames.join(","));
-    var rule = _hoistedPatternRules[key];
-    if (rule == null) {
-      var syntheticName = "_hoist\$${_hoistedPatternRules.length}";
-      var syntheticRule = Rule(syntheticName, () => pattern);
-      rules.add(syntheticRule);
-      rule = _hoistedPatternRules[key] = syntheticRule;
-    }
-    if (sortedNames.isEmpty) {
-      return rule.call();
-    }
-    return rule.call(
-      arguments: {for (var name in sortedNames) name: CallArgumentValue.reference(name)},
-    );
-  }
-
-  /// Recursively collects all parameter names referenced within a pattern.
-  void _collectParameterNames(Pattern pattern, Set<String> names) {
-    switch (pattern) {
-      case ParameterRefPattern(:var name):
-        names.add(name);
-      case ParameterCallPattern(:var name, :var arguments):
-        names.add(name);
-        for (var argument in arguments.values) {
-          _collectParameterNamesFromArgumentValue(argument, names);
-        }
-      case RuleCall(:var arguments):
-        for (var argument in arguments.values) {
-          _collectParameterNamesFromArgumentValue(argument, names);
-        }
-      case Seq(:var left, :var right):
-        _collectParameterNames(left, names);
-        _collectParameterNames(right, names);
-      case Alt(:var left, :var right):
-        _collectParameterNames(left, names);
-        _collectParameterNames(right, names);
-      case Conj(:var left, :var right):
-        _collectParameterNames(left, names);
-        _collectParameterNames(right, names);
-      case And(:var pattern):
-        _collectParameterNames(pattern, names);
-      case Not(:var pattern):
-        _collectParameterNames(pattern, names);
-      case Opt(:var child):
-        _collectParameterNames(child, names);
-      case Plus(:var child):
-        _collectParameterNames(child, names);
-      case Star(:var child):
-        _collectParameterNames(child, names);
-      case Label(:var child):
-        _collectParameterNames(child, names);
-      case Action(:var child):
-        _collectParameterNames(child, names);
-      case Prec(:var child):
-        _collectParameterNames(child, names);
-      case IfCond(:var condition, :var pattern):
-        condition.collectReferredNames(names);
-        _collectParameterNames(pattern, names);
-      case Rule():
-        break;
-      default:
-        break;
-    }
-  }
-
-  /// Extracts parameter names from a call argument value.
-  void _collectParameterNamesFromArgumentValue(CallArgumentValue value, Set<String> names) {
-    value.transformPatterns((pattern) {
-      _collectParameterNames(pattern, names);
-      return pattern;
-    });
   }
 
   /// Recursively discovers all patterns within a given pattern structure.
@@ -441,8 +283,6 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:
         _collectPatternsFromPattern(not.pattern, patterns);
-      case Action<Object?> action:
-        _collectPatternsFromPattern(action.child, patterns);
       case Prec plp:
         _collectPatternsFromPattern(plp.child, patterns);
       case Opt opt:
@@ -453,15 +293,11 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
-      case IfCond ifCond:
-        _collectPatternsFromPattern(ifCond.pattern, patterns);
       case Token() ||
           Marker() ||
           StartAnchor() ||
           EofAnchor() ||
           Eps() ||
-          ParameterRefPattern() ||
-          ParameterCallPattern() ||
           Rule() ||
           RuleCall() ||
           LabelStart() ||

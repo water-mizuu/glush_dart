@@ -1,8 +1,6 @@
 /// State machine compilation from grammars
 library glush.state_machine;
 
-import "dart:convert";
-
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/key/state_key.dart";
@@ -142,9 +140,6 @@ class StateMachine {
   final Map<PatternSymbol, Rule> allRules = {};
   List<State>? _cachedStates;
   List<State> _initialStates = [];
-  final Map<(String, State), State> _parameterStringChains = {};
-  final Map<String, State> _parameterPredicateChains = {};
-  final Rule _parameterPredicateRule = Rule("_parameter_predicate", () => Eps())..symbolId = -1;
 
   final Map<StateKey, State> _stateMapping = {};
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
@@ -295,10 +290,6 @@ class StateMachine {
           if (token != null && choice.matches(token)) {
             return true;
           }
-        case ParameterStringAction(:var codeUnit):
-          if (token != null && token == codeUnit) {
-            return true;
-          }
         case MarkAction(:var nextState):
           if (canStartViaState(nextState)) {
             return true;
@@ -335,12 +326,7 @@ class StateMachine {
         case AcceptAction():
           // Accept state is also a zero-consumption success path.
           return true;
-        case PredicateAction() ||
-            ConjunctionAction() ||
-            ParameterAction() ||
-            ParameterCallAction() ||
-            ParameterPredicateAction() ||
-            RetreatAction():
+        case PredicateAction() || ConjunctionAction() || RetreatAction():
           // Runtime-dependent behavior: treat as possible.
           return true;
       }
@@ -421,68 +407,6 @@ class StateMachine {
   ///   The state marked as the initial state (created with [InitStateKey])
   State get startState => _stateMapping[const InitStateKey()]!;
 
-  /// Generates a chain of states to match a specific [text] string as a parameter.
-  ///
-  /// When a parameter is used in a position that consumes input, the machine
-  /// must synthesize a path that matches the parameter's value. This method
-  /// creates a linear sequence of [ParameterStringAction] transitions that
-  /// ultimately lead to [nextState].
-  State parameterStringEntry(String text, State nextState) {
-    if (text.isEmpty) {
-      return nextState;
-    }
-
-    var key = (text, nextState);
-    if (_parameterStringChains[key] case var state?) {
-      return state;
-    }
-
-    var bytes = utf8.encode(text);
-    var tail = nextState;
-    for (var i = bytes.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(ParamStringStateKey(text, i, nextState));
-      if (state.actions.isEmpty) {
-        state.actions.add(ParameterStringAction(bytes[i], tail));
-      }
-      tail = state;
-    }
-    return _parameterStringChains[key] = tail;
-  }
-
-  /// Generates a chain of states for a parameter-based lookahead predicate.
-  ///
-  /// This is similar to [parameterStringEntry], but the chain ends in a
-  /// [ReturnAction] instead of transitioning to another state. This allows the
-  /// predicate engine to resolve whether a parameter matches a specific string.
-  State parameterPredicateEntry(String text) {
-    // Predicates use the same cached chain idea, but end in a synthetic
-    // return state so lookahead can resume the caller if the predicate matches.
-
-    if (_parameterPredicateChains[text] case var state?) {
-      return state;
-    }
-
-    var terminal = _getOrCreateState(ParamPredicateEndStateKey(text));
-    if (terminal.actions.isEmpty) {
-      terminal.actions.add(ReturnAction(_parameterPredicateRule.symbolId!));
-    }
-
-    if (text.isEmpty) {
-      return terminal;
-    }
-
-    var bytes = utf8.encode(text);
-    var tail = terminal;
-    for (var i = bytes.length - 1; i >= 0; i--) {
-      var state = _getOrCreateState(ParamPredicateStateKey(text, i));
-      if (state.actions.isEmpty) {
-        state.actions.add(ParameterStringAction(bytes[i], tail));
-      }
-      tail = state;
-    }
-    return _parameterPredicateChains[text] = tail;
-  }
-
   /// Connects [state] to the entry point of the given [terminal] pattern.
   ///
   /// This is the core recursive step of the Glushkov construction. It
@@ -521,12 +445,6 @@ class StateMachine {
             state.actions.add(
               PredicateAction(isAnd: true, symbol: rule.symbolId!, nextState: nextState),
             );
-          case ParameterRefPattern(:var name):
-            // Parameter lookahead is resolved from the current caller
-            // arguments, which lets `&param` inspect dynamic parser data.
-            state.actions.add(
-              ParameterPredicateAction(isAnd: true, name: name, nextState: nextState),
-            );
           default:
             throw UnsupportedError("Invalid pattern type for predicate action");
         }
@@ -538,12 +456,6 @@ class StateMachine {
             state.actions.add(
               PredicateAction(isAnd: false, symbol: rule.symbolId!, nextState: nextState),
             );
-          case ParameterRefPattern(:var name):
-            // Negative parameter predicates use the same runtime resolution
-            // path, but only resume when the value does *not* match.
-            state.actions.add(
-              ParameterPredicateAction(isAnd: false, name: name, nextState: nextState),
-            );
           default:
             throw UnsupportedError("Invalid pattern type for predicate action");
         }
@@ -551,20 +463,11 @@ class StateMachine {
         if (currentRule != null &&
             minPrecedenceLevel == null &&
             (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
-          var action = TailCallAction(
-            terminal.rule.symbolId!,
-            terminal.arguments,
-            minPrecedenceLevel,
-          );
+          var action = TailCallAction(terminal.rule.symbolId!, minPrecedenceLevel);
           state.actions.add(action);
         } else {
           var returnState = _getOrCreateState(PatternStateKey(terminal));
-          var action = CallAction(
-            terminal.rule.symbolId!,
-            terminal.arguments,
-            returnState,
-            minPrecedenceLevel,
-          );
+          var action = CallAction(terminal.rule.symbolId!, returnState, minPrecedenceLevel);
           state.actions.add(action);
         }
       case LabelStart():
@@ -575,19 +478,6 @@ class StateMachine {
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = LabelEndAction(terminal.name, nextState);
         state.actions.add(action);
-      case ParameterRefPattern():
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = ParameterAction(terminal.name, nextState);
-        state.actions.add(action);
-      case ParameterCallPattern():
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        var action = ParameterCallAction(
-          terminal.name,
-          terminal.arguments,
-          nextState,
-          terminal.minPrecedenceLevel,
-        );
-        state.actions.add(action);
       case Retreat():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = RetreatAction(nextState);
@@ -595,16 +485,7 @@ class StateMachine {
       case Eps():
         // Epsilon doesn't create transitions
         break;
-      case IfCond() ||
-          Action() ||
-          Alt() ||
-          Seq() ||
-          Rule() ||
-          Prec() ||
-          Label() ||
-          Opt() ||
-          Plus() ||
-          Star():
+      case Alt() || Seq() || Rule() || Prec() || Label() || Opt() || Plus() || Star():
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError("Unexpected pattern type in _connect: ${terminal.runtimeType}");
     }
@@ -652,8 +533,6 @@ class StateMachine {
     } else if (pattern is Seq) {
       _buildPrecedenceMap(pattern.left, current, map);
       _buildPrecedenceMap(pattern.right, current, map);
-    } else if (pattern is Action) {
-      _buildPrecedenceMap(pattern.child, current, map);
     } else if (pattern is Label) {
       _buildPrecedenceMap(pattern.child, current, map);
       map[pattern] = current;
@@ -745,10 +624,7 @@ class StateMachine {
     var last = _stripTransparent(recursiveParts.last);
     // Only direct right-tail self calls qualify.
     // Left recursion and precedence-constrained calls are intentionally excluded.
-    if (last is! RuleCall ||
-        !identical(last.rule, rule) ||
-        last.minPrecedenceLevel != null ||
-        last.arguments.isNotEmpty) {
+    if (last is! RuleCall || !identical(last.rule, rule) || last.minPrecedenceLevel != null) {
       return const <RuleCall>{};
     }
 
@@ -824,7 +700,7 @@ class StateMachine {
 
   /// Strip transparent wrappers from a pattern.
   ///
-  /// Transparent wrappers ([Action], [Prec]) don't affect the parsing structure,
+  /// Transparent wrappers ([Prec]) don't affect the parsing structure,
   /// so this unwraps them to get to the underlying pattern for analysis.
   ///
   /// Parameters:
@@ -836,8 +712,6 @@ class StateMachine {
     Pattern current = pattern;
     while (true) {
       switch (current) {
-        case Action(:var child):
-          current = child;
         case Prec(:var child):
           current = child;
         default:
@@ -917,17 +791,11 @@ class StateMachine {
       Rule() ||
       RuleCall() ||
       Retreat() => true,
-      ParameterRefPattern() => false,
-      ParameterCallPattern() => false,
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       And() || Not() => false,
-      IfCond(:var pattern) => _isDefinitelyNonEmpty(pattern),
-      Action(:var child) ||
-      Prec(:var child) ||
-      Plus(:var child) ||
-      Label(:var child) => _isDefinitelyNonEmpty(child),
+      Prec(:var child) || Plus(:var child) || Label(:var child) => _isDefinitelyNonEmpty(child),
     };
   }
 }
@@ -1096,32 +964,6 @@ String _toDot(StateMachine machine) {
       else if (action is LabelEndAction) {
         var toStateId = "S${action.nextState.id}";
         buffer.writeln('  "$fromStateId" -> "$toStateId" [label="label end ${action.name}"];');
-      }
-      // ParameterAction: consume a parameter value
-      else if (action is ParameterAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param ${action.name}"];');
-      }
-      // ParameterCallAction: call a parameterized rule
-      else if (action is ParameterCallAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="param call ${_dotEscape(action.arguments.toString())}"];',
-        );
-      }
-      // ParameterStringAction: match one character from a parameter string
-      else if (action is ParameterStringAction) {
-        var toStateId = "S${action.nextState.id}";
-        var char = String.fromCharCode(action.codeUnit);
-        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="param str ${_dotEscape(char)}"];');
-      }
-      // ParameterPredicateAction: predicate check on a parameter
-      else if (action is ParameterPredicateAction) {
-        var toStateId = "S${action.nextState.id}";
-        var pred = action.isAnd ? "&" : "!";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="param pred $pred${action.name}"];',
-        );
       }
       // PredicateAction: lookahead assertion (AND or NOT)
       else if (action is PredicateAction) {

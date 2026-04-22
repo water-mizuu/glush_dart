@@ -36,45 +36,19 @@ void main() {
     late Rule factor;
 
     expr = Rule("expr", () {
-      return (expr() >> Pattern.char("+") >> term()).withAction((span, results) {
-            if (results case [[num l, "+"], num r]) {
-              return l + r;
-            }
-            throw Exception(results);
-          }) |
-          (expr() >> Pattern.char("-") >> term()).withAction((span, results) {
-            if (results case [[num l, "-"], num r]) {
-              return l - r;
-            }
-            throw Exception(results);
-          }) |
+      return (expr() >> Pattern.char("+") >> term()) |
+          (expr() >> Pattern.char("-") >> term()) |
           term();
     });
 
     term = Rule("term", () {
-      return (term() >> Pattern.char("*") >> factor()).withAction((span, results) {
-            if (results case [[num l, "*"], num r]) {
-              return l * r;
-            }
-            throw Exception(results);
-          }) |
-          (term() >> Pattern.char("/") >> factor()).withAction((span, results) {
-            if (results case [[num l, "/"], num r]) {
-              return l / r;
-            }
-            throw Exception(results);
-          }) |
+      return (term() >> Pattern.char("*") >> factor()) |
+          (term() >> Pattern.char("/") >> factor()) |
           factor();
     });
 
     factor = Rule("factor", () {
-      return (Pattern.char("(") >> expr() >> Pattern.char(")")).withAction((span, results) {
-            if (results case [["(", num middle], ")"]) {
-              return middle;
-            }
-            throw Exception(results);
-          }) |
-          Token.charRange("0", "9").plus().withAction((span, results) => num.parse(span));
+      return (Pattern.char("(") >> expr() >> Pattern.char(")")) | Token.charRange("0", "9").plus();
     });
 
     return expr;

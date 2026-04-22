@@ -27,83 +27,11 @@ class RuleDefinition {
   }
 }
 
-/// The base interface for any value that can be passed as a rule argument.
-///
-/// This includes both structural [PatternExpr] nodes and data-centric guard
-/// expressions (literals, comparisons, etc.).
-sealed class CallArgumentValueNode {}
-
 /// The base interface for all parsing expressions in the grammar AST.
 ///
 /// A [PatternExpr] defines a part of the grammar's structural specification,
 /// such as sequences, alternations, repetitions, or literals.
-sealed class PatternExpr implements CallArgumentValueNode {}
-
-/// Unary expression used in call arguments and guards.
-class ExpressionUnaryNode implements CallArgumentValueNode {
-  const ExpressionUnaryNode(this.operator, this.operand);
-  final ExpressionUnaryOperator operator;
-  final CallArgumentValueNode operand;
-
-  @override
-  String toString() => "${operator.symbol}$operand";
-}
-
-/// Binary expression used in call arguments and guards.
-class ExpressionBinaryNode implements CallArgumentValueNode {
-  const ExpressionBinaryNode(this.left, this.operator, this.right);
-  final CallArgumentValueNode left;
-  final ExpressionBinaryOperator operator;
-  final CallArgumentValueNode right;
-
-  @override
-  String toString() => "$left ${operator.symbol} $right";
-}
-
-class ExpressionGroupNode implements CallArgumentValueNode {
-  const ExpressionGroupNode(this.inner);
-  final CallArgumentValueNode inner;
-
-  @override
-  String toString() => "($inner)";
-}
-
-/// Postfix member access used in call arguments and guards.
-class ExpressionMemberNode implements CallArgumentValueNode {
-  const ExpressionMemberNode(this.target, this.member);
-  final CallArgumentValueNode target;
-  final String member;
-
-  @override
-  String toString() => "$target.$member";
-}
-
-enum ExpressionUnaryOperator {
-  logicalNot("!"),
-  negate("-");
-
-  const ExpressionUnaryOperator(this.symbol);
-  final String symbol;
-}
-
-enum ExpressionBinaryOperator {
-  add("+"),
-  subtract("-"),
-  multiply("*"),
-  divide("/"),
-  modulo("%"),
-  logicalAnd("&&"),
-  logicalOr("||"),
-  equals("=="),
-  notEquals("!="),
-  lessThan("<"),
-  lessOrEqual("<="),
-  greaterThan(">"),
-  greaterOrEqual(">=");
-
-  const ExpressionBinaryOperator(this.symbol);
-  final String symbol;
-}
+sealed class PatternExpr {}
 
 /// A pattern that matches a literal string or character.
 ///
@@ -196,17 +124,13 @@ class MainMarkPattern implements PatternExpr {
 /// A pattern that invokes another rule by name.
 ///
 /// Rule references allow for modular and recursive grammar definitions. They
-/// can include [arguments] for parameterized rules and a [precedenceConstraint]
-/// for precedence climbing (e.g., `expr^2`).
+/// a [precedenceConstraint] for precedence climbing (e.g., `expr^2`).
 class RuleRefPattern implements PatternExpr {
   /// Creates a reference to [ruleName].
-  const RuleRefPattern(this.ruleName, {this.arguments = const [], this.precedenceConstraint});
+  const RuleRefPattern(this.ruleName, {this.precedenceConstraint});
 
   /// The name of the rule being invoked.
   final String ruleName;
-
-  /// The arguments provided to the called rule.
-  final List<CallArgumentNode> arguments;
 
   /// The minimum precedence level required for this call to match.
   final int? precedenceConstraint;
@@ -214,23 +138,11 @@ class RuleRefPattern implements PatternExpr {
   @override
   String toString() {
     String base = ruleName;
-    if (arguments.isNotEmpty) {
-      base += "(${arguments.join(', ')})";
-    }
     if (precedenceConstraint != null) {
       return "$base^$precedenceConstraint";
     }
     return base;
   }
-}
-
-class CallArgumentNode {
-  const CallArgumentNode(this.value, {this.name});
-  final String? name;
-  final CallArgumentValueNode value;
-
-  @override
-  String toString() => name == null ? "$value" : "$name: $value";
 }
 
 /// A pattern that matches multiple sub-patterns in sequence.
@@ -388,52 +300,6 @@ class LabeledPattern implements PatternExpr {
   String toString() => "$label:$inner";
 }
 
-/// Guarded sequence prefix (e.g., `if (count > 2) expr`)
-class IfPattern implements PatternExpr {
-  const IfPattern(this.guard, this.inner);
-  final CallArgumentValueNode guard;
-  final PatternExpr inner;
-
-  @override
-  String toString() => "if ($guard) $inner";
-}
-
-/// Base class for guard values used inside comparisons.
-sealed class GuardValueNode implements CallArgumentValueNode {}
-
-class GuardBoolLiteralNode implements GuardValueNode {
-  // ignore: avoid_positional_boolean_parameters
-  const GuardBoolLiteralNode(this.value);
-  final bool value;
-
-  @override
-  String toString() => "$value";
-}
-
-class GuardNumberLiteralNode implements GuardValueNode {
-  const GuardNumberLiteralNode(this.value);
-  final num value;
-
-  @override
-  String toString() => "$value";
-}
-
-class GuardStringLiteralNode implements GuardValueNode {
-  const GuardStringLiteralNode(this.value);
-  final String value;
-
-  @override
-  String toString() => '"$value"';
-}
-
-class GuardNameNode implements GuardValueNode {
-  const GuardNameNode(this.name);
-  final String name;
-
-  @override
-  String toString() => name;
-}
-
 /// Pattern wrapped with a precedence level (e.g., "6 | pattern")
 /// The precedence level determines how this alternative is prioritized in parsing
 class PrecedenceExpr implements PatternExpr {
@@ -445,33 +311,19 @@ class PrecedenceExpr implements PatternExpr {
   String toString() => "$level:$pattern";
 }
 
-/// Semantic action placeholder
-class ActionExpr {
-  // Dart code snippet
-
-  const ActionExpr(this.code);
-  final String code;
-
-  @override
-  String toString() => "{$code}";
-}
-
 /// The top-level container for a compiled grammar file.
 ///
 /// A [GrammarFile] represents the entire content of a `.glush` file, including
-/// its [name], the list of [rules] it defines, and any top-level [actions].
+/// its [name], and the list of [rules] it defines.
 class GrammarFile {
   /// Creates a grammar file container.
-  const GrammarFile({required this.name, required this.rules, this.actions = const {}});
+  const GrammarFile({required this.name, required this.rules});
 
   /// The logical name of the grammar.
   final String name;
 
   /// The complete list of rule definitions in the file.
   final List<RuleDefinition> rules;
-
-  /// Semantic actions indexed by their associated rule or pattern name.
-  final Map<String, List<ActionExpr>> actions;
 
   /// Searches for a rule with the specified [name].
   RuleDefinition? findRule(String name) {

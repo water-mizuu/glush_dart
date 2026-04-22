@@ -1,6 +1,5 @@
 import "package:glush/glush.dart" show Caller, Mark, NamedMarkVal;
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/parser/common/context.dart" show Context;
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
@@ -117,101 +116,6 @@ final class LabelEndAction implements StateAction {
   final State nextState;
 }
 
-/// An action that resolves a dynamic parameter and branches accordingly.
-///
-/// Parameters in `glush_dart` allow rules to be customized at runtime. This
-/// action looks up the value of [name] in the current [Context] and performs
-/// a transition based on that value (e.g., matching a string or calling a
-/// rule).
-final class ParameterAction implements StateAction {
-  /// Creates an action to resolve the parameter [name].
-  const ParameterAction(this.name, this.nextState);
-
-  /// The name of the parameter to resolve.
-  final String name;
-
-  /// The state to transition to after the parameter is resolved and processed.
-  final State nextState;
-
-  @override
-  String toString() => "Parameter($name)";
-}
-
-/// An action that invokes a parameterized rule.
-///
-/// This is used when a parameter itself is a rule reference or a rule call. It
-/// merges the call-site arguments with the parameter's own environment to
-/// perform a dynamic dispatch to the target rule.
-final class ParameterCallAction implements StateAction {
-  /// Creates a dynamic call action via [targetParameter].
-  const ParameterCallAction(
-    this.targetParameter,
-    this.arguments,
-    this.nextState,
-    this.minPrecedenceLevel,
-  );
-
-  /// The name of the parameter that holds the rule or rule call.
-  final String targetParameter;
-
-  /// The arguments to be bound in the called rule's context.
-  final Map<String, CallArgumentValue> arguments;
-
-  /// The state to return to after the dynamic call completes.
-  final State nextState;
-
-  /// A precedence constraint to apply to the called rule.
-  final int? minPrecedenceLevel;
-
-  @override
-  String toString() => "ParameterCall($targetParameter)";
-}
-
-/// Action to consume one character from a parameter string.
-final class ParameterStringAction implements StateAction {
-  /// Create a parameter string action.
-  ///
-  /// Parameters:
-  ///   [codeUnit] - The character code to consume
-  ///   [nextState] - The state to transition to after consuming
-  const ParameterStringAction(this.codeUnit, this.nextState);
-
-  /// The Unicode code unit to match.
-  final int codeUnit;
-
-  /// The next state after this transition.
-  final State nextState;
-
-  @override
-  String toString() => "ParameterString(${String.fromCharCode(codeUnit)})";
-}
-
-/// An action that performs a lookahead assertion on a parameter's value.
-///
-/// This is the state-machine representation of `&($param)` or `!($param)`. It
-/// initiates a sub-parse that resolves the parameter and checks if it matches
-/// the expected condition without consuming input in the main parse path.
-final class ParameterPredicateAction implements StateAction {
-  /// Creates a parameter lookahead assertion.
-  const ParameterPredicateAction({
-    required this.isAnd,
-    required this.name,
-    required this.nextState,
-  });
-
-  /// True for a positive lookahead (`&`), false for a negative lookahead (`!`).
-  final bool isAnd;
-
-  /// The name of the parameter being asserted.
-  final String name;
-
-  /// The state to transition to if the lookahead assertion succeeds.
-  final State nextState;
-
-  @override
-  String toString() => isAnd ? "ParameterPredicate(&$name)" : "ParameterPredicate(!$name)";
-}
-
 /// An action that invokes a grammar rule.
 ///
 /// This is the fundamental mechanism for modularity in the grammar. It manages
@@ -219,13 +123,10 @@ final class ParameterPredicateAction implements StateAction {
 /// establishes a return point ([returnState]) for when the rule completes.
 final class CallAction implements StateAction {
   /// Creates a rule call action.
-  const CallAction(this.ruleSymbol, this.arguments, this.returnState, [this.minPrecedenceLevel]);
+  const CallAction(this.ruleSymbol, this.returnState, [this.minPrecedenceLevel]);
 
   /// The unique symbol of the rule to be invoked.
   final PatternSymbol ruleSymbol;
-
-  /// The arguments to bind in the called rule's context.
-  final Map<String, CallArgumentValue> arguments;
 
   /// The state to transition to once the rule successfully returns.
   final State returnState;
@@ -247,13 +148,10 @@ final class CallAction implements StateAction {
 /// the current GSS frame instead of allocating a new one.
 final class TailCallAction implements StateAction {
   /// Creates a tail-recursive call action.
-  const TailCallAction(this.ruleSymbol, this.arguments, [this.minPrecedenceLevel]);
+  const TailCallAction(this.ruleSymbol, [this.minPrecedenceLevel]);
 
   /// The symbol of the rule to be invoked via tail-call.
   final PatternSymbol ruleSymbol;
-
-  /// The arguments to bind in the recursive call's context.
-  final Map<String, CallArgumentValue> arguments;
 
   /// An optional precedence constraint for precedence climbing.
   final int? minPrecedenceLevel;

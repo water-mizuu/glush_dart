@@ -550,7 +550,6 @@ class GrammarFileParser {
 
   /// Parse: expr expr expr
   PatternExpr _parseSequence() {
-    var guard = _tryParseGuardPrefix();
     var startingMark = _tryParseMainMark();
 
     var parts = [_parseConjunction()];
@@ -576,311 +575,7 @@ class GrammarFileParser {
       result = MainMarkPattern(startingMark.name, result);
     }
 
-    if (guard != null) {
-      result = IfPattern(guard, result);
-    }
-
     return result;
-  }
-
-  CallArgumentValueNode? _tryParseGuardPrefix() {
-    if (_peek().type != _TokenType.identifier || _peek().value != "if") {
-      return null;
-    }
-    if (tokenIndex + 1 >= _tokens.length || _tokens[tokenIndex + 1].type != _TokenType.lparen) {
-      return null;
-    }
-
-    _advance(); // consume if
-    _advance(); // consume (
-    var guard = _parseExpression();
-    if (_peek().type != _TokenType.rparen) {
-      throw GrammarFileParseError(
-        'Expected ")" after if guard',
-        line: _peek().line,
-        column: _peek().column,
-      );
-    }
-    _advance(); // consume )
-    return guard;
-  }
-
-  CallArgumentValueNode _parseExpression() => _parseLogicalOr();
-
-  CallArgumentValueNode _parseLogicalOr() {
-    var expr = _parseLogicalAnd();
-    while (_peek().type == _TokenType.doublePipe) {
-      _advance();
-      expr = ExpressionBinaryNode(expr, ExpressionBinaryOperator.logicalOr, _parseLogicalAnd());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseLogicalAnd() {
-    var expr = _parseEquality();
-    while (_peek().type == _TokenType.doubleAmpersand) {
-      _advance();
-      expr = ExpressionBinaryNode(expr, ExpressionBinaryOperator.logicalAnd, _parseEquality());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseEquality() {
-    var expr = _parseComparison();
-    while (_peek().type == _TokenType.equalEqual || _peek().type == _TokenType.bangEqual) {
-      var operator = switch (_advance().type) {
-        _TokenType.equalEqual => ExpressionBinaryOperator.equals,
-        _TokenType.bangEqual => ExpressionBinaryOperator.notEquals,
-        _ => throw StateError("Unexpected equality operator"),
-      };
-      expr = ExpressionBinaryNode(expr, operator, _parseComparison());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseComparison() {
-    var expr = _parseAdditive();
-    while (true) {
-      var operator = switch (_peek().type) {
-        _TokenType.lesser => ExpressionBinaryOperator.lessThan,
-        _TokenType.lesserEqual => ExpressionBinaryOperator.lessOrEqual,
-        _TokenType.greater => ExpressionBinaryOperator.greaterThan,
-        _TokenType.greaterEqual => ExpressionBinaryOperator.greaterOrEqual,
-        _ => null,
-      };
-      if (operator == null) {
-        break;
-      }
-      _advance();
-      expr = ExpressionBinaryNode(expr, operator, _parseAdditive());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseAdditive() {
-    var expr = _parseMultiplicative();
-    while (_peek().type == _TokenType.plus || _peek().type == _TokenType.minus) {
-      var operator = switch (_advance().type) {
-        _TokenType.plus => ExpressionBinaryOperator.add,
-        _TokenType.minus => ExpressionBinaryOperator.subtract,
-        _ => throw StateError("Unexpected additive operator"),
-      };
-      expr = ExpressionBinaryNode(expr, operator, _parseMultiplicative());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseMultiplicative() {
-    var expr = _parseUnary();
-    while (_peek().type == _TokenType.star ||
-        _peek().type == _TokenType.slash ||
-        _peek().type == _TokenType.percent) {
-      var operator = switch (_advance().type) {
-        _TokenType.star => ExpressionBinaryOperator.multiply,
-        _TokenType.slash => ExpressionBinaryOperator.divide,
-        _TokenType.percent => ExpressionBinaryOperator.modulo,
-        _ => throw StateError("Unexpected multiplicative operator"),
-      };
-      expr = ExpressionBinaryNode(expr, operator, _parseUnary());
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseUnary() {
-    if (_peek().type == _TokenType.bang) {
-      _advance();
-      return ExpressionUnaryNode(ExpressionUnaryOperator.logicalNot, _parseUnary());
-    }
-
-    if (_peek().type case _TokenType.minus) {
-      _advance();
-      return ExpressionUnaryNode(ExpressionUnaryOperator.negate, _parseUnary());
-    }
-
-    return _parsePostfix();
-  }
-
-  CallArgumentValueNode _parsePostfix() {
-    var expr = _parseExpressionPrimary();
-    while (_peek().type == _TokenType.dot) {
-      var dot = _peek();
-      if (tokenIndex + 1 >= _tokens.length ||
-          _tokens[tokenIndex + 1].type != _TokenType.identifier) {
-        throw GrammarFileParseError(
-          'Expected member name after "."',
-          line: dot.line,
-          column: dot.column,
-        );
-      }
-      _advance(); // consume .
-      var member = _advance().value;
-      expr = ExpressionMemberNode(expr, member);
-    }
-    return expr;
-  }
-
-  CallArgumentValueNode _parseExpressionPrimary() {
-    var type = _peek().type;
-
-    if (type == _TokenType.literal) {
-      var literal = _advance().value;
-      return GuardStringLiteralNode(literal);
-    }
-
-    if (type == _TokenType.charRange) {
-      var token = _peek();
-      _advance();
-      var ranges = _parseCharRanges(token.value, line: token.line, column: token.column);
-      return CharRangePattern(ranges);
-    }
-
-    if (type == _TokenType.backslashLiteral) {
-      var char = _advance().value;
-      return BackslashLiteralPattern(char);
-    }
-
-    if (type == _TokenType.dollar) {
-      _advance(); // consume $
-      if (_peek().type != _TokenType.identifier) {
-        return const EofPattern();
-      }
-      var markName = _advance().value;
-      return MarkerPattern(markName);
-    }
-
-    if (type == _TokenType.caret) {
-      _advance();
-      return const StartPattern();
-    }
-
-    if (type == _TokenType.identifier) {
-      var id = _advance().value;
-
-      if (id == "true" || id == "false") {
-        return GuardBoolLiteralNode(id == "true");
-      }
-
-      var number = num.tryParse(id);
-      if (number != null) {
-        return GuardNumberLiteralNode(number);
-      }
-
-      if (_peek().type == _TokenType.colon) {
-        _advance(); // consume :
-        var inner = _parseExpressionPrimary();
-        if (inner is! PatternExpr) {
-          throw GrammarFileParseError(
-            "Expected pattern after label '$id'",
-            line: _peek().line,
-            column: _peek().column,
-          );
-        }
-        return LabeledPattern(id, inner);
-      }
-
-      if (_peek().type == _TokenType.lparen) {
-        var callStartIndex = tokenIndex;
-        List<CallArgumentNode> arguments;
-        try {
-          arguments = _parseCallArgumentList();
-        } on GrammarFileParseError {
-          tokenIndex = callStartIndex;
-          arguments = const [];
-        }
-        return RuleRefPattern(id, arguments: arguments);
-      }
-
-      return GuardNameNode(id);
-    }
-
-    if (type == _TokenType.lesser) {
-      _advance();
-      var codePoint = int.tryParse(_peek().value);
-      if (codePoint == null) {
-        throw GrammarFileParseError(
-          'Expected integer after "<"',
-          line: _peek().line,
-          column: _peek().column,
-        );
-      }
-      _advance();
-      return LessThanPattern(codePoint);
-    }
-
-    if (type == _TokenType.greater) {
-      _advance();
-      var codePoint = int.tryParse(_peek().value);
-      if (codePoint == null) {
-        throw GrammarFileParseError(
-          'Expected integer after ">"',
-          line: _peek().line,
-          column: _peek().column,
-        );
-      }
-      _advance();
-      return GreaterThanPattern(codePoint);
-    }
-
-    if (type == _TokenType.lparen) {
-      _advance();
-      var pattern = _parseExpression();
-      if (_peek().type != _TokenType.rparen) {
-        throw GrammarFileParseError('Expected ")"', line: _peek().line, column: _peek().column);
-      }
-      _advance();
-      return ExpressionGroupNode(pattern);
-    }
-
-    throw GrammarFileParseError(
-      "Unexpected token in expression: ${_peek().value}",
-      line: _peek().line,
-      column: _peek().column,
-    );
-  }
-
-  List<CallArgumentNode> _parseCallArgumentList() {
-    _advance(); // consume (
-    var arguments = <CallArgumentNode>[];
-
-    if (_peek().type == _TokenType.rparen) {
-      _advance();
-      return arguments;
-    }
-
-    while (true) {
-      String? name;
-      if (_peek().type == _TokenType.identifier &&
-          tokenIndex + 1 < _tokens.length &&
-          _tokens[tokenIndex + 1].type == _TokenType.colon) {
-        name = _advance().value;
-        _advance(); // consume :
-      }
-
-      var value = _parseExpression();
-      arguments.add(CallArgumentNode(value, name: name));
-
-      if (_peek().type == _TokenType.comma) {
-        _advance();
-        if (_peek().type == _TokenType.rparen) {
-          _advance();
-          break;
-        }
-        continue;
-      }
-
-      if (_peek().type == _TokenType.rparen) {
-        _advance();
-        break;
-      }
-
-      throw GrammarFileParseError(
-        'Expected "," or ")" after call argument',
-        line: _peek().line,
-        column: _peek().column,
-      );
-    }
-
-    return arguments;
   }
 
   MarkerPattern? _tryParseMainMark() {
@@ -1035,7 +730,6 @@ class GrammarFileParser {
     }
 
     if (type == _TokenType.identifier) {
-      var token = _peek();
       var id = _advance().value;
 
       // Check for label: name:pattern
@@ -1046,19 +740,7 @@ class GrammarFileParser {
       }
 
       var ruleName = id;
-      var arguments = <CallArgumentNode>[];
       int? precedenceConstraint;
-
-      if (_peek().type == _TokenType.lparen && _looksLikeCallInvocationAhead(idToken: token)) {
-        var callStartIndex = tokenIndex;
-        try {
-          arguments = _parseCallArgumentList();
-        } on GrammarFileParseError {
-          tokenIndex = callStartIndex;
-          arguments = const [];
-        }
-      }
-
       // Optional precedence constraint like expr^2
       if (_peek().type == _TokenType.caret) {
         _advance(); // consume ^
@@ -1071,11 +753,7 @@ class GrammarFileParser {
         }
       }
 
-      return RuleRefPattern(
-        ruleName,
-        arguments: arguments,
-        precedenceConstraint: precedenceConstraint,
-      );
+      return RuleRefPattern(ruleName, precedenceConstraint: precedenceConstraint);
     }
 
     if (type == _TokenType.lesser) {
@@ -1109,37 +787,6 @@ class GrammarFileParser {
     if (type == _TokenType.lparen) {
       _advance(); // consume (
 
-      // Check for inline guard syntax: (if (expr) pattern)
-      if (_peek().type == _TokenType.identifier && _peek().value == "if") {
-        if (tokenIndex + 1 < _tokens.length && _tokens[tokenIndex + 1].type == _TokenType.lparen) {
-          _advance(); // consume if
-          _advance(); // consume (
-          var guard = _parseExpression();
-          if (_peek().type != _TokenType.rparen) {
-            throw GrammarFileParseError(
-              'Expected ")" after inline guard condition',
-              line: _peek().line,
-              column: _peek().column,
-            );
-          }
-          _advance(); // consume )
-
-          // Parse the pattern that the guard protects
-          var pattern = _parseSequence();
-
-          if (_peek().type != _TokenType.rparen) {
-            throw GrammarFileParseError(
-              'Expected ")" to close inline guard pattern',
-              line: _peek().line,
-              column: _peek().column,
-            );
-          }
-          _advance(); // consume final )
-
-          return IfPattern(guard, pattern);
-        }
-      }
-
       // Regular grouped pattern: (pattern)
       var pattern = _parsePattern();
       if (_peek().type != _TokenType.rparen) {
@@ -1154,21 +801,6 @@ class GrammarFileParser {
       line: _peek().line,
       column: _peek().column,
     );
-  }
-
-  bool _looksLikeCallInvocationAhead({required _Token idToken}) {
-    if (_peek().type != _TokenType.lparen) {
-      return false;
-    }
-
-    var lparen = _peek();
-    if (lparen.line != idToken.line) {
-      return false;
-    }
-
-    // Calls are written as `name(...)` without intervening whitespace.
-    // Grouped patterns can still use whitespace, e.g. `name (pattern)`.
-    return lparen.column == idToken.column + idToken.value.length;
   }
 
   List<CharRange> _parseCharRanges(String rangeStr, {required int line, required int column}) {

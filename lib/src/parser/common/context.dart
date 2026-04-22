@@ -1,7 +1,6 @@
 /// Core parser utilities and data structures for the Glush Dart parser.
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/parser/common/label_capture.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
@@ -15,8 +14,6 @@ import "package:meta/meta.dart";
 ///
 /// Each context is immutable and includes:
 /// - The GSS [caller] stack node.
-/// - Resolved [arguments] for the current rule.
-/// - Active [captures] from labeled patterns.
 /// - The [predicateStack] for nested lookahead predicates.
 /// - Precedence constraints ([minPrecedenceLevel], [precedenceLevel]).
 @immutable
@@ -24,10 +21,7 @@ class Context {
   /// Creates a [Context] with the given configuration.
   Context(
     CallerKey caller, {
-    Map<String, Object?> arguments = const <String, Object?>{},
-    CaptureBindings captures = const CaptureBindings.empty(),
     GlushList<PredicateCallerKey> predicateStack = const GlushList<PredicateCallerKey>.empty(),
-    GlushList<LabelStartVal> openLabels = const GlushList<LabelStartVal>.empty(),
     int callStart = 0,
     int position = 0,
     int? minPrecedenceLevel,
@@ -40,15 +34,9 @@ class Context {
            position,
            minPrecedenceLevel,
            precedenceLevel,
-           captures,
            predicateStack,
-           openLabels,
-           _mapHashCode(arguments),
          ),
-         isSimple:
-             predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty && openLabels.isEmpty,
-         arguments: arguments,
-         captures: captures,
+         isSimple: predicateStack.isEmpty,
          predicateStack: predicateStack,
          callStart: callStart,
          position: position,
@@ -60,8 +48,6 @@ class Context {
     this.caller,
     this._hash, {
     required this.isSimple,
-    this.arguments = const <String, Object?>{},
-    this.captures = const CaptureBindings.empty(),
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
     this.callStart = 0,
     this.position = 0,
@@ -79,12 +65,6 @@ class Context {
 
   /// The Graph-Shared Stack (GSS) node representing the call hierarchy.
   final CallerKey caller;
-
-  /// The resolved argument values for the current rule parameters.
-  final Map<String, Object?> arguments;
-
-  /// Current variable bindings captured via structural labels.
-  final CaptureBindings captures;
 
   /// The stack of lookahead predicates currently being evaluated.
   ///
@@ -111,8 +91,6 @@ class Context {
   /// Creates a copy of this context with the specified fields updated.
   Context copyWith({
     CallerKey? caller,
-    Map<String, Object?>? arguments,
-    CaptureBindings? captures,
     GlushList<PredicateCallerKey>? predicateStack,
     int? callStart,
     int? position,
@@ -121,8 +99,6 @@ class Context {
   }) {
     return Context(
       caller ?? this.caller,
-      arguments: arguments ?? this.arguments,
-      captures: captures ?? this.captures,
       predicateStack: predicateStack ?? this.predicateStack,
       callStart: callStart ?? this.callStart,
       position: position ?? this.position,
@@ -141,8 +117,6 @@ class Context {
     }
     return Context(
       caller,
-      arguments: arguments,
-      captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
       position: newPosition,
@@ -158,9 +132,6 @@ class Context {
     }
     return Context(
       nextCaller,
-      arguments:
-          arguments ?? (nextCaller is Caller ? nextCaller.arguments : const <String, Object?>{}),
-      captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
       position: position,
@@ -179,37 +150,10 @@ class Context {
           position == other.position &&
           minPrecedenceLevel == other.minPrecedenceLevel &&
           precedenceLevel == other.precedenceLevel &&
-          captures == other.captures &&
-          predicateStack == other.predicateStack &&
-          _mapEquals(arguments, other.arguments);
-
-  static bool _mapEquals(Map<Object?, Object?>? a, Map<Object?, Object?>? b) {
-    if (identical(a, b)) {
-      return true;
-    }
-    if (a == null || b == null) {
-      return false;
-    }
-    if (a.length != b.length) {
-      return false;
-    }
-    for (var key in a.keys) {
-      if (!b.containsKey(key) || b[key] != a[key]) {
-        return false;
-      }
-    }
-    return true;
-  }
+          predicateStack == other.predicateStack;
 
   @override
   int get hashCode => _hash;
-
-  static int? _mapHashCode(Map<Object?, Object?>? m) {
-    if (m == null || m.isEmpty) {
-      return null;
-    }
-    return Object.hashAll(m.keys.cast<Object?>().followedBy(m.values));
-  }
 }
 
 /// A grouping of frames that have arrived at the same [state] and [context].

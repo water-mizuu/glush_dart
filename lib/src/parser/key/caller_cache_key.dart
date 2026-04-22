@@ -7,24 +7,12 @@ import "package:meta/meta.dart";
 
 @immutable
 final class CallerCacheKey {
-  CallerCacheKey(
-    this.rule,
-    this.startPosition,
-    this.minPrecedenceLevel,
-    this.callArgumentsKey,
-    this.predicateStack,
-  ) : _hash = Object.hash(
-        rule,
-        startPosition,
-        minPrecedenceLevel,
-        callArgumentsKey,
-        predicateStack,
-      );
+  CallerCacheKey(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack)
+    : _hash = Object.hash(rule, startPosition, minPrecedenceLevel, predicateStack);
 
   final Rule rule;
   final int startPosition;
   final int? minPrecedenceLevel;
-  final CallArgumentsKey callArgumentsKey;
   final GlushList<PredicateCallerKey> predicateStack;
   final int _hash;
 
@@ -36,7 +24,6 @@ final class CallerCacheKey {
           rule == other.rule &&
           startPosition == other.startPosition &&
           minPrecedenceLevel == other.minPrecedenceLevel &&
-          callArgumentsKey == other.callArgumentsKey &&
           predicateStack == other.predicateStack;
 
   @override

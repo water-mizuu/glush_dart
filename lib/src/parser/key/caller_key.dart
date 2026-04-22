@@ -112,18 +112,10 @@ final class ConjunctionCallerKey extends CallerKey {
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 // ignore: must_be_immutable
 class Caller extends CallerKey {
-  Caller(
-    this.rule,
-    this.startPosition,
-    this.minPrecedenceLevel,
-    this.arguments,
-    this.predicateStack,
-    this.uid,
-  );
+  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid);
 
   final Rule rule;
   final int? minPrecedenceLevel;
-  final Map<String, Object?> arguments;
   final GlushList<PredicateCallerKey> predicateStack;
 
   @override
@@ -152,10 +144,9 @@ class Caller extends CallerKey {
 
   @override
   String toString() {
-    var args = arguments.isEmpty ? "" : " args:$arguments";
     var prec = minPrecedenceLevel == null ? "" : " prec:$minPrecedenceLevel";
     var stack = predicateStack.isEmpty ? "" : " stack:$predicateStack";
-    return "rule(${rule.name.symbol} @ $startPosition$args$prec$stack)";
+    return "rule(${rule.name.symbol} @ $startPosition$prec$stack)";
   }
 
   bool addWaiter(

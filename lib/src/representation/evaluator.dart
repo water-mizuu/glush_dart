@@ -4,7 +4,6 @@ import "dart:math";
 
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:meta/meta.dart";
 
@@ -179,11 +178,11 @@ class Evaluator<T extends Object> {
 
         var ctx = EvaluationContext(this, node, childIt);
 
-        return normalizeSemanticValue(handler.call(ctx))! as T;
+        return handler.call(ctx)! as T;
       }
 
       if (!it.hasNext) {
-        return normalizeSemanticValue(evaluate(first.$2))! as T;
+        return evaluate(first.$2);
       }
       current = it.next();
     }

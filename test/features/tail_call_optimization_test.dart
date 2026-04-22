@@ -68,12 +68,7 @@ void main() {
     test("kicks in for right-tail recursion wrapped in action", () {
       var grammar = Grammar(() {
         late Rule s;
-        s = Rule(
-          "S",
-          () =>
-              Token.char("s") |
-              (Token.char("s") >> Token.char("+") >> s.call()).withAction((span, _) => span),
-        );
+        s = Rule("S", () => Token.char("s") | (Token.char("s") >> Token.char("+") >> s.call()));
         return s;
       });
 

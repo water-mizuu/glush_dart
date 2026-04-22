@@ -3,7 +3,7 @@
 import "package:glush/glush.dart";
 
 void main() {
-  var grammar = r"S= $2 &(a:S a) l:S r:S | $1 's'";
+  var grammar = r"S= $2 &(S S) l:S r:S | $1 's'";
   var parser = grammar.toSMParser();
   var input = "ssss";
   var parseResult = parser
