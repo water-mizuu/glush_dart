@@ -148,7 +148,7 @@ In the implementation, the `And` class has a method `invert()` that returns `Not
 
 ### Core Classes
 
-In the Glush implementation, predicates are represented at the pattern level through two classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart#L2522-L2610):
+In the Glush implementation, predicates are represented at the pattern level through two classes in [lib/src/core/patterns.dart](lib/src/core/patterns.dart#L2853-L2947):
 
 ```dart
 class And extends Pattern {
@@ -223,7 +223,7 @@ var negRule = Rule("negate", () => pattern.not() >> Token.char('b'));  // a.not(
 
 ### Grammar-Level Representation
 
-Before patterns are compiled into the state machine, they exist as grammar expressions. The grammar parser represents predicates using the `PredicatePattern` class in [lib/src/compiler/format.dart](lib/src/compiler/format.dart#L294):
+Before patterns are compiled into the state machine, they exist as grammar expressions. The grammar parser represents predicates using the `PredicatePattern` class in [lib/src/compiler/format.dart](lib/src/compiler/format.dart):
 
 ```dart
 class PredicatePattern implements PatternExpr {
@@ -422,9 +422,10 @@ class PredicateTracker {
   bool matched = false;                 // Whether predicate succeeded
   bool exhausted = false;               // Whether search is exhausted
   int? longestMatch;                    // End position of best match
-  List<(ParseNodeKey?, Context, State, GlushList<Mark>)> waiters = [];
+  List<Waiter> waiters = [];
 
-  bool get canResolveFalse => exhausted && activeFrames == 0;
+  /// True when the predicate can no longer succeed and has not matched.
+  bool get canResolveFalse => !matched && !exhausted && activeFrames == 0;
 }
 ```
 

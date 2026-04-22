@@ -1931,23 +1931,21 @@ sealed class Pattern {
             (throw StateError(
               "Rule '${json["ruleName"]}' not found in ruleMap. Keys are: ${ruleMap.keys.toList()}",
             )),
-        arguments:
-            (json["arguments"] as Map<String, Object?>?)?.map(
-              (k, v) =>
-                  MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
-            ) ??
-            const {},
+        arguments: {
+          if (json["arguments"] case Map<String, Object?> map)
+            for (var MapEntry(key: k, value: v) in map.entries)
+              k: CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap),
+        },
         minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
       ),
       "par" => ParameterRefPattern(json["name"]! as String),
       "pac" => ParameterCallPattern(
         json["name"]! as String,
-        arguments:
-            (json["arguments"] as Map<String, Object?>?)?.map(
-              (k, v) =>
-                  MapEntry(k, CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap)),
-            ) ??
-            const {},
+        arguments: {
+          if (json["arguments"] case Map<String, Object?> map)
+            for (var MapEntry(key: k, value: v) in map.entries)
+              k: CallArgumentValue.fromJson(v! as Map<String, Object?>, ruleMap),
+        },
         minPrecedenceLevel: json["minPrecedenceLevel"] as int?,
       ),
       "act" => Action(

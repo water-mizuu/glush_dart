@@ -26,8 +26,8 @@ if (outcome is ParseSuccess) {
   final evaluator = StructuredEvaluator();
   final tree = evaluator.evaluate(outcome.rawMarks, input: "michael:30");
   
-  print(tree['name'].span); // "michael"
-  print(tree['age'].span);  // "30"
+  print(tree['name'].first.span); // "michael"
+  print(tree['age'].first.span);  // "30"
 }
 ```
 
@@ -76,8 +76,8 @@ ident = [A-Z][a-z]*;
 
 ```dart
 final tree = evaluator.evaluate(marks, input: "John Doe");
-final person = tree['person'];
-print(person['first'].span); // "John"
-print(person['last'].span);  // "Doe"
-print(person.span);          // "John Doe"
+final person = tree['person'].first as ParseResult;
+print(person['first'].first.span); // "John"
+print(person['last'].first.span);  // "Doe"
+print(person.span);                // "John Doe"
 ```

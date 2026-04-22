@@ -20,9 +20,8 @@
 Context groups don't exist in isolation. They share structural components across multiple derivation paths:
 
 1. **Mark forests** through lazy branching
-2. **Label stacks** with "first-write" semantics
-3. **Parsing context** (caller, position, arguments)
-4. **Caller stacks** via the Graph-Shared Stack
+2. **Context identity** (caller, position, labels, arguments)
+3. **Caller stacks** via the Graph-Shared Stack (GSS)
 
 This sharing is the foundation of Glush's ability to handle ambiguous grammars efficiently without exponential blowup.
 
@@ -41,8 +40,7 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 | Mechanism         | What's Shared        | How                 | Why                           |
 | ----------------- | -------------------- | ------------------- | ----------------------------- |
 | **Mark Trees**    | Semantic annotations | Lazy branching      | Multiple derivations          |
-| **Label Stacks**  | Captured labels      | First-write         | Same rule, same labels        |
-| **Contexts**      | Parser state         | Immutability        | Reuse across frames           |
+| **Contexts**      | Parser state         | Immutability        | Reuse across frames (includes Labels) |
 | **Caller Stacks** | Call trace           | GSS nodes           | Common call prefixes          |
 
 ---
@@ -60,16 +58,13 @@ This sharing is the foundation of Glush's ability to handle ambiguous grammars e
 
 ```dart
 sealed class LazyGlushList<T> {
-  const factory LazyGlushList.empty() = _EmptyList;
-  const factory LazyGlushList.singleton(T item) = _SingletonList;
-  const factory LazyGlushList.push(LazyGlushList<T> parent, T item) = _PushList;
-  const factory LazyGlushList.branched(
-    LazyGlushList<T> left,
-    LazyGlushList<T> right,
-  ) = _BranchedList;
+  const factory LazyGlushList.empty() = LazyEmpty<T>._;
+
+  LazyGlushList<T> add(LazyVal<T> val);
+  LazyGlushList<T> addList(LazyGlushList<T> other);
+  static LazyGlushList<T> branched<T>(LazyGlushList<T> left, LazyGlushList<T> right);
 
   GlushList<T> evaluate();
-  int get length;
 }
 ```
 
@@ -125,76 +120,40 @@ LazyGlushList.branched(mark1, mark2).evaluate()
 
 ---
 
-## Mechanism 2: Label Stack Sharing
+## Mechanism 2: Label Stack Sharing (via Context Identity)
 
-Open and closed label stacks are shared with **first-write** semantics.
+In Glush, **labels** (open/closed stacks) are not managed separately from the parsing context. Instead, they are an integral part of the `Context` object's identity.
 
-### Label Representation
+### Structural Sharing
 
-**Location**: [lib/src/parser/common/label_capture.dart](../lib/src/parser/common/label_capture.dart)
+**Location**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart)
 
 ```dart
-// Open labels: currently open (haven't closed yet)
-class OpenLabel {
-  final String name;
-  final int startPosition;
-  final OpenLabel? parent;
-}
-
-// Closed labels: already closed (recorded in history)
-class ClosedLabel {
-  final String name;
-  final int startPosition;
-  final int endPosition;
-  final ClosedLabel? parent;
+class Context {
+  final CallerKey caller;
+  final GlushList<LabelStartVal> openLabels; // Label stack is part of Context!
+  // ... other fields
 }
 ```
 
-### First-Write Semantics in ContextGroup
+### Why Identity Matters
+
+Because `openLabels` is included in the `Context`'s equality and hash code:
+
+1. **Frames with the same labels** share the same `Context` object (via immutability and identity).
+2. **Batching** in `ContextGroup` only occurs for frames with identical `Context` objects.
+3. Therefore, every frame in a `ContextGroup` is guaranteed to have the **exact same label stack**.
+
+### Sharing via Immutability
+
+Label stacks themselves use `GlushList` (Mechanism 1), which means they share prefixes between derivation paths. When a rule is entered, a new label is "pushed" onto the immutable list, creating a new `Context` that shares the previous list as its parent.
 
 ```dart
-class ContextGroup {
-  OpenLabel? openLabels;      // First non-null value stored
-  ClosedLabel? closedLabels;  // First non-null value stored
-
-  void addOpenLabels(OpenLabel? labels) {
-    openLabels ??= labels;  // Only set if currently null
-  }
-
-  void addClosedLabels(ClosedLabel? labels) {
-    closedLabels ??= labels;
-  }
-}
+// Path A and B share prefix, but A enters a new label
+contextA = parentContext.copyWith(openLabels: parentContext.openLabels.add(labelStart));
 ```
 
-### Why First-Write?
-
-All frames in a context group:
-
-- Parse the same rule (identical context)
-- Accumulate labels in the same order
-- Execute the same label actions in sequence
-
-Therefore, only the first frame's label stack is needed:
-
-```dart
-// Frame 1 reaches ContextGroup
-frame1.labels = OpenLabel("id", 0, null)
-group.addOpenLabels(frame1.labels);  // stored
-
-// Frame 2 (different derivation) also reaches ContextGroup
-frame2.labels = OpenLabel("id", 0, null)  // identical!
-group.addOpenLabels(frame2.labels);  // ✗ ignored, already set
-```
-
-### Memory Impact
-
-Single label stack per context group instead of one per frame:
-
-```
-Without sharing: N frames × label_stack_size = memory
-With sharing:    1 label_stack per group + frames point to it
-```
+This ensures that memory for label stacks remains polynomial even in highly ambiguous or deeply nested grammars.
 
 ---
 

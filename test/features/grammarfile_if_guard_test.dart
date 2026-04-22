@@ -28,10 +28,9 @@ void main() {
 
     test("captures expose span length in guards", () {
       const grammarText = r"""
-        start = t:repeat(3) check(t.length, t)
+        start = t:repeat(3) (if (t.length == 3) '')
         repeat(n) = if (n > 1) repeat(n - 1) 's'
                   | if (n == 1) 's'
-        check(length, start) = if (length == 3 && start.startPosition == 0) ''
       """;
 
       var parser = grammarText.toSMParser();

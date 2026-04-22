@@ -798,21 +798,11 @@ class Step {
 
     // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
     var returnProxy = caller.getLazyReturn(packedId, () => caller.getReturnMarks(packedId));
-
     var nextMarks = parentMarks.addList(returnProxy);
+    var mergedCaptures = parentContext.captures.overlay(returnContext.captures);
 
-    CaptureBindings mergedCaptures;
-    if (parentContext.captures.isEmpty) {
-      mergedCaptures = returnContext.captures;
-    } else if (returnContext.captures.isEmpty) {
-      mergedCaptures = parentContext.captures;
-    } else {
-      mergedCaptures = parentContext.captures.overlay(returnContext.captures);
-    }
-
-    var nextCaller = parent;
     var nextContext = Context(
-      nextCaller,
+      parent,
       arguments: parentContext.arguments,
       captures: mergedCaptures,
       predicateStack: parentContext.predicateStack,
@@ -821,38 +811,39 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    _enqueue(nextState, nextContext, nextMarks, source: source, action: action, callSite: callSite);
+    _enqueue(
+      nextState,
+      nextContext,
+      nextMarks,
+      source: source,
+      action: action,
+      callSite: callSite, //
+    );
   }
 
-  /// Materialize batched token transitions into next-position frames.
   /// Finalizes the step, processing any pending next-position frames.
   void finalize() {
     for (var nextGroup in _nextFrameGroups) {
-      _processNextGroup(nextGroup);
+      var branchedMarks = nextGroup.mergedMarks;
+      var context = nextGroup.context;
+      var caller = context.caller;
+      var callerStartPosition = caller.startPosition;
+
+      if (context.position != position + 1 || context.callStart != callerStartPosition) {
+        context = context.copyWith(position: position + 1, callStart: callerStartPosition);
+      }
+
+      if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
+        _process(Frame(context, branchedMarks), nextGroup.state);
+        continue;
+      }
+
+      var nextFrame = Frame(context, branchedMarks);
+      nextFrame.nextStates.add(nextGroup.state);
+
+      parseState.incrementTrackers(context, "finalize nextGroup");
+      nextFrames.add(nextFrame);
     }
-  }
-
-  /// Processes a group of frames that have transitioned to the next position.
-  void _processNextGroup(ContextGroup nextGroup) {
-    var branchedMarks = nextGroup.mergedMarks;
-    var context = nextGroup.context;
-    var caller = context.caller;
-    var callerStartPosition = caller.startPosition;
-
-    if (context.position != position + 1 || context.callStart != callerStartPosition) {
-      context = context.copyWith(position: position + 1, callStart: callerStartPosition);
-    }
-
-    if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
-      _process(Frame(context, branchedMarks), nextGroup.state);
-      return;
-    }
-
-    var nextFrame = Frame(context, branchedMarks);
-    nextFrame.nextStates.add(nextGroup.state);
-
-    parseState.incrementTrackers(context, "finalize nextGroup");
-    nextFrames.add(nextFrame);
   }
 
   /// Enqueue a frame for processing at the current position.

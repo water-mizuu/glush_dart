@@ -27,8 +27,8 @@
 ### Location & Key Files
 
 - **Core Batching Logic**: [lib/src/parser/common/step.dart](../lib/src/parser/common/step.dart) (lines 70-750)
-- **ContextGroup**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 193-270)
-- **Context**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 19-180)
+- **ContextGroup**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 222-277)
+- **Context**: [lib/src/parser/common/context.dart](../lib/src/parser/common/context.dart) (lines 23-213)
 
 ---
 
@@ -122,10 +122,6 @@ final class ContextGroup {
   // Batch mark accumulation
   LazyGlushList<Mark>? _single;      // First mark
   List<LazyGlushList<Mark>>? _batch; // Multiple marks (lazy list)
-
-  // Label stacks (first-write wins)
-  OpenLabel? openLabels;
-  ClosedLabel? closedLabels;
 
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
@@ -229,9 +225,7 @@ if (group != null) {
 
 // Create new group
 _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)
-  ..addMarks(marks)
-  ..addOpenLabels(openLabels)
-  ..addClosedLabels(closedLabels);
+  ..addMarks(marks);
 ```
 
 **Performance**: Hash-based map lookup with full context comparison.
@@ -539,22 +533,14 @@ var merged = group.mergedMarks;  // Now balanced tree is built
 - Reduces peak memory during parsing
 
 
-### 3. Label Stack Sharing
+### 3. Label Stacks and Context Identity
 
-Open and closed label stacks are shared with first-write semantics:
+Labels (open/closed stacks) are NOT stored in the `ContextGroup`. Instead, they are part of the `Context` object itself.
 
-```dart
-void addOpenLabels(OpenLabel? labels) {
-  openLabels ??= labels;  // Only set if currently null
-}
-```
-
-**Why First-Write?**:
-
-- All frames in the group execute the same rule
-- Label stacks accumulate in the same order
-- Only the first frame's labels are semantically significant
-- Reduces memory footprint
+**Why?**:
+- Including labels in the `Context` ensures that frames with different label stacks are never batched together.
+- This maintains structural integrity for the `StructuredEvaluator`.
+- Because `Context` objects are immutable and reused, label stacks are still shared efficiently between derivation paths.
 
 ---
 

@@ -225,8 +225,11 @@ class GrammarFileCompiler {
           ///
           /// S = s:'s' m'(s)
           /// m'($) = $
-          var rule = _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
-          return rule.call(arguments: {r"$": CallArgumentValue.reference(expr.ruleName)});
+          _backreferenceRule ??= Rule("'back0", () => ParameterRefPattern(r"$"));
+
+          return _backreferenceRule!.call(
+            arguments: {r"$": CallArgumentValue.reference(expr.ruleName)},
+          );
         }
 
         if (expr.ruleName == "start" && expr.arguments.isEmpty) {
