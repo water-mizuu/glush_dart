@@ -111,77 +111,6 @@ class Step {
     parseState.incrementTrackers(frame.context, "requeue");
   }
 
-  /// Resolve a conjunction match and wake up any waiters at the matching position.
-  /// Finalizes one side of a conjunction (A & B).
-  ///
-  /// When one side of a conjunction completes at an [endPosition], it records
-  /// its marks. If the other side has already completed at the same position,
-  /// they are combined to resume any waiters.
-  void _finishConjunction(
-    ConjunctionTracker tracker,
-    int endPosition,
-    bool isLeft,
-    LazyGlushList<Mark> marks,
-  ) {
-    if (isLeft) {
-      tracker.leftCompletions.putIfAbsent(endPosition, () => []).add(marks);
-      // Spawn resumptions for each already-available right branch.
-      var rightCompletions = tracker.rightCompletions[endPosition] ?? [];
-      for (var right in rightCompletions) {
-        _triggerConjunctionReturn(tracker, endPosition, marks, right, tracker.waiters);
-      }
-    } else {
-      tracker.rightCompletions.putIfAbsent(endPosition, () => []).add(marks);
-      // Spawn resumptions for each already-available left branch.
-      var leftCompletions = tracker.leftCompletions[endPosition] ?? [];
-      for (var left in leftCompletions) {
-        _triggerConjunctionReturn(tracker, endPosition, left, marks, tracker.waiters);
-      }
-    }
-  }
-
-  /// Check for matching pairs on both sides of a conjunction and resume waiters.
-  /// Used when a NEW waiter is added and needs to see all existing results.
-  /// Checks for matching completions on both sides of a conjunction for specific waiters.
-  void _rendezvousConjunction(
-    ConjunctionTracker tracker,
-    int endPosition,
-    List<Waiter> specificWaiters,
-  ) {
-    var lefts = tracker.leftCompletions[endPosition];
-    var rights = tracker.rightCompletions[endPosition];
-    if (lefts != null && rights != null) {
-      for (var left in lefts) {
-        for (var right in rights) {
-          _triggerConjunctionReturn(tracker, endPosition, left, right, specificWaiters);
-        }
-      }
-    }
-  }
-
-  /// Combines results from both sides of a conjunction and resumes target waiters.
-  void _triggerConjunctionReturn(
-    ConjunctionTracker tracker,
-    int endPosition,
-    LazyGlushList<Mark> left,
-    LazyGlushList<Mark> right,
-    List<Waiter> targetWaiters,
-  ) {
-    // Create a Parallel node representing the cartesian product of left and right marks
-    // at the same span. This captures all combinations of parallel marks.
-    GlushProfiler.increment("parser.conjunctions.completed");
-    var conjunctionResult = LazyGlushList.conjunction(left, right);
-    GlushProfiler.increment("parser.marks.conjunctions_created");
-
-    for (var (_, parentContext, nextState, parentMarks) in targetWaiters) {
-      // Add the parallel result to the parent marks.
-      var nextMarks = parentMarks.addList(conjunctionResult);
-      var nextContext = parentContext.advancePosition(endPosition);
-      GlushProfiler.increment("parser.marks.added");
-      requeue(Frame(nextContext, nextMarks)..nextStates.add(nextState));
-    }
-  }
-
   /// Resume a continuation that was parked behind a predicate.
   ///
   /// The frame is requeued at the original parent position so it can catch up
@@ -235,57 +164,6 @@ class Step {
       Context(predicateKey, predicateStack: nextStack, callStart: position, position: position),
       const LazyGlushList<Mark>.empty(),
     );
-  }
-
-  /// Seed a conjunction sub-parse (both side A and side B).
-  /// Spawns sub-parses for both sides of a conjunction (A & B).
-  void _spawnConjunctionSubparse(PatternSymbol left, PatternSymbol right, Frame frame) {
-    GlushProfiler.increment("parser.conjunctions.spawned");
-    var leftCaller = ConjunctionCallerKey(
-      left: left,
-      right: right,
-      startPosition: position,
-      isLeft: true,
-    );
-    var rightCaller = ConjunctionCallerKey(
-      left: left,
-      right: right,
-      startPosition: position,
-      isLeft: false,
-    );
-
-    var subParseKey = ConjunctionKey(left, right, position);
-    parseState.trackers[subParseKey]!;
-
-    // Side A
-    var leftState = parseState.parser.stateMachine.ruleFirst[left];
-    if (leftState != null) {
-      _enqueue(
-        leftState,
-        Context(
-          leftCaller,
-          callStart: position,
-          position: position,
-          predicateStack: frame.context.predicateStack,
-        ),
-        const LazyGlushList<Mark>.empty(),
-      );
-    }
-
-    // Side B
-    var rightState = parseState.parser.stateMachine.ruleFirst[right];
-    if (rightState != null) {
-      _enqueue(
-        rightState,
-        Context(
-          rightCaller,
-          callStart: position,
-          position: position,
-          predicateStack: frame.context.predicateStack,
-        ),
-        const LazyGlushList<Mark>.empty(),
-      );
-    }
   }
 
   /// Retrieves the correct token for a frame based on whether it's lagging.
@@ -535,8 +413,6 @@ class Step {
           _processLabelEndAction(frame, state, action);
         case PredicateAction():
           _processPredicateAction(frame, state, action);
-        case ConjunctionAction():
-          _processConjunctionAction(frame, state, action);
         case CallAction():
           _processCallAction(frame, state, action);
         case TailCallAction():
@@ -879,35 +755,6 @@ class Step {
     }
   }
 
-  /// Processes a [ConjunctionAction], requiring two sub-parses to match.
-  void _processConjunctionAction(Frame frame, State state, ConjunctionAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-
-    var left = action.leftSymbol;
-    var right = action.rightSymbol;
-    var key = ConjunctionKey(left, right, position);
-    var isFirst = !parseState.trackers.containsKey(key);
-    var tracker =
-        (parseState.trackers[key] ??= ConjunctionTracker(
-              leftSymbol: left,
-              rightSymbol: right,
-              startPosition: position,
-            ))
-            as ConjunctionTracker;
-
-    var waiter = (source, frameContext, action.nextState, frame.marks);
-    tracker.waiters.add(waiter);
-
-    for (var j in tracker.leftCompletions.keys) {
-      _rendezvousConjunction(tracker, j, [waiter]);
-    }
-
-    if (isFirst) {
-      _spawnConjunctionSubparse(left, right, frame);
-    }
-  }
-
   /// Processes a [CallAction], calling another rule.
   void _processCallAction(Frame frame, State state, CallAction action) {
     var frameContext = frame.context;
@@ -1004,7 +851,7 @@ class Step {
   /// Processes a [ReturnAction], returning from a rule call.
   ///
   /// This method performs precedence filtering and manages the settlement of
-  /// predicate and conjunction trackers. For rule calls, it records the result
+  /// predicate trackers. For rule calls, it records the result
   /// in the GSS, then notifies all waiting callers.
   void _processReturnAction(Frame frame, State state, ReturnAction action) {
     if (frame.context.minPrecedenceLevel != null &&
@@ -1059,15 +906,6 @@ class Step {
 
       tracker.waiters.clear();
       parseState.removeTracker(key);
-      return;
-    }
-
-    if (caller is ConjunctionCallerKey) {
-      var key = ConjunctionKey(caller.left, caller.right, caller.startPosition);
-      var tracker = parseState.trackers[key];
-      if (tracker is ConjunctionTracker) {
-        _finishConjunction(tracker, returnPosition, caller.isLeft, frame.marks);
-      }
       return;
     }
 

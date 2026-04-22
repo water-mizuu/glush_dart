@@ -78,24 +78,6 @@ sealed class GlushList<T> {
     _ => Concat<T>._(this, list),
   };
 
-  /// Creates a parallel combination (conjunction) of two mark forests.
-  ///
-  /// In Glush, a conjunction requires both branches to match the same input range.
-  /// This method creates a [Conjunction] node that stores both result streams.
-  /// It optimizes away empty branches to prevent unnecessary structural nesting.
-  static GlushList<T> conjunction<T>(GlushList<T> left, GlushList<T> right) {
-    if (left.isEmpty && right.isEmpty) {
-      return const GlushList.empty();
-    }
-    if (left.isEmpty) {
-      return right;
-    }
-    if (right.isEmpty) {
-      return left;
-    }
-    return Conjunction<T>._(left, right);
-  }
-
   /// Internal marker used to signal that the next item on the stack is raw data.
   static final Object _dataMarker = Object();
 
@@ -133,9 +115,6 @@ sealed class GlushList<T> {
         case Concat(:var left, :var right):
           stack.add(right);
           stack.add(left);
-        case Conjunction(:var left, :var right):
-          stack.add(right);
-          stack.add(left);
       }
     }
   }
@@ -154,7 +133,7 @@ sealed class GlushList<T> {
   /// Internal recursive counter with memoization to compute the number of derivations.
   ///
   /// The algorithm branches for [BranchedList] (addition) and multiplies for
-  /// [Concat] and [Conjunction] to account for all possible combinations of
+  /// [Concat] to account for all possible combinations of
   /// sub-parse results.
   int _count(GlushList<Object?> node, Map<GlushList<Object?>, int> memo) {
     if (memo[node] case var cached?) {
@@ -174,8 +153,6 @@ sealed class GlushList<T> {
       case Push(:var parent):
         res = _count(parent, memo);
       case Concat(:var left, :var right):
-        res = _count(left, memo) * _count(right, memo);
-      case Conjunction(:var left, :var right):
         res = _count(left, memo) * _count(right, memo);
     }
     return memo[node] = res;
@@ -261,24 +238,6 @@ class Concat<T> extends GlushList<T> {
   bool get isEmpty => left.isEmpty && right.isEmpty;
 }
 
-/// A [GlushList] node representing parallel marks from different branches of a conjunction.
-///
-/// This structure is used to preserve the distinct derivation paths that
-/// simultaneously matched the same input span.
-class Conjunction<T> extends GlushList<T> {
-  /// Internal constructor for a conjunction.
-  const Conjunction._(this.left, this.right);
-
-  /// The marks from the left branch.
-  final GlushList<T> left;
-
-  /// The marks from the right branch.
-  final GlushList<T> right;
-
-  @override
-  bool get isEmpty => left.isEmpty && right.isEmpty;
-}
-
 /// A lazy version of [GlushList] where all operations are thunks.
 ///
 /// This allows building a forest of potential marks without actually
@@ -339,26 +298,6 @@ sealed class LazyGlushList<T> {
     return LazyBranched._(left, right);
   }
 
-  /// Wraps a 'conjunction' operation in a thunk.
-  ///
-  /// This lazily combines two results that matched the same span in a
-  /// conjunction pattern.
-  static LazyGlushList<T> conjunction<T>(LazyGlushList<T> left, LazyGlushList<T> right) {
-    if (identical(left, right)) {
-      return left;
-    }
-    if (left.isEmpty && right.isEmpty) {
-      return const LazyGlushList.empty();
-    }
-    if (left.isEmpty) {
-      return right;
-    }
-    if (right.isEmpty) {
-      return left;
-    }
-    return LazyConjunction._(left, right);
-  }
-
   /// Creates a lazy list from a standard Dart list.
   ///
   /// This wraps each element in a [ConstantLazyVal], allowing pre-existing
@@ -393,8 +332,6 @@ sealed class LazyGlushList<T> {
       case LazyPush(:var parent):
         res = _count(parent, memo);
       case LazyConcat(:var left, :var right):
-        res = _count(left, memo) * _count(right, memo);
-      case LazyConjunction(:var left, :var right):
         res = _count(left, memo) * _count(right, memo);
       case LazyEvaluated<Object?>():
         res = node.list.countDerivations();
@@ -500,24 +437,6 @@ class LazyConcat<T> extends _LazyBase<T> {
   GlushList<T> _evaluate() => left.evaluate().addList(right.evaluate());
 }
 
-/// A lazy node representing a conjunction of two lazy forests.
-class LazyConjunction<T> extends _LazyBase<T> {
-  /// Internal constructor for a lazy conjunction.
-  LazyConjunction._(this.left, this.right);
-
-  /// The left branch results.
-  final LazyGlushList<T> left;
-
-  /// The right branch results.
-  final LazyGlushList<T> right;
-
-  @override
-  bool get isEmpty => false;
-
-  @override
-  GlushList<T> _evaluate() => GlushList.conjunction(left.evaluate(), right.evaluate());
-}
-
 /// A lazy node that delegates its evaluation to a provider function.
 ///
 /// This is used to handle recursive rules by deferring the lookup of the
@@ -608,7 +527,7 @@ extension GlushListVisualizer<T> on GlushList<T> {
 
   /// Internal recursive collector for generating all paths.
   ///
-  /// This handles branching, concatenation, and conjunction by combining
+  /// This handles branching and concatenation by combining
   /// sub-paths from children. [diagonalize] is used for combinatoric structures
   /// to ensure efficient path generation.
   Iterable<List<T>> _collect(GlushList<T> node, Set<GlushList<T>> visiting) sync* {
@@ -626,13 +545,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
           yield [...pPath, data];
         }
       case Concat<T>():
-        for (var (l, r) in diagonalize(
-          _collect(node.left, visiting),
-          _collect(node.right, visiting),
-        )) {
-          yield [...l, ...r];
-        }
-      case Conjunction<T>():
         for (var (l, r) in diagonalize(
           _collect(node.left, visiting),
           _collect(node.right, visiting),
@@ -681,14 +593,6 @@ extension GlushListVisualizer<T> on GlushList<T> {
         buildGraph(node.parent, buf);
       } else if (node is Concat<T>) {
         buf.writeln('  $nodeId [label="Concat", style="filled", fillcolor="lightyellow"];');
-        generateNodeId(node.left);
-        generateNodeId(node.right);
-        buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
-        buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
-        buildGraph(node.left, buf);
-        buildGraph(node.right, buf);
-      } else if (node is Conjunction<T>) {
-        buf.writeln('  $nodeId [label="Parallel", style="filled", fillcolor="lightcyan"];');
         generateNodeId(node.left);
         generateNodeId(node.right);
         buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
@@ -764,13 +668,6 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
       )) {
         results.add([...l, ...r]);
       }
-    } else if (node is LazyConjunction<T>) {
-      for (var (l, r) in diagonalize(
-        _collectLazy(node.left, newStack),
-        _collectLazy(node.right, newStack),
-      )) {
-        results.add([...l, ...r]);
-      }
     } else if (node is LazyEvaluated<T>) {
       results.addAll(node.list.allMarkPaths());
     } else if (node is LazyReturn<T>) {
@@ -831,14 +728,6 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
           buildGraph(node.right, buf);
         case LazyConcat<T>():
           buf.writeln('  $nodeId [label="LazyConcat", style="filled", fillcolor="lightyellow"];');
-          generateNodeId(node.left);
-          generateNodeId(node.right);
-          buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');
-          buf.writeln('  $nodeId -> ${nodeIds[node.right]!} [label="right"];');
-          buildGraph(node.left, buf);
-          buildGraph(node.right, buf);
-        case LazyConjunction<T>():
-          buf.writeln('  $nodeId [label="LazyParallel", style="filled", fillcolor="lightcyan"];');
           generateNodeId(node.left);
           generateNodeId(node.right);
           buf.writeln('  $nodeId -> ${nodeIds[node.left]!} [label="left"];');

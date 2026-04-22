@@ -194,8 +194,7 @@ class Grammar implements GrammarInterface {
   ///
   /// This is the core logic for hoisting anonymous patterns into synthetic rules.
   /// It specifically targets patterns that require rule-level anchoring for
-  /// correct forest construction, such as branches of a conjunction or
-  /// patterns used in predicates.
+  /// correct forest construction, such as patterns used in predicates.
   Pattern _normalizePattern(Pattern pattern, Set<Pattern> seen) {
     if (!seen.add(pattern)) {
       return pattern;
@@ -223,15 +222,6 @@ class Grammar implements GrammarInterface {
     if (pattern is Not) {
       pattern.pattern = _normalizePattern(pattern.pattern, seen);
       pattern.pattern = _ensureRuleCallPattern(pattern.pattern, "pred");
-      return pattern;
-    }
-
-    if (pattern is Conj) {
-      pattern.left = _normalizePattern(pattern.left, seen);
-      pattern.left = _ensureRuleCallPattern(pattern.left, "conj");
-
-      pattern.right = _normalizePattern(pattern.right, seen);
-      pattern.right = _ensureRuleCallPattern(pattern.right, "conj");
       return pattern;
     }
 
@@ -276,9 +266,6 @@ class Grammar implements GrammarInterface {
       case Alt alt:
         _collectPatternsFromPattern(alt.left, patterns);
         _collectPatternsFromPattern(alt.right, patterns);
-      case Conj conj:
-        _collectPatternsFromPattern(conj.left, patterns);
-        _collectPatternsFromPattern(conj.right, patterns);
       case And and:
         _collectPatternsFromPattern(and.pattern, patterns);
       case Not not:

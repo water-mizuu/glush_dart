@@ -60,19 +60,6 @@ final class PredicateBranchKey extends BranchKey {
   int get hashCode => Object.hash(isAnd, symbol, nextState);
 }
 
-/// Special branch marker for rule conjunctions (&).
-final class ConjunctionBranchKey extends BranchKey {
-  const ConjunctionBranchKey();
-
-  @override
-  bool operator ==(Object other) => other is ConjunctionBranchKey;
-
-  @override
-  int get hashCode => (ConjunctionBranchKey).hashCode;
-
-  @override
-  String toString() => "conj";
-}
 
 /// Generic string-based branch identifier, used for custom extensions or tags.
 final class StringBranchKey extends BranchKey {

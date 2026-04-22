@@ -200,33 +200,6 @@ final class PredicateAction implements StateAction {
       : "Predicate(!$symbol)";
 }
 
-/// An action that coordinates an intersection match between two patterns (A & B).
-///
-/// In a conjunction, both side A and side B must match the same input span
-/// starting from the current position. This action initiates both sub-parses
-/// and uses a rendezvous mechanism to ensure they both reach the same end
-/// position before allowing the parse to continue.
-final class ConjunctionAction implements StateAction {
-  /// Creates an intersection (A & B) action.
-  const ConjunctionAction({
-    required this.leftSymbol,
-    required this.rightSymbol,
-    required this.nextState,
-  });
-
-  /// The symbol of the first pattern in the intersection.
-  final PatternSymbol leftSymbol;
-
-  /// The symbol of the second pattern in the intersection.
-  final PatternSymbol rightSymbol;
-
-  /// The state to transition to if both patterns match the same input span.
-  final State nextState;
-
-  @override
-  String toString() => "Conj($leftSymbol & $rightSymbol)";
-}
-
 /// An action that instructs the parser to move one position backward in the input.
 ///
 /// This is used for complex non-linear grammar patterns where the parser

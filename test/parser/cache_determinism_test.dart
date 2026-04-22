@@ -69,7 +69,7 @@ void main() {
       expect(tree["val"].first.span, "ab");
     });
 
-    test("Capture 7: Label with conjunction", () {
+    test("Capture 7: Label with multiple derivations", () {
       const grammar = r"""
         rule = val:('a' | 'a') 'b';
       """;

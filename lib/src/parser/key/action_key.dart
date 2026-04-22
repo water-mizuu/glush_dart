@@ -34,22 +34,3 @@ class PredicateKey extends SubparseKey {
     return "pred($prefix$desc @ $startPosition)";
   }
 }
-
-/// Key for tracking conjunction sub-parses by left/right patterns and start position.
-@immutable
-class ConjunctionKey extends SubparseKey {
-  const ConjunctionKey(this.left, this.right, this.startPosition);
-  final PatternSymbol left;
-  final PatternSymbol right;
-  final int startPosition;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ConjunctionKey &&
-      left == other.left &&
-      right == other.right &&
-      startPosition == other.startPosition;
-
-  @override
-  int get hashCode => Object.hash(left, right, startPosition);
-}

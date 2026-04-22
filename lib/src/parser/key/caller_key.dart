@@ -75,40 +75,6 @@ final class PredicateCallerKey extends CallerKey {
   }
 }
 
-/// Caller key for a conjunction sub-parse branch.
-final class ConjunctionCallerKey extends CallerKey {
-  ConjunctionCallerKey({
-    required this.left,
-    required this.right,
-    required this.startPosition,
-    required this.isLeft,
-  }) : uid = -((left.hashCode.abs() << 16) | (right.hashCode.abs() << 8) | (startPosition & 0xFF));
-
-  @override
-  final int startPosition;
-
-  final PatternSymbol left;
-  final PatternSymbol right;
-  final bool isLeft;
-
-  @override
-  final int uid;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ConjunctionCallerKey &&
-      left == other.left &&
-      right == other.right &&
-      startPosition == other.startPosition &&
-      isLeft == other.isLeft;
-
-  @override
-  int get hashCode => Object.hash(uid, isLeft);
-
-  @override
-  String toString() => "conj(${isLeft ? 'L' : 'R'}:$left & $right @ $startPosition)";
-}
-
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 // ignore: must_be_immutable
 class Caller extends CallerKey {

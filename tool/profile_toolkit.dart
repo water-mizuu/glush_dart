@@ -3,10 +3,8 @@ import "package:test/test.dart";
 
 // Import all test files
 import "../test/core/backslash_literal_test.dart" as backslash_literal_test;
-import "../test/core/conjunction_test.dart" as conjunction_test;
 import "../test/core/glush_list_test.dart" as glush_list_test;
 import "../test/core/glush_test.dart" as glush_test;
-import "../test/core/inversion_test.dart" as inversion_test;
 import "../test/core/stress_test.dart" as stress_test;
 import "../test/diagnostic/execution_trace_test.dart" as execution_trace_test;
 import "../test/export_import_test.dart" as export_import_test;
@@ -28,8 +26,6 @@ import "../test/features/sm_features_test.dart" as sm_features_test;
 import "../test/features/star_plus_unambiguous_test.dart" as star_plus_unambiguous_test;
 import "../test/features/tail_call_optimization_test.dart" as tail_call_optimization_test;
 import "../test/parser/cache_determinism_test.dart" as cache_determinism_test;
-import "../test/parser/conjunction_edge_cases_test.dart" as conjunction_edge_cases_test;
-import "../test/parser/conjunction_properties_test.dart" as conjunction_properties_test;
 import "../test/parser/consistency_test.dart" as consistency_test;
 import "../test/parser/debug_not_sequence_test.dart" as debug_not_sequence_test;
 import "../test/parser/edge_cases_test.dart" as edge_cases_test;
@@ -40,7 +36,6 @@ import "../test/parser/predicate_regression_test.dart" as predicate_regression_t
 import "../test/parser/shared_predicate_test.dart" as shared_predicate_test;
 import "../test/parser/sm_integration_test.dart" as sm_integration_test;
 import "../test/parser/state_machine_dot_escape_test.dart" as state_machine_dot_escape_test;
-import "../test/regression/conjunction_logic_test.dart" as conjunction_logic_test;
 import "../test/regression/cyclic_unary_ambiguity_test.dart" as cyclic_unary_ambiguity_test;
 import "../test/regression/gamma_bug_test.dart" as gamma_bug_test;
 import "../test/regression/meta_grammar_test.dart" as meta_grammar_test;
@@ -55,10 +50,6 @@ void main() {
     associativity_test.main();
     backslash_literal_test.main();
     cache_determinism_test.main();
-    conjunction_edge_cases_test.main();
-    conjunction_logic_test.main();
-    conjunction_properties_test.main();
-    conjunction_test.main();
     consistency_test.main();
     cyclic_unary_ambiguity_test.main();
     debug_not_sequence_test.main();
@@ -73,7 +64,6 @@ void main() {
     glush_test.main();
     grammarfile_precedence_test.main();
     greedy_star_plus_test.main();
-    inversion_test.main();
     marks_regression_test.main();
     marks_test.main();
     meta_grammar_test.main();

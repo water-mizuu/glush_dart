@@ -185,13 +185,6 @@ class GrammarFileCompiler {
 
         return result;
 
-      case ConjunctionPattern():
-        Pattern result = _compilePattern(expr.patterns[0]);
-        for (int i = 1; i < expr.patterns.length; i++) {
-          result = result & _compilePattern(expr.patterns[i]);
-        }
-        return result;
-
       case RepetitionPattern():
         var pattern = _compilePattern(expr.pattern);
         switch (expr.kind) {
@@ -248,7 +241,7 @@ class GrammarFileCompiler {
           "r" => Token(const ExactToken(13)),
           "t" => Token(const ExactToken(9)),
           "d" => Token(const RangeToken(48, 57)),
-          "D" => Token(const RangeToken(48, 57)).invert(),
+          "D" => Token(const RangeToken(48, 57)).not() >> Token.any(),
           "w" =>
             Token(const RangeToken(65, 90)) |
                 Token(const RangeToken(97, 122)) |
@@ -256,10 +249,11 @@ class GrammarFileCompiler {
                 Token(const ExactToken(95)),
           "W" =>
             (Token(const RangeToken(65, 90)) |
-                    Token(const RangeToken(97, 122)) |
-                    Token(const RangeToken(48, 57)) |
-                    Token(const ExactToken(95)))
-                .invert(),
+                        Token(const RangeToken(97, 122)) |
+                        Token(const RangeToken(48, 57)) |
+                        Token(const ExactToken(95)))
+                    .not() >>
+                Token.any(),
           "s" =>
             Token(const ExactToken(32)) | // space
                 Token(const ExactToken(9)) | // tab
@@ -269,12 +263,13 @@ class GrammarFileCompiler {
                 Token(const ExactToken(11)), // vt
           "S" =>
             (Token(const ExactToken(32)) |
-                    Token(const ExactToken(9)) |
-                    Token(const ExactToken(10)) |
-                    Token(const ExactToken(13)) |
-                    Token(const ExactToken(12)) |
-                    Token(const ExactToken(11)))
-                .invert(),
+                        Token(const ExactToken(9)) |
+                        Token(const ExactToken(10)) |
+                        Token(const ExactToken(13)) |
+                        Token(const ExactToken(12)) |
+                        Token(const ExactToken(11)))
+                    .not() >>
+                Token.any(),
           _ => throw Exception("Unsupported backslash literal: \\$char"),
         };
     }

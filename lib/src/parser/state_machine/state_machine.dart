@@ -44,7 +44,6 @@ class State {
 /// The state machine supports advanced parsing features:
 /// - **Precedence climbing** for operator expressions
 /// - **Predicates** (lookahead with AND/NOT)
-/// - **Conjunctions** (intersection of patterns)
 /// - **Negations** (complement of patterns)
 /// - **Labels** (capturing groups and backreferences)
 /// - **Marks** (for semantic actions)
@@ -321,7 +320,7 @@ class StateMachine {
         case AcceptAction():
           // Accept state is also a zero-consumption success path.
           return true;
-        case PredicateAction() || ConjunctionAction() || RetreatAction():
+        case PredicateAction() || RetreatAction():
           // Runtime-dependent behavior: treat as possible.
           return true;
       }
@@ -414,15 +413,6 @@ class StateMachine {
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var action = TokenAction(terminal.choice, nextState);
         state.actions.add(action);
-      case Conj():
-        var nextState = _getOrCreateState(PatternStateKey(terminal));
-        // Complex conjunction: use sub-parse rendezvous
-        var action = ConjunctionAction(
-          leftSymbol: _extractSymbol(terminal.left),
-          rightSymbol: _extractSymbol(terminal.right),
-          nextState: nextState,
-        );
-        state.actions.add(action);
       case StartAnchor() || EofAnchor():
         var nextState = _getOrCreateState(PatternStateKey(terminal));
         var kind = terminal is StartAnchor ? BoundaryKind.start : BoundaryKind.eof;
@@ -480,23 +470,6 @@ class StateMachine {
         // These should have been decomposed by Glushkov construction
         throw UnimplementedError("Unexpected pattern type in _connect: ${terminal.runtimeType}");
     }
-  }
-
-  /// Extract the symbol (rule ID) from a pattern.
-  ///
-  /// Parameters:
-  ///   [pattern] - The pattern to extract the symbol from
-  ///
-  /// Returns:
-  ///   The rule symbol ID if the pattern is a [RuleCall]
-  ///
-  /// Throws:
-  ///   [UnsupportedError] if the pattern is not a rule call or token
-  PatternSymbol _extractSymbol(Pattern pattern) {
-    return switch (pattern) {
-      RuleCall(:var rule) => rule.symbolId!,
-      _ => throw UnsupportedError("Conjunction children must be rules or tokens: $pattern"),
-    };
   }
 
   /// Build a map of patterns to their precedence levels.
@@ -783,7 +756,6 @@ class StateMachine {
       Retreat() => true,
       Alt(:var left, :var right) => _isDefinitelyNonEmpty(left) && _isDefinitelyNonEmpty(right),
       Seq(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
-      Conj(:var left, :var right) => _isDefinitelyNonEmpty(left) || _isDefinitelyNonEmpty(right),
       And() || Not() => false,
       Prec(:var child) || Plus(:var child) || Label(:var child) => _isDefinitelyNonEmpty(child),
     };
@@ -949,13 +921,6 @@ String _toDot(StateMachine machine) {
         var pred = action.isAnd ? "AND" : "NOT";
         buffer.writeln(
           '  "$fromStateId" -> "$toStateId" [label="$pred ${_dotEscape(action.symbol.toString())}", style=dashed, color=seagreen4];',
-        );
-      }
-      // ConjunctionAction: intersection (A & B) parsing
-      else if (action is ConjunctionAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="Conj ${_dotEscape(action.leftSymbol.toString())} & ${_dotEscape(action.rightSymbol.toString())}"];',
         );
       }
       // AcceptAction: successful parse - connect to accept node

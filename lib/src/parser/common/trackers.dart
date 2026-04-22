@@ -8,7 +8,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// A parked continuation representing a parse path waiting for a sub-parse to complete.
 ///
 /// A [Waiter] captures all the state necessary to resume parsing once a
-/// lookahead predicate or conjunction condition is satisfied. It includes:
+/// lookahead predicate condition is satisfied. It includes:
 /// - [ParseNodeKey?]: The source node for forest construction.
 /// - [Context]: The parsing environment (caller, captures, etc.).
 /// - [State]: The state to transition to upon resumption.
@@ -18,8 +18,7 @@ typedef Waiter = (ParseNodeKey?, Context, State, LazyGlushList<Mark>);
 /// Base class for coordinating asynchronous or non-linear sub-parses.
 ///
 /// Trackers are used to manage derivation paths that diverge from the main
-/// linear token stream, such as lookahead predicates or intersecting
-/// conjunctions. They manage a list of [waiters] that should be resumed when
+/// lookahead predicates. They manage a list of [waiters] that should be resumed when
 /// certain conditions are met.
 sealed class SubparseTracker {
   /// Parked continuations waiting for this sub-parse to complete.
@@ -47,31 +46,4 @@ class PredicateTracker extends SubparseTracker {
 
   @override
   String toString() => "pred($symbol @ $startPosition)";
-}
-
-/// Coordinates the execution of an intersection rule (A & B).
-///
-/// In a conjunction, two independent sub-parses (left and right) are started
-/// from the same initial position. The conjunction matches only if both sides
-/// complete at the exact same end position.
-///
-/// The tracker stores completions for both sides in [leftCompletions] and
-/// [rightCompletions], keyed by their end position. Whenever a new completion
-/// is recorded, it checks if the other side has already completed at that same
-/// position, and if so, it performs a rendezvous to resume any [waiters].
-class ConjunctionTracker extends SubparseTracker {
-  ConjunctionTracker({
-    required this.leftSymbol,
-    required this.rightSymbol,
-    required this.startPosition,
-  });
-  final PatternSymbol leftSymbol;
-  final PatternSymbol rightSymbol;
-  final int startPosition;
-
-  final Map<int, List<LazyGlushList<Mark>>> leftCompletions = {};
-  final Map<int, List<LazyGlushList<Mark>>> rightCompletions = {};
-
-  @override
-  String toString() => "conj($leftSymbol & $rightSymbol @ $startPosition)";
 }

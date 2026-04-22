@@ -21,7 +21,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// - The current set of active [frames].
 /// - The input [historyByPosition] (for lookahead recovery).
 /// - Memoized callers for the Graph-Shared Stack.
-/// - Sub-parse [trackers] for lookahead predicates and conjunctions.
+/// - Sub-parse [trackers] for lookahead predicates.
 final class ParseState {
   /// Creates a [ParseState] for a specific [parser].
   ParseState(
@@ -60,7 +60,7 @@ final class ParseState {
   /// A history of processed tokens, used to resolve lookahead predicates.
   final List<int> historyByPosition = [];
 
-  /// Active trackers for lookahead predicates and conjunctions.
+  /// Active trackers for lookahead predicates.
   final Map<SubparseKey, SubparseTracker> trackers = {};
 
   /// Pending frame counts for active sub-parses, keyed by tracker key.
@@ -167,9 +167,6 @@ final class ParseState {
   void _forEachActiveTrackerKey(Context context, void Function(SubparseKey key) action) {
     if (context.predicateStack.lastOrNull case var pk?) {
       action(PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name));
-    }
-    if (context.caller case ConjunctionCallerKey con) {
-      action(ConjunctionKey(con.left, con.right, con.startPosition));
     }
   }
 

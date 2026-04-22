@@ -8,45 +8,13 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/helper/diagonal.dart";
 
-/// Extension methods for [List<Mark>] to extract and format marks.
-///
-/// These utilities provide a way to convert the abstract [Mark] forest results
-/// into more human-readable or machine-processable formats, such as merged
-/// string lists or raw mark identifiers.
-extension ListMarkExtractor on List<Mark> {
-  /// Converts the mark list to a list of strings, merging consecutive [StringMark]s.
-  ///
-  /// This is particularly useful for final result presentation where multiple
-  /// adjacent character-level marks should be treated as a single cohesive
-  /// token string. It also preserves [NamedMark]s and [LabelStartMark]s as
-  /// individual entries in the resulting list.
-  List<String> toStringList() {
-    var result = <String>[];
-    String? currentStringMark;
-    for (var mark in this) {
-      if (mark is LabelStartMark) {
-        if (currentStringMark != null) {
-          result.add(currentStringMark);
-          currentStringMark = null;
-        }
-        result.add(mark.name);
-      }
-    }
-    if (currentStringMark != null) {
-      result.add(currentStringMark);
-    }
-    return result;
-  }
-}
-
 /// Extension methods for [GlushList<Mark>] to handle mark-specific forest operations.
 extension GlushListMarkExtensions on GlushList<Mark> {
   /// Collects all flattened mark paths through the [GlushList].
   ///
-  /// This specialized version of path collection ensures that conjunctions
-  /// are handled correctly by expanding all parallel combinations into distinct
-  /// paths. This allows callers to see every possible semantic interpretation
-  /// of a given input span.
+  /// This specialized version of path collection ensures that all possible
+  /// derivations are seen by callers to provide every possible semantic
+  /// interpretation of a given input span.
   Iterable<List<Mark>> allMarkPaths() {
     return _collectMarkPaths(this, {});
   }
@@ -76,15 +44,6 @@ extension GlushListMarkExtensions on GlushList<Mark> {
         )) {
           yield [...l, ...r];
         }
-      case Conjunction<Mark>():
-        // For Mark conjunctions, expand all combinations into separate paths.
-        // Don't wrap in ConjunctionMark - let the combinations expand naturally.
-        for (var (l, r) in diagonalize(
-          _collectMarkPaths(node.left, visiting),
-          _collectMarkPaths(node.right, visiting),
-        )) {
-          yield [...l, ...r];
-        }
     }
   }
 }
@@ -94,9 +53,7 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
   /// Collects all flattened mark paths through the [LazyGlushList].
   ///
   /// This method triggers the evaluation of lazy values and expands all
-  /// possible derivations. It is particularly important for conjunctions,
-  /// where it explicitly wraps parallel results in [ConjunctionMark] nodes
-  /// to preserve the structural information of the match.
+  /// possible derivations.
   Iterable<List<Mark>> allMarkPaths() {
     return _collectLazyMarkPaths(this, const {});
   }
@@ -131,17 +88,6 @@ extension LazyGlushListMarkExtensions on LazyGlushList<Mark> {
         _collectLazyMarkPaths(node.right, newVisitCounts),
       )) {
         yield [...l, ...r];
-      }
-    } else if (node is LazyConjunction<Mark>) {
-      // For Mark conjunctions, expand all combinations into separate paths.
-      // Don't wrap in ConjunctionMark - let the combinations expand naturally.
-      for (var (leftPath, rightPath) in diagonalize(
-        _collectLazyMarkPaths(node.left, newVisitCounts),
-        _collectLazyMarkPaths(node.right, newVisitCounts),
-      )) {
-        var leftList = LazyGlushList.fromList(leftPath);
-        var rightList = LazyGlushList.fromList(rightPath);
-        yield [ConjunctionMark(leftList, rightList, 0)];
       }
     } else if (node is LazyEvaluated<Mark>) {
       yield* node.list.allMarkPaths();

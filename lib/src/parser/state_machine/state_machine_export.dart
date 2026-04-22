@@ -57,12 +57,6 @@ Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateI
       "symbol": action.symbol,
       "nextState": stateIdMap[action.nextState],
     },
-    ConjunctionAction() => {
-      "type": "conjunction",
-      "leftSymbol": action.leftSymbol,
-      "rightSymbol": action.rightSymbol,
-      "nextState": stateIdMap[action.nextState],
-    },
     RetreatAction() => {"type": "retreat", "nextState": stateIdMap[action.nextState]},
   };
 }
@@ -96,11 +90,6 @@ StateAction _deserializeAction(
     "predicate" => PredicateAction(
       isAnd: json["isAnd"]! as bool,
       symbol: json["symbol"]! as int,
-      nextState: stateMap[(json["nextState"]! as int)]!,
-    ),
-    "conjunction" => ConjunctionAction(
-      leftSymbol: json["leftSymbol"]! as int,
-      rightSymbol: json["rightSymbol"]! as int,
       nextState: stateMap[(json["nextState"]! as int)]!,
     ),
     "retreat" => RetreatAction(stateMap[json["nextState"]]!),

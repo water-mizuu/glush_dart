@@ -12,7 +12,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// Implementations of [ParseTracer] can be used to generate logs, visualizations,
 /// or diagnostic reports that help in understanding how the parser explores the
 /// search space, handles ambiguities, and resolves complex conditions like
-/// lookahead or conjunctions.
+/// lookahead.
 abstract class ParseTracer {
   /// Called once at the start of a parse session with the loaded [StateMachine].
   void onStart(StateMachine sm);
@@ -38,7 +38,7 @@ abstract class ParseTracer {
   /// Called when a lookahead predicate sub-parse completes and resumes its parent.
   void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd});
 
-  /// Called when a tracker (predicate or conjunction) is updated.
+  /// Called when a tracker (predicate) is updated.
   void onTrackerUpdate(String type, String key, int pendingFrames, String action);
 
   /// Records an arbitrary diagnostic message.
@@ -77,8 +77,6 @@ class FileTracer implements ParseTracer {
         } else if (action is LabelStartAction) {
           next = action.nextState;
         } else if (action is LabelEndAction) {
-          next = action.nextState;
-        } else if (action is ConjunctionAction) {
           next = action.nextState;
         }
 

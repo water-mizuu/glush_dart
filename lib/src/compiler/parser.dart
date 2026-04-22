@@ -104,7 +104,6 @@ enum _TokenType {
   lbrace, // {
   rbrace, // }
   ampersand, // &
-  doubleAmpersand, // &&
   bang, // !
   tilde, // ~
   equalEqual, // ==
@@ -188,7 +187,6 @@ class _Tokenizer {
           "!=" => _TokenType.bangEqual,
           "<=" => _TokenType.lesserEqual,
           ">=" => _TokenType.greaterEqual,
-          "&&" => _TokenType.doubleAmpersand,
           "*!" => _TokenType.starBang,
           "+!" => _TokenType.plusBang,
           _ => null,
@@ -531,7 +529,7 @@ class GrammarFileParser {
   PatternExpr _parseSequence() {
     var startingMark = _tryParseMainMark();
 
-    var parts = [_parseConjunction()];
+    var parts = [_parsePrefix()];
 
     while (_isSequenceContinuation()) {
       if (_peek().type == _TokenType.lesser) {
@@ -539,13 +537,13 @@ class GrammarFileParser {
         if (tokenIndex + 1 < _tokens.length &&
             _tokens[tokenIndex + 1].type == _TokenType.identifier &&
             int.tryParse(_tokens[tokenIndex + 1].value) != null) {
-          parts.add(_parseConjunction());
+          parts.add(_parsePrefix());
         } else {
           _advance(); // consume <
           parts.add(const RetreatPattern());
         }
       } else {
-        parts.add(_parseConjunction());
+        parts.add(_parsePrefix());
       }
     }
 
@@ -567,21 +565,6 @@ class GrammarFileParser {
     }
 
     return null;
-  }
-
-  /// Parse: expr && expr && expr
-  PatternExpr _parseConjunction() {
-    var parts = [_parsePrefix()];
-
-    while (_peek().type == _TokenType.doubleAmpersand) {
-      _advance(); // consume &&
-      parts.add(_parsePrefix());
-    }
-
-    if (parts.length == 1) {
-      return parts[0];
-    }
-    return ConjunctionPattern(parts);
   }
 
   /// Parse prefix predicates: &expr, !expr

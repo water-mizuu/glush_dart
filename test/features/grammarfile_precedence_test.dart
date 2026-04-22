@@ -111,10 +111,6 @@ void _walkPattern(PatternExpr pattern, void Function(PatternExpr) visit) {
       for (var sub in p.patterns) {
         _walkPattern(sub, visit);
       }
-    case ConjunctionPattern p:
-      for (var sub in p.patterns) {
-        _walkPattern(sub, visit);
-      }
     case RepetitionPattern p:
       _walkPattern(p.pattern, visit);
     case StarPattern p:

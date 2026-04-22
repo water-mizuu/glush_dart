@@ -52,22 +52,6 @@ bool _marksEqual(Object? left, Object? right) {
   if (identical(left, right)) {
     return true;
   }
-  if (left is ConjunctionMark && right is ConjunctionMark) {
-    if (left.position != right.position) {
-      return false;
-    }
-    // ConjunctionMark holds LazyGlushList fields compared by identity.
-    // Do a semantic comparison via the evaluated path strings instead.
-    var leftL = left.left.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
-    var rightL = right.left.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
-    if (leftL.length != rightL.length || !leftL.containsAll(rightL)) {
-      return false;
-    }
-
-    var leftR = left.right.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
-    var rightR = right.right.evaluate().allMarkPaths().map((p) => p.toString()).toSet();
-    return leftR.length == rightR.length && leftR.containsAll(rightR);
-  }
   return left == right;
 }
 
@@ -103,51 +87,10 @@ void main() {
       verifyConsistency(g, "aa", isAmbiguous: true);
     });
 
-    test("Conjunction merging consistency", () {
-      // S -> ('a' 'b') && ('a' 'b')
-      var g = Grammar(
-        () => Rule(
-          "S",
-          () => (Token.char("a") >> Token.char("b")) & (Token.char("a") >> Token.char("b")),
-        ),
-      );
-      verifyConsistency(g, "ab");
-
-      var parser = SMParser(g);
-      var ambig = (parser.parseAmbiguous("ab") as ParseAmbiguousSuccess).forest;
-      // Should have 1 result because both branches are unique and merged.
-      expect(ambig.allMarkPaths().length, 1);
-    });
-
     test("Predicate lookahead consistency", () {
       // S -> &'a' 'a'
       var g = Grammar(() => Rule("S", () => Token.char("a").and() >> Token.char("a")));
       verifyConsistency(g, "a");
-    });
-
-    test("Nested conjunction ambiguity", () {
-      // S -> (A | B) && (C | D) where all are 'a'
-      var g = Grammar(() {
-        var a = Rule("A", () => Label("A", Token.char("a")));
-        var b = Rule("B", () => Label("B", Token.char("a")));
-        var c = Rule("C", () => Label("C", Token.char("a")));
-        var d = Rule("D", () => Label("D", Token.char("a")));
-        return Rule("S", () => (a() | b()) & (c() | d()));
-      });
-
-      var parser = SMParser(g);
-      var ambig = (parser.parseAmbiguous("a") as ParseAmbiguousSuccess).forest;
-
-      // Combinations: (A,C), (A,D), (B,C), (B,D)
-      // Total 4 paths.
-      var paths = ambig.allMarkPaths().toList();
-      expect(
-        paths.length,
-        4,
-        reason: "Expected 4 paths for intersection of two binary choices with distinct markers.",
-      );
-
-      verifyConsistency(g, "a", isAmbiguous: true);
     });
 
     test("Mini Meta-Grammar snippet consistency", () {

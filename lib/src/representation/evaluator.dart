@@ -384,7 +384,7 @@ extension ParseNodeJsonConversion on ParseNode {
 /// Transforms a flat stream of [Mark] objects into a structured [ParseResult] tree.
 ///
 /// While the state machine produces a linear sequence of events (token matches,
-/// labels, conjunctions), the [StructuredEvaluator] reconstructs the hierarchical
+/// labels), the [StructuredEvaluator] reconstructs the hierarchical
 /// relationship between these events. It uses a stack-based approach to group
 /// marks into nested [ParseResult] nodes, ensuring that labels correctly
 /// encapsulate their corresponding sub-parses.
@@ -453,21 +453,6 @@ class StructuredEvaluator {
         case ExpandingMark():
           throw UnsupportedError("Marks has not been expanded.");
 
-        case ConjunctionMark(:var left, :var right, :var position):
-          stack.last.recordRange(position, position);
-          var leftPath = left.evaluate().allMarkPaths().first;
-          var leftEval = _evaluate(LazyGlushList.fromList(leftPath), input: input);
-          stack.last.recordRange(leftEval.start, leftEval.end);
-          for (var child in leftEval.result.children) {
-            stack.last.children.add(child);
-          }
-
-          var rightPath = right.evaluate().allMarkPaths().first;
-          var rightEval = _evaluate(LazyGlushList.fromList(rightPath), input: input);
-          stack.last.recordRange(rightEval.start, rightEval.end);
-          for (var child in rightEval.result.children) {
-            stack.last.children.add(child);
-          }
       }
     }
 

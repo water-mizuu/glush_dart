@@ -156,15 +156,6 @@ class AlternationPattern implements PatternExpr {
   String toString() => patterns.join(" | ");
 }
 
-/// Conjunction pattern (e.g., expr & term)
-class ConjunctionPattern implements PatternExpr {
-  const ConjunctionPattern(this.patterns);
-  final List<PatternExpr> patterns;
-
-  @override
-  String toString() => patterns.join(" & ");
-}
-
 /// A pattern that matches an expression repeatedly.
 ///
 /// This covers common repetitions like `*` (zero or more), `+` (one or more),

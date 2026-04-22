@@ -434,11 +434,6 @@ String generateColoredDot(
           '  "$fromStateId" -> "$toStateId" [label="$pred ${_dotEscape(action.symbol.toString())}", '
           "style=dashed, color=seagreen4];",
         );
-      } else if (action is ConjunctionAction) {
-        var toStateId = "S${action.nextState.id}";
-        buffer.writeln(
-          '  "$fromStateId" -> "$toStateId" [label="Conj ${_dotEscape(action.leftSymbol.toString())} & ${_dotEscape(action.rightSymbol.toString())}"];',
-        );
       }
     }
   }

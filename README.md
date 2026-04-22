@@ -67,7 +67,6 @@ Glush uses a powerful string-based DSL that supports virtually every modern pars
 | :-------------- | :--------------------- | :------------------------------------------------------- |
 | **Sequence**    | `A B`                  | Matches `A` followed by `B`.                             |
 | **Choice**      | `A \| B`               | Matches either `A` or `B` (Generalized).                 |
-| **Conjunction** | `A && B`               | Matches if **both** `A` and `B` match the same span.     |
 | **Lookahead**   | `&A` / `!A`            | Positive or Negative lookahead. Doesn't consume input.   |
 | **Repetition**  | `*`, `+`, `?`          | Zero-or-more, one-or-more, or optional.                  |
 | **Possessive**  | `*!`, `+!`             | Deterministic repetition (won't backtrack once matched). |

@@ -138,94 +138,20 @@ class ExpandingMark implements Mark {
   List<Object> toList() => ["expanding", name, position];
 }
 
-/// A mark that holds parallel mark streams from a conjunction.
-///
-/// This allows structural recovery of sub-parse results from each branch
-/// of an intersection without duplicating tokens in the final evaluated span.
-/// A mark that holds parallel mark streams from a conjunction.
-///
-/// This allows structural recovery of sub-parse results from each branch
-/// of an intersection without duplicating tokens in the final evaluated span.
-/// It is essential for correctly representing the dual nature of conjunctions,
-/// where multiple patterns must match the same input range.
-final class ConjunctionMark implements Mark {
-  /// Creates a [ConjunctionMark] that merges the [left] and [right] mark streams.
-  ///
-  /// The [position] indicates where this conjunction was finalized in the input.
-  /// The internal hash is pre-computed to speed up comparisons in complex forests.
-  ConjunctionMark(this.left, this.right, this.position)
-    : _hash = Object.hash(ConjunctionMark, left, right, position);
-
-  /// The parallel mark streams from the left branch of the conjunction.
-  final LazyGlushList<Mark> left;
-
-  /// The parallel mark streams from the right branch of the conjunction.
-  final LazyGlushList<Mark> right;
-
-  /// The zero-based index in the input where the conjunction was completed.
-  final int position;
-
-  /// Pre-computed hash code for efficiency.
-  final int _hash;
-
-  /// Returns a list representation of the conjunction mark.
-  ///
-  /// This includes the identifier "con", the two sub-streams, and the position,
-  /// facilitating deep comparison of conjunction results.
-  @override
-  List<Object> toList() => [
-    "con",
-    [left, right],
-    position,
-  ];
-
-  /// Checks for equality between two conjunction marks.
-  ///
-  /// Two conjunctions are equal if they share the same position and identical
-  /// sub-streams for both branches.
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ConjunctionMark &&
-          runtimeType == other.runtimeType &&
-          position == other.position &&
-          left == other.left &&
-          right == other.right;
-
-  /// Returns the pre-computed hash code for this mark.
-  @override
-  int get hashCode => _hash;
-
-  /// Returns a string representation of the conjunction and its sub-streams.
-  @override
-  String toString() => "ConjunctionMark(($left, $right), $position)";
-}
-
 /// Extensions for converting a list of marks into a more readable format.
 extension MarkListExtension on List<Mark> {
   /// Condenses a mark stream into a list of names and matched text.
   ///
-  /// This method iterates through the mark list, collapsing consecutive [StringMark]s
-  /// into single strings and extracting the names from [NamedMark]s and [LabelStartMark]s.
   /// It provides a high-level "summary" of what was matched, which is very useful
   /// for verifying the basic structure of a parse result without diving into
   /// every individual mark.
   List<String> toShortMarks() {
     var result = <String>[];
-    String? currentStringMark;
 
     for (var mark in this) {
       if (mark is LabelStartMark) {
-        if (currentStringMark != null) {
-          result.add(currentStringMark);
-          currentStringMark = null;
-        }
         result.add(mark.name);
       }
-    }
-
-    if (currentStringMark != null) {
-      result.add(currentStringMark);
     }
 
     return result;

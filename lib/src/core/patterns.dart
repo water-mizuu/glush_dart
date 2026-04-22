@@ -15,8 +15,7 @@ typedef PatternSymbol = int;
 /// A [Pattern] defines a fragment of a grammar that can be matched against
 /// an input stream. It includes primitive tokens, anchors, and higher-level
 /// combinators like sequences and alternations. The pattern system is designed
-/// to be extensible and allows for complex semantic extensions such as
-/// actions, guards, and conjunctions.
+/// actions, and guards.
 sealed class Pattern {
   /// Base constructor for [Pattern].
   Pattern();
@@ -72,10 +71,6 @@ sealed class Pattern {
         Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
       ),
       "seq" => Seq(
-        Pattern.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
-        Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
-      ),
-      "con" => Conj(
         Pattern.fromJson(json["left"]! as Map<String, Object?>, ruleMap),
         Pattern.fromJson(json["right"]! as Map<String, Object?>, ruleMap),
       ),
@@ -200,9 +195,6 @@ sealed class Pattern {
   /// DSL operator for alternation ([Alt]).
   Alt operator |(Pattern other) => Alt(this, other);
 
-  /// DSL operator for parallel conjunction ([Conj]).
-  Conj operator &(Pattern other) => Conj(this, other);
-
   /// Retreat operator — verifies this pattern matches, then moves the
   /// parsing position back by one before continuing.
   Pattern operator <(Pattern other) => this >> Retreat() >> other;
@@ -225,7 +217,6 @@ sealed class Pattern {
       Eps() => "eps",
       Alt() => "alt",
       Seq() => "seq",
-      Conj() => "con",
       And() => "and",
       Not() => "not",
       Rule() => "rul",
@@ -595,7 +586,7 @@ class Alt extends Pattern {
   @override
   Pattern invert() {
     try {
-      return left.invert() & right.invert();
+      return left.invert() >> right.invert();
     } on GrammarError {
       return not();
     }
@@ -870,64 +861,6 @@ class Plus extends Pattern {
 
   @override
   String toString() => "plus($child)";
-}
-
-/// A pattern representing the parallel conjunction of two patterns.
-///
-/// In a conjunction, BOTH [left] and [right] must match the exact same span
-/// of input for the conjunction to succeed. This is used for context-sensitive
-/// checks, refined tokenization, or implementing Boolean grammars.
-class Conj extends Pattern {
-  /// Creates a [Conj] of [left] and [right].
-  Conj(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
-
-  /// The first pattern to verify.
-  Pattern left;
-
-  /// The second pattern to verify.
-  Pattern right;
-
-  @override
-  bool singleToken() => left.singleToken() && right.singleToken();
-
-  @override
-  bool match(int? token) => left.match(token) && right.match(token);
-
-  @override
-  bool calculateEmpty(Set<Rule> emptyRules) {
-    var leftEmpty = left.calculateEmpty(emptyRules);
-    var rightEmpty = right.calculateEmpty(emptyRules);
-    var result = leftEmpty && rightEmpty;
-    setEmpty(result);
-    return result;
-  }
-
-  @override
-  bool isStatic() => left.isStatic() && right.isStatic();
-
-  @override
-  Set<Pattern> firstSet() => {this};
-
-  @override
-  Set<Pattern> lastSet() => {this};
-
-  @override
-  Conj copy() => Conj(left, right);
-
-  @override
-  Pattern invert() => left.invert() | right.invert();
-
-  @override
-  void collectRules(Set<Rule> rules) {
-    left.collectRules(rules);
-    right.collectRules(rules);
-  }
-
-  @override
-  Map<String, Object?> toJson() => {"type": "con", "left": left.toJson(), "right": right.toJson()};
-
-  @override
-  String toString() => "conj($left, $right)";
 }
 
 /// A positive lookahead predicate (syntactic AND).

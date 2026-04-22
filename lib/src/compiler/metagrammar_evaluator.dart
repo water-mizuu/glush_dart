@@ -20,11 +20,8 @@ rule = $rule     name:ident                        _ '=' _ body:choice _ (';')?
 choice = $rest left:choice _ (prec:number _)? '|' _ right:seq
        | $first ((prec:number _)? '|' _)? body:seq
 
-seq = $seq left:seq _ &isContinuation right:conj
-    | conj
-
-conj = $conj left:conj _ "&&" _ right:prefix
-      | prefix
+seq = $seq left:seq _ &isContinuation right:prefix
+    | prefix
 
 prefix = $and '&' atom:rep
        | $not '!' atom:rep
@@ -191,19 +188,6 @@ Evaluator<Object> createMetagrammarEvaluator() {
         return left;
       } else {
         return SequencePattern([left, right]);
-      }
-    },
-
-    // Conjunction patterns (rule-prefixed marks)
-    "conj.conj": (ctx) {
-      var left = ctx<PatternExpr>("left");
-      var right = ctx<PatternExpr>("right");
-
-      if (left case ConjunctionPattern(patterns: var patterns)) {
-        patterns.add(right);
-        return left;
-      } else {
-        return ConjunctionPattern([left, right]);
       }
     },
 
