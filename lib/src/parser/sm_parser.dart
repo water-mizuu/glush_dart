@@ -28,8 +28,6 @@
 /// can coexist, enabling proper handling of predicates without backtracking.
 library glush.sm_parser;
 
-import "dart:convert";
-
 import "package:glush/glush.dart" show StateMachine;
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
@@ -40,6 +38,7 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parser_base.dart";
 import "package:glush/src/parser/common/tracer.dart";
+import "package:glush/src/parser/incremental/finger_tree.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -122,9 +121,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   bool recognize(String input, {ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.recognize", () {
       var parseState = createParseState(tracer: tracer);
+      parseState.positionManager = FingerTree.leaf(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      while (parseState.position < parseState.positionManager.charLength) {
+        parseState.processNextToken();
         if (!parseState.hasPendingWork) {
           return false;
         }
@@ -145,9 +145,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ParseOutcome parse(String input, {bool captureTokensAsMarks = false, ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.parse", () {
       var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks, tracer: tracer);
+      parseState.positionManager = FingerTree.leaf(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      while (parseState.position < parseState.positionManager.charLength) {
+        parseState.processNextToken();
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
@@ -181,9 +182,10 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         captureTokensAsMarks: captureTokensAsMarks,
         tracer: tracer,
       );
+      parseState.positionManager = FingerTree.leaf(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      while (parseState.position < parseState.positionManager.charLength) {
+        parseState.processNextToken();
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }

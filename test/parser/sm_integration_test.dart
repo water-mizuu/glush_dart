@@ -104,9 +104,10 @@ void main() {
               .toSMParser();
 
       var parseState = parser.createParseState(captureTokensAsMarks: true);
+      parseState.positionManager = FingerTree.leaf("abc");
 
-      for (var unit in "abc".codeUnits) {
-        parseState.processToken(unit);
+      for (var i = 0; i < 3; i++) {
+        parseState.processNextToken();
       }
 
       var finalStep = parseState.finish();
@@ -130,9 +131,10 @@ void main() {
               .toSMParser();
 
       var parseState = parser.createParseState(captureTokensAsMarks: true);
+      parseState.positionManager = FingerTree.leaf("ac");
 
-      for (var unit in "ac".codeUnits) {
-        parseState.processToken(unit);
+      for (var i = 0; i < 2; i++) {
+        parseState.processNextToken();
       }
 
       var finalStep = parseState.finish();

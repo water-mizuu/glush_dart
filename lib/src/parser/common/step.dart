@@ -8,6 +8,7 @@ import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/trackers.dart";
+import "package:glush/src/parser/incremental/interval_tree.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/branch_key.dart";
 import "package:glush/src/parser/key/caller_cache_key.dart";
@@ -183,7 +184,7 @@ class Step {
     if (framePos == position) {
       return token;
     }
-    return parseState.historyByPosition[framePos];
+    return parseState.positionManager.charCodeAt(framePos);
   }
 
   /// Initiates a rule call and manages caller memoization.
@@ -215,10 +216,88 @@ class Step {
       }
     }
 
+    var callPosition = frame.context.position;
+
+    // --- PAPA CARLO SUBTREE REUSE START ---
+    // Reuse is currently only safe when token capture is disabled.
+    if (!captureTokensAsMarks && parseState.previousIntervalIndex != null) {
+      var cachedIntervals = parseState.previousIntervalIndex!.findStartingAt(callPosition);
+      // Group by symbol and pick the longest jump for each.
+      var bestJumps = <PatternSymbol, IntervalNode<CachedRuleResult>>{};
+      for (var cached in cachedIntervals) {
+        if (cached.result.symbol == targetRule.symbolId &&
+            (minPrecedenceLevel == null ||
+                cached.result.precedenceLevel == null ||
+                cached.result.precedenceLevel! >= minPrecedenceLevel)) {
+          var currentBest = bestJumps[cached.result.symbol];
+          if (currentBest == null ||
+              cached.result.nextPosition.compareByAncestry(currentBest.result.nextPosition) > 0) {
+            bestJumps[cached.result.symbol] = cached;
+          }
+        }
+      }
+
+      if (bestJumps.isNotEmpty) {
+        // We still create the caller to maintain GSS integrity and allow future waiters to reuse this jump.
+        var key = CallerCacheKey(
+          targetRule,
+          callPosition,
+          minPrecedenceLevel,
+          frame.context.predicateStack,
+        );
+        var caller = parseState.callersComplex[key];
+        if (caller == null) {
+          GlushProfiler.incrementMiss("parser.callers.cache");
+          caller = parseState.callersComplex[key] = Caller(
+            targetRule,
+            callPosition,
+            minPrecedenceLevel,
+            frame.context.predicateStack,
+            parseState.callerCounter++,
+            key.hashCode,
+          );
+        }
+
+        // Register the current waiter
+        caller.addWaiter(returnState, minPrecedenceLevel, frame.context, Ref(frame.marks), source);
+
+        for (var cached in bestJumps.values) {
+          var returnPosition = callPosition + cached.result.nextPosition.offset;
+          var jumpedMarks = cached.result.marks;
+          var returnContext = Context(
+            caller,
+            position: returnPosition,
+            callStart: callPosition,
+            precedenceLevel: cached.result.precedenceLevel,
+          );
+
+          // Record the result in the caller so future waiters also get it.
+          caller.addReturn(returnContext, jumpedMarks);
+          GlushProfiler.increment("parser.incremental.jump");
+          GlushProfiler.increment("parser.rule_calls.papa_carlo_fast_forward");
+
+          // Trigger returns for all current waiters (including the one we just added).
+          _triggerReturn(
+            caller,
+            frame.context.caller,
+            returnState,
+            minPrecedenceLevel,
+            frame.context,
+            frame.marks,
+            returnContext,
+            source: source,
+            action: action,
+          );
+        }
+        return; // <--- SAFE SKIP
+      }
+    }
+    // --- PAPA CARLO SUBTREE REUSE END ---
+
     var isNewCaller = false;
     var key = CallerCacheKey(
       targetRule,
-      position,
+      callPosition,
       minPrecedenceLevel,
       frame.context.predicateStack,
     );
@@ -228,10 +307,11 @@ class Step {
       GlushProfiler.incrementMiss("parser.callers.cache");
       caller = parseState.callersComplex[key] = Caller(
         targetRule,
-        position,
+        callPosition,
         minPrecedenceLevel,
         frame.context.predicateStack,
         parseState.callerCounter++,
+        key.hashCode,
       );
       GlushProfiler.increment("parser.callers.cache_assign");
     } else {
@@ -257,8 +337,8 @@ class Step {
           Context(
             caller,
             predicateStack: frame.context.predicateStack,
-            callStart: position,
-            position: position,
+            callStart: callPosition,
+            position: callPosition,
             minPrecedenceLevel: minPrecedenceLevel,
           ),
           const LazyGlushList<Mark>.empty(),
@@ -317,7 +397,6 @@ class Step {
 
     var targetPosition = nextContext.position;
     // If frame's position != current position, defer it for later.
-    // This keeps parsing position-ordered (same-position closure first).
     if (targetPosition != position) {
       // Frame is lagging and will be processed when its position comes up.
       GlushProfiler.increment("parser.enqueue.requeued");
@@ -571,6 +650,9 @@ class Step {
       GlushProfiler.increment("parser.token_actions.matched");
       parseState.tracer?.onAction(action, " matched");
       var newMarks = frame.marks;
+      if (captureTokensAsMarks) {
+        newMarks = newMarks.add(ConstantLazyVal(TokenMark(token)));
+      }
       _enqueueToNextPosition(action.nextState, frameContext, newMarks);
     } else {
       GlushProfiler.increment("parser.token_actions.rejected");
@@ -612,24 +694,12 @@ class Step {
 
   /// Processes a [LabelStartAction], beginning a labeled capture.
   void _processLabelStartAction(Frame frame, State state, LabelStartAction action) {
-    _enqueueWithAddedMark(
-      frame,
-      state,
-      action,
-      action.nextState,
-      LabelStartVal(action.name, position),
-    );
+    _enqueueWithAddedMark(frame, state, action, action.nextState, LabelStartVal(action.name));
   }
 
   /// Processes a [LabelEndAction], completing a labeled capture.
   void _processLabelEndAction(Frame frame, State state, LabelEndAction action) {
-    _enqueueWithAddedMark(
-      frame,
-      state,
-      action,
-      action.nextState,
-      LabelEndVal(action.name, position),
-    );
+    _enqueueWithAddedMark(frame, state, action, action.nextState, LabelEndVal(action.name));
   }
 
   /// Processes a [PredicateAction], initiating a lookahead check.
@@ -917,6 +987,18 @@ class Step {
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       if (caller.addReturn(returnContext, frame.marks)) {
         parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
+
+        // Cache the successful rule derivation for Papa Carlo SPPF subtree reuse.
+        parseState.intervalIndex.insert(
+          caller.startPosition,
+          returnPosition,
+          CachedRuleResult(
+            symbol: caller.rule.symbolId!,
+            nextPosition: RelativePosition.fromDistance(returnPosition - caller.startPosition),
+            marks: frame.marks,
+            precedenceLevel: action.precedenceLevel,
+          ),
+        );
 
         for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
             in caller.waiters) {

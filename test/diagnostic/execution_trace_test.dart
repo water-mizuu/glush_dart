@@ -36,8 +36,9 @@ void main() {
       );
 
       // Input: "ab"
-      pState.processToken(97); // 'a'
-      pState.processToken(98); // 'b'
+      pState.positionManager = FingerTree.leaf("ab");
+      pState.processNextToken(); // 'a'
+      pState.processNextToken(); // 'b'
       pState.finish();
 
       // Give FileTracer a moment to flush the IOSink

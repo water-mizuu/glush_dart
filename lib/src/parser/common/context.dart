@@ -154,6 +154,25 @@ class Context {
 
   @override
   int get hashCode => _hash;
+
+  /// Returns a new context shifted by [delta] relative to an edit at [editStart].
+  Context shifted(int delta, int editStart) {
+    int newPosition = position >= editStart ? position + delta : position;
+    int newCallStart = callStart >= editStart ? callStart + delta : callStart;
+
+    if (newPosition == position && newCallStart == callStart) {
+      return this;
+    }
+
+    return Context(
+      caller,
+      predicateStack: predicateStack,
+      callStart: newCallStart,
+      position: newPosition,
+      minPrecedenceLevel: minPrecedenceLevel,
+      precedenceLevel: precedenceLevel,
+    );
+  }
 }
 
 /// A grouping of frames that have arrived at the same [state] and [context].

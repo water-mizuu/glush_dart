@@ -16,6 +16,8 @@ sealed class CallerKey {
 
   int get uid;
   int get startPosition;
+  int get topologicalHash;
+  CallerKey shifted(int delta, int editStart);
 }
 
 /// Represents the root call context (top-level parse, not a rule call).
@@ -29,10 +31,16 @@ final class RootCallerKey extends CallerKey {
   int get startPosition => 0;
 
   @override
+  int get topologicalHash => 0;
+
+  @override
   int get hashCode => 0;
 
   @override
   bool operator ==(Object other) => other is RootCallerKey;
+
+  @override
+  CallerKey shifted(int delta, int editStart) => this;
 
   @override
   String toString() => "root";
@@ -57,6 +65,9 @@ final class PredicateCallerKey extends CallerKey {
   final int uid;
 
   @override
+  int get topologicalHash => hashCode;
+
+  @override
   bool operator ==(Object other) =>
       other is PredicateCallerKey &&
       pattern == other.pattern &&
@@ -66,6 +77,15 @@ final class PredicateCallerKey extends CallerKey {
 
   @override
   int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
+
+  @override
+  PredicateCallerKey shifted(int delta, int editStart) {
+    int newStart = startPosition >= editStart ? startPosition + delta : startPosition;
+    if (newStart == startPosition) {
+      return this;
+    }
+    return PredicateCallerKey(pattern, newStart, isAnd: isAnd, name: name);
+  }
 
   @override
   String toString() {
@@ -78,7 +98,14 @@ final class PredicateCallerKey extends CallerKey {
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 // ignore: must_be_immutable
 class Caller extends CallerKey {
-  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid);
+  Caller(
+    this.rule,
+    this.startPosition,
+    this.minPrecedenceLevel,
+    this.predicateStack,
+    this.uid,
+    this.topologicalHash,
+  );
 
   final Rule rule;
   final int? minPrecedenceLevel;
@@ -89,6 +116,18 @@ class Caller extends CallerKey {
 
   @override
   final int uid;
+
+  @override
+  final int topologicalHash;
+
+  @override
+  Caller shifted(int delta, int editStart) {
+    int newStart = startPosition >= editStart ? startPosition + delta : startPosition;
+    if (newStart == startPosition) {
+      return this;
+    }
+    return Caller(rule, newStart, minPrecedenceLevel, predicateStack, uid, topologicalHash);
+  }
 
   final Map<ReturnKey, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Map<ReturnKey, LazyReturn<Mark>> _lazyReturns = {};

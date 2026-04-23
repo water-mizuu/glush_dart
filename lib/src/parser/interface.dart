@@ -3,6 +3,8 @@ import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_result.dart";
 import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/step.dart";
+import "package:glush/src/parser/common/tracer.dart";
+import "package:glush/src/parser/incremental/interval_tree.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// The core internal interface for the Glush parser engine.
@@ -31,6 +33,16 @@ abstract interface class GlushParser {
     required ParseState parseState,
     bool isSupportingAmbiguity,
     bool captureTokensAsMarks,
+  });
+
+  /// Creates a new [ParseState] initialized with this parser's grammar and
+  /// configuration.
+  ParseState createParseState({
+    bool isSupportingAmbiguity = false,
+    bool captureTokensAsMarks = false,
+    ParseTracer? tracer,
+    IntervalTree<CachedRuleResult>? previousIntervalIndex,
+    IntervalTree<ParseCheckpoint>? previousCheckpointIndex,
   });
 }
 

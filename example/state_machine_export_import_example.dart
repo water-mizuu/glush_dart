@@ -62,8 +62,9 @@ void main() async {
   // Parse with original
   print("  Parsing with original state machine...");
   var state1 = parser1.createParseState();
-  for (int code in testInput1.codeUnits) {
-    state1.processToken(code);
+  state1.positionManager = FingerTree.leaf(testInput1);
+  while (state1.hasPendingWork && state1.position < state1.positionManager.charLength) {
+    state1.processNextToken();
   }
   state1.finish();
   var result1 = state1.accept;
@@ -72,8 +73,9 @@ void main() async {
   // Parse with imported
   print("  Parsing with imported state machine...");
   var state2 = parser2.createParseState();
-  for (int code in testInput1.codeUnits) {
-    state2.processToken(code);
+  state2.positionManager = FingerTree.leaf(testInput1);
+  while (state2.hasPendingWork && state2.position < state2.positionManager.charLength) {
+    state2.processNextToken();
   }
   state2.finish();
   var result2 = state2.accept;

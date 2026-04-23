@@ -3,7 +3,6 @@
 /// Pattern system for grammar definition
 library glush.patterns;
 
-import "dart:convert";
 
 import "package:glush/src/compiler/errors.dart";
 import "package:glush/src/core/profiling.dart";
@@ -44,13 +43,13 @@ sealed class Pattern {
       return Eps();
     }
 
-    List<int> bytes = utf8.encode(pattern);
+    List<int> units = pattern.codeUnits;
 
-    if (bytes.length == 1) {
-      return Token(ExactToken(bytes.single));
+    if (units.length == 1) {
+      return Token(ExactToken(units.single));
     }
 
-    Pattern result = bytes
+    Pattern result = units
         .map((b) => Token(ExactToken(b)))
         .cast<Pattern>()
         .reduce((acc, curr) => acc >> curr);
@@ -374,14 +373,14 @@ class Token extends Pattern {
   /// Creates a [Token] matching a single character [char].
   Token.char(String char) //
     : assert(char.length == 1, "Character patterns should have only one value!"),
-      choice = ExactToken(utf8.encode(char).single);
+      choice = ExactToken(char.codeUnitAt(0));
 
   /// Creates a [Token] matching a range of characters from [from] to [to].
   Token.charRange(String from, String to)
-    : choice = RangeToken(utf8.encode(from).first, utf8.encode(to).first);
+    : choice = RangeToken(from.codeUnitAt(0), to.codeUnitAt(0));
 
   /// Creates a [Token] that matches any single character.
-  Token.any() : choice = const RangeToken(0, 255);
+  Token.any() : choice = const RangeToken(0, 0xFFFF);
 
   /// The matching logic for this token.
   final TokenChoice choice;

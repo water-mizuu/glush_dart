@@ -11,6 +11,7 @@ export "src/core/patterns.dart";
 export "src/core/profiling.dart";
 export "src/parser/common/parse_derivation.dart";
 export "src/parser/common/parse_result.dart";
+export "src/parser/incremental/finger_tree.dart";
 export "src/parser/interface.dart";
 export "src/parser/key/branch_key.dart";
 export "src/parser/key/caller_key.dart";

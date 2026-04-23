@@ -18,14 +18,27 @@ class Frame {
   Frame(this.context, this.marks) : nextStates = {};
 
   /// The shared parsing context (caller, identity, etc.) for this frame.
-  final Context context;
+  Context context;
 
   /// The accumulated semantic values (marks) for this derivation path.
-  final LazyGlushList<Mark> marks;
+  LazyGlushList<Mark> marks;
 
   /// The set of state machine states to be explored from this frame.
   final Set<State> nextStates;
 
-  /// Creates a copy of this frame, used when branching the parse path.
-  Frame copy() => Frame(context, marks);
+  /// Creates a copy of this frame, including its state machine states.
+  Frame copy() => Frame(context, marks)..nextStates.addAll(nextStates);
+
+  /// Resets this frame for reuse in a pool.
+  void reset(Context context, LazyGlushList<Mark> marks) {
+    this.context = context;
+    this.marks = marks;
+    nextStates.clear();
+  }
+
+  /// Returns a new frame shifted by [delta] relative to an edit at [editStart].
+  Frame shifted(int delta, int editStart) {
+    return Frame(context.shifted(delta, editStart), marks)
+      ..nextStates.addAll(nextStates);
+  }
 }

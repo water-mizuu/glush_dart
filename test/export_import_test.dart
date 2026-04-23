@@ -22,14 +22,16 @@ void main() {
 
       for (var input in testInputs) {
         var state1 = originalParser.createParseState();
-        for (var code in input.codeUnits) {
-          state1.processToken(code);
+        state1.positionManager = FingerTree.leaf(input);
+        for (var i = 0; i < input.length; i++) {
+          state1.processNextToken();
         }
         state1.finish();
 
         var state2 = importedParser.createParseState();
-        for (var code in input.codeUnits) {
-          state2.processToken(code);
+        state2.positionManager = FingerTree.leaf(input);
+        for (var i = 0; i < input.length; i++) {
+          state2.processNextToken();
         }
         state2.finish();
 
@@ -60,8 +62,9 @@ void main() {
         var expected = entry.value;
 
         var state = importedParser.createParseState();
-        for (var code in input.codeUnits) {
-          state.processToken(code);
+        state.positionManager = FingerTree.leaf(input);
+        for (var i = 0; i < input.length; i++) {
+          state.processNextToken();
         }
         state.finish();
 
@@ -89,14 +92,16 @@ void main() {
       const input = "1+2*3";
 
       var state1 = originalParser.createParseState();
-      for (var code in input.codeUnits) {
-        state1.processToken(code);
+      state1.positionManager = FingerTree.leaf(input);
+      for (var i = 0; i < input.length; i++) {
+        state1.processNextToken();
       }
       state1.finish();
 
       var state2 = importedParser.createParseState();
-      for (var code in input.codeUnits) {
-        state2.processToken(code);
+      state2.positionManager = FingerTree.leaf(input);
+      for (var i = 0; i < input.length; i++) {
+        state2.processNextToken();
       }
       state2.finish();
 

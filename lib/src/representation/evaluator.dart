@@ -441,18 +441,21 @@ class StructuredEvaluator {
     required String input,
   }) {
     var stack = <_EvaluationFrame>[_EvaluationFrame("root", input: input, children: [])];
+    int currentPos = 0;
 
     for (var mark in lazyMarks.evaluate().iterate()) {
       switch (mark) {
-        case LabelStartMark(:var name, :var position):
-          stack.last.recordRange(position, position);
-          stack.add(_EvaluationFrame(name, input: input, startPosition: position, children: []));
-        case LabelEndMark(:var name, :var position):
-          stack.last.recordRange(position, position);
-          _closeStrictLabel(stack, name, position);
+        case LabelStartMark(:var name):
+          stack.last.recordRange(currentPos, currentPos);
+          stack.add(_EvaluationFrame(name, input: input, startPosition: currentPos, children: []));
+        case LabelEndMark(:var name):
+          stack.last.recordRange(currentPos, currentPos);
+          _closeStrictLabel(stack, name, currentPos);
+        case TokenMark(:var length):
+          stack.last.recordRange(currentPos, currentPos + length);
+          currentPos += length;
         case ExpandingMark():
           throw UnsupportedError("Marks has not been expanded.");
-
       }
     }
 

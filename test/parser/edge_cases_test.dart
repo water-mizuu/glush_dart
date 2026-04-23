@@ -77,12 +77,11 @@ void main() {
       }),
       (parser) {
         expect(parser.recognize(String.fromCharCode(0)), isTrue);
-        // UTF-8: ASCII characters (0-127) are single bytes and match
+        // UTF-16: ASCII characters (0-127) are single code units and match
         expect(parser.recognize(String.fromCharCode(127)), isTrue);
-        // UTF-8: character 255 (ÿ) encodes as 0xC3 0xBF (2 bytes),
-        // so parser fails at EOF due to extra byte
-        expect(parser.recognize(String.fromCharCode(255)), isFalse);
-        // UTF-8: character 256 encodes with multiple bytes, fails at EOF
+        // UTF-16: character 255 (ÿ) is a single code unit and matches 0-255 range
+        expect(parser.recognize(String.fromCharCode(255)), isTrue);
+        // UTF-16: character 256 (ā) is a single code unit, but outside 0-255 range
         expect(parser.recognize(String.fromCharCode(256)), isFalse);
       },
     );

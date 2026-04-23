@@ -4,6 +4,7 @@ import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/step.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
+import "package:glush/src/parser/incremental/interval_tree.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
@@ -84,9 +85,7 @@ abstract base class GlushParserBase implements GlushParser {
 
     var step = stepsAtPosition[position] ??= Step(
       parseState,
-      position < parseState.historyByPosition.length
-          ? parseState.historyByPosition[position]
-          : null,
+      parseState.positionManager.charCodeAt(position),
       position,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
@@ -155,10 +154,13 @@ abstract base class GlushParserBase implements GlushParser {
 
   /// Creates a new [ParseState] initialized with this parser's grammar and
   /// configuration.
+  @override
   ParseState createParseState({
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
     ParseTracer? tracer,
+    IntervalTree<CachedRuleResult>? previousIntervalIndex,
+    IntervalTree<ParseCheckpoint>? previousCheckpointIndex,
   }) {
     return ParseState(
       this,
@@ -166,6 +168,8 @@ abstract base class GlushParserBase implements GlushParser {
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
       tracer: tracer,
+      previousIntervalIndex: previousIntervalIndex,
+      previousCheckpointIndex: previousCheckpointIndex,
     );
   }
 
@@ -187,10 +191,6 @@ abstract base class GlushParserBase implements GlushParser {
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
   }) {
-    if (token != null && parseState.historyByPosition.length == currentPosition) {
-      parseState.historyByPosition.add(token);
-    }
-
     var workQueue = _PositionWorkQueue();
 
     var stepsAtPosition = <int, Step>{};
