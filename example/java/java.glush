@@ -1,0 +1,244 @@
+# ============================================
+# Java 8 Grammar (Complete Implementation)
+# ============================================
+
+# --------------------------------------------
+# 1. Top Level Structure
+# --------------------------------------------
+
+compilationUnit    = _ (packageDeclaration _)? (importDeclaration _)* (typeDeclaration _)*;
+
+packageDeclaration = $package 'package' _ name:qualifiedName _ ';';
+importDeclaration  = $import 'import' _ ('static' _)? name:qualifiedName _ ('.' _ '*')? _ ';';
+
+typeDeclaration    = classDeclaration | interfaceDeclaration | enumDeclaration | annotationTypeDeclaration | ';';
+
+# --------------------------------------------
+# 2. Class, Interface, Enum Declarations
+# --------------------------------------------
+
+classDeclaration       = $class modifier* 'class' _ name:identifier _ (typeParameters _)?
+                          ('extends' _ super:type _)?
+                          ('implements' _ interfaces:typeList _)?
+                          body:classBody;
+
+interfaceDeclaration   = $interface modifier* 'interface' _ name:identifier _ (typeParameters _)?
+                          ('extends' _ interfaces:typeList _)?
+                          body:classBody;
+
+enumDeclaration        = $enum modifier* 'enum' _ name:identifier _
+                          ('implements' _ interfaces:typeList _)?
+                          body:enumBody;
+
+annotationTypeDeclaration = $annotation modifier* '@' _ 'interface' _ name:identifier _ body:classBody;
+
+classBody                 = "{" _ (member:member _)* "}";
+enumBody                  = "{" _ (constants:enumConstants _)? (";" _ (member:member _)*)? "}";
+enumConstants               = enumConstant (_ "," _ enumConstant)* (_ ",")?;
+enumConstant                = $const annotation* name:identifier _ ("(" _ arguments:args _ ")")? _ (body:classBody)?;
+
+# --------------------------------------------
+# 3. Members
+# --------------------------------------------
+
+member                   = fieldDeclaration
+                         | methodDeclaration
+                         | constructorDeclaration
+                         | genericMethodDeclaration
+                         | classDeclaration
+                         | interfaceDeclaration
+                         | enumDeclaration
+                         | annotationTypeDeclaration
+                         | block
+                         | staticInitializer;
+
+staticInitializer        = 'static'? _ body:block;
+
+fieldDeclaration         = $field modifier* type:type _ name:variableDeclarators _ ';';
+variableDeclarators      = variableDeclarator (_ "," _ variableDeclarator)*;
+variableDeclarator       = name:identifier _ (dims:arrayDims _)? ('=' _ value:variableInitializer)?;
+
+variableInitializer      = expression | arrayInitializer;
+arrayInitializer         = "{" _ (variableInitializer (_ "," _ variableInitializer)* (_ ",")?)? _ "}";
+
+methodDeclaration        = $method modifier* (typeParameters _)? type:type _ name:identifier _ "(" _ params:formalParameters _ ")" _
+                            (dims:arrayDims _)?
+                            ('throws' _ exceptions:typeList _)?
+                            (body:block | ';');
+
+constructorDeclaration   = $constructor modifier* (typeParameters _)? name:identifier _ "(" _ params:formalParameters _ ")" _
+                            ('throws' _ exceptions:typeList _)?
+                            body:block;
+
+genericMethodDeclaration = $method modifier* typeParameters _ type:type _ name:identifier _ "(" _ params:formalParameters _ ")" _
+                            ('throws' _ exceptions:typeList _)?
+                            (body:block | ';');
+
+formalParameters         = (param:formalParameter (_ "," _ param:formalParameter)*)?;
+formalParameter          = $param modifier* type:type _ ('...' _)? name:identifier;
+
+# --------------------------------------------
+# 4. Types and Generics
+# --------------------------------------------
+
+type          = $type annotation* (primitiveType | referenceType) (dims:arrayDims)?;
+referenceType = qualifiedName (typeArguments)?;
+
+typeList      = type (_ "," _ type)*;
+
+typeParameters= "<" _ typeParameter (_ "," _ typeParameter)* _ ">";
+typeParameter = $typeParam annotation* name:identifier _ ('extends' _ bounds:typeBound)?;
+typeBound     = type (_ "&" _ type)*;
+
+typeArguments = "<" _ (typeArgument (_ "," _ typeArgument)*)? _ ">";
+typeArgument  = type | "?" _ (('extends' | 'super') _ type)?;
+
+arrayDims     = (annotation* "[" _ "]")+;
+
+primitiveType = ('byte' | 'short' | 'int' | 'long' | 'float' |
+                 'double' | 'char' | 'boolean' | 'void') !identifierPart;
+
+# --------------------------------------------
+# 5. Statements
+# --------------------------------------------
+
+statement                 = block
+                          | $if 'if' _ "(" _ cond:expression _ ")" _ then:statement (_ 'else' _ else:statement)?
+                          | $while 'while' _ "(" _ cond:expression _ ")" _ body:statement
+                          | $do 'do' _ body:statement _ 'while' _ "(" _ cond:expression _ ")" _ ';'
+                          | $for 'for' _ "(" _ (forControl:forControl) _ ")" _ body:statement
+                          | $return 'return' _ val:expression? _ ';'
+                          | $throw 'throw' _ val:expression _ ';'
+                          | $try 'try' _ (resources:resourceSpecification _)? body:block (_ catch:catchClause)* (_ 'finally' _ finally:block)?
+                          | $switch 'switch' _ "(" _ cond:expression _ ")" _ "{" _ (switchBlockStatementGroup:switchBlockStatementGroup)* _ "}"
+                          | $break 'break' _ label:identifier? _ ';'
+                          | $continue 'continue' _ label:identifier? _ ';'
+                          | $stmt expression _ ';'
+                          | $label identifier _ ":" _ statement
+                          | variableDeclaration _ ';'
+                          | ';';
+
+forControl                = enhancedForControl | basicForControl;
+enhancedForControl        = modifier* type:type _ name:identifier _ ":" _ iterable:expression;
+basicForControl           = init:forInit? _ ';' _ cond:expression? _ ';' _ update:expressionList?;
+
+forInit                   = variableDeclaration | expressionList;
+variableDeclaration       = modifier* type:type _ variableDeclarators;
+expressionList            = expression (_ "," _ expression)*;
+
+resourceSpecification     = "(" _ resources:resources (_ ";")? _ ")";
+resources                 = resource (_ ";" _ resource)*;
+resource                  = modifier* type:type _ name:identifier _ "=" _ value:expression;
+
+switchBlockStatementGroup = (switchLabel _)+ (stmts:statement _)*;
+switchLabel               = $case 'case' _ value:expression _ ":" | $default 'default' _ ":";
+
+block                     = $block "{" _ (member:member _ | stmts:statement _)* "}";
+catchClause               = $catch 'catch' _ "(" _ (modifiers:modifier)* type:(type (_ "|" _ type)*) _ name:identifier _ ")" _ body:block;
+
+# --------------------------------------------
+# 6. Expressions
+# --------------------------------------------
+
+expression           = lambdaExpression | assignment;
+
+lambdaExpression     = $lambda (params:lambdaParameters _ '->' _ body:(block | expression));
+lambdaParameters     = identifier | "(" _ (formalParameters | identifierList)? _ ")";
+identifierList       = identifier (_ "," _ identifier)*;
+
+assignment           = $assign (target:leftHandSide _ op:assignmentOperator _)? value:conditional;
+leftHandSide         = (primary | qualifiedName);
+assignmentOperator   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" | ">>>=";
+
+conditional          = $cond left:binary (_ "?" _ then:expression _ ":" _ else:conditional)?;
+
+binary               = $binary left:unary (_ op:binaryOperator _ right:unary)*;
+binaryOperator       = "||" | "&&" | "|" | "^" | "&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "<<" | ">>" | ">>>" | "+" | "-" | "*" | "/" | "%" | "instanceof";
+
+unary                = $unary op:unaryOperator* primary op:postOperator*;
+unaryOperator        = "+" | "-" | "++" | "--" | "!" | "~" | "(" _ type:type _ ")"; # includes cast
+postOperator         = "++" | "--";
+
+primary              = literal
+                     | $call name:(primary | qualifiedName) _ (typeArgs:typeArguments _)? "(" _ arguments:args _ ")"
+                     | $ref name:(primary | qualifiedName) # this covers field access too
+                     | $new 'new' _ (typeArgs:typeArguments _)? baseType _ (
+                         "(" _ arguments:args _ ")" (_ body:classBody)?
+                       | (dims:arrayDims _)? arrayInitializer
+                       | (dims:arrayDimsWithExpressions)
+                     )
+                     | $methodRef (type:type | 'super') _ '::' _ (typeArgs:typeArguments _)? name:(identifier | 'new')
+                     | $group "(" _ expression _ ")"
+                     | $keyword 'this' | 'super' | 'class';
+
+baseType             = annotation* (primitiveType | referenceType);
+arrayDimsWithExpressions = (annotation* "[" _ expression _ "]")+ (arrayDims)?;
+
+args                 = (head:expression (_ "," _ tail:expression)*)?;
+
+# --------------------------------------------
+# 7. Modifiers and Annotations
+# --------------------------------------------
+
+modifier                     = annotation | ('public' | 'protected' | 'private' | 'static' | 'final' | 'abstract' | 'native' | 'synchronized' | 'transient' | 'volatile' | 'strictfp' | 'default') _;
+
+annotation                   = "@" _ name:qualifiedName _ ("(" _ (elementValuePairs | elementValue)? _ ")")? _;
+elementValuePairs            = elementValuePair (_ "," _ elementValuePair)*;
+elementValuePair             = name:identifier _ "=" _ value:elementValue;
+elementValue                 = expression | annotation | elementValueArrayInitializer;
+elementValueArrayInitializer = "{" _ (elementValue (_ "," _ elementValue)* (_ ",")?)? _ "}";
+
+# --------------------------------------------
+# 8. Literals (Lexer)
+# --------------------------------------------
+
+literal             = floatLiteral | intLiteral | charLiteral | stringLiteral | boolLiteral | nullLiteral;
+
+intLiteral          = $int (hexLiteral | binaryLiteral | octalLiteral | decimalLiteral) [lL]?;
+decimalLiteral      = '0' | [1-9] ([0-9_]* [0-9])?;
+hexLiteral          = '0' [xX] [0-9a-fA-F] ([0-9a-fA-F_]* [0-9a-fA-F])?;
+octalLiteral        = '0' [_]* [0-7] ([0-7_]* [0-7])?;
+binaryLiteral       = '0' [bB] [01] ([01_]* [01])?;
+
+floatLiteral        = $float (hexFloatLiteral | decimalFloatLiteral) [fFdD]?;
+decimalFloatLiteral = [0-9] ([0-9_]* [0-9])? "." [0-9] ([0-9_]* [0-9])? ([eE] [+-]? [0-9]+)?
+                    | "." [0-9] ([0-9_]* [0-9])? ([eE] [+-]? [0-9]+)?
+                    | [0-9] ([0-9_]* [0-9])? [eE] [+-]? [0-9]+
+                    | [0-9] ([0-9_]* [0-9])? [fFdD];
+
+hexFloatLiteral     = '0' [xX] [0-9a-fA-F]+ "."? ([pP] [+-]? [0-9]+)
+                    | '0' [xX] [0-9a-fA-F]* "." [0-9a-fA-F]+ ([pP] [+-]? [0-9]+);
+
+charLiteral         = $char "'" (escapeSequence | (!['\\] .)) "'";
+stringLiteral       = $string '"' (escapeSequence | (!["\\] .))* '"';
+
+escapeSequence      = "\\" ([btnfr"'\\] | 'u' [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] | [0-3] [0-7] [0-7] | [0-7] [0-7] | [0-7]);
+
+boolLiteral         = $bool ('true' | 'false') !identifierPart;
+nullLiteral         = $null 'null' !identifierPart;
+
+# --------------------------------------------
+# 9. Terminals
+# --------------------------------------------
+
+identifier      = identifierStart identifierPart*;
+
+# Subset of Unicode ranges provided for efficiency, including common letters and symbols
+identifierStart = [a-zA-Z_$]
+                | [\u00A2-\u00A5] | [\u00AA] | [\u00B5] | [\u00BA]
+                | [\u00C0-\u00D6] | [\u00D8-\u00F6] | [\u00F8-\u02C1]
+                | [\u0370-\u037D] | [\u037F-\u0386] | [\u0388-\u038A];
+
+identifierPart  = identifierStart | [0-9] | [\u0300-\u036F];
+
+qualifiedName   = identifier (_ "." _ identifier)*;
+
+# --------------------------------------------
+# 10. Whitespace and Comments
+# --------------------------------------------
+
+_            = (whitespace | comment)*;
+whitespace   = [ \n\r\t\u000C]+;
+comment      = lineComment | blockComment;
+lineComment  = "//" (![\n] .)*;
+blockComment = "/*" (!"*/" .)* "*/";
