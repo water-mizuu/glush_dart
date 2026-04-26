@@ -7,6 +7,7 @@ import "dart:convert";
 
 import "package:glush/src/compiler/errors.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/helper/range.dart";
 
 typedef PatternSymbol = int;
 
@@ -260,6 +261,7 @@ sealed class TokenChoice {
       "less" => LessToken(json["bound"]! as int),
       "greater" => GreaterToken(json["bound"]! as int),
       "not" => NotToken(TokenChoice.fromJson(json["inner"]! as Map<String, Object?>)),
+      "complex" => ComplexToken(IntegerRange.fromJson(json["value"]! as Map<String, Object?>)),
       _ => throw UnsupportedError("Unknown token choice type: $type"),
     };
   }
@@ -315,6 +317,21 @@ final class ExactToken extends TokenChoice {
 
   @override
   Map<String, Object?> toJson() => {"type": "exact", "value": value};
+}
+
+final class ComplexToken extends TokenChoice {
+  const ComplexToken(this.range) : super(true);
+
+  final IntegerRange range;
+
+  @override
+  bool matches(int? token) => token != null && range.contains(token);
+
+  @override
+  String toString() => range.toString();
+
+  @override
+  Map<String, Object?> toJson() => {"type": "complex", "value": range.toJson()};
 }
 
 /// Matches a code-point within an inclusive range

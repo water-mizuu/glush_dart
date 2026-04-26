@@ -211,7 +211,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// This provides a quick way to gauge the level of ambiguity in a parse
   /// result without fully evaluating all paths.
-  int countAllParses(String input) {
+  BigInt countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
   }
 }

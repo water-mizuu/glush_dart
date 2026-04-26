@@ -61,7 +61,7 @@ void evaluateGamma3(Grammar grammar) {
     expect(result, isA<ParseAmbiguousSuccess>());
 
     // Verify counts match
-    expect(derivations.length, equals(derivationCount));
+    expect(BigInt.from(derivations.length), equals(derivationCount));
     // ssss should have 11 parse trees
     expect(derivations.length, equals(11));
   });

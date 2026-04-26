@@ -6,7 +6,34 @@ import "package:glush/src/compiler/parser.dart";
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/helper/range.dart";
 import "package:glush/src/parser/sm_parser.dart";
+
+const int _asciiTab = 0x09;
+const int _asciiLineFeed = 0x0A;
+const int _asciiVerticalTab = 0x0B;
+const int _asciiFormFeed = 0x0C;
+const int _asciiCarriageReturn = 0x0D;
+const int _asciiSpace = 0x20;
+const int _asciiDigit0 = 0x30;
+const int _asciiDigit9 = 0x39;
+const int _asciiUpperA = 0x41;
+const int _asciiUpperZ = 0x5A;
+const int _asciiUnderscore = 0x5F;
+const int _asciiLowerA = 0x61;
+const int _asciiLowerZ = 0x7A;
+
+const _lowercase = IntegerRange.unit(_asciiLowerA, _asciiLowerZ + 1);
+const _uppercase = IntegerRange.unit(_asciiUpperA, _asciiUpperZ + 1);
+const _digit = IntegerRange.unit(_asciiDigit0, _asciiDigit9 + 1);
+final _word = _uppercase | _lowercase | _digit | const IntegerRange.single(_asciiUnderscore);
+final _space =
+    const IntegerRange.single(_asciiTab) |
+    const IntegerRange.single(_asciiLineFeed) |
+    const IntegerRange.single(_asciiVerticalTab) |
+    const IntegerRange.single(_asciiFormFeed) |
+    const IntegerRange.single(_asciiCarriageReturn) |
+    const IntegerRange.single(_asciiSpace);
 
 /// Transforms a [GrammarFile] AST into an executable [Grammar] object.
 ///
@@ -237,39 +264,15 @@ class GrammarFileCompiler {
 
       case BackslashLiteralPattern(:var char):
         return switch (char) {
-          "n" => Token(const ExactToken(10)),
-          "r" => Token(const ExactToken(13)),
-          "t" => Token(const ExactToken(9)),
-          "d" => Token(const RangeToken(48, 57)),
-          "D" => Token(const RangeToken(48, 57)).not() >> Token.any(),
-          "w" =>
-            Token(const RangeToken(65, 90)) |
-                Token(const RangeToken(97, 122)) |
-                Token(const RangeToken(48, 57)) |
-                Token(const ExactToken(95)),
-          "W" =>
-            (Token(const RangeToken(65, 90)) |
-                        Token(const RangeToken(97, 122)) |
-                        Token(const RangeToken(48, 57)) |
-                        Token(const ExactToken(95)))
-                    .not() >>
-                Token.any(),
-          "s" =>
-            Token(const ExactToken(32)) | // space
-                Token(const ExactToken(9)) | // tab
-                Token(const ExactToken(10)) | // nl
-                Token(const ExactToken(13)) | // cr
-                Token(const ExactToken(12)) | // ff
-                Token(const ExactToken(11)), // vt
-          "S" =>
-            (Token(const ExactToken(32)) |
-                        Token(const ExactToken(9)) |
-                        Token(const ExactToken(10)) |
-                        Token(const ExactToken(13)) |
-                        Token(const ExactToken(12)) |
-                        Token(const ExactToken(11)))
-                    .not() >>
-                Token.any(),
+          "n" => Token(const ExactToken(_asciiLineFeed)),
+          "r" => Token(const ExactToken(_asciiCarriageReturn)),
+          "t" => Token(const ExactToken(_asciiTab)),
+          "d" => Token(const ComplexToken(_digit)),
+          "D" => Token(const NotToken(ComplexToken(_digit))),
+          "w" => Token(ComplexToken(_word)),
+          "W" => Token(NotToken(ComplexToken(_word))),
+          "s" => Token(ComplexToken(_space)), // vt
+          "S" => Token(NotToken(ComplexToken(_space))),
           _ => throw Exception("Unsupported backslash literal: \\$char"),
         };
     }

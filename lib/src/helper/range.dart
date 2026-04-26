@@ -1,32 +1,114 @@
 import "dart:math" as math;
 
-typedef Conversion = ({UnitRange destination, UnitRange source});
-
+/// Represents a set of integer values as one unit range or a union of unit ranges.
+///
+/// A unit range uses half-open semantics: `[start, end)` includes `start` and
+/// excludes `end`.
 sealed class IntegerRange {
+  /// Creates a range containing exactly one integer [value].
+  const factory IntegerRange.single(int value) = SingleRange;
+
+  /// Creates a half-open unit range `[start, end)`.
   const factory IntegerRange.unit(int start, int end) = UnitRange;
+
+  /// Creates a union of unit ranges.
   const factory IntegerRange.union(List<UnitRange> ranges) = UnionRange;
 
+  /// The empty range (contains no values).
   static const IntegerRange empty = UnionRange([]);
 
+  /// Deserializes an [IntegerRange] from a JSON-like map.
+  ///
+  /// Supported payloads:
+  /// - `{"type": "unit", "start": int, "end": int}`
+  /// - `{"type": "union", "ranges": List<Map<String, Object?>>}`
+  ///
+  /// Throws [FormatException] when the payload shape or types are invalid.
+  static IntegerRange fromJson(Map<String, Object?> value) {
+    var type = value["type"];
+    if (type == "unit") {
+      var start = value["start"];
+      var end = value["end"];
+      if (start is! int || end is! int) {
+        throw FormatException("Invalid unit range payload: $value");
+      }
+      return IntegerRange.unit(start, end);
+    }
+
+    if (type == "union") {
+      var ranges = value["ranges"];
+      if (ranges is! List) {
+        throw FormatException("Invalid union range payload: $value");
+      }
+
+      var units = <UnitRange>[];
+      for (var item in ranges) {
+        if (item is! Map<String, Object?>) {
+          throw FormatException("Invalid unit range payload: $item");
+        }
+
+        var parsed = IntegerRange.fromJson(item);
+        if (parsed is UnitRange) {
+          units.add(parsed);
+        } else if (parsed is UnionRange) {
+          units.addAll(parsed.units);
+        }
+      }
+
+      return IntegerRange.union(units);
+    }
+
+    throw FormatException("Unknown IntegerRange type: $type");
+  }
+
+  /// The total number of integers represented by this range.
   int get length;
 
+  /// Whether this range contains no values.
   bool get isEmpty;
+
+  /// Whether this range contains at least one value.
   bool get isNotEmpty;
 
+  /// Returns a canonical set of all contained integers.
+  ///
+  /// This is useful for testing and exact set comparison, but may be expensive
+  /// for very large ranges.
   Set<int> get canonical;
 
+  /// Iterates this range as unit ranges.
+  ///
+  /// For [UnitRange], this yields itself once. For [UnionRange], this yields
+  /// each contained unit.
   Iterable<UnitRange> get units;
 
+  /// Returns whether [value] is inside this range.
   bool contains(num value);
 
+  /// Returns whether this range touches [other] at a boundary without overlap.
   bool touchesWith(IntegerRange other);
+
+  /// Returns whether this range has any overlapping values with [other].
   bool intersectsWith(IntegerRange other);
+
+  /// Returns whether this range fully covers all values of [other].
   bool covers(IntegerRange other);
+
+  /// Returns the set union of this range and [other].
   IntegerRange union(IntegerRange other);
+
+  /// Returns the set intersection of this range and [other].
   IntegerRange intersect(IntegerRange other);
 
+  /// Returns the set difference `this - other`.
   IntegerRange difference(IntegerRange other);
-  IntegerRange map(List<Conversion> map);
+
+  /// Serializes this range into a JSON-like map.
+  Map<String, Object?> toJson();
+}
+
+final class SingleRange extends UnitRange {
+  const SingleRange(int value) : super(value, value + 1);
 }
 
 final class UnitRange implements IntegerRange {
@@ -115,44 +197,7 @@ final class UnitRange implements IntegerRange {
   };
 
   @override
-  IntegerRange map(List<Conversion> map) {
-    IntegerRange working = this;
-    IntegerRange updated = IntegerRange.empty;
-
-    for (Conversion conversion in map) {
-      if (working.isEmpty) {
-        break;
-      }
-
-      if (conversion.source.covers(working)) {
-        for (UnitRange unit in working.units) {
-          int length = unit.length;
-          int startOffset = unit.start - conversion.source.start;
-
-          working -= unit;
-          updated |= IntegerRange.unit(
-            conversion.destination.start + startOffset,
-            conversion.destination.start + startOffset + length,
-          );
-        }
-      }
-
-      if (working.covers(conversion.source)) {
-        working -= conversion.source;
-        updated |= conversion.destination;
-      }
-
-      if (working.intersectsWith(conversion.source)) {
-        IntegerRange intersection = working.intersect(conversion.source);
-        IntegerRange converted = intersection.map(map);
-
-        working -= intersection;
-        updated |= converted;
-      }
-    }
-
-    return working | updated;
-  }
+  Map<String, Object?> toJson() => {"type": "unit", "start": start, "end": end};
 
   @override
   String toString() => "[$start, $end)";
@@ -227,10 +272,10 @@ final class UnionRange implements IntegerRange {
   };
 
   @override
-  IntegerRange map(List<Conversion> map) =>
-      units //
-          .map((unit) => unit.map(map))
-          .fold(IntegerRange.empty, (a, b) => a.union(b));
+  Map<String, Object?> toJson() => {
+    "type": "union",
+    "ranges": [for (var unit in units) unit.toJson()],
+  };
 
   @override
   String toString() => switch ((units.toList()..sort((a, b) => a.start - b.start))

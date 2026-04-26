@@ -71,10 +71,6 @@ class StateMachine {
     var startState = _getOrCreateState(PatternStateKey(grammar.startCall));
     startState.actions.add(const AcceptAction());
 
-    if (grammar.isEmpty()) {
-      initState.actions.add(const AcceptAction());
-    }
-
     _initialStates = [initState];
 
     // Process each rule
