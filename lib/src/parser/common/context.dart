@@ -144,7 +144,6 @@ class Context {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is Context &&
-          hashCode == other.hashCode &&
           caller == other.caller &&
           callStart == other.callStart &&
           position == other.position &&

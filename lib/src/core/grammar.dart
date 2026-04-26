@@ -67,6 +67,38 @@ class Grammar implements GrammarInterface {
   @override
   final List<Rule> rules = [];
 
+  /// Returns all the tags needed for evaluating a Glush grammar.
+  List<Map<String, Object>> get labelMapping {
+    List<Map<String, Object>> result = [];
+
+    List<Map<String, Object>> recurse(Pattern object) {
+      if (object.children.isEmpty) {
+        return [];
+      }
+
+      if (object case Label(:var name, :var children)) {
+        return [
+          {name: recurse(children.single)},
+        ];
+      }
+
+      return [for (var child in object.children) ...recurse(child)];
+    }
+
+    for (var rule in rules) {
+      if ((rule.name as String).startsWith("'")) {
+        continue;
+      }
+
+      var value = recurse(rule.body());
+      if (value.isNotEmpty) {
+        result.addAll(value);
+      }
+    }
+
+    return result;
+  }
+
   /// The entry point call that initiates parsing.
   @override
   late final RuleCall startCall;
@@ -184,7 +216,7 @@ class Grammar implements GrammarInterface {
     if (pattern is RuleCall) {
       return pattern;
     }
-    var syntheticName = "$syntheticPrefix\$${_syntheticRuleCounter++}";
+    var syntheticName = "'$syntheticPrefix\$${_syntheticRuleCounter++}";
     var syntheticRule = Rule(syntheticName, () => pattern);
     rules.add(syntheticRule);
     return syntheticRule.call();
@@ -361,11 +393,6 @@ class Grammar implements GrammarInterface {
         transitions![lastState]!.add(rule);
       }
     }
-
-    // // Use a marker Pattern for the success node
-    // var successMarker = Marker("__start__");
-    // transitions![startCall] ??= [];
-    // transitions![startCall]!.add(successMarker);
   }
 }
 

@@ -2,7 +2,6 @@
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
@@ -119,7 +118,7 @@ class Caller extends CallerKey {
     State next,
     int? minPrecedence,
     Context callerContext,
-    Ref<LazyGlushList<Mark>> callerMarks,
+    LazyGlushList<Mark> callerMarks,
     ParseNodeKey node,
   ) {
     var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
@@ -209,7 +208,7 @@ class _WaiterData {
   final State nextState;
   final int? minPrecedence;
   final Context parentContext;
-  final Ref<LazyGlushList<Mark>> parentMarks;
+  final LazyGlushList<Mark> parentMarks;
   final ParseNodeKey callSite;
 
   _WaiterData? next;
@@ -219,6 +218,6 @@ extension type const WaiterInfo(_WaiterData _) {
   State get nextState => _.nextState;
   int? get minPrecedence => _.minPrecedence;
   Context get parentContext => _.parentContext;
-  Ref<LazyGlushList<Mark>> get parentMarks => _.parentMarks;
+  LazyGlushList<Mark> get parentMarks => _.parentMarks;
   ParseNodeKey get callSite => _.callSite;
 }

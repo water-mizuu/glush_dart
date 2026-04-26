@@ -145,7 +145,7 @@ abstract base class GlushParserBase implements GlushParser {
       exhaustedPredicates.addAll(parseState.decrementTrackers(parentContext, "childExhausted"));
 
       if (!tracker.isAnd) {
-        var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
+        var nextFrame = Frame(parentContext, parentMarks, {nextState});
         _enqueueFrameForPosition(parseState, workQueue, nextFrame, reason: "resumeNotPredicate");
       }
     }

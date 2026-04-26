@@ -183,6 +183,8 @@ sealed class Pattern {
     throw UnimplementedError("lastSet not implemented for $runtimeType");
   }
 
+  Iterable<Pattern> get children;
+
   /// Yields all internal connections (a, b) where pattern 'a' can be followed by 'b'.
   Iterable<(Pattern, Pattern)> eachPair() sync* {}
 
@@ -433,6 +435,9 @@ class Token extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Iterable<Pattern> get children sync* {}
+
+  @override
   String toString() => choice.toString();
 }
 
@@ -460,6 +465,10 @@ class Eps extends Pattern {
 
   @override
   Set<Pattern> lastSet() => _emptySet;
+
+  @override
+  Iterable<Pattern> get children sync* {}
+
   @override
   Eps copy() => Eps();
 
@@ -493,6 +502,9 @@ final class StartAnchor extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Iterable<Pattern> get children sync* {}
+
+  @override
   Map<String, Object?> toJson() => {"type": "bos"};
 
   @override
@@ -520,6 +532,9 @@ final class EofAnchor extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Iterable<Pattern> get children sync* {}
 
   @override
   Map<String, Object?> toJson() => {"type": "eof"};
@@ -551,6 +566,9 @@ final class Retreat extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Iterable<Pattern> get children sync* {}
 
   @override
   Map<String, Object?> toJson() => {"type": "ret"};
@@ -609,6 +627,12 @@ class Alt extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {...left.lastSet(), ...right.lastSet()};
+
+  @override
+  Iterable<Pattern> get children sync* {
+    yield left;
+    yield right;
+  }
 
   @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
@@ -682,6 +706,12 @@ class Seq extends Pattern {
   }
 
   @override
+  Iterable<Pattern> get children sync* {
+    yield left;
+    yield right;
+  }
+
+  @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     yield* left.eachPair();
     yield* right.eachPair();
@@ -738,6 +768,11 @@ class Opt extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
+  Iterable<Pattern> get children sync* {
+    yield child;
+  }
+
+  @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     yield* child.eachPair();
   }
@@ -783,6 +818,11 @@ class Star extends Pattern {
 
   @override
   Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  Iterable<Pattern> get children sync* {
+    yield child;
+  }
 
   @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
@@ -840,6 +880,11 @@ class Plus extends Pattern {
   Set<Pattern> lastSet() => child.lastSet();
 
   @override
+  Iterable<Pattern> get children sync* {
+    yield child;
+  }
+
+  @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     yield* child.eachPair();
 
@@ -893,8 +938,14 @@ class And extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Iterable<Pattern> get children sync* {
+    yield pattern;
+  }
 
   @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
@@ -943,8 +994,14 @@ class Not extends Pattern {
 
   @override
   Set<Pattern> firstSet() => {this};
+
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Iterable<Pattern> get children sync* {
+    yield pattern;
+  }
 
   @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
@@ -1040,6 +1097,11 @@ class Rule extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Iterable<Pattern> get children sync* {
+    yield body();
+  }
+
+  @override
   bool isStatic() => false;
 
   @override
@@ -1103,6 +1165,9 @@ class RuleCall extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Iterable<Pattern> get children sync* {}
+
+  @override
   bool isStatic() => false;
 
   @override
@@ -1148,8 +1213,14 @@ class Prec extends Pattern {
 
   @override
   Set<Pattern> firstSet() => child.firstSet();
+
   @override
   Set<Pattern> lastSet() => child.lastSet();
+
+  @override
+  Iterable<Pattern> get children sync* {
+    yield child;
+  }
 
   @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
@@ -1217,6 +1288,11 @@ class Label extends Pattern {
   Set<Pattern> lastSet() => {_end};
 
   @override
+  Iterable<Pattern> get children sync* {
+    yield child;
+  }
+
+  @override
   Iterable<(Pattern, Pattern)> eachPair() sync* {
     for (var f in child.firstSet()) {
       yield (_start, f);
@@ -1269,6 +1345,9 @@ class LabelStart extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
+  Iterable<Pattern> get children sync* {}
+
+  @override
   Map<String, Object?> toJson() => {"type": "las", "name": name};
 
   @override
@@ -1300,6 +1379,9 @@ class LabelEnd extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
+
+  @override
+  Iterable<Pattern> get children sync* {}
 
   @override
   Map<String, Object?> toJson() => {"type": "lae", "name": name};

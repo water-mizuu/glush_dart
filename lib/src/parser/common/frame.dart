@@ -15,7 +15,7 @@ import "package:glush/src/parser/state_machine/state_machine.dart";
 /// - The semantic [marks] collected so far.
 class Frame {
   /// Creates a [Frame] with the given [context] and [marks].
-  Frame(this.context, this.marks) : nextStates = {};
+  const Frame(this.context, this.marks, this.nextStates);
 
   /// The shared parsing context (caller, identity, etc.) for this frame.
   final Context context;
@@ -27,5 +27,5 @@ class Frame {
   final Set<State> nextStates;
 
   /// Creates a copy of this frame, used when branching the parse path.
-  Frame copy() => Frame(context, marks);
+  Frame copy() => Frame(context, marks, {});
 }

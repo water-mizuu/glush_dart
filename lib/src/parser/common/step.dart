@@ -3,7 +3,6 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
@@ -81,7 +80,7 @@ class Step {
 
   /// Tracks which GSS callers have already returned at this position to avoid
   /// redundant waiter fan-outs.
-  final Set<(CallerKey, int)> _returnedCallersPositionAware = {};
+  final Set<(CallerKey, int)> _returnedCallers = {};
 
   /// A map of contexts that reached an [AcceptAction], and their associated marks.
   final Map<Context, LazyGlushList<Mark>> acceptedContexts = {};
@@ -130,7 +129,7 @@ class Step {
 
     parseState.tracer?.onPredicateResumed(symbol, position, isAnd: isAnd);
 
-    requeue(Frame(parentContext, marks)..nextStates.add(nextState));
+    requeue(Frame(parentContext, marks, {nextState}));
   }
 
   /// Seed a predicate sub-parse at the current input position.
@@ -241,7 +240,7 @@ class Step {
       returnState,
       minPrecedenceLevel,
       frame.context,
-      Ref(frame.marks),
+      frame.marks,
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewWaiter) {
@@ -323,7 +322,7 @@ class Step {
       GlushProfiler.increment("parser.enqueue.requeued");
       GlushProfiler.increment("parser.frames.requeued");
       parseState.tracer?.onEnqueue(state, targetPosition, "future position");
-      requeue(Frame(nextContext, marks)..nextStates.add(state));
+      requeue(Frame(nextContext, marks, {state}));
       return;
     }
 
@@ -354,33 +353,32 @@ class Step {
       parseState.incrementTrackers(nextContext, "enqueue");
       _workQueue.add(packedId);
       _workQueue.add(state);
-      return;
+    } else {
+      // Slow-path for complex contexts
+      var key = ComplexContextKey(state, nextContext);
+
+      if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
+        GlushProfiler.incrementHit("parser.enqueue.deduplicated");
+        return;
+      }
+
+      var group = _currentFrameGroupsComplex[key];
+      if (group != null) {
+        GlushProfiler.incrementHit("parser.enqueue.merged");
+        group.addMarks(marks);
+        return;
+      }
+
+      GlushProfiler.incrementMiss("parser.enqueue.merged");
+      _activeContextKeysComplex.add(key);
+
+      parseState.incrementTrackers(nextContext, "enqueue");
+
+      // Initialize group and store initial marks.
+      _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
+      _workQueue.add(key);
+      _workQueue.add(state);
     }
-
-    // Slow-path for complex contexts
-    var key = ComplexContextKey(state, nextContext);
-
-    if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
-      GlushProfiler.incrementHit("parser.enqueue.deduplicated");
-      return;
-    }
-
-    var group = _currentFrameGroupsComplex[key];
-    if (group != null) {
-      GlushProfiler.incrementHit("parser.enqueue.merged");
-      group.addMarks(marks);
-      return;
-    }
-
-    GlushProfiler.incrementMiss("parser.enqueue.merged");
-    _activeContextKeysComplex.add(key);
-
-    parseState.incrementTrackers(nextContext, "enqueue");
-
-    // Initialize group and store initial marks.
-    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
-    _workQueue.add(key);
-    _workQueue.add(state);
   }
 
   /// Execute outgoing actions for one `(frame,state)` pair.
@@ -499,12 +497,11 @@ class Step {
       }
 
       if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
-        _process(Frame(context, branchedMarks), nextGroup.state);
+        _process(Frame(context, branchedMarks, {}), nextGroup.state);
         continue;
       }
 
-      var nextFrame = Frame(context, branchedMarks);
-      nextFrame.nextStates.add(nextGroup.state);
+      var nextFrame = Frame(context, branchedMarks, {nextGroup.state});
 
       parseState.incrementTrackers(context, "finalize nextGroup");
       nextFrames.add(nextFrame);
@@ -542,8 +539,7 @@ class Step {
       var context = group.context;
 
       exhaustedPredicatesSink?.addAll(parseState.decrementTrackers(context, "processBatch"));
-
-      _process(Frame(context, marks), state);
+      _process(Frame(context, marks, {}), state);
     }
 
     if (_workQueueHead != 0) {
@@ -868,12 +864,7 @@ class Step {
         frame.context.predicateStack.lastOrNull == caller,
         "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
       );
-      var key = PredicateKey(
-        caller.pattern,
-        caller.startPosition,
-        isAnd: caller.isAnd,
-        // name: caller.name,
-      );
+      var key = PredicateKey(caller.pattern, caller.startPosition, isAnd: caller.isAnd);
       var tracker = parseState.trackers[key] as PredicateTracker?;
       if (tracker == null) {
         return;
@@ -909,7 +900,7 @@ class Step {
       return;
     }
 
-    if (!isSupportingAmbiguity && !_returnedCallersPositionAware.add((caller, returnPosition))) {
+    if (!isSupportingAmbiguity && !_returnedCallers.add((caller, returnPosition))) {
       return;
     }
 
@@ -926,7 +917,7 @@ class Step {
             nextState,
             minPrecedence,
             parentContext,
-            parentMarks.value,
+            parentMarks,
             returnContext,
             source: ParseNodeKey(state.id, returnPosition, caller),
             action: action,

@@ -108,8 +108,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// grammar.
   @override
   List<Frame> get initialFrames {
-    var initialFrame = Frame(_initialContext, const LazyGlushList<Mark>.empty());
-    initialFrame.nextStates.addAll(stateMachine.initialStates);
+    var initialFrame = Frame(
+      _initialContext,
+      const LazyGlushList<Mark>.empty(),
+      stateMachine.initialStates.toSet(),
+    );
 
     return [initialFrame];
   }
@@ -211,4 +214,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   int countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
   }
+}
+
+extension SMParserFromGrammarExtension on GrammarInterface {
+  SMParser toSMParser() => SMParser(this);
 }
