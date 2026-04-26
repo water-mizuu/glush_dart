@@ -18,7 +18,7 @@ void main() {
       var originalParser = SMParser(grammar);
 
       var exportedJson = originalParser.stateMachine.exportToJson();
-      var importedParser = SMParser.fromImported(exportedJson, grammar);
+      var importedParser = SMParser.fromImported(exportedJson);
 
       const testInputs = ["1+2*3", "(1+2)*3", "10+20-5", "100/10+5"];
 
@@ -48,7 +48,7 @@ void main() {
       var originalParser = SMParser(grammar);
 
       var exportedJson = originalParser.stateMachine.exportToJson();
-      var importedParser = SMParser.fromImported(exportedJson, grammar);
+      var importedParser = SMParser.fromImported(exportedJson);
 
       var inputs = {
         "a": true,
@@ -78,15 +78,15 @@ void main() {
     test("Preserves rule calls with precedence", () {
       const grammarDef = r"""
         E = 11| [0-9]
-          | 7| E '*' E
-          | 6| E '+' E
+             7| E '*' E
+             6| E '+' E
       """;
 
       var grammar = grammarDef.toGrammar();
       var originalParser = SMParser(grammar);
 
       var exportedJson = originalParser.stateMachine.exportToJson();
-      var importedParser = SMParser.fromImported(exportedJson, grammar);
+      var importedParser = SMParser.fromImported(exportedJson);
 
       const input = "1+2*3";
 

@@ -18,7 +18,7 @@ S = 'a' | 'b'
 
   // Export and import
   var json = parser1.stateMachine.exportToJson();
-  var machine2 = importFromJson(json, grammar);
+  var machine2 = importFromJson(json);
   var parser2 = SMParser.fromStateMachine(machine2);
 
   print("Imported parser parse results:");

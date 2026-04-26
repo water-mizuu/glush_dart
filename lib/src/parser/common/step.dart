@@ -179,7 +179,7 @@ class Step {
       var nextMarks = parentMarks.addList(conjunctionResult);
       var nextContext = parentContext.advancePosition(endPosition);
       GlushProfiler.increment("parser.marks.added");
-      requeue(Frame(nextContext, nextMarks)..nextStates.add(nextState));
+      requeue(Frame(nextContext, nextMarks, [nextState]));
     }
   }
 
@@ -202,7 +202,7 @@ class Step {
 
     parseState.tracer?.onPredicateResumed(symbol, position, isAnd: isAnd);
 
-    requeue(Frame(parentContext, marks)..nextStates.add(nextState));
+    requeue(Frame(parentContext, marks, [nextState]));
   }
 
   /// Seed a predicate sub-parse at the current input position.
@@ -236,7 +236,6 @@ class Step {
       Context(
         predicateKey,
         arguments: frame.context.arguments,
-        captures: frame.context.captures,
         predicateStack: nextStack,
         callStart: position,
         position: position,
@@ -273,7 +272,6 @@ class Step {
         Context(
           leftCaller,
           arguments: frame.context.arguments,
-          captures: frame.context.captures,
           callStart: position,
           position: position,
           predicateStack: frame.context.predicateStack,
@@ -290,7 +288,6 @@ class Step {
         Context(
           rightCaller,
           arguments: frame.context.arguments,
-          captures: frame.context.captures,
           callStart: position,
           position: position,
           predicateStack: frame.context.predicateStack,
@@ -535,7 +532,6 @@ class Step {
           firstState,
           Context(
             caller,
-            captures: frame.context.captures,
             predicateStack: frame.context.predicateStack,
             callStart: position,
             position: position,
@@ -603,8 +599,9 @@ class Step {
       // Frame is lagging and will be processed when its position comes up.
       GlushProfiler.increment("parser.enqueue.requeued");
       GlushProfiler.increment("parser.frames.requeued");
+
       parseState.tracer?.onEnqueue(state, targetPosition, "future position");
-      requeue(Frame(nextContext, marks)..nextStates.add(state));
+      requeue(Frame(nextContext, marks, [state]));
       return;
     }
 
@@ -760,12 +757,9 @@ class Step {
     // Use a LazyReturn proxy to represent the (potentially evolving) results of the rule.
     var returnProxy = caller.getLazyReturn(packedId, () => caller.getReturnMarks(packedId));
     var nextMarks = parentMarks.addList(returnProxy);
-    var mergedCaptures = parentContext.captures.overlay(returnContext.captures);
-
     var nextContext = Context(
       parent,
       arguments: parentContext.arguments,
-      captures: mergedCaptures,
       predicateStack: parentContext.predicateStack,
       callStart: parentContext.callStart,
       position: returnContext.position,
@@ -795,13 +789,11 @@ class Step {
       }
 
       if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
-        _process(Frame(context, branchedMarks), nextGroup.state);
+        _process(Frame(context, branchedMarks, []), nextGroup.state);
         continue;
       }
 
-      var nextFrame = Frame(context, branchedMarks);
-      nextFrame.nextStates.add(nextGroup.state);
-
+      var nextFrame = Frame(context, branchedMarks, [nextGroup.state]);
       parseState.incrementTrackers(context, "finalize nextGroup");
       nextFrames.add(nextFrame);
     }
@@ -839,7 +831,7 @@ class Step {
 
       exhaustedPredicatesSink?.addAll(parseState.decrementTrackers(context, "processBatch"));
 
-      _process(Frame(context, marks), state);
+      _process(Frame(context, marks, []), state);
     }
 
     if (_workQueueHead != 0) {
@@ -1430,13 +1422,13 @@ class Step {
         var targetRule = parseState.rulesById[tailCall.ruleSymbol]!;
         var resolvedCall = _resolveCallArgumentValues(
           tailCall.arguments,
-          Frame(context, marks),
+          Frame(context, marks, []),
           targetRule,
         );
 
         if (!_ruleGuardPasses(
           targetRule,
-          Frame(context, marks),
+          Frame(context, marks, []),
           arguments: resolvedCall.arguments,
           argumentsKey: resolvedCall.key,
         )) {

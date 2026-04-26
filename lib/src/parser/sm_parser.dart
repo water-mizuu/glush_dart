@@ -80,8 +80,8 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// This is useful for loading pre-compiled grammars without the overhead
   /// of re-compiling the grammar at runtime.
-  factory SMParser.fromImported(String jsonString, [GrammarInterface? grammar]) {
-    var stateMachine = importFromJson(jsonString, grammar);
+  factory SMParser.fromImported(String jsonString) {
+    var stateMachine = importFromJson(jsonString);
     return SMParser.fromStateMachine(stateMachine);
   }
 
@@ -108,8 +108,11 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   /// grammar.
   @override
   List<Frame> get initialFrames {
-    var initialFrame = Frame(_initialContext, const LazyGlushList<Mark>.empty());
-    initialFrame.nextStates.addAll(stateMachine.initialStates);
+    var initialFrame = Frame(
+      _initialContext,
+      const LazyGlushList<Mark>.empty(),
+      stateMachine.initialStates,
+    );
 
     return [initialFrame];
   }

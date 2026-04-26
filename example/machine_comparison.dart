@@ -30,7 +30,7 @@ S = 'a' | 'b'
   print("  ruleFirst: ${jsonData['ruleFirst']}");
   print("");
 
-  var machine2 = importFromJson(jsonString, grammar);
+  var machine2 = importFromJson(jsonString);
 
   print("Imported machine:");
   print("  initialStates length: ${machine2.initialStates.length}");

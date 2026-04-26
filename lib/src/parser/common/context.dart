@@ -25,9 +25,7 @@ class Context {
   Context(
     CallerKey caller, {
     Map<String, Object?> arguments = const <String, Object?>{},
-    CaptureBindings captures = const CaptureBindings.empty(),
     GlushList<PredicateCallerKey> predicateStack = const GlushList<PredicateCallerKey>.empty(),
-    GlushList<LabelStartVal> openLabels = const GlushList<LabelStartVal>.empty(),
     int callStart = 0,
     int position = 0,
     int? minPrecedenceLevel,
@@ -40,15 +38,13 @@ class Context {
            position,
            minPrecedenceLevel,
            precedenceLevel,
-           captures,
+           //  captures,
            predicateStack,
-           openLabels,
            _mapHashCode(arguments),
          ),
-         isSimple:
-             predicateStack.isEmpty && captures.isEmpty && arguments.isEmpty && openLabels.isEmpty,
+         isSimple: predicateStack.isEmpty && arguments.isEmpty,
          arguments: arguments,
-         captures: captures,
+         //  captures: captures,
          predicateStack: predicateStack,
          callStart: callStart,
          position: position,
@@ -112,7 +108,6 @@ class Context {
   Context copyWith({
     CallerKey? caller,
     Map<String, Object?>? arguments,
-    CaptureBindings? captures,
     GlushList<PredicateCallerKey>? predicateStack,
     int? callStart,
     int? position,
@@ -122,7 +117,6 @@ class Context {
     return Context(
       caller ?? this.caller,
       arguments: arguments ?? this.arguments,
-      captures: captures ?? this.captures,
       predicateStack: predicateStack ?? this.predicateStack,
       callStart: callStart ?? this.callStart,
       position: position ?? this.position,
@@ -142,7 +136,6 @@ class Context {
     return Context(
       caller,
       arguments: arguments,
-      captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
       position: newPosition,
@@ -160,7 +153,6 @@ class Context {
       nextCaller,
       arguments:
           arguments ?? (nextCaller is Caller ? nextCaller.arguments : const <String, Object?>{}),
-      captures: captures,
       predicateStack: predicateStack,
       callStart: callStart,
       position: position,

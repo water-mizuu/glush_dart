@@ -48,7 +48,7 @@ S = 'a' | 'b'
   print("");
 
   // Import
-  var importedMachine = importFromJson(jsonString, grammar);
+  var importedMachine = importFromJson(jsonString);
 
   print("Imported state machine structure:");
   print("  Initial states: ${importedMachine.initialStates.length}");

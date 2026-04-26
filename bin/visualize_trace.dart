@@ -390,10 +390,6 @@ String generateColoredDot(
         );
       } else if (action is ReturnAction) {
         var returnNodeId = "__return_${action.ruleSymbol}__";
-        var labelStr = (machine.grammar.registry[action.ruleSymbol]! as Rule).name as String;
-        if (action.precedenceLevel != null) {
-          labelStr = "$labelStr (prec: ${action.precedenceLevel})";
-        }
         var isActive = isActionActive("Return");
         if (isActive) {
           edgeColor = "#1971c2"; // Blue for active returns
@@ -403,7 +399,7 @@ String generateColoredDot(
           edgeWidth = "1";
         }
         buffer.writeln(
-          '  "$fromStateId" -> "$returnNodeId" [label="return $labelStr", '
+          '  "$fromStateId" -> "$returnNodeId" [label="return", '
           'style=dashed, color="$edgeColor", penwidth=$edgeWidth, fontcolor="$edgeColor"];',
         );
       } else if (action is AcceptAction) {

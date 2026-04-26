@@ -360,7 +360,6 @@ class GrammarFileParser {
   final String source;
   late List<_Token> _tokens;
   int tokenIndex = 0;
-  Map<PatternExpr, int> lastParsedPrecedenceLevels = {};
 
   /// Parses the entire token stream into a [GrammarFile].
   ///

@@ -2,9 +2,9 @@ import "package:glush/glush.dart";
 
 void main() {
   const grammar = r"""
-S = $2 &(S S) S S
-  | $1 's'
-""";
+    S = $2 &(S S) S S
+      | $1 's'
+    """;
 
   var parser = grammar.toSMParser();
   var sm = parser.stateMachine;

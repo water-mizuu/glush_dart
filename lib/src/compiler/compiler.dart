@@ -498,8 +498,5 @@ class GrammarFileCompiler {
 extension GrammarFileExtension on String {
   Grammar toGrammar({String? startRuleName}) =>
       GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName);
-
-  SMParser toSMParser({String? startRuleName}) => SMParser(
-    GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
-  );
+  SMParser toSMParser({String? startRuleName}) => SMParser(toGrammar(startRuleName: startRuleName));
 }

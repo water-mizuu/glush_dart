@@ -205,7 +205,6 @@ extension StateMachineExport on StateMachine {
       "initialStates": initialStateIds,
       "rules": rulesJson,
       "ruleFirst": ruleFirstJson,
-      "startSymbol": grammar.startSymbol,
       "startCall": grammar.startCall.toJson(),
     };
 
@@ -215,7 +214,7 @@ extension StateMachineExport on StateMachine {
 
 /// Import a previously exported state machine from JSON.
 /// If grammar is not provided, a ShellGrammar is reconstructed.
-StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
+StateMachine importFromJson(String jsonString) {
   var data = json.decode(jsonString) as Map<String, Object?>;
 
   if (data["version"] != "1.0") {
@@ -233,33 +232,22 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
   // Reconstruction or use provided grammar
   var ruleMap = <String, Rule>{};
-  if (grammar != null) {
-    for (var rule in grammar.rules) {
-      ruleMap[rule.name.symbol] = rule;
+  // Collect all rule names and create stubs
+  var rulesData = data["rules"]! as List<Object?>;
+  for (var serializedRule in rulesData.cast<Map<String, Object?>>()) {
+    var name = serializedRule["name"]! as String;
+    var rule = Rule(name, () => Eps());
+    rule.symbolId = serializedRule["symbolId"]! as int;
+    if (serializedRule.containsKey("guard")) {
+      rule.guard = GuardExpr.fromJson(serializedRule["guard"]! as Map<String, Object?>, ruleMap);
     }
-  } else {
-    // Collect all rule names and create stubs
-    var rulesData = data["rules"]! as List<Object?>;
-    for (var serializedRule in rulesData.cast<Map<String, Object?>>()) {
-      var name = serializedRule["name"]! as String;
-      var rule = Rule(name, () => Eps());
-      rule.symbolId = serializedRule["symbolId"]! as int;
-      if (serializedRule.containsKey("guard")) {
-        rule.guard = GuardExpr.fromJson(serializedRule["guard"]! as Map<String, Object?>, ruleMap);
-      }
-      ruleMap[name] = rule;
-    }
-
-    var startSymbol = data["startSymbol"]! as int;
-    var startCallJson = data["startCall"]! as Map<String, Object?>;
-    var startCall = Pattern.fromJson(startCallJson, ruleMap) as RuleCall;
-
-    grammar = ShellGrammar(
-      startSymbol: startSymbol,
-      rules: ruleMap.values.toList(),
-      startCall: startCall,
-    );
+    ruleMap[name] = rule;
   }
+
+  var startCallJson = data["startCall"]! as Map<String, Object?>;
+  var startCall = Pattern.fromJson(startCallJson, ruleMap) as RuleCall;
+
+  var grammar = ShellGrammar(startCall: startCall);
 
   // Add actions to states
   for (var stateData in statesData.cast<Map<String, Object?>>()) {
@@ -290,7 +278,6 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
   machine.ruleFirst.addAll(ruleFirstMapping);
   machine.allRules.addAll(ruleMap.map((name, rule) => MapEntry(rule.symbolId!, rule)));
 
-  var rulesData = data["rules"]! as List<Object?>;
   for (var ruleData in rulesData.cast<Map<String, Object?>>()) {
     machine.rules.add(ruleData["symbolId"]! as int);
   }

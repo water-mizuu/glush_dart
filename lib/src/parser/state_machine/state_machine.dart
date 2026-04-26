@@ -1068,12 +1068,8 @@ String _toDot(StateMachine machine) {
       // ReturnAction: return from a subroutine to the rule's return node
       else if (action is ReturnAction) {
         var returnNodeId = "__return_${action.ruleSymbol}__";
-        var labelStr = (machine.grammar.registry[action.ruleSymbol]! as Rule).name as String;
-        if (action.precedenceLevel != null) {
-          labelStr = "$labelStr (prec: ${action.precedenceLevel})";
-        }
         buffer.writeln(
-          '  "$fromStateId" -> "$returnNodeId" [label="return $labelStr", style=dashed, color=gray45];',
+          '  "$fromStateId" -> "$returnNodeId" [label="return", style=dashed, color=gray45];',
         );
       }
       // MarkAction: set a mark for later backreference

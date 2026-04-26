@@ -20,25 +20,13 @@ typedef GrammarBuilder = Rule Function();
 /// grammar definition and the patterns or state machines that operate on it.
 /// It provides read-only access to the pattern registry, rules, and symbols.
 sealed class GrammarInterface {
-  /// A registry mapping unique [PatternSymbol] IDs back to their [Pattern] instances.
-  ///
-  /// This mapping is used by the parser and evaluator to resolve numeric IDs
-  /// into concrete logic during execution.
-  Map<PatternSymbol, Pattern> get registry;
-
   /// The entry point call for the grammar.
   ///
   /// This represents the starting point of any parse attempt using this grammar.
   RuleCall get startCall;
 
-  /// The unique symbol ID representing the start rule.
-  PatternSymbol get startSymbol;
-
   /// The list of all rules defined within this grammar.
   List<Rule> get rules;
-
-  /// A map for fast lookup of [Rule] instances by their symbol ID.
-  Map<PatternSymbol, Rule> get allRules;
 
   /// Indicates whether the grammar is fundamentally empty (i.e., matches the empty string).
   bool isEmpty();
@@ -79,18 +67,6 @@ class Grammar implements GrammarInterface {
 
   /// A cache of rules created when hoisting anonymous patterns into named rules.
   final Map<(Pattern, String), Rule> _hoistedPatternRules = {};
-
-  /// The registry for mapping symbol IDs to patterns.
-  @override
-  final Map<PatternSymbol, Pattern> registry = {};
-
-  /// Fast lookup map for rules by their symbol ID.
-  @override
-  final Map<PatternSymbol, Rule> allRules = {};
-
-  /// Returns the symbol ID of the start rule.
-  @override
-  PatternSymbol get startSymbol => startCall.rule.symbolId!;
 
   /// Completes the compilation of the grammar starting from the [start] call.
   ///
@@ -152,11 +128,6 @@ class Grammar implements GrammarInterface {
     // Assign symbol IDs to each pattern in discovery order
     for (var pattern in allPatterns) {
       pattern.symbolId ??= symbolCounter++;
-      var actualSymbolId = pattern.symbolId!;
-      registry[actualSymbolId] = pattern;
-      if (pattern is Rule) {
-        allRules[actualSymbolId] = pattern;
-      }
     }
   }
 
@@ -554,27 +525,10 @@ class Grammar implements GrammarInterface {
 /// without the overhead of full compilation or state machine generation.
 class ShellGrammar implements GrammarInterface {
   /// Constructs a [ShellGrammar] with the required structural components.
-  ShellGrammar({required this.startSymbol, required this.rules, required this.startCall}) {
-    for (var rule in rules) {
-      allRules[rule.symbolId!] = rule;
-    }
-  }
+  ShellGrammar({required this.startCall});
 
-  /// The pattern registry (often empty in a shell grammar).
   @override
-  final Map<PatternSymbol, Pattern> registry = {};
-
-  /// Fast lookup map for rules.
-  @override
-  final Map<PatternSymbol, Rule> allRules = {};
-
-  /// The entry point symbol.
-  @override
-  final PatternSymbol startSymbol;
-
-  /// The list of rules.
-  @override
-  final List<Rule> rules;
+  List<Rule> get rules => [];
 
   /// The entry point call.
   @override

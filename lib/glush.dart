@@ -9,7 +9,6 @@ export "src/core/list_mark_extensions.dart";
 export "src/core/mark.dart";
 export "src/core/patterns.dart";
 export "src/core/profiling.dart";
-export "src/parser/common/parse_derivation.dart";
 export "src/parser/common/parse_result.dart";
 export "src/parser/interface.dart";
 export "src/parser/key/branch_key.dart";

@@ -12,7 +12,7 @@ S = 'a' | 'b'
 
   // Export and import
   var json = machine1.exportToJson();
-  var machine2 = importFromJson(json, grammar);
+  var machine2 = importFromJson(json);
 
   print("State structure comparison:\n");
 
