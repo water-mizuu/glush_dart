@@ -122,9 +122,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   bool recognize(String input, {ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.recognize", () {
       var parseState = createParseState(tracer: tracer);
+      var bytes = utf8.encode(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      for (var i = 0; i < bytes.length; i++) {
+        var byte = bytes[i];
+        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
+        parseState.processToken(byte, lookahead: lookahead);
         if (!parseState.hasPendingWork) {
           return false;
         }
@@ -145,9 +148,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ParseOutcome parse(String input, {bool captureTokensAsMarks = false, ParseTracer? tracer}) {
     return GlushProfiler.measure("parser.parse", () {
       var parseState = createParseState(captureTokensAsMarks: captureTokensAsMarks, tracer: tracer);
+      var bytes = utf8.encode(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      for (var i = 0; i < bytes.length; i++) {
+        var byte = bytes[i];
+        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
+        parseState.processToken(byte, lookahead: lookahead);
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
@@ -181,9 +187,12 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
         captureTokensAsMarks: captureTokensAsMarks,
         tracer: tracer,
       );
+      var bytes = utf8.encode(input);
 
-      for (var byte in utf8.encode(input)) {
-        parseState.processToken(byte);
+      for (var i = 0; i < bytes.length; i++) {
+        var byte = bytes[i];
+        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
+        parseState.processToken(byte, lookahead: lookahead);
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }

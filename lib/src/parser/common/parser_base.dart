@@ -7,6 +7,7 @@ import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/interface.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/sm_parser.dart" show SMParser;
+import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// An abstract base class providing the core logic for a state-machine parser.
 ///
@@ -49,7 +50,11 @@ abstract base class GlushParserBase implements GlushParser {
 
     var buckets = <int, List<Frame>>{};
     for (var frame in frames) {
-      exhaustedPredicates?.addAll(parseState.decrementTrackers(frame.context, decrementReason));
+      var decrementedTracker = parseState.decrementTracker(frame.context, decrementReason);
+      if (decrementedTracker != null) {
+        exhaustedPredicates?.add(decrementedTracker);
+      }
+
       parseState.incrementTrackers(frame.context, enqueueReason);
       buckets.putIfAbsent(frame.context.position, () => []).add(frame);
     }
@@ -78,25 +83,36 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     int position,
     int? token,
+    int? lookahead,
     List<Frame> items,
   ) {
     var exhaustedPredicates = <PredicateKey>[];
 
+    var stepToken = position < parseState.historyByPosition.length
+        ? parseState.historyByPosition[position]
+        : null;
+    int? stepLookahead;
+    if (position + 1 < parseState.historyByPosition.length) {
+      stepLookahead = parseState.historyByPosition[position + 1];
+    } else if (position == currentPosition) {
+      stepLookahead = lookahead;
+    }
+
     var step = stepsAtPosition[position] ??= Step(
       parseState,
-      position < parseState.historyByPosition.length
-          ? parseState.historyByPosition[position]
-          : null,
+      stepToken,
       position,
+      lookahead: stepLookahead,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
     );
     step.exhaustedPredicatesSink = exhaustedPredicates;
 
     for (var item in items) {
-      exhaustedPredicates.addAll(
-        parseState.decrementTrackers(item.context, "process position queue"),
-      );
+      var decrementedTracker = parseState.decrementTracker(item.context, "process position queue");
+      if (decrementedTracker != null) {
+        exhaustedPredicates.add(decrementedTracker);
+      }
       step.processFrameEnqueue(item);
     }
 
@@ -134,7 +150,7 @@ abstract base class GlushParserBase implements GlushParser {
     List<PredicateKey> exhaustedPredicates,
   ) {
     var tracker = parseState.trackers[key];
-    if (tracker is! PredicateTracker || !parseState.canResolvePredicateFalse(key, tracker)) {
+    if (tracker is! PredicateTracker<State> || !parseState.canResolvePredicateFalse(key, tracker)) {
       return;
     }
 
@@ -142,7 +158,10 @@ abstract base class GlushParserBase implements GlushParser {
     parseState.memoizePredicateOutcome(key, isMatched: false);
 
     for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
-      exhaustedPredicates.addAll(parseState.decrementTrackers(parentContext, "childExhausted"));
+      var decrementedTracker = parseState.decrementTracker(parentContext, "childExhausted");
+      if (decrementedTracker != null) {
+        exhaustedPredicates.add(decrementedTracker);
+      }
 
       if (!tracker.isAnd) {
         var nextFrame = Frame(parentContext, parentMarks)..nextStates.add(nextState);
@@ -184,13 +203,10 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     List<Frame> frames, {
     required ParseState parseState,
+    int? lookahead,
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
   }) {
-    if (token != null && parseState.historyByPosition.length == currentPosition) {
-      parseState.historyByPosition.add(token);
-    }
-
     var workQueue = _PositionWorkQueue();
 
     var stepsAtPosition = <int, Step>{};
@@ -216,6 +232,7 @@ abstract base class GlushParserBase implements GlushParser {
         currentPosition,
         position,
         token,
+        lookahead,
         items,
       );
     }
@@ -227,7 +244,7 @@ abstract base class GlushParserBase implements GlushParser {
       var items = workQueue.removeFirst();
 
       for (var item in items) {
-        parseState.decrementTrackers(item.context, "defer to Step.deferredFramesByPosition");
+        parseState.decrementTracker(item.context, "defer to Step.deferredFramesByPosition");
         steps?.deferredFramesByPosition.putIfAbsent(futurePos, () => []).add(item);
       }
     }
@@ -240,6 +257,7 @@ abstract base class GlushParserBase implements GlushParser {
       parseState,
       token,
       currentPosition,
+      lookahead: lookahead,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
     );

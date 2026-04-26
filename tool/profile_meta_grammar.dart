@@ -1,5 +1,6 @@
 import "package:glush/glush.dart";
 import "package:glush/src/compiler/metagrammar_evaluator.dart";
+import "package:glush/src/parser/bytecode/bytecode_parser.dart";
 
 T measure<T>(String label, int n, T Function() fn) {
   T? last;
@@ -26,22 +27,46 @@ void main() {
     30,
     () => GrammarFileCompiler(ast).compile(startRuleName: "full"),
   );
-  var grammar = measure("compile+SMParserMini ctor", 10, () {
+  var smParser = measure("compile+SMParser ctor", 10, () {
     var g = GrammarFileCompiler(
       GrammarFileParser(metaGrammarString).parse(),
     ).compile(startRuleName: "full");
     return SMParser(g);
   });
-  measure("metaParser.parse(simple)", 50, () => grammar.parse("rule = 'a'\n"));
-  measure("metaParser.parse(self)", 30, () {
-    var result = grammar.parse(metaGrammarString);
+
+  measure("SM metaParser.parse(simple)", 50, () => smParser.parse("rule = 'a'\n"));
+  measure("SM metaParser.parse(self)", 30, () {
+    var result = smParser.parse(metaGrammarString);
     if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }
     return result;
   });
-  measure("metaParser.parse(ambiguous)", 30, () {
-    var result = grammar.parseAmbiguous(metaGrammarString);
+  measure("SM metaParser.parse(ambiguous)", 30, () {
+    var result = smParser.parseAmbiguous(metaGrammarString);
+    if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
+      throw Exception("Parse failed: $result");
+    }
+    return result.ambiguousSuccess()!.forest.allMarkPaths().first;
+  });
+
+  var bcParser = measure("compile + BCParser ctor", 10, () {
+    var g = GrammarFileCompiler(
+      GrammarFileParser(metaGrammarString).parse(),
+    ).compile(startRuleName: "full");
+    return BCParser(g);
+  });
+
+  measure("BC metaParser.parse(simple)", 50, () => bcParser.parse("rule = 'a'\n"));
+  measure("BC metaParser.parse(self)", 30, () {
+    var result = bcParser.parse(metaGrammarString);
+    if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
+      throw Exception("Parse failed: $result");
+    }
+    return result;
+  });
+  measure("BC metaParser.parse(ambiguous)", 30, () {
+    var result = bcParser.parseAmbiguous(metaGrammarString);
     if (result is! ParseSuccess && result is! ParseAmbiguousSuccess) {
       throw Exception("Parse failed: $result");
     }

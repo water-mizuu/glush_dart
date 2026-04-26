@@ -1,21 +1,23 @@
-// ignore_for_file: strict_raw_type, unreachable_from_main
+import "dart:io";
 
 import "package:glush/glush.dart";
+import "package:glush/src/parser/common/tracer.dart";
 
 void main() {
-  var grammar = r"S= $2 &(S S) l:S r:S | $1 's'";
-  var parser = grammar.toSMParser();
-  var input = "ssss";
-  var parseResult = parser
-      .parseAmbiguous(input)
-      .ambiguousSuccess()!
-      .forest
-      .map(
-        (v) => Evaluator({
-          r"S.2": (ctx) => "(${ctx("l")}${ctx("r")})",
-          r"S.1": (ctx) => "s",
-        }).evaluate(v.evaluateStructure(input)),
-      )
-      .toList();
-  print(parseResult.join("\n"));
+  var grammar = r"""
+    S = A "z" | B "y"
+    A = "x"
+    B = "x"
+    """;
+  var tracer = FileTracer("./trace.log");
+  // var tracer = PrintTracer();
+  var parser = grammar.toBCParser();
+  File("graph.dot")
+    ..createSync(recursive: true)
+    ..writeAsStringSync(parser.stateMachine.toDot());
+
+  var input = "xz";
+  var result = parser.parseAmbiguous(input, tracer: tracer);
+
+  print(result);
 }

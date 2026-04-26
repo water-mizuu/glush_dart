@@ -61,7 +61,7 @@ final class ParseState {
   final List<int> historyByPosition = [];
 
   /// Active trackers for lookahead predicates.
-  final Map<SubparseKey, SubparseTracker> trackers = {};
+  final Map<SubparseKey, SubparseTracker<State>> trackers = {};
 
   /// Pending frame counts for active sub-parses, keyed by tracker key.
   final Map<SubparseKey, int> _trackerFrameCounts = {};
@@ -70,7 +70,7 @@ final class ParseState {
   final Map<PredicateKey, bool> predicateOutcomes = {};
 
   /// Memoized call sites for rules with complex (object-key) identities.
-  final Map<CallerCacheKey, Caller> callersComplex = {};
+  final Map<CallerCacheKey, Caller> callers = {};
 
   /// A fast lookup map for rules by their unique names.
   final Map<RuleName, Rule> rulesByName;
@@ -90,8 +90,20 @@ final class ParseState {
   ///
   /// This method updates the [frames] for the next position and logs
   /// diagnostic information if a [tracer] is present.
-  Step processToken(int unit) {
-    historyByPosition.add(unit);
+  Step processToken(int unit, {int? lookahead}) {
+    if (historyByPosition.length == position) {
+      historyByPosition.add(unit);
+    } else if (historyByPosition.length > position) {
+      assert(
+        historyByPosition[position] == unit,
+        "Invariant violation in ParseState.processToken: "
+        "attempted to re-add a different token at position $position.",
+      );
+    } else {
+      throw StateError(
+        "Invariant violation in ParseState.processToken: history has a gap before position $position.",
+      );
+    }
     tracer?.onStepStart(position, unit, frames);
 
     var step = GlushProfiler.measure("parser.process_token", () {
@@ -100,6 +112,7 @@ final class ParseState {
         position,
         frames,
         parseState: this,
+        lookahead: lookahead,
         isSupportingAmbiguity: isSupportingAmbiguity,
         captureTokensAsMarks: captureTokensAsMarks,
       );
@@ -164,59 +177,69 @@ final class ParseState {
   /// Returns true if there are still active frames to be processed.
   bool get hasPendingWork => frames.isNotEmpty;
 
-  void _forEachActiveTrackerKey(Context context, void Function(SubparseKey key) action) {
-    if (context.predicateStack.lastOrNull case var pk?) {
-      action(PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name));
-    }
-  }
-
   /// Increments the pending frame count for all active trackers in [context].
   void incrementTrackers(Context context, String reason) {
-    _forEachActiveTrackerKey(context, (key) {
-      var tracker = trackers[key];
+    var callerKey = context.predicateStack.lastOrNull;
+    if (callerKey != null) {
+      var predicateKey = PredicateKey(
+        callerKey.pattern,
+        callerKey.startPosition,
+        isAnd: callerKey.isAnd,
+      );
+      var tracker = trackers[predicateKey];
       if (tracker != null) {
-        var next = (_trackerFrameCounts[key] ?? 0) + 1;
-        _trackerFrameCounts[key] = next;
+        var next = (_trackerFrameCounts[predicateKey] ?? 0) + 1;
+        _trackerFrameCounts[predicateKey] = next;
         _traceTrackerUpdate(tracker, reason, pendingFrames: next);
       }
-    });
+    }
   }
 
   /// Decrements the pending frame count for all active trackers in [context].
   ///
   /// Returns predicate keys that are now exhaustible (no pending frames and no match).
-  List<PredicateKey> decrementTrackers(Context context, [String? reason]) {
-    var exhaustedPredicates = <PredicateKey>[];
+  PredicateKey? decrementTracker(Context context, [String? reason]) {
+    var callerKey = context.predicateStack.lastOrNull;
+    if (callerKey == null) {
+      return null;
+    }
+    PredicateKey? exhaustedPredicates;
+    var predicateKey = PredicateKey(
+      callerKey.pattern,
+      callerKey.startPosition,
+      isAnd: callerKey.isAnd,
+    );
+    var tracker = trackers[predicateKey];
+    if (tracker != null) {
+      var current = _trackerFrameCounts[predicateKey] ?? 0;
+      assert(
+        current > 0,
+        "${tracker.runtimeType} underflow: decrementTrackers() called "
+        "with no pending frames for $predicateKey.",
+      );
 
-    _forEachActiveTrackerKey(context, (key) {
-      var tracker = trackers[key];
-      if (tracker != null) {
-        var current = _trackerFrameCounts[key] ?? 0;
-        assert(
-          current > 0,
-          "${tracker.runtimeType} underflow: decrementTrackers() called with no pending frames for $key.",
-        );
-
-        var next = current - 1;
-        _trackerFrameCounts[key] = next;
-        if (key is PredicateKey &&
-            tracker is PredicateTracker &&
-            !tracker.matched &&
-            !tracker.exhausted &&
-            next == 0) {
-          exhaustedPredicates.add(key);
-        }
-
-        if (reason != null) {
-          _traceTrackerUpdate(tracker, reason, pendingFrames: next);
-        }
+      var next = current - 1;
+      _trackerFrameCounts[predicateKey] = next;
+      if (tracker is PredicateTracker<State> &&
+          !tracker.matched &&
+          !tracker.exhausted &&
+          next == 0) {
+        exhaustedPredicates = predicateKey;
       }
-    });
+
+      if (reason != null) {
+        _traceTrackerUpdate(tracker, reason, pendingFrames: next);
+      }
+    }
 
     return exhaustedPredicates;
   }
 
-  void _traceTrackerUpdate(SubparseTracker tracker, String reason, {required int pendingFrames}) {
+  void _traceTrackerUpdate(
+    SubparseTracker<void> tracker,
+    String reason, {
+    required int pendingFrames,
+  }) {
     tracer?.onTrackerUpdate(
       tracker.runtimeType.toString(),
       tracker.toString(),
@@ -227,7 +250,7 @@ final class ParseState {
 
   int trackerPendingFrames(SubparseKey key) => _trackerFrameCounts[key] ?? 0;
 
-  bool canResolvePredicateFalse(PredicateKey key, PredicateTracker tracker) {
+  bool canResolvePredicateFalse(PredicateKey key, PredicateTracker<State> tracker) {
     return !tracker.matched && !tracker.exhausted && trackerPendingFrames(key) == 0;
   }
 

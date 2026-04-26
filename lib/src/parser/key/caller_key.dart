@@ -2,7 +2,6 @@
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
@@ -80,7 +79,7 @@ final class PredicateCallerKey extends CallerKey {
 class Caller extends CallerKey {
   Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid);
 
-  final Rule rule;
+  final PatternSymbol rule;
   final int? minPrecedenceLevel;
   final GlushList<PredicateCallerKey> predicateStack;
 
@@ -93,7 +92,8 @@ class Caller extends CallerKey {
   final Map<ReturnKey, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Map<ReturnKey, LazyReturn<Mark>> _lazyReturns = {};
 
-  _WaiterData? _waiterData;
+  _WaiterData? _waiterHead;
+  _WaiterData? _waiterTail;
 
   @override
   bool operator ==(Object other) =>
@@ -112,39 +112,40 @@ class Caller extends CallerKey {
   String toString() {
     var prec = minPrecedenceLevel == null ? "" : " prec:$minPrecedenceLevel";
     var stack = predicateStack.isEmpty ? "" : " stack:$predicateStack";
-    return "rule(${rule.name.symbol} @ $startPosition$prec$stack)";
+    return "rule($rule @ $startPosition$prec$stack)";
   }
 
   bool addWaiter(
     State next,
     int? minPrecedence,
     Context callerContext,
-    Ref<LazyGlushList<Mark>> callerMarks,
+    LazyGlushList<Mark> callerMarks,
     ParseNodeKey node,
   ) {
     var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
-    var data = _waiterData;
+    var tail = _waiterTail;
 
-    if (data == null) {
-      _waiterData = waiter;
+    if (tail == null) {
+      _waiterHead = waiter;
+      _waiterTail = waiter;
       return true;
     }
 
-    _WaiterData? prev;
-    _WaiterData? head = data;
-    while (head != null) {
-      if (head.nextState == next &&
-          head.minPrecedence == minPrecedence &&
-          head.parentContext == callerContext &&
-          head.parentMarks == callerMarks) {
+    _WaiterData? current = tail;
+    while (current != null) {
+      if (current.nextState == next &&
+          current.minPrecedence == minPrecedence &&
+          current.parentContext == callerContext &&
+          current.parentMarks == callerMarks) {
         return false;
       }
 
-      prev = head;
-      head = head.next;
+      current = current.prev;
     }
 
-    prev!.next = waiter;
+    waiter.prev = tail;
+    tail.next = waiter;
+    _waiterTail = waiter;
     return true;
   }
 
@@ -174,19 +175,17 @@ class Caller extends CallerKey {
 
   Iterable<(Context, LazyGlushList<Mark>)> get returns => _returnsInt.values;
 
-  Iterable<WaiterInfo> get waiters {
-    var data = _waiterData;
+  Iterable<WaiterInfo> get waiters sync* {
+    var data = _waiterHead;
     if (data == null) {
-      return const [];
+      return;
     }
 
-    List<WaiterInfo> infos = [];
     _WaiterData? head = data;
     while (head != null) {
-      infos.add(WaiterInfo(head));
+      yield WaiterInfo(head);
       head = head.next;
     }
-    return infos;
   }
 
   /// Get or create the LazyReturn proxy for a given packedId.
@@ -209,9 +208,10 @@ class _WaiterData {
   final State nextState;
   final int? minPrecedence;
   final Context parentContext;
-  final Ref<LazyGlushList<Mark>> parentMarks;
+  final LazyGlushList<Mark> parentMarks;
   final ParseNodeKey callSite;
 
+  _WaiterData? prev;
   _WaiterData? next;
 }
 
@@ -219,6 +219,6 @@ extension type const WaiterInfo(_WaiterData _) {
   State get nextState => _.nextState;
   int? get minPrecedence => _.minPrecedence;
   Context get parentContext => _.parentContext;
-  Ref<LazyGlushList<Mark>> get parentMarks => _.parentMarks;
+  LazyGlushList<Mark> get parentMarks => _.parentMarks;
   ParseNodeKey get callSite => _.callSite;
 }

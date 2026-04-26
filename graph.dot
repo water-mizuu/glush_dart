@@ -1,0 +1,33 @@
+digraph StateMachine {
+  rankdir=LR;
+  node [fontname="Courier"];
+  "__start__" [shape=point, label=""];
+  "__accept__" [shape=doublecircle, label="accept"];
+  "__return_0__" [shape=box, label="return 0", style=filled, fillcolor=lightgray];
+  "__return_8__" [shape=box, label="return 8", style=filled, fillcolor=lightgray];
+  "__return_10__" [shape=box, label="return 10", style=filled, fillcolor=lightgray];
+  "S0" [shape=circle, label="init"];
+  "S1" [shape=circle, label="<S>"];
+  "S2" [shape=circle, label="<S>"];
+  "S3" [shape=circle, label="<A>"];
+  "S4" [shape=circle, label="<B>"];
+  "S5" [shape=circle, label="z"];
+  "S6" [shape=circle, label="y"];
+  "S7" [shape=circle, label="<A>"];
+  "S8" [shape=circle, label="x"];
+  "S9" [shape=circle, label="<B>"];
+  "S10" [shape=circle, label="x"];
+  "__start__" -> "S0" [label="start"];
+  "S0" -> "S1" [label="call 0", style=bold];
+  "S1" -> "__accept__" [label="accept"];
+  "S2" -> "S3" [label="call 8", style=bold];
+  "S2" -> "S4" [label="call 10", style=bold];
+  "S3" -> "S5" [label="token z"];
+  "S4" -> "S6" [label="token y"];
+  "S5" -> "__return_0__" [label="return S", style=dashed, color=gray45];
+  "S6" -> "__return_0__" [label="return S", style=dashed, color=gray45];
+  "S7" -> "S8" [label="token x"];
+  "S8" -> "__return_8__" [label="return A", style=dashed, color=gray45];
+  "S9" -> "S10" [label="token x"];
+  "S10" -> "__return_10__" [label="return B", style=dashed, color=gray45];
+}

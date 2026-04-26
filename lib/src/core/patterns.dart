@@ -993,7 +993,7 @@ class Rule extends Pattern {
 
   /// Creates a [RuleCall] to this rule with the given [minPrecedenceLevel].
   RuleCall call({int? minPrecedenceLevel}) {
-    var name = "${this.name}_${calls.length}";
+    var name = "${this.name}";
     var call = RuleCall(name, this, minPrecedenceLevel: minPrecedenceLevel);
     calls.add(call);
     return call;

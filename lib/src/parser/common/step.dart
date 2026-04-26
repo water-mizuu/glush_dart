@@ -3,7 +3,6 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
-import "package:glush/src/helper/ref.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/common/parse_state.dart";
@@ -36,6 +35,7 @@ class Step {
     this.position, {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
+    this.lookahead,
   });
 
   /// The global state of the current parsing session.
@@ -45,6 +45,9 @@ class Step {
   ///
   /// This is null if the parser has reached the end of the input.
   final int? token;
+
+  /// Optional one-token lookahead at this position.
+  final int? lookahead;
 
   /// The zero-based index of this step in the input stream.
   final int position;
@@ -183,6 +186,12 @@ class Step {
     if (framePos == position) {
       return token;
     }
+    if (framePos == position + 1) {
+      return lookahead;
+    }
+    if (framePos < 0 || framePos >= parseState.historyByPosition.length) {
+      return null;
+    }
     return parseState.historyByPosition[framePos];
   }
 
@@ -201,33 +210,26 @@ class Step {
     required State currentState,
   }) {
     GlushProfiler.increment("parser.rule_calls.considered");
-    var symbol = targetRule.symbolId;
-    if (symbol != null) {
-      var frameToken = _getTokenFor(frame);
-      var admissible = parseState.parser.stateMachine.canRuleStartWith(
-        symbol,
-        frameToken,
-        isAtStart: frame.context.position == 0,
-      );
-      if (!admissible) {
-        GlushProfiler.increment("parser.rule_calls.admissibility_rejected");
-        return;
-      }
+    var symbol = targetRule.symbolId!;
+    var frameToken = _getTokenFor(frame);
+    var admissible = parseState.parser.stateMachine.canRuleStartWith(
+      symbol,
+      frameToken,
+      isAtStart: frame.context.position == 0,
+    );
+    if (!admissible) {
+      GlushProfiler.increment("parser.rule_calls.admissibility_rejected");
+      return;
     }
 
     var isNewCaller = false;
-    var key = CallerCacheKey(
-      targetRule,
-      position,
-      minPrecedenceLevel,
-      frame.context.predicateStack,
-    );
-    var caller = parseState.callersComplex[key];
+    var key = CallerCacheKey(symbol, position, minPrecedenceLevel);
+    var caller = parseState.callers[key];
     if (caller == null) {
       isNewCaller = true;
       GlushProfiler.incrementMiss("parser.callers.cache");
-      caller = parseState.callersComplex[key] = Caller(
-        targetRule,
+      caller = parseState.callers[key] = Caller(
+        symbol,
         position,
         minPrecedenceLevel,
         frame.context.predicateStack,
@@ -241,7 +243,7 @@ class Step {
       returnState,
       minPrecedenceLevel,
       frame.context,
-      Ref(frame.marks),
+      frame.marks,
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewWaiter) {
@@ -355,32 +357,32 @@ class Step {
       _workQueue.add(packedId);
       _workQueue.add(state);
       return;
+    } else {
+      // Slow-path for complex contexts
+      var key = ComplexContextKey(state, nextContext);
+
+      if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
+        GlushProfiler.incrementHit("parser.enqueue.deduplicated");
+        return;
+      }
+
+      var group = _currentFrameGroupsComplex[key];
+      if (group != null) {
+        GlushProfiler.incrementHit("parser.enqueue.merged");
+        group.addMarks(marks);
+        return;
+      }
+
+      GlushProfiler.incrementMiss("parser.enqueue.merged");
+      _activeContextKeysComplex.add(key);
+
+      parseState.incrementTrackers(nextContext, "enqueue");
+
+      // Initialize group and store initial marks.
+      _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
+      _workQueue.add(key);
+      _workQueue.add(state);
     }
-
-    // Slow-path for complex contexts
-    var key = ComplexContextKey(state, nextContext);
-
-    if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
-      GlushProfiler.incrementHit("parser.enqueue.deduplicated");
-      return;
-    }
-
-    var group = _currentFrameGroupsComplex[key];
-    if (group != null) {
-      GlushProfiler.incrementHit("parser.enqueue.merged");
-      group.addMarks(marks);
-      return;
-    }
-
-    GlushProfiler.incrementMiss("parser.enqueue.merged");
-    _activeContextKeysComplex.add(key);
-
-    parseState.incrementTrackers(nextContext, "enqueue");
-
-    // Initialize group and store initial marks.
-    _currentFrameGroupsComplex[key] = ContextGroup(state, nextContext)..addMarks(marks);
-    _workQueue.add(key);
-    _workQueue.add(state);
   }
 
   /// Execute outgoing actions for one `(frame,state)` pair.
@@ -448,15 +450,18 @@ class Step {
     StateAction? action,
     ParseNodeKey? callSite,
   }) {
+    late var rule = parseState.stateMachine.grammar.allRules.values
+        .where((v) => v.symbolId == caller.rule)
+        .firstOrNull;
     // Call-site can reject returns below its minimum precedence threshold.
     if (minPrecedence != null &&
         returnContext.precedenceLevel != null &&
         returnContext.precedenceLevel! < minPrecedence) {
       // Waiter's precedence threshold is not met by this return.
-      parseState.tracer?.onRuleReturn(caller.rule, position, caller, null);
+      parseState.tracer?.onRuleReturn(rule!, position, caller, null);
       return;
     }
-    parseState.tracer?.onRuleReturn(caller.rule, position, caller, null);
+    parseState.tracer?.onRuleReturn(rule!, position, caller, null);
 
     var packedId = ReturnKey(
       returnContext.precedenceLevel,
@@ -541,7 +546,10 @@ class Step {
       var marks = group.mergedMarks;
       var context = group.context;
 
-      exhaustedPredicatesSink?.addAll(parseState.decrementTrackers(context, "processBatch"));
+      var tracker = parseState.decrementTracker(context, "processBatch");
+      if (tracker != null) {
+        exhaustedPredicatesSink?.add(tracker);
+      }
 
       _process(Frame(context, marks), state);
     }
@@ -660,7 +668,7 @@ class Step {
   }) {
     var frameContext = frame.context;
     var frameToken = _getTokenFor(frame);
-    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
+    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd);
     var memoizedOutcome = parseState.getMemoizedPredicateOutcome(subParseKey);
     if (memoizedOutcome != null) {
       GlushProfiler.increment("parser.predicates.memoized_hit");
@@ -702,8 +710,12 @@ class Step {
     var isFirst = !parseState.trackers.containsKey(subParseKey);
 
     var tracker =
-        (parseState.trackers[subParseKey] ??= PredicateTracker(symbol, position, isAnd: isAnd))
-            as PredicateTracker;
+        (parseState.trackers[subParseKey] ??= PredicateTracker<State>(
+              symbol,
+              position,
+              isAnd: isAnd,
+            ))
+            as PredicateTracker<State>;
 
     assert(
       tracker.symbol == symbol && tracker.startPosition == position,
@@ -759,7 +771,6 @@ class Step {
   void _processCallAction(Frame frame, State state, CallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-
     var targetRule = parseState.rulesById[action.ruleSymbol]!;
 
     _seedRuleCall(
@@ -874,7 +885,7 @@ class Step {
         isAnd: caller.isAnd,
         // name: caller.name,
       );
-      var tracker = parseState.trackers[key] as PredicateTracker?;
+      var tracker = parseState.trackers[key] as PredicateTracker<State>?;
       if (tracker == null) {
         return;
       }
@@ -888,9 +899,10 @@ class Step {
       parseState.memoizePredicateOutcome(key, isMatched: true);
 
       for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
-        exhaustedPredicatesSink?.addAll(
-          parseState.decrementTrackers(parentContext, "childMatched"),
-        );
+        var newTracker = parseState.decrementTracker(parentContext, "childMatched");
+        if (newTracker != null) {
+          exhaustedPredicatesSink?.add(newTracker);
+        }
 
         if (tracker.isAnd) {
           _resumeLaggedPredicateContinuation(
@@ -914,9 +926,24 @@ class Step {
     }
 
     if (caller is Caller) {
+      // End-admissibility is only safe when the exact token at returnPosition is known.
+      var returnToken = _getTokenFor(frame);
+      var endAdmissible = parseState.parser.stateMachine.canRuleEndWith(
+        caller.rule,
+        returnToken,
+        isAtStart: returnPosition == 0,
+      );
+      if (!endAdmissible) {
+        GlushProfiler.increment("parser.rule_returns.admissibility_rejected");
+        return;
+      }
+
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       if (caller.addReturn(returnContext, frame.marks)) {
-        parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);
+        late var rule = parseState.stateMachine.grammar.allRules.values
+            .where((v) => v.symbolId == caller.rule)
+            .firstOrNull;
+        parseState.tracer?.onRuleReturn(rule!, returnPosition, caller, state);
 
         for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
             in caller.waiters) {
@@ -926,7 +953,7 @@ class Step {
             nextState,
             minPrecedence,
             parentContext,
-            parentMarks.value,
+            parentMarks,
             returnContext,
             source: ParseNodeKey(state.id, returnPosition, caller),
             action: action,

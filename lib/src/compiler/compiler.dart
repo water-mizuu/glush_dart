@@ -6,6 +6,7 @@ import "package:glush/src/compiler/parser.dart";
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
+import "package:glush/src/parser/bytecode/bytecode_parser.dart";
 import "package:glush/src/parser/sm_parser.dart";
 
 /// Transforms a [GrammarFile] AST into an executable [Grammar] object.
@@ -280,7 +281,6 @@ extension GrammarFileExtension on String {
   Grammar toGrammar({String? startRuleName}) =>
       GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName);
 
-  SMParser toSMParser({String? startRuleName}) => SMParser(
-    GrammarFileCompiler(GrammarFileParser(this).parse()).compile(startRuleName: startRuleName),
-  );
+  SMParser toSMParser({String? startRuleName}) => SMParser(toGrammar(startRuleName: startRuleName));
+  BCParser toBCParser({String? startRuleName}) => BCParser(toGrammar(startRuleName: startRuleName));
 }

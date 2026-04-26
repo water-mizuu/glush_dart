@@ -49,10 +49,9 @@ abstract class ParseTracer {
 }
 
 /// A [ParseTracer] implementation that writes human-readable execution logs to a file.
-class FileTracer implements ParseTracer {
-  /// Creates a [FileTracer] that writes to the file at [path].
-  FileTracer(String path) : _sink = File(path).openWrite();
-  final IOSink _sink;
+class SinkTracer implements ParseTracer {
+  SinkTracer(this._sink);
+  final StringSink _sink;
 
   @override
   void onStart(StateMachine sm) {
@@ -158,7 +157,25 @@ class FileTracer implements ParseTracer {
   }
 
   @override
+  void finalize() {}
+}
+
+/// A [ParseTracer] implementation that writes human-readable execution logs to a file.
+class FileTracer extends SinkTracer {
+  /// Creates a [FileTracer] that writes to the file at [path].
+  FileTracer(String path) : super(File(path).openWrite());
+
+  @override
   void finalize() {
-    unawaited(_sink.close());
+    unawaited((super._sink as IOSink).close());
+  }
+}
+
+class PrintTracer extends SinkTracer {
+  PrintTracer() : super(stdout);
+
+  @override
+  void finalize() {
+    unawaited(stdout.flush());
   }
 }

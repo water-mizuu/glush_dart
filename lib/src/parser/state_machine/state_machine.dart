@@ -1,8 +1,10 @@
-/// State machine compilation from grammars
-library glush.state_machine;
+import "dart:typed_data";
 
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/bytecode/bytecode_machine.dart";
+import "package:glush/src/parser/bytecode/bytecode_parser.dart";
+import "package:glush/src/parser/bytecode/constants_table.dart";
 import "package:glush/src/parser/key/state_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:meta/meta.dart";
@@ -64,16 +66,14 @@ class StateMachine {
   /// 4. Analyzes the grammar for tail-call optimization opportunities.
   /// 5. Builds precedence maps to resolve operator priority.
   StateMachine(this.grammar) {
+    _initializeFollowSetEntries();
+
     var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
 
     // Mark the state after start call as accepting
     var startState = _getOrCreateState(PatternStateKey(grammar.startCall));
     startState.actions.add(const AcceptAction());
-
-    if (grammar.isEmpty()) {
-      initState.actions.add(const AcceptAction());
-    }
 
     _initialStates = [initState];
 
@@ -98,16 +98,25 @@ class StateMachine {
 
       // Connect to first patterns
       for (var firstStateInRange in ruleBody.firstSet()) {
+        _recordFollow(rule, firstStateInRange);
         _connect(firstState, firstStateInRange, currentRule: rule);
       }
 
       // Connect each pair
       for (var (a, b) in ruleBody.eachPair()) {
+        if (a case RuleCall(rule: var calledRule) when calledRule.symbolId != null) {
+          _recordRuleFollower(calledRule.symbolId!, b);
+        }
+        _recordFollow(a, b);
         _connect(_getOrCreateState(PatternStateKey(a)), b, currentRule: rule);
       }
 
       // Mark states before returns
       for (var lastState in ruleBody.lastSet()) {
+        if (lastState case RuleCall(rule: var calledRule) when calledRule.symbolId != null) {
+          _recordRuleFollower(calledRule.symbolId!, rule);
+        }
+        _recordFollow(lastState, rule);
         var state = _getOrCreateState(PatternStateKey(lastState));
         var action = ReturnAction(rule.symbolId!, precedenceMap[lastState]);
         state.actions.add(action);
@@ -119,6 +128,7 @@ class StateMachine {
     }
 
     _precompileRuleStartAdmissibility();
+    _precompileRuleEndAdmissibility();
   }
 
   /// Internal constructor for pre-built state machines (imported).
@@ -133,6 +143,7 @@ class StateMachine {
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
   final Map<PatternSymbol, State> ruleFirst = {};
+  final Map<Pattern, Set<Pattern>> _followSets = {};
 
   /// All rules (including synthetic ones) indexed by their symbol.
   final Map<PatternSymbol, Rule> allRules = {};
@@ -143,9 +154,201 @@ class StateMachine {
   final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
   final Map<(PatternSymbol, int?, bool), bool> _ruleStartAdmissibilityCache = {};
   final Map<PatternSymbol, _RuleStartAdmissibilityTable> _ruleStartAdmissibilityTables = {};
+  final Map<PatternSymbol, Set<Pattern>> _ruleFollowPatterns = {};
+  final Map<(PatternSymbol, int?, bool), bool> _ruleEndAdmissibilityCache = {};
+  final Map<PatternSymbol, _RuleEndAdmissibilityTable> _ruleEndAdmissibilityTables = {};
 
   static const int _precompiledTokenMin = 0;
   static const int _precompiledTokenMax = 255;
+
+  /// Returns all patterns that may directly follow [pattern].
+  ///
+  /// This set is computed during state machine compilation from the same
+  /// first/last/pair analysis used to build transitions.
+  Set<Pattern> followSetOf(Pattern pattern) => _followSets[pattern] ?? const <Pattern>{};
+
+  /// Whether [pattern] has an explicitly assigned follow-set entry.
+  bool hasFollowSetEntry(Pattern pattern) => _followSets.containsKey(pattern);
+
+  void _recordFollow(Pattern from, Pattern to) {
+    (_followSets[from] ??= <Pattern>{}).add(to);
+  }
+
+  void _initializeFollowSetEntries() {
+    for (var pattern in grammar.registry.values) {
+      _followSets.putIfAbsent(pattern, () => <Pattern>{});
+    }
+  }
+
+  /// Returns true if [symbol] can potentially finish such that the next token
+  /// can be consumed by something that follows this rule.
+  ///
+  /// This is conservative: it returns false only when followers are known and
+  /// all of them are definitely incompatible with [token].
+  bool canRuleEndWith(PatternSymbol symbol, int? token, {required bool isAtStart}) {
+    var table = _ruleEndAdmissibilityTables[symbol];
+    if (table != null) {
+      if (token == null) {
+        return isAtStart ? table.eofAtStart : table.eofNotAtStart;
+      }
+      if (token >= _precompiledTokenMin && token <= _precompiledTokenMax) {
+        return isAtStart ? table.atStart[token] : table.notAtStart[token];
+      }
+    }
+
+    var key = (symbol, token, isAtStart);
+    if (_ruleEndAdmissibilityCache[key] case var cached?) {
+      return cached;
+    }
+
+    var result = _canRuleEndWith(
+      symbol,
+      token,
+      isAtStart: isAtStart,
+      visitingRules: <PatternSymbol>{},
+    );
+    _ruleEndAdmissibilityCache[key] = result;
+    return result;
+  }
+
+  bool _canRuleEndWith(
+    PatternSymbol symbol,
+    int? token, {
+    required bool isAtStart,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    if (!visitingRules.add(symbol)) {
+      // Cycles are treated as possible to avoid unsound pruning.
+      return true;
+    }
+
+    var followers = _ruleFollowPatterns[symbol];
+    if (followers == null || followers.isEmpty) {
+      visitingRules.remove(symbol);
+      if (symbol == grammar.startSymbol) {
+        return token == null;
+      }
+      return true;
+    }
+
+    for (var follower in followers) {
+      if (_patternCanFollowWithToken(
+        follower,
+        token,
+        isAtStart: isAtStart,
+        visitingRules: visitingRules,
+      )) {
+        visitingRules.remove(symbol);
+        return true;
+      }
+    }
+
+    // Top-level parse can always end at EOF after start rule.
+    if (symbol == grammar.startSymbol && token == null) {
+      visitingRules.remove(symbol);
+      return true;
+    }
+
+    visitingRules.remove(symbol);
+    return false;
+  }
+
+  bool _patternCanFollowWithToken(
+    Pattern pattern,
+    int? token, {
+    required bool isAtStart,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    return switch (pattern) {
+      Token(:var choice) => token != null && choice.matches(token),
+      Rule(:var symbolId) when symbolId != null =>
+        _canRuleStartWith(symbolId, token, isAtStart: isAtStart, visitingRules: visitingRules) ||
+            _canRuleEndWith(symbolId, token, isAtStart: isAtStart, visitingRules: visitingRules),
+      RuleCall(:var rule) when rule.symbolId != null =>
+        _canRuleStartWith(
+              rule.symbolId!,
+              token,
+              isAtStart: isAtStart,
+              visitingRules: visitingRules,
+            ) ||
+            _canRuleEndWith(
+              rule.symbolId!,
+              token,
+              isAtStart: isAtStart,
+              visitingRules: visitingRules,
+            ),
+      StartAnchor() => isAtStart,
+      EofAnchor() => token == null,
+      // For zero-width/runtime-dependent constructs, stay conservative.
+      Eps() ||
+      And() ||
+      Not() ||
+      LabelStart() ||
+      LabelEnd() ||
+      Retreat() ||
+      Alt() ||
+      Seq() ||
+      Prec() ||
+      Opt() ||
+      Plus() ||
+      Star() ||
+      Label() => true,
+      _ => true,
+    };
+  }
+
+  void _recordRuleFollower(PatternSymbol callee, Pattern follower) {
+    (_ruleFollowPatterns[callee] ??= <Pattern>{}).add(follower);
+  }
+
+  void _precompileRuleEndAdmissibility() {
+    for (var symbol in ruleFirst.keys) {
+      var atStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+      var notAtStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+
+      for (var token = _precompiledTokenMin; token <= _precompiledTokenMax; token++) {
+        var startValue = _canRuleEndWith(
+          symbol,
+          token,
+          isAtStart: true,
+          visitingRules: <PatternSymbol>{},
+        );
+        var nonStartValue = _canRuleEndWith(
+          symbol,
+          token,
+          isAtStart: false,
+          visitingRules: <PatternSymbol>{},
+        );
+        atStart[token] = startValue;
+        notAtStart[token] = nonStartValue;
+
+        _ruleEndAdmissibilityCache[(symbol, token, true)] = startValue;
+        _ruleEndAdmissibilityCache[(symbol, token, false)] = nonStartValue;
+      }
+
+      var eofAtStart = _canRuleEndWith(
+        symbol,
+        null,
+        isAtStart: true,
+        visitingRules: <PatternSymbol>{},
+      );
+      var eofNotAtStart = _canRuleEndWith(
+        symbol,
+        null,
+        isAtStart: false,
+        visitingRules: <PatternSymbol>{},
+      );
+
+      _ruleEndAdmissibilityTables[symbol] = _RuleEndAdmissibilityTable(
+        atStart: atStart,
+        notAtStart: notAtStart,
+        eofAtStart: eofAtStart,
+        eofNotAtStart: eofNotAtStart,
+      );
+      _ruleEndAdmissibilityCache[(symbol, null, true)] = eofAtStart;
+      _ruleEndAdmissibilityCache[(symbol, null, false)] = eofNotAtStart;
+    }
+  }
 
   /// Returns true if [symbol] can potentially begin matching at [token].
   ///
@@ -333,6 +536,9 @@ class StateMachine {
     if (_ruleStartAdmissibilityTables.isEmpty && ruleFirst.isNotEmpty) {
       _precompileRuleStartAdmissibility();
     }
+    if (_ruleEndAdmissibilityTables.isEmpty && ruleFirst.isNotEmpty) {
+      _precompileRuleEndAdmissibility();
+    }
   }
 
   /// Initialize the state structure for imported state machines.
@@ -345,6 +551,7 @@ class StateMachine {
   ///   [initialStates] - The list of states to start parsing from
   ///   [stateMapping] - The complete mapping of state keys to compiled states
   void initializeImported(List<State> initialStates, Map<StateKey, State> stateMapping) {
+    _initializeFollowSetEntries();
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
@@ -371,6 +578,7 @@ class StateMachine {
   ///   [initialStates] - The initial states for parsing
   ///   [allStates] - All states in the compiled machine
   void initializeFromJson(List<State> initialStates, List<State> allStates) {
+    _initializeFollowSetEntries();
     _initialStates = initialStates;
     _cachedStates = allStates;
     // Populate state mapping using InitStateKey for first state
@@ -760,10 +968,103 @@ class StateMachine {
       Prec(:var child) || Plus(:var child) || Label(:var child) => _isDefinitelyNonEmpty(child),
     };
   }
+
+  /// Compiles the current state graph into a flat [BytecodeMachine].
+  ///
+  /// This method traverses all reachable states and their actions, emitting
+  /// a compact integer instruction stream that can be executed by a
+  /// [BCParser].
+  BytecodeMachine toBytecodeMachine() {
+    var constants = ConstantsTable();
+    var bytecode = <int>[];
+    var stateOffsets = Int32List(states.length);
+
+    // Sort states by ID to ensure stateOffsets mapping is correct.
+    var sortedStates = List<State>.from(states)..sort((a, b) => a.id.compareTo(b.id));
+
+    for (var state in sortedStates) {
+      stateOffsets[state.id] = bytecode.length;
+      bytecode.add(state.actions.length);
+
+      for (var action in state.actions) {
+        switch (action) {
+          case TokenAction(:var choice, :var nextState):
+            bytecode.add(BytecodeOp.token.index);
+            bytecode.add(constants.addChoice(choice));
+            bytecode.add(nextState.id);
+
+          case BoundaryAction(:var kind, :var nextState):
+            bytecode.add(BytecodeOp.boundary.index);
+            bytecode.add(kind.index);
+            bytecode.add(nextState.id);
+
+          case LabelStartAction(:var name, :var nextState):
+            bytecode.add(BytecodeOp.labelStart.index);
+            bytecode.add(constants.addString(name));
+            bytecode.add(nextState.id);
+
+          case LabelEndAction(:var name, :var nextState):
+            bytecode.add(BytecodeOp.labelEnd.index);
+            bytecode.add(constants.addString(name));
+            bytecode.add(nextState.id);
+
+          case CallAction(:var ruleSymbol, :var returnState, :var minPrecedenceLevel):
+            bytecode.add(BytecodeOp.call.index);
+            bytecode.add(ruleSymbol);
+            bytecode.add(returnState.id);
+            bytecode.add(minPrecedenceLevel ?? 0);
+
+          case TailCallAction(:var ruleSymbol, :var minPrecedenceLevel):
+            bytecode.add(BytecodeOp.tailCall.index);
+            bytecode.add(ruleSymbol);
+            bytecode.add(minPrecedenceLevel ?? 0);
+
+          case ReturnAction(:var ruleSymbol, :var precedenceLevel):
+            bytecode.add(BytecodeOp.ret.index);
+            bytecode.add(ruleSymbol);
+            bytecode.add(precedenceLevel ?? 0);
+
+          case AcceptAction():
+            bytecode.add(BytecodeOp.accept.index);
+
+          case PredicateAction(:var isAnd, :var symbol, :var nextState):
+            bytecode.add(BytecodeOp.predicate.index);
+            bytecode.add(isAnd ? 1 : 0);
+            bytecode.add(symbol);
+            bytecode.add(nextState.id);
+
+          case RetreatAction(:var nextState):
+            bytecode.add(BytecodeOp.retreat.index);
+            bytecode.add(nextState.id);
+        }
+      }
+    }
+
+    return BytecodeMachine(
+      bytecode: Int32List.fromList(bytecode),
+      stateOffsets: stateOffsets,
+      constants: constants,
+      initialStates: Int32List.fromList(initialStates.map((s) => s.id).toList()),
+    );
+  }
 }
 
 final class _RuleStartAdmissibilityTable {
   const _RuleStartAdmissibilityTable({
+    required this.atStart,
+    required this.notAtStart,
+    required this.eofAtStart,
+    required this.eofNotAtStart,
+  });
+
+  final List<bool> atStart;
+  final List<bool> notAtStart;
+  final bool eofAtStart;
+  final bool eofNotAtStart;
+}
+
+final class _RuleEndAdmissibilityTable {
+  const _RuleEndAdmissibilityTable({
     required this.atStart,
     required this.notAtStart,
     required this.eofAtStart,
@@ -839,18 +1140,8 @@ String _toDot(StateMachine machine) {
       label = key.pattern.toString();
     }
 
-    // Check if this state is an accept state
-    // Accept states are shown with a double circle shape
-    bool isAcceptState = false;
-    for (var action in state.actions) {
-      if (action is AcceptAction) {
-        isAcceptState = true;
-        break;
-      }
-    }
-
     // Write the node definition with appropriate shape and label
-    var shape = isAcceptState ? "doublecircle" : "circle";
+    var shape = "circle";
     buffer.writeln('  "$stateId" [shape=$shape, label="$label"];');
   }
 
@@ -870,6 +1161,9 @@ String _toDot(StateMachine machine) {
         buffer.writeln(
           '  "$fromStateId" -> "$toStateId" [label="token ${_dotEscape(action.choice.toString())}"];',
         );
+      } else if (action is RetreatAction) {
+        var toStateId = "S${action.nextState.id}";
+        buffer.writeln('  "$fromStateId" -> "$toStateId" [label="retreat"];');
       }
       // CallAction: enter a subroutine (rule call)
       else if (action is CallAction) {
