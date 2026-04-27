@@ -7,7 +7,6 @@ import "package:glush/src/parser/common/parse_state.dart";
 import "package:glush/src/parser/common/tracer.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
-import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 
 /// A version of [ParseState] optimized for the bytecode runtime.
@@ -31,7 +30,7 @@ class BytecodeParseState {
   final Map<SubparseKey, SubparseTracker<int>> trackers = {};
   final Map<SubparseKey, int> _trackerFrameCounts = {};
   final Map<PredicateKey, bool> predicateOutcomes = {};
-  final Map<CallerCacheKey, Caller> callers = {};
+  final Map<int, Caller> callers = {};
   final Map<int, Rule> rulesById;
 
   int position = 0;

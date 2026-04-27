@@ -229,7 +229,7 @@ class Step {
       GlushProfiler.incrementHit("parser.callers.cache");
     }
     var isNewWaiter = caller.addWaiter(
-      returnState,
+      returnState.id,
       minPrecedenceLevel,
       frame.context,
       frame.marks,
@@ -933,12 +933,12 @@ class Step {
             .firstOrNull;
         parseState.tracer?.onRuleReturn(rule!, returnPosition, caller, state);
 
-        for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks, :callSite)
+        for (var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks, :callSite)
             in caller.waiters) {
           _triggerReturn(
             caller,
             parentContext.caller,
-            nextState,
+            parseState.parser.stateMachine.states.firstWhere((s) => s.id == nextStateId),
             minPrecedence,
             parentContext,
             parentMarks,

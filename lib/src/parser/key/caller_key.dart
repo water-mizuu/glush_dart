@@ -6,7 +6,6 @@ import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
-import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Strongly typed key to identify a call site in the parsing state machine.
@@ -116,13 +115,13 @@ class Caller extends CallerKey {
   }
 
   bool addWaiter(
-    State next,
+    int nextStateId,
     int? minPrecedence,
     Context callerContext,
     LazyGlushList<Mark> callerMarks,
     ParseNodeKey node,
   ) {
-    var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
+    var waiter = _WaiterData(nextStateId, minPrecedence, callerContext, callerMarks, node);
     var data = _waiterData;
 
     if (data == null) {
@@ -133,7 +132,7 @@ class Caller extends CallerKey {
     _WaiterData? prev;
     _WaiterData? head = data;
     while (head != null) {
-      if (head.nextState == next &&
+      if (head.nextStateId == nextStateId &&
           head.minPrecedence == minPrecedence &&
           head.parentContext == callerContext &&
           head.parentMarks == callerMarks) {
@@ -199,14 +198,14 @@ class Caller extends CallerKey {
 
 class _WaiterData {
   _WaiterData(
-    this.nextState,
+    this.nextStateId,
     this.minPrecedence,
     this.parentContext,
     this.parentMarks,
     this.callSite,
   );
 
-  final State nextState;
+  final int nextStateId;
   final int? minPrecedence;
   final Context parentContext;
   final LazyGlushList<Mark> parentMarks;
@@ -216,7 +215,7 @@ class _WaiterData {
 }
 
 extension type const WaiterInfo(_WaiterData _) {
-  State get nextState => _.nextState;
+  int get nextStateId => _.nextStateId;
   int? get minPrecedence => _.minPrecedence;
   Context get parentContext => _.parentContext;
   LazyGlushList<Mark> get parentMarks => _.parentMarks;

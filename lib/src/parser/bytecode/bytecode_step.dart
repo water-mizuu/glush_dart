@@ -7,7 +7,6 @@ import "package:glush/src/parser/bytecode/bytecode_parse_state.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
-import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
@@ -211,7 +210,7 @@ class BytecodeStep {
       return;
     }
 
-    var key = CallerCacheKey(ruleId, position, realMinPrec);
+    var key = (ruleId << 32) | (position << 8) | (realMinPrec ?? 0xFF);
     var caller = parseState.callers[key];
     caller ??= parseState.callers[key] = Caller(
       ruleId,
@@ -222,7 +221,7 @@ class BytecodeStep {
     );
 
     var isNewWaiter = caller.addWaiter(
-      State(returnStateId, []),
+      returnStateId,
       realMinPrec,
       context,
       marks,
@@ -305,12 +304,12 @@ class BytecodeStep {
     if (caller is Caller) {
       var returnContext = context.copyWith(precedenceLevel: realPrec);
       if (caller.addReturn(returnContext, marks)) {
-        for (var WaiterInfo(:nextState, :minPrecedence, :parentContext, :parentMarks)
+        for (var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks)
             in caller.waiters) {
           _triggerReturn(
             caller,
             parentContext.caller,
-            nextState.id,
+            nextStateId,
             minPrecedence,
             parentContext,
             parentMarks,
