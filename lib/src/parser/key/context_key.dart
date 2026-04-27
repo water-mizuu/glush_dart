@@ -31,7 +31,7 @@ final class IntContextKey implements ContextKey {
 /// A full context key for complex paths (predicates, captures, or BSR rules).
 final class ComplexContextKey implements ContextKey {
   ComplexContextKey(this.state, this.context)
-    : _hash = Object.hash(ComplexContextKey, state, context);
+    : _hash = (state.id * 31 + context.hashCode) & 0x7FFFFFFF;
 
   final int _hash;
   final State state;

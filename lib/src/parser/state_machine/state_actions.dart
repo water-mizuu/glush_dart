@@ -23,7 +23,10 @@ sealed class StateAction {
 /// and transitions to [nextState].
 final class TokenAction implements StateAction {
   /// Creates a token action that matches [choice] and transitions to [nextState].
-  const TokenAction(this.choice, this.nextState);
+  const TokenAction(this.symbolId, this.choice, this.nextState);
+
+  /// The unique symbol ID of the token pattern this action was created from.
+  final int symbolId;
 
   /// The pattern that the input token must satisfy.
   final TokenChoice choice;

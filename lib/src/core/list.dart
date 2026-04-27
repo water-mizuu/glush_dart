@@ -1,6 +1,8 @@
 /// Custom list implementation for managing parse alternatives
 library glush.list;
 
+import "dart:typed_data";
+
 import "package:glush/src/helper/diagonal.dart";
 import "package:meta/meta.dart";
 
@@ -16,6 +18,14 @@ import "package:meta/meta.dart";
 sealed class GlushList<T> {
   /// Base constructor for [GlushList].
   const GlushList();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is GlushList<T> && hashCode == other.hashCode && _isEqual(other));
+
+  /// Internal method for structural equality check.
+  bool _isEqual(GlushList<T> other);
 
   /// A constant factory that returns an instance of an empty [GlushList].
   ///
@@ -182,12 +192,20 @@ class EmptyList<T> extends GlushList<T> {
 
   @override
   bool get isEmpty => true;
+
+  @override
+  int get hashCode => 42; // Constant hash for empty list
+
+  @override
+  bool _isEqual(GlushList<T> other) => other is EmptyList;
 }
 
 /// A [GlushList] node representing a choice between two alternative forests.
 class BranchedList<T> extends GlushList<T> {
   /// Internal constructor for a branched result.
-  BranchedList._(this.left, [this.right]) : _isEmpty = left.isEmpty && (right?.isEmpty ?? true);
+  BranchedList._(this.left, [this.right])
+    : _isEmpty = left.isEmpty && (right?.isEmpty ?? true),
+      hashCode = Object.hash(BranchedList, left, right);
 
   /// The first alternative forest.
   final GlushList<T> left;
@@ -199,13 +217,22 @@ class BranchedList<T> extends GlushList<T> {
   final bool _isEmpty;
 
   @override
+  final int hashCode;
+
+  @override
   bool get isEmpty => _isEmpty;
+
+  @override
+  bool _isEqual(GlushList<T> other) =>
+      other is BranchedList<T> && left == other.left && right == other.right;
 }
 
 /// A [GlushList] node representing the addition of a single element to a parent forest.
 class Push<T> extends GlushList<T> {
   /// Internal constructor for a push operation.
-  const Push._(this.parent, this.data) : _lastOrNull = data;
+  Push._(this.parent, this.data)
+    : _lastOrNull = data,
+      hashCode = Object.hash(Push, parent, data);
 
   /// The parent forest to which this element is appended.
   final GlushList<T> parent;
@@ -217,16 +244,22 @@ class Push<T> extends GlushList<T> {
   final T? _lastOrNull;
 
   @override
+  final int hashCode;
+
+  @override
   T? get lastOrNull => _lastOrNull;
 
   @override
   bool get isEmpty => false;
+
+  @override
+  bool _isEqual(GlushList<T> other) => other is Push<T> && parent == other.parent && data == other.data;
 }
 
 /// A [GlushList] node representing the sequential concatenation of two forests.
 class Concat<T> extends GlushList<T> {
   /// Internal constructor for a concatenation.
-  const Concat._(this.left, this.right);
+  Concat._(this.left, this.right) : hashCode = Object.hash(Concat, left, right);
 
   /// The prefix forest.
   final GlushList<T> left;
@@ -235,7 +268,14 @@ class Concat<T> extends GlushList<T> {
   final GlushList<T> right;
 
   @override
+  final int hashCode;
+
+  @override
   bool get isEmpty => left.isEmpty && right.isEmpty;
+
+  @override
+  bool _isEqual(GlushList<T> other) =>
+      other is Concat<T> && left == other.left && right == other.right;
 }
 
 /// A lazy version of [GlushList] where all operations are thunks.
@@ -748,5 +788,40 @@ extension LazyGlushListVisualizer<T> on LazyGlushList<T> {
     buildGraph(this, buffer);
     buffer.writeln("}");
     return buffer.toString();
+  }
+}
+
+/// A compact bitset implementation based on [Uint32List].
+///
+/// Bitsets provide extremely efficient set operations (O(1) add/contains) for
+/// dense integer sets while consuming significantly less memory than HashSets.
+extension BitSet on Uint32List {
+  /// Checks if the [index]-th bit is set.
+  bool testBit(int index) {
+    var word = index >> 5;
+    if (word >= length) {
+      return false;
+    }
+    return (this[word] & (1 << (index & 31))) != 0;
+  }
+
+  /// Sets the [index]-th bit to true.
+  void setBit(int index) {
+    var word = index >> 5;
+    this[word] |= 1 << (index & 31);
+  }
+
+  /// Sets the [index]-th bit to true and returns whether it was already set.
+  bool setBitWasNew(int index) {
+    var word = index >> 5;
+    var mask = 1 << (index & 31);
+    var old = this[word];
+    this[word] |= mask;
+    return (old & mask) == 0;
+  }
+
+  /// Clears the bitset.
+  void clearAll() {
+    fillRange(0, length, 0);
   }
 }

@@ -3,6 +3,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
+import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -39,45 +40,46 @@ final class RootCallerKey extends CallerKey {
 
 /// Caller key for a lookahead predicate sub-parse.
 final class PredicateCallerKey extends CallerKey {
-  PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd, this.name})
-    : uid =
-          -((pattern.hashCode.abs() << 24) |
-              (startPosition & 0x7FFFFF) |
-              (isAnd ? 0x800000 : 0) ^ (name?.hashCode ?? 0));
+  PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd})
+    : key = PredicateKey(pattern, startPosition, isAnd: isAnd),
+      uid = -((pattern.hashCode.abs() << 24) | (startPosition & 0x7FFFFF) | (isAnd ? 0x800000 : 0)),
+      hashCode = Object.hash(PredicateCallerKey, pattern, startPosition, isAnd);
+
+  /// Pre-allocated tracking key for sub-parse status.
+  final PredicateKey key;
 
   @override
   final int startPosition;
 
   final PatternSymbol pattern;
   final bool isAnd;
-  final String? name;
 
   @override
   final int uid;
+
+  @override
+  final int hashCode;
 
   @override
   bool operator ==(Object other) =>
       other is PredicateCallerKey &&
       pattern == other.pattern &&
       startPosition == other.startPosition &&
-      isAnd == other.isAnd &&
-      name == other.name;
+      isAnd == other.isAnd;
 
-  @override
-  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
 
   @override
   String toString() {
-    var desc = name != null ? "($name:$pattern)" : "($pattern)";
     var prefix = isAnd ? "&" : "!";
-    return "pred($prefix$desc @ $startPosition)";
+    return "pred($prefix @ $startPosition)";
   }
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 // ignore: must_be_immutable
 class Caller extends CallerKey {
-  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid);
+  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid)
+    : hashCode = Object.hash(Caller, rule, startPosition, minPrecedenceLevel, predicateStack);
 
   final Rule rule;
   final int? minPrecedenceLevel;
@@ -105,7 +107,7 @@ class Caller extends CallerKey {
           predicateStack == other.predicateStack;
 
   @override
-  int get hashCode => Object.hash(rule, startPosition, minPrecedenceLevel, predicateStack);
+  final int hashCode;
 
   @override
   String toString() {

@@ -28,33 +28,27 @@ class Context {
     int? precedenceLevel,
   }) : this._(
          caller,
-         Object.hash(
-           caller,
-           callStart,
-           position,
-           minPrecedenceLevel,
-           precedenceLevel,
-           predicateStack,
-         ),
+         Object.hash(caller, callStart, minPrecedenceLevel, precedenceLevel, predicateStack),
+         position,
          isSimple: predicateStack.isEmpty,
          predicateStack: predicateStack,
          callStart: callStart,
-         position: position,
          minPrecedenceLevel: minPrecedenceLevel,
          precedenceLevel: precedenceLevel,
        );
 
   const Context._(
     this.caller,
-    this._hash, {
+    this._baseHash,
+    this.position, {
     required this.isSimple,
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
     this.callStart = 0,
-    this.position = 0,
     this.minPrecedenceLevel,
     this.precedenceLevel,
-  });
+  }) : _hash = (_baseHash * 31 + position) & 0x7FFFFFFF;
 
+  final int _baseHash;
   final int _hash;
 
   /// Whether this context has no lookahead predicates or captures.
@@ -114,11 +108,13 @@ class Context {
     if (newPosition == position) {
       return this;
     }
-    return Context(
+    return Context._(
       caller,
+      _baseHash,
+      newPosition,
+      isSimple: isSimple,
       predicateStack: predicateStack,
       callStart: callStart,
-      position: newPosition,
       minPrecedenceLevel: minPrecedenceLevel,
       precedenceLevel: precedenceLevel,
     );

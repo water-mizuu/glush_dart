@@ -4,18 +4,35 @@
 /// to JSON format and import it back without requiring grammar recompilation.
 library glush.state_machine_export;
 
-import "dart:convert" show json;
+import "dart:convert";
+import "dart:typed_data";
 
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
+String _serializeBitset(Uint32List? bitset) {
+  if (bitset == null) {
+    return "";
+  }
+  return base64Encode(bitset.buffer.asUint8List(bitset.offsetInBytes, bitset.lengthInBytes));
+}
+
+Uint32List? _deserializeBitset(String data) {
+  if (data.isEmpty) {
+    return null;
+  }
+  var bytes = base64Decode(data);
+  return Uint32List.view(bytes.buffer, bytes.offsetInBytes, bytes.length ~/ 4);
+}
+
 /// Serializes a StateAction to JSON.
 Map<String, Object?> _serializeAction(StateAction action, Map<State, int> stateIdMap) {
   return switch (action) {
     TokenAction() => {
       "type": "token",
+      "symbolId": action.symbolId,
       "choice": action.choice.toJson(),
       "nextState": stateIdMap[action.nextState],
     },
@@ -70,6 +87,7 @@ StateAction _deserializeAction(
   var type = json["type"]! as String;
   return switch (type) {
     "token" => TokenAction(
+      json["symbolId"]! as int,
       TokenChoice.fromJson(json["choice"]! as Map<String, Object?>),
       stateMap[json["nextState"]]!,
     ),
@@ -115,21 +133,44 @@ extension StateMachineExport on StateMachine {
     }).toList();
 
     var initialStateIds = initialStates.map((s) => s.id).toList();
-    var rulesJson = allRules.values
+    var rulesJson = allRules
+        .whereType<Rule>()
         .map((rule) => {"symbolId": rule.symbolId, "name": rule.name.symbol})
         .toList();
 
     var ruleFirstJson = <String, int>{};
-    ruleFirst.forEach((symbol, state) {
-      ruleFirstJson[symbol.toString()] = state.id;
-    });
+    for (var i = 0; i < ruleFirst.length; i++) {
+      var state = ruleFirst[i];
+      if (state != null) {
+        ruleFirstJson[i.toString()] = state.id;
+      }
+    }
+
+    var followSetsJson = <String, String>{};
+    for (int i = 0; i < followSets.length; i++) {
+      var bitset = followSets[i];
+      if (bitset != null) {
+        followSetsJson[i.toString()] = _serializeBitset(bitset);
+      }
+    }
+
+    var ruleFollowPatternsJson = <String, String>{};
+    for (int i = 0; i < ruleFollowPatterns.length; i++) {
+      var bitset = ruleFollowPatterns[i];
+      if (bitset != null) {
+        ruleFollowPatternsJson[i.toString()] = _serializeBitset(bitset);
+      }
+    }
 
     var export = {
       "version": "1.0",
+      "numPatterns": numPatterns,
       "states": statesJson,
       "initialStates": initialStateIds,
       "rules": rulesJson,
       "ruleFirst": ruleFirstJson,
+      "followSets": followSetsJson,
+      "ruleFollowPatterns": ruleFollowPatternsJson,
       "startSymbol": grammar.startSymbol,
       "startCall": grammar.startCall.toJson(),
     };
@@ -180,6 +221,7 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
       startSymbol: startSymbol,
       rules: ruleMap.values.toList(),
       startCall: startCall,
+      registrySize: data["numPatterns"] as int?,
     );
   }
 
@@ -209,8 +251,12 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
   // Create and initialize machine
   var machine = StateMachine.empty(grammar);
-  machine.ruleFirst.addAll(ruleFirstMapping);
-  machine.allRules.addAll(ruleMap.map((name, rule) => MapEntry(rule.symbolId!, rule)));
+  ruleFirstMapping.forEach((symbolId, state) {
+    machine.ruleFirst[symbolId] = state;
+  });
+  ruleMap.forEach((name, rule) {
+    machine.allRules[rule.symbolId!] = rule;
+  });
 
   var rulesData = data["rules"]! as List<Object?>;
   for (var ruleData in rulesData.cast<Map<String, Object?>>()) {
@@ -219,6 +265,23 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
   // Initialize from imported data
   machine.initializeFromJson(initialStates, stateMap.values.toList());
+
+  // Reconstruct follow sets and rule follow patterns
+  var followSetsData = data["followSets"] as Map<String, Object?>?;
+  if (followSetsData != null) {
+    followSetsData.forEach((symbolIdStr, bitsetData) {
+      var symbolId = int.parse(symbolIdStr);
+      machine.followSets[symbolId] = _deserializeBitset(bitsetData! as String);
+    });
+  }
+
+  var ruleFollowPatternsData = data["ruleFollowPatterns"] as Map<String, Object?>?;
+  if (ruleFollowPatternsData != null) {
+    ruleFollowPatternsData.forEach((symbolIdStr, bitsetData) {
+      var symbolId = int.parse(symbolIdStr);
+      machine.ruleFollowPatterns[symbolId] = _deserializeBitset(bitsetData! as String);
+    });
+  }
 
   return machine;
 }

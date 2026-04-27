@@ -24,7 +24,7 @@ sealed class GrammarInterface {
   ///
   /// This mapping is used by the parser and evaluator to resolve numeric IDs
   /// into concrete logic during execution.
-  Map<PatternSymbol, Pattern> get registry;
+  List<Pattern?> get registry;
 
   /// The entry point call for the grammar.
   ///
@@ -38,7 +38,7 @@ sealed class GrammarInterface {
   List<Rule> get rules;
 
   /// A map for fast lookup of [Rule] instances by their symbol ID.
-  Map<PatternSymbol, Rule> get allRules;
+  List<Rule?> get allRules;
 
   /// Indicates whether the grammar is fundamentally empty (i.e., matches the empty string).
   bool isEmpty();
@@ -111,11 +111,11 @@ class Grammar implements GrammarInterface {
 
   /// The registry for mapping symbol IDs to patterns.
   @override
-  final Map<PatternSymbol, Pattern> registry = {};
+  late final List<Pattern?> registry;
 
   /// Fast lookup map for rules by their symbol ID.
   @override
-  final Map<PatternSymbol, Rule> allRules = {};
+  late final List<Rule?> allRules;
 
   /// Returns the symbol ID of the start rule.
   @override
@@ -177,16 +177,25 @@ class Grammar implements GrammarInterface {
       _collectPatternsFromRule(rule, allPatterns);
     }
 
+    registry = List<Pattern?>.filled(allPatterns.length, null);
+    allRules = List<Rule?>.filled(allPatterns.length, null);
+
     int symbolCounter = 0;
     // Assign symbol IDs to each pattern in discovery order
     for (var pattern in allPatterns) {
-      pattern.symbolId ??= symbolCounter++;
+      pattern.symbolId = symbolCounter++;
       var actualSymbolId = pattern.symbolId!;
       registry[actualSymbolId] = pattern;
       if (pattern is Rule) {
         allRules[actualSymbolId] = pattern;
       }
     }
+
+    // Sanity check: verify all registry entries are filled
+    assert(
+      !registry.contains(null),
+      "Invariant violation: Some pattern symbol IDs were not assigned correctly.",
+    );
   }
 
   /// Helper to collect all patterns from a specific rule.
@@ -286,42 +295,12 @@ class Grammar implements GrammarInterface {
   /// This method is used during the symbol assignment phase to ensure that
   /// every nested pattern is identified and assigned a unique ID.
   void _collectPatternsFromPattern(Pattern pattern, Set<Pattern> patterns) {
-    if (patterns.contains(pattern)) {
+    if (!patterns.add(pattern)) {
       return; // Avoid cycles
     }
-    patterns.add(pattern);
 
-    switch (pattern) {
-      case Seq seq:
-        _collectPatternsFromPattern(seq.left, patterns);
-        _collectPatternsFromPattern(seq.right, patterns);
-      case Alt alt:
-        _collectPatternsFromPattern(alt.left, patterns);
-        _collectPatternsFromPattern(alt.right, patterns);
-      case And and:
-        _collectPatternsFromPattern(and.pattern, patterns);
-      case Not not:
-        _collectPatternsFromPattern(not.pattern, patterns);
-      case Prec plp:
-        _collectPatternsFromPattern(plp.child, patterns);
-      case Opt opt:
-        _collectPatternsFromPattern(opt.child, patterns);
-      case Plus plus:
-        _collectPatternsFromPattern(plus.child, patterns);
-      case Star star:
-        _collectPatternsFromPattern(star.child, patterns);
-      case Label label:
-        _collectPatternsFromPattern(label.child, patterns);
-      case Token() ||
-          StartAnchor() ||
-          EofAnchor() ||
-          Eps() ||
-          Rule() ||
-          RuleCall() ||
-          LabelStart() ||
-          LabelEnd() ||
-          Retreat():
-        break;
+    for (var child in pattern.children) {
+      _collectPatternsFromPattern(child, patterns);
     }
   }
 
@@ -403,19 +382,35 @@ class Grammar implements GrammarInterface {
 /// without the overhead of full compilation or state machine generation.
 class ShellGrammar implements GrammarInterface {
   /// Constructs a [ShellGrammar] with the required structural components.
-  ShellGrammar({required this.startSymbol, required this.rules, required this.startCall}) {
+  ShellGrammar({
+    required this.startSymbol,
+    required this.rules,
+    required this.startCall,
+    int? registrySize,
+  }) {
+    var maxId = registrySize != null ? registrySize - 1 : 0;
+    for (var rule in rules) {
+      if (rule.symbolId! > maxId) {
+        maxId = rule.symbolId!;
+      }
+    }
+    allRules = List<Rule?>.filled(maxId + 1, null);
     for (var rule in rules) {
       allRules[rule.symbolId!] = rule;
     }
+    registry = List<Pattern?>.filled(maxId + 1, null);
+    for (var rule in rules) {
+      registry[rule.symbolId!] = rule;
+    }
   }
 
-  /// The pattern registry (often empty in a shell grammar).
+  /// The pattern registry.
   @override
-  final Map<PatternSymbol, Pattern> registry = {};
+  late final List<Pattern?> registry;
 
   /// Fast lookup map for rules.
   @override
-  final Map<PatternSymbol, Rule> allRules = {};
+  late final List<Rule?> allRules;
 
   /// The entry point symbol.
   @override

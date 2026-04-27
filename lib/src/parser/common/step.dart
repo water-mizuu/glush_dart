@@ -137,12 +137,7 @@ class Step {
   /// Predicates are lookahead-only, so their entry states are spawned in a
   /// separate sub-parse that can resolve later and wake parked continuations.
   /// Spawns a new sub-parse to evaluate a lookahead predicate.
-  void _spawnPredicateSubparse(
-    PatternSymbol symbol,
-    Frame frame, {
-    required bool isAnd,
-    String? name,
-  }) {
+  void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame, {required bool isAnd}) {
     var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
     if (entryState == null) {
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
@@ -153,7 +148,7 @@ class Step {
     } else {
       GlushProfiler.increment("parser.predicates.not");
     }
-    var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd, name: name);
+    var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
     parseState.tracer?.onMessage("Spawning sub-parse for predicate: $symbol");
@@ -258,7 +253,7 @@ class Step {
     /// If we are a new call (at this position),
     if (isNewCaller) {
       GlushProfiler.increment("parser.callers.spawned");
-      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId]!;
+      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!]!;
       parseState.tracer?.onRuleCall(targetRule, position, caller, currentState, firstState);
       _enqueue(
         firstState,
@@ -570,7 +565,7 @@ class Step {
     var token = _getTokenFor(frame);
 
     GlushProfiler.increment("parser.token_actions.attempted");
-    var key = (action.choice, frame.context.position);
+    var key = (action.symbolId << 32) | frame.context.position;
     if (parseState.tokenMatches[key] == true) {
       GlushProfiler.increment("parser.token_actions.matched");
       parseState.tracer?.onAction(action, " matched");
@@ -671,12 +666,11 @@ class Step {
     required bool isAnd,
     required ParseNodeKey source,
     required State nextState,
-    String? name,
     StateAction? action,
   }) {
     var frameContext = frame.context;
     var frameToken = _getTokenFor(frame);
-    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd, name: name);
+    var subParseKey = PredicateKey(symbol, position, isAnd: isAnd);
     var memoizedOutcome = parseState.getMemoizedPredicateOutcome(subParseKey);
     if (memoizedOutcome != null) {
       GlushProfiler.increment("parser.predicates.memoized_hit");
@@ -767,7 +761,7 @@ class Step {
     parseState.incrementTrackers(frameContext, "childPending");
 
     if (isFirst) {
-      _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
+      _spawnPredicateSubparse(symbol, frame, isAnd: isAnd);
     }
   }
 
@@ -775,7 +769,7 @@ class Step {
   void _processCallAction(Frame frame, State state, CallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-    var targetRule = parseState.rulesById[action.ruleSymbol]!;
+    var targetRule = parseState.stateMachine.allRules[action.ruleSymbol]!;
 
     _seedRuleCall(
       targetRule: targetRule,

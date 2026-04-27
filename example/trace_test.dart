@@ -36,11 +36,17 @@ S = 'a' | 'b'
 
   // Check ruleFirst mapping
   print("Original ruleFirst:");
-  parser1.stateMachine.ruleFirst.forEach((sym, state) {
-    print("  $sym -> ${state.id}");
-  });
+  for (var i = 0; i < parser1.stateMachine.ruleFirst.length; i++) {
+    var state = parser1.stateMachine.ruleFirst[i];
+    if (state != null) {
+      print("  $i -> ${state.id}");
+    }
+  }
   print("Imported ruleFirst:");
-  parser2.stateMachine.ruleFirst.forEach((sym, state) {
-    print("  $sym -> ${state.id}");
-  });
+  for (var i = 0; i < parser2.stateMachine.ruleFirst.length; i++) {
+    var state = parser2.stateMachine.ruleFirst[i];
+    if (state != null) {
+      print("  $i -> ${state.id}");
+    }
+  }
 }

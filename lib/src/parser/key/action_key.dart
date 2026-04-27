@@ -10,27 +10,24 @@ abstract class SubparseKey {
 /// Key for tracking lookahead predicate sub-parses by pattern and start position.
 @immutable
 class PredicateKey extends SubparseKey {
-  const PredicateKey(this.pattern, this.startPosition, {required this.isAnd, this.name});
+  const PredicateKey(this.pattern, this.startPosition, {required this.isAnd});
   final PatternSymbol pattern;
   final int startPosition;
   final bool isAnd;
-  final String? name;
 
   @override
   bool operator ==(Object other) =>
       other is PredicateKey &&
       pattern == other.pattern &&
       startPosition == other.startPosition &&
-      isAnd == other.isAnd &&
-      name == other.name;
+      isAnd == other.isAnd;
 
   @override
-  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
+  int get hashCode => Object.hash(pattern, startPosition, isAnd);
 
   @override
   String toString() {
-    var desc = name != null ? "($name:$pattern)" : "($pattern)";
     var prefix = isAnd ? "&" : "!";
-    return "pred($prefix$desc @ $startPosition)";
+    return "pred($prefix @ $startPosition)";
   }
 }

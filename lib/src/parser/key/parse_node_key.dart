@@ -1,24 +1,10 @@
 import "package:glush/src/parser/key/caller_key.dart";
-import "package:meta/meta.dart";
 
-/// Identifies a parser continuation point uniquely.
-///
-/// Combines the state ID, current position, and the Graph-Shared Stack (GSS)
-/// caller to ensure that work is only shared when all contexts are identical.
-@immutable
-class ParseNodeKey {
-  const ParseNodeKey(this.stateId, this.position, this.caller);
-  final int stateId;
-  final int position;
-  final CallerKey caller;
+extension type const ParseNodeKey._((int, int, CallerKey) data) {
+  const ParseNodeKey(int stateId, int position, CallerKey caller)
+    : this._((stateId, position, caller));
 
-  @override
-  bool operator ==(Object other) =>
-      other is ParseNodeKey &&
-      stateId == other.stateId &&
-      position == other.position &&
-      caller == other.caller;
-
-  @override
-  int get hashCode => Object.hash(stateId, position, caller);
+  int get stateId => data.$1;
+  int get position => data.$2;
+  CallerKey get caller => data.$3;
 }

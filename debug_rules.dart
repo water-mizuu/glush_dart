@@ -10,11 +10,6 @@ S = $2 &(S S) S S
   var sm = parser.stateMachine;
 
   print("All rules in state machine:");
-  for (var entry in sm.ruleFirst.entries) {
-    print("  ${entry.key}: entry state is State(${entry.value.id})");
-  }
-
-  print("\nAll states:");
   for (var state in sm.states) {
     print('State ${state.id}: ${state.actions.join(", ")}');
   }

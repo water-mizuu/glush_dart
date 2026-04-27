@@ -31,7 +31,10 @@ void main() {
       });
 
       var machine = SMParser(grammar).stateMachine;
-      for (var pattern in grammar.registry.values) {
+      for (var pattern in grammar.registry) {
+        if (pattern == null) {
+          continue;
+        }
         expect(
           machine.hasFollowSetEntry(pattern),
           isTrue,
@@ -61,15 +64,15 @@ void main() {
       var aCall = startBody.left;
       var bCall = startBody.right;
 
-      var startFollow = machine.followSetOf(start).toSet();
+      var startFollow = machine.getFollowSet(start).toSet();
       expect(startFollow.contains(aCall), isTrue);
       expect(startFollow.contains(bCall), isTrue);
 
-      expect(machine.followSetOf(aCall).contains(bCall), isTrue);
-      expect(machine.followSetOf(bCall).contains(start), isTrue);
+      expect(machine.getFollowSet(aCall).contains(bCall), isTrue);
+      expect(machine.getFollowSet(bCall).contains(start), isTrue);
 
-      expect(machine.followSetOf(aRule).contains(tokenA), isTrue);
-      expect(machine.followSetOf(tokenA).contains(aRule), isTrue);
+      expect(machine.getFollowSet(aRule).contains(tokenA), isTrue);
+      expect(machine.getFollowSet(tokenA).contains(aRule), isTrue);
     });
 
     test("returns empty set for patterns with no recorded followers", () {
@@ -77,7 +80,7 @@ void main() {
       var grammar = Grammar(() => Rule("S", () => Token.char("a")));
       var machine = SMParser(grammar).stateMachine;
 
-      expect(machine.followSetOf(stray), isEmpty);
+      expect(machine.getFollowSet(stray), isEmpty);
     });
   });
 }

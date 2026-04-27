@@ -1306,7 +1306,9 @@ class Label extends Pattern {
 
   @override
   Iterable<Pattern> get children sync* {
+    yield _start;
     yield child;
+    yield _end;
   }
 
   @override

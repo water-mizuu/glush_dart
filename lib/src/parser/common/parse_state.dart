@@ -3,7 +3,6 @@ import "dart:collection";
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
-import "package:glush/src/core/patterns.dart";
 import "package:glush/src/core/profiling.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/common/frame.dart";
@@ -32,15 +31,7 @@ final class ParseState {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
     this.tracer,
-  }) : frames = initialFrames,
-       rulesByName = {
-         for (var rule in parser.grammar.rules) rule.name!: rule,
-         for (var rule in parser.stateMachine.allRules.values) rule.name!: rule,
-       },
-       rulesById = {
-         for (var rule in parser.grammar.rules) rule.symbolId!: rule,
-         for (var rule in parser.stateMachine.allRules.values) rule.symbolId!: rule,
-       } {
+  }) : frames = initialFrames {
     tracer?.onStart(parser.stateMachine);
   }
 
@@ -71,17 +62,11 @@ final class ParseState {
   /// Memoized boolean outcomes for resolved predicate lookaheads.
   final Map<PredicateKey, bool> predicateOutcomes = HashMap();
 
-  /// Memoized token outcomes.
-  final Map<(TokenChoice, int), bool> tokenMatches = HashMap();
+  /// Memoized token outcomes. Keyed by bit-packed (symbolId << 32 | position).
+  final Map<int, bool> tokenMatches = HashMap();
 
   /// Memoized call sites for rules with complex (object-key) identities.
   final Map<CallerCacheKey, Caller> callers = HashMap();
-
-  /// A fast lookup map for rules by their unique names.
-  final Map<RuleName, Rule> rulesByName;
-
-  /// A fast lookup map for rules by their numeric symbol IDs.
-  final Map<int, Rule> rulesById;
 
   /// The current index in the input stream (zero-based).
   int position = 0;
@@ -171,7 +156,7 @@ final class ParseState {
 
   void _forEachActiveTrackerKey(Context context, void Function(SubparseKey key) action) {
     if (context.predicateStack.lastOrNull case var pk?) {
-      action(PredicateKey(pk.pattern, pk.startPosition, isAnd: pk.isAnd, name: pk.name));
+      action(pk.key);
     }
   }
 
