@@ -72,7 +72,6 @@ class Context {
   /// predicates can access the context of the outer rules.
   final GlushList<PredicateCallerKey> predicateStack;
 
-  /// The stack of open labels in the current branch.
   /// The position in the input where the current rule call was initiated.
   final int callStart;
 
@@ -180,7 +179,7 @@ final class ContextGroup {
   /// This generates a branched lazy list if multiple paths contributed marks.
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
-      return _buildBalanced(batch, 0, batch.length);
+      return batch.reduce(LazyGlushList.branched);
     }
     return _single ?? const LazyGlushList<Mark>.empty();
   }
@@ -197,23 +196,5 @@ final class ContextGroup {
     } else {
       _batch!.add(marks);
     }
-  }
-
-  static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int start, int end) {
-    var len = end - start;
-    if (len == 0) {
-      return const LazyGlushList<Mark>.empty();
-    }
-    if (len == 1) {
-      return items[start];
-    }
-    if (len == 2) {
-      return LazyGlushList.branched(items[start], items[start + 1]);
-    }
-    var mid = start + (len >> 1);
-    return LazyGlushList.branched(
-      _buildBalanced(items, start, mid),
-      _buildBalanced(items, mid, end),
-    );
   }
 }

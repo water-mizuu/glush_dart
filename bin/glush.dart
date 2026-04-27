@@ -5,8 +5,10 @@ import "package:glush/src/parser/common/tracer.dart";
 
 void main() {
   // var tracer = FileTracer("./trace.log");
-  var grammar = r"S = S S | 's' 's'?".toGrammar();
+  var grammar = r"S = S S | 's'".toGrammar();
   var parser = grammar.toSMParser();
+
+  print(grammar.stateMachine.toDot());
 
   var tracer = FileTracer("./trace.log");
   var input = "sss";

@@ -1,3 +1,5 @@
+import "dart:collection";
+
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
@@ -61,16 +63,19 @@ final class ParseState {
   final List<int> historyByPosition = [];
 
   /// Active trackers for lookahead predicates.
-  final Map<SubparseKey, SubparseTracker> trackers = {};
+  final Map<SubparseKey, SubparseTracker> trackers = HashMap();
 
   /// Pending frame counts for active sub-parses, keyed by tracker key.
-  final Map<SubparseKey, int> _trackerFrameCounts = {};
+  final Map<SubparseKey, int> _trackerFrameCounts = HashMap();
 
   /// Memoized boolean outcomes for resolved predicate lookaheads.
-  final Map<PredicateKey, bool> predicateOutcomes = {};
+  final Map<PredicateKey, bool> predicateOutcomes = HashMap();
+
+  /// Memoized token outcomes.
+  final Map<(TokenChoice, int), bool> tokenMatches = HashMap();
 
   /// Memoized call sites for rules with complex (object-key) identities.
-  final Map<CallerCacheKey, Caller> callersComplex = {};
+  final Map<CallerCacheKey, Caller> callers = HashMap();
 
   /// A fast lookup map for rules by their unique names.
   final Map<RuleName, Rule> rulesByName;

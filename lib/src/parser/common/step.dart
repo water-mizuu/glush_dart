@@ -177,10 +177,14 @@ class Step {
   /// If the frame is at the current position, it returns the current token.
   /// If the frame is "lagging" (e.g., from a sub-parse), it pulls the historical
   /// token from the parse state.
+  @pragma("vm:prefer-inline")
   int? _getTokenFor(Frame frame) {
     var framePos = frame.context.position;
     if (framePos == position) {
       return token;
+    }
+    if (framePos < 0 || framePos >= parseState.historyByPosition.length) {
+      return null;
     }
     return parseState.historyByPosition[framePos];
   }
@@ -200,6 +204,8 @@ class Step {
     required State currentState,
   }) {
     GlushProfiler.increment("parser.rule_calls.considered");
+
+    /// LL(1) check before entering a call.
     var symbol = targetRule.symbolId;
     if (symbol != null) {
       var frameToken = _getTokenFor(frame);
@@ -214,18 +220,18 @@ class Step {
       }
     }
 
-    var isNewCaller = false;
-    var key = CallerCacheKey(
+    var cacheKey = CallerCacheKey(
       targetRule,
       position,
       minPrecedenceLevel,
       frame.context.predicateStack,
     );
-    var caller = parseState.callersComplex[key];
-    if (caller == null) {
-      isNewCaller = true;
+
+    var caller = parseState.callers[cacheKey];
+    var isNewCaller = caller == null;
+    if (isNewCaller) {
       GlushProfiler.incrementMiss("parser.callers.cache");
-      caller = parseState.callersComplex[key] = Caller(
+      caller = parseState.callers[cacheKey] = Caller(
         targetRule,
         position,
         minPrecedenceLevel,
@@ -236,6 +242,7 @@ class Step {
     } else {
       GlushProfiler.incrementHit("parser.callers.cache");
     }
+
     var isNewWaiter = caller.addWaiter(
       returnState,
       minPrecedenceLevel,
@@ -244,28 +251,29 @@ class Step {
       ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewWaiter) {
+      parseState.tracer?.onAction(action, "addedWaiter");
       GlushProfiler.increment("parser.callers.new_waiter");
     }
+
+    /// If we are a new call (at this position),
     if (isNewCaller) {
       GlushProfiler.increment("parser.callers.spawned");
-      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
-      if (firstState != null) {
-        parseState.tracer?.onRuleCall(targetRule, position, caller, currentState, firstState);
-        _enqueue(
-          firstState,
-          Context(
-            caller,
-            predicateStack: frame.context.predicateStack,
-            callStart: position,
-            position: position,
-            minPrecedenceLevel: minPrecedenceLevel,
-          ),
-          const LazyGlushList<Mark>.empty(),
-          source: source,
-          action: action,
-          callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
-        );
-      }
+      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId]!;
+      parseState.tracer?.onRuleCall(targetRule, position, caller, currentState, firstState);
+      _enqueue(
+        firstState,
+        Context(
+          caller,
+          predicateStack: frame.context.predicateStack,
+          callStart: position,
+          position: position,
+          minPrecedenceLevel: minPrecedenceLevel,
+        ),
+        const LazyGlushList<Mark>.empty(),
+        source: source,
+        action: action,
+        callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
+      );
     } else if (isNewWaiter) {
       GlushProfiler.increment("parser.callers.early_returns");
       for (var (returnContext, _) in caller.returns) {
@@ -397,29 +405,34 @@ class Step {
     for (var action in state.actions) {
       // Note: TokenAction reports its result (o matched or x rejected) after processing,
       // not before. All other actions report "processing" before execution.
-      if (action is! TokenAction) {
-        parseState.tracer?.onAction(action, "processing");
-      }
       switch (action) {
         case TokenAction():
           _processTokenAction(frame, state, action);
         case BoundaryAction():
+          parseState.tracer?.onAction(action, "processing");
           _processBoundaryAction(frame, state, action);
         case LabelStartAction():
+          parseState.tracer?.onAction(action, "processing");
           _processLabelStartAction(frame, state, action);
         case LabelEndAction():
+          parseState.tracer?.onAction(action, "processing");
           _processLabelEndAction(frame, state, action);
         case PredicateAction():
+          parseState.tracer?.onAction(action, "processing");
           _processPredicateAction(frame, state, action);
         case CallAction():
           _processCallAction(frame, state, action);
         case TailCallAction():
+          parseState.tracer?.onAction(action, "processing");
           _processTailCallAction(frame, state, action);
         case RetreatAction():
+          parseState.tracer?.onAction(action, "processing");
           _processRetreatAction(frame, state, action);
         case ReturnAction():
+          parseState.tracer?.onAction(action, "processing");
           _processReturnAction(frame, state, action);
         case AcceptAction():
+          parseState.tracer?.onAction(action, "processing");
           _processAcceptAction(frame);
       }
     }
@@ -466,12 +479,12 @@ class Step {
     var returnProxy = caller.getLazyReturn(packedId, () => caller.getReturnMarks(packedId));
     var nextMarks = parentMarks.addList(returnProxy);
 
+    /// The next context is the parent context with the returned position
+    /// and the returned precedence level.
     var nextContext = Context(
       parent,
       predicateStack: parentContext.predicateStack,
-      callStart: parentContext.callStart,
       position: returnContext.position,
-      minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
     _enqueue(
@@ -489,13 +502,8 @@ class Step {
     for (var nextGroup in _nextFrameGroups) {
       var branchedMarks = nextGroup.mergedMarks;
       var context = nextGroup.context;
-      var caller = context.caller;
-      var callerStartPosition = caller.startPosition;
 
-      if (context.position != position + 1 || context.callStart != callerStartPosition) {
-        context = context.copyWith(position: position + 1, callStart: callerStartPosition);
-      }
-
+      /// Optimization. This does not postpone processing for return actions.
       if (nextGroup.state.actions.length == 1 && nextGroup.state.actions.single is ReturnAction) {
         _process(Frame(context, branchedMarks, {}), nextGroup.state);
         continue;
@@ -559,19 +567,31 @@ class Step {
   /// If the current token matches the action's pattern, a new frame is created
   /// and enqueued for the next position.
   void _processTokenAction(Frame frame, State state, TokenAction action) {
-    var frameContext = frame.context;
     var token = _getTokenFor(frame);
 
     GlushProfiler.increment("parser.token_actions.attempted");
-    if (token != null && action.choice.matches(token)) {
+    var key = (action.choice, frame.context.position);
+    if (parseState.tokenMatches[key] == true) {
       GlushProfiler.increment("parser.token_actions.matched");
       parseState.tracer?.onAction(action, " matched");
-      var newMarks = frame.marks;
-      _enqueueToNextPosition(action.nextState, frameContext, newMarks);
-    } else {
-      GlushProfiler.increment("parser.token_actions.rejected");
-      parseState.tracer?.onAction(action, " rejected");
+      _enqueueToNextPosition(action.nextState, frame.context, frame.marks);
+
+      return;
     }
+
+    if (token != null) {
+      if (action.choice.matches(token)) {
+        GlushProfiler.increment("parser.token_actions.matched");
+        parseState.tracer?.onAction(action, " matched");
+        _enqueueToNextPosition(action.nextState, frame.context, frame.marks);
+        parseState.tokenMatches[key] = true;
+
+        return;
+      }
+    }
+
+    GlushProfiler.increment("parser.token_actions.rejected");
+    parseState.tracer?.onAction(action, " rejected");
   }
 
   /// Batches a frame to be processed at the next input position.
@@ -755,7 +775,6 @@ class Step {
   void _processCallAction(Frame frame, State state, CallAction action) {
     var frameContext = frame.context;
     var source = ParseNodeKey(state.id, position, frameContext.caller);
-
     var targetRule = parseState.rulesById[action.ruleSymbol]!;
 
     _seedRuleCall(
@@ -905,6 +924,21 @@ class Step {
     }
 
     if (caller is Caller) {
+      // End-admissibility is only safe when the exact token at returnPosition is known.
+      // If returnPosition > position, we don't have the token yet in this Step.
+      if (returnPosition <= position) {
+        var returnToken = _getTokenFor(frame);
+        var endAdmissible = parseState.parser.stateMachine.canRuleEndWith(
+          caller.rule.symbolId!,
+          returnToken,
+          isAtStart: returnPosition == 0,
+        );
+        if (!endAdmissible) {
+          GlushProfiler.increment("parser.rule_returns.admissibility_rejected");
+          return;
+        }
+      }
+
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       if (caller.addReturn(returnContext, frame.marks)) {
         parseState.tracer?.onRuleReturn(caller.rule, returnPosition, caller, state);

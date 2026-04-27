@@ -1,6 +1,8 @@
 /// State machine compilation from grammars
 library glush.state_machine;
 
+import "dart:collection";
+
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/key/state_key.dart";
@@ -64,6 +66,8 @@ class StateMachine {
   /// 4. Analyzes the grammar for tail-call optimization opportunities.
   /// 5. Builds precedence maps to resolve operator priority.
   StateMachine(this.grammar) {
+    _initializeFollowSetEntries();
+
     var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
 
@@ -94,16 +98,25 @@ class StateMachine {
 
       // Connect to first patterns
       for (var firstStateInRange in ruleBody.firstSet()) {
+        _recordFollow(rule, firstStateInRange);
         _connect(firstState, firstStateInRange, currentRule: rule);
       }
 
       // Connect each pair
       for (var (a, b) in ruleBody.eachPair()) {
+        if (a case RuleCall(rule: var calledRule) when calledRule.symbolId != null) {
+          _recordRuleFollower(calledRule.symbolId!, b);
+        }
+        _recordFollow(a, b);
         _connect(_getOrCreateState(PatternStateKey(a)), b, currentRule: rule);
       }
 
       // Mark states before returns
       for (var lastState in ruleBody.lastSet()) {
+        if (lastState case RuleCall(rule: var calledRule) when calledRule.symbolId != null) {
+          _recordRuleFollower(calledRule.symbolId!, rule);
+        }
+        _recordFollow(lastState, rule);
         var state = _getOrCreateState(PatternStateKey(lastState));
         var action = ReturnAction(rule.symbolId!, precedenceMap[lastState]);
         state.actions.add(action);
@@ -115,6 +128,7 @@ class StateMachine {
     }
 
     _precompileRuleStartAdmissibility();
+    _precompileRuleEndAdmissibility();
   }
 
   /// Internal constructor for pre-built state machines (imported).
@@ -128,20 +142,210 @@ class StateMachine {
   StateMachine.empty(this.grammar);
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
-  final Map<PatternSymbol, State> ruleFirst = {};
+  final Map<PatternSymbol, State> ruleFirst = HashMap();
+  final Map<Pattern, Set<Pattern>> _followSets = HashMap();
 
   /// All rules (including synthetic ones) indexed by their symbol.
-  final Map<PatternSymbol, Rule> allRules = {};
+  final Map<PatternSymbol, Rule> allRules = HashMap();
   List<State>? _cachedStates;
   List<State> _initialStates = [];
 
-  final Map<StateKey, State> _stateMapping = {};
-  final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
-  final Map<(PatternSymbol, int?, bool), bool> _ruleStartAdmissibilityCache = {};
-  final Map<PatternSymbol, _RuleStartAdmissibilityTable> _ruleStartAdmissibilityTables = {};
+  final Map<StateKey, State> _stateMapping = HashMap();
+  final Map<Rule, Set<RuleCall>> _tailSelfCalls = HashMap();
+  final Map<(PatternSymbol, int?, bool), bool> _ruleStartAdmissibilityCache = HashMap();
+  final Map<PatternSymbol, _RuleStartAdmissibilityTable> _ruleStartAdmissibilityTables = HashMap();
+  final Map<PatternSymbol, Set<Pattern>> _ruleFollowPatterns = HashMap();
+  final Map<(PatternSymbol, int?, bool), bool> _ruleEndAdmissibilityCache = HashMap();
+  final Map<PatternSymbol, _RuleEndAdmissibilityTable> _ruleEndAdmissibilityTables = HashMap();
+
+  /// Whether [pattern] has an explicitly assigned follow-set entry.
+  bool hasFollowSetEntry(Pattern pattern) => _followSets.containsKey(pattern);
+
+  void _recordFollow(Pattern from, Pattern to) {
+    (_followSets[from] ??= <Pattern>{}).add(to);
+  }
+
+  void _initializeFollowSetEntries() {
+    for (var pattern in grammar.registry.values) {
+      _followSets.putIfAbsent(pattern, () => <Pattern>{});
+    }
+  }
+
+  /// Returns the follow set for the given [pattern].
+  Set<Pattern> followSetOf(Pattern pattern) => _followSets[pattern] ?? const <Pattern>{};
 
   static const int _precompiledTokenMin = 0;
   static const int _precompiledTokenMax = 255;
+
+  /// Returns true if [symbol] can potentially finish such that the next token
+  /// can be consumed by something that follows this rule.
+  ///
+  /// This is conservative: it returns false only when followers are known and
+  /// all of them are definitely incompatible with [token].
+  bool canRuleEndWith(PatternSymbol symbol, int? token, {required bool isAtStart}) {
+    var table = _ruleEndAdmissibilityTables[symbol];
+    if (table != null) {
+      if (token == null) {
+        return isAtStart ? table.eofAtStart : table.eofNotAtStart;
+      }
+      if (token >= _precompiledTokenMin && token <= _precompiledTokenMax) {
+        return isAtStart ? table.atStart[token] : table.notAtStart[token];
+      }
+    }
+
+    var key = (symbol, token, isAtStart);
+    if (_ruleEndAdmissibilityCache[key] case var cached?) {
+      return cached;
+    }
+
+    var result = _canRuleEndWith(
+      symbol,
+      token,
+      isAtStart: isAtStart,
+      visitingRules: <PatternSymbol>{},
+    );
+    _ruleEndAdmissibilityCache[key] = result;
+    return result;
+  }
+
+  bool _canRuleEndWith(
+    PatternSymbol symbol,
+    int? token, {
+    required bool isAtStart,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    if (!visitingRules.add(symbol)) {
+      // Cycles are treated as possible to avoid unsound pruning.
+      return true;
+    }
+
+    var followers = _ruleFollowPatterns[symbol];
+    if (followers == null || followers.isEmpty) {
+      visitingRules.remove(symbol);
+      if (symbol == grammar.startSymbol) {
+        return token == null;
+      }
+      return true;
+    }
+
+    for (var follower in followers) {
+      if (_patternCanFollowWithToken(
+        follower,
+        token,
+        isAtStart: isAtStart,
+        visitingRules: visitingRules,
+      )) {
+        visitingRules.remove(symbol);
+        return true;
+      }
+    }
+
+    // Top-level parse can always end at EOF after start rule.
+    if (symbol == grammar.startSymbol && token == null) {
+      visitingRules.remove(symbol);
+      return true;
+    }
+
+    visitingRules.remove(symbol);
+    return false;
+  }
+
+  bool _patternCanFollowWithToken(
+    Pattern pattern,
+    int? token, {
+    required bool isAtStart,
+    required Set<PatternSymbol> visitingRules,
+  }) {
+    return switch (pattern) {
+      Token(:var choice) => token != null && choice.matches(token),
+      Rule(:var symbolId) when symbolId != null =>
+        _canRuleStartWith(symbolId, token, isAtStart: isAtStart, visitingRules: visitingRules) ||
+            _canRuleEndWith(symbolId, token, isAtStart: isAtStart, visitingRules: visitingRules),
+      RuleCall(:var rule) when rule.symbolId != null =>
+        _canRuleStartWith(
+              rule.symbolId!,
+              token,
+              isAtStart: isAtStart,
+              visitingRules: visitingRules,
+            ) ||
+            _canRuleEndWith(
+              rule.symbolId!,
+              token,
+              isAtStart: isAtStart,
+              visitingRules: visitingRules,
+            ),
+      StartAnchor() => isAtStart,
+      EofAnchor() => token == null,
+      // For zero-width/runtime-dependent constructs, stay conservative.
+      Eps() ||
+      And() ||
+      Not() ||
+      LabelStart() ||
+      LabelEnd() ||
+      Retreat() ||
+      Alt() ||
+      Seq() ||
+      Prec() ||
+      Opt() ||
+      Plus() ||
+      Star() ||
+      Label() => true,
+      _ => true,
+    };
+  }
+
+  void _recordRuleFollower(PatternSymbol callee, Pattern follower) {
+    (_ruleFollowPatterns[callee] ??= <Pattern>{}).add(follower);
+  }
+
+  void _precompileRuleEndAdmissibility() {
+    for (var symbol in ruleFirst.keys) {
+      var atStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+      var notAtStart = List<bool>.filled(_precompiledTokenMax + 1, false);
+
+      for (var token = _precompiledTokenMin; token <= _precompiledTokenMax; token++) {
+        var startValue = _canRuleEndWith(
+          symbol,
+          token,
+          isAtStart: true,
+          visitingRules: <PatternSymbol>{},
+        );
+        var nonStartValue = _canRuleEndWith(
+          symbol,
+          token,
+          isAtStart: false,
+          visitingRules: <PatternSymbol>{},
+        );
+        atStart[token] = startValue;
+        notAtStart[token] = nonStartValue;
+
+        _ruleEndAdmissibilityCache[(symbol, token, true)] = startValue;
+        _ruleEndAdmissibilityCache[(symbol, token, false)] = nonStartValue;
+      }
+
+      var eofAtStart = _canRuleEndWith(
+        symbol,
+        null,
+        isAtStart: true,
+        visitingRules: <PatternSymbol>{},
+      );
+      var eofNotAtStart = _canRuleEndWith(
+        symbol,
+        null,
+        isAtStart: false,
+        visitingRules: <PatternSymbol>{},
+      );
+
+      _ruleEndAdmissibilityTables[symbol] = _RuleEndAdmissibilityTable(
+        atStart: atStart,
+        notAtStart: notAtStart,
+        eofAtStart: eofAtStart,
+        eofNotAtStart: eofNotAtStart,
+      );
+      _ruleEndAdmissibilityCache[(symbol, null, true)] = eofAtStart;
+      _ruleEndAdmissibilityCache[(symbol, null, false)] = eofNotAtStart;
+    }
+  }
 
   /// Returns true if [symbol] can potentially begin matching at [token].
   ///
@@ -760,6 +964,20 @@ class StateMachine {
 
 final class _RuleStartAdmissibilityTable {
   const _RuleStartAdmissibilityTable({
+    required this.atStart,
+    required this.notAtStart,
+    required this.eofAtStart,
+    required this.eofNotAtStart,
+  });
+
+  final List<bool> atStart;
+  final List<bool> notAtStart;
+  final bool eofAtStart;
+  final bool eofNotAtStart;
+}
+
+final class _RuleEndAdmissibilityTable {
+  const _RuleEndAdmissibilityTable({
     required this.atStart,
     required this.notAtStart,
     required this.eofAtStart,
