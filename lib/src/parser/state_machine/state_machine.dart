@@ -979,6 +979,54 @@ class StateMachine {
     var bytecode = <int>[];
     var stateOffsets = Int32List(states.length);
 
+    // --- Build the admissibility bitset table ---
+    //
+    // For each rule, 17 consecutive words are written:
+    //   words  0– 7 : "notAtStart" bitset for tokens 0–255
+    //   words  8–15 : "atStart"    bitset for tokens 0–255
+    //   word     16 : flags — bit 0 = eofNotAtStart, bit 1 = eofAtStart
+    //
+    // The per-rule base offset is embedded as the last operand of every
+    // call / tailCall instruction so the runtime can do a direct Int32List
+    // lookup with no HashMap indirection.
+    var admissWords = <int>[];
+    var admissOffsets = <int, int>{}; // ruleId -> base offset in admissWords
+
+    var sortedRuleIds = List<int>.from(ruleFirst.keys)..sort();
+    for (var sym in sortedRuleIds) {
+      var baseOffset = admissWords.length;
+      admissOffsets[sym] = baseOffset;
+
+      var table = _ruleStartAdmissibilityTables[sym]!;
+
+      // 8 words × 32 bits = 256 bits for notAtStart
+      for (var w = 0; w < 8; w++) {
+        var word = 0;
+        for (var bit = 0; bit < 32; bit++) {
+          if (table.notAtStart[w * 32 + bit]) {
+            word |= 1 << bit;
+          }
+        }
+        admissWords.add(word);
+      }
+
+      // 8 words × 32 bits = 256 bits for atStart
+      for (var w = 0; w < 8; w++) {
+        var word = 0;
+        for (var bit = 0; bit < 32; bit++) {
+          if (table.atStart[w * 32 + bit]) {
+            word |= 1 << bit;
+          }
+        }
+        admissWords.add(word);
+      }
+
+      // flags word: bit 0 = eofNotAtStart, bit 1 = eofAtStart
+      admissWords.add((table.eofNotAtStart ? 1 : 0) | (table.eofAtStart ? 2 : 0));
+    }
+
+    // --- Encode states into the flat bytecode stream ---
+
     // Sort states by ID to ensure stateOffsets mapping is correct.
     var sortedStates = List<State>.from(states)..sort((a, b) => a.id.compareTo(b.id));
 
@@ -989,52 +1037,89 @@ class StateMachine {
       for (var action in state.actions) {
         switch (action) {
           case TokenAction(:var choice, :var nextState):
-            bytecode.add(BytecodeOp.token.index);
-            bytecode.add(constants.addChoice(choice));
-            bytecode.add(nextState.id);
+            // Unwrap any number of NotToken wrappers, tracking inversion parity.
+            TokenChoice inner = choice;
+            var inverted = false;
+            while (inner is NotToken) {
+              inner = inner.inner;
+              inverted = !inverted;
+            }
+
+            switch (inner) {
+              case ExactToken(:var value):
+                bytecode.add(inverted ? BytecodeOp.tokenExactNot : BytecodeOp.tokenExact);
+                bytecode.add(value);
+                bytecode.add(nextState.id);
+              case RangeToken(:var start, :var end):
+                bytecode.add(inverted ? BytecodeOp.tokenRangeNot : BytecodeOp.tokenRange);
+                bytecode.add(start);
+                bytecode.add(end);
+                bytecode.add(nextState.id);
+              case AnyToken():
+                bytecode.add(inverted ? BytecodeOp.tokenAnyNot : BytecodeOp.tokenAny);
+                bytecode.add(nextState.id);
+              case LessToken(:var bound):
+                bytecode.add(inverted ? BytecodeOp.tokenLessNot : BytecodeOp.tokenLess);
+                bytecode.add(bound);
+                bytecode.add(nextState.id);
+              case GreaterToken(:var bound):
+                bytecode.add(inverted ? BytecodeOp.tokenGreaterNot : BytecodeOp.tokenGreater);
+                bytecode.add(bound);
+                bytecode.add(nextState.id);
+              case NotToken():
+                throw StateError("NotToken was not fully unwrapped — this should be unreachable");
+            }
 
           case BoundaryAction(:var kind, :var nextState):
-            bytecode.add(BytecodeOp.boundary.index);
-            bytecode.add(kind.index);
+            bytecode.add(
+              kind == BoundaryKind.start ? BytecodeOp.boundaryStart : BytecodeOp.boundaryEof,
+            );
             bytecode.add(nextState.id);
 
           case LabelStartAction(:var name, :var nextState):
-            bytecode.add(BytecodeOp.labelStart.index);
+            bytecode.add(BytecodeOp.labelStart);
             bytecode.add(constants.addString(name));
             bytecode.add(nextState.id);
 
           case LabelEndAction(:var name, :var nextState):
-            bytecode.add(BytecodeOp.labelEnd.index);
+            bytecode.add(BytecodeOp.labelEnd);
             bytecode.add(constants.addString(name));
             bytecode.add(nextState.id);
 
           case CallAction(:var ruleSymbol, :var returnState, :var minPrecedenceLevel):
-            bytecode.add(BytecodeOp.call.index);
+            bytecode.add(BytecodeOp.call);
             bytecode.add(ruleSymbol);
             bytecode.add(returnState.id);
-            bytecode.add(minPrecedenceLevel ?? 0);
+            bytecode.add(minPrecedenceLevel ?? -1);
+            bytecode.add(admissOffsets[ruleSymbol]!);
 
           case TailCallAction(:var ruleSymbol, :var minPrecedenceLevel):
-            bytecode.add(BytecodeOp.tailCall.index);
+            bytecode.add(BytecodeOp.tailCall);
             bytecode.add(ruleSymbol);
-            bytecode.add(minPrecedenceLevel ?? 0);
+            bytecode.add(minPrecedenceLevel ?? -1);
+            bytecode.add(admissOffsets[ruleSymbol]!);
 
           case ReturnAction(:var ruleSymbol, :var precedenceLevel):
-            bytecode.add(BytecodeOp.ret.index);
-            bytecode.add(ruleSymbol);
-            bytecode.add(precedenceLevel ?? 0);
+            if (precedenceLevel == null) {
+              bytecode.add(BytecodeOp.retSimple);
+              bytecode.add(ruleSymbol);
+            } else {
+              bytecode.add(BytecodeOp.retPrec);
+              bytecode.add(ruleSymbol);
+              bytecode.add(precedenceLevel);
+            }
 
           case AcceptAction():
-            bytecode.add(BytecodeOp.accept.index);
+            bytecode.add(BytecodeOp.accept);
 
           case PredicateAction(:var isAnd, :var symbol, :var nextState):
-            bytecode.add(BytecodeOp.predicate.index);
+            bytecode.add(BytecodeOp.predicate);
             bytecode.add(isAnd ? 1 : 0);
             bytecode.add(symbol);
             bytecode.add(nextState.id);
 
           case RetreatAction(:var nextState):
-            bytecode.add(BytecodeOp.retreat.index);
+            bytecode.add(BytecodeOp.retreat);
             bytecode.add(nextState.id);
         }
       }
@@ -1045,6 +1130,7 @@ class StateMachine {
       stateOffsets: stateOffsets,
       constants: constants,
       initialStates: Int32List.fromList(initialStates.map((s) => s.id).toList()),
+      admissibility: Int32List.fromList(admissWords),
     );
   }
 }

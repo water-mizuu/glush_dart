@@ -1,4 +1,3 @@
-import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/parser/bytecode/bytecode_frame.dart";
@@ -11,7 +10,6 @@ import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
-import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
 
 class BytecodeStep {
@@ -131,52 +129,168 @@ class BytecodeStep {
   void _process(Context context, LazyGlushList<Mark> marks, int stateId) {
     var bytecode = machine.bytecode;
     var offset = machine.stateOffsets[stateId];
+
     var actionCount = bytecode[offset++];
 
     for (var i = 0; i < actionCount; i++) {
       var opcode = bytecode[offset++];
-      switch (BytecodeOp.values[opcode]) {
-        case BytecodeOp.token:
-          var choiceId = bytecode[offset++];
+      switch (opcode) {
+        // --- Specialised token opcodes ---
+        // Each variant inlines the matching condition directly, eliminating
+        // the constants-table lookup and virtual TokenChoice.matches dispatch
+        // that the old single `token` opcode required.
+
+        case BytecodeOp.tokenExact:
+          var value = bytecode[offset++];
           var nextStateId = bytecode[offset++];
-          var choice = machine.constants.getChoice(choiceId);
-          var t = _getTokenForPos(context.position);
-          if (t != null && choice.matches(t)) {
+          // null == int is always false in Dart, so no explicit null guard needed.
+          if (_getTokenForPos(context.position) == value) {
             _enqueueToNextPosition(nextStateId, context, marks);
           }
-        case BytecodeOp.boundary:
-          var kindIndex = bytecode[offset++];
+
+        case BytecodeOp.tokenExactNot:
+          var value = bytecode[offset++];
           var nextStateId = bytecode[offset++];
-          var kind = BoundaryKind.values[kindIndex];
-          if ((kind == BoundaryKind.start && position == 0) ||
-              (kind == BoundaryKind.eof && token == null)) {
+          var t = _getTokenForPos(context.position);
+          if (t != null && t != value) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenRange:
+          var start = bytecode[offset++];
+          var end = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && t >= start && t <= end) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenRangeNot:
+          var start = bytecode[offset++];
+          var end = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && (t < start || t > end)) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenAny:
+          var nextStateId = bytecode[offset++];
+          if (_getTokenForPos(context.position) != null) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenAnyNot:
+          // not(any) is always false for non-null tokens; consume operand only.
+          offset++;
+
+        case BytecodeOp.tokenLess:
+          var bound = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && t <= bound) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenLessNot:
+          var bound = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && t > bound) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenGreater:
+          var bound = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && t >= bound) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        case BytecodeOp.tokenGreaterNot:
+          var bound = bytecode[offset++];
+          var nextStateId = bytecode[offset++];
+          var t = _getTokenForPos(context.position);
+          if (t != null && t < bound) {
+            _enqueueToNextPosition(nextStateId, context, marks);
+          }
+
+        // --- Boundary opcodes (formerly a single `boundary` opcode with a
+        //     runtime BoundaryKind.values[] lookup; now split at compile time) ---
+
+        case BytecodeOp.boundaryStart:
+          var nextStateId = bytecode[offset++];
+          if (position == 0) {
             _enqueue(nextStateId, context, marks);
           }
+
+        case BytecodeOp.boundaryEof:
+          var nextStateId = bytecode[offset++];
+          if (token == null) {
+            _enqueue(nextStateId, context, marks);
+          }
+
+        // --- Label opcodes ---
+
         case BytecodeOp.labelStart:
           var nameId = bytecode[offset++];
           var nextStateId = bytecode[offset++];
           var name = machine.constants.getString(nameId);
           _enqueue(nextStateId, context, marks.add(LabelStartVal(name, position)));
+
         case BytecodeOp.labelEnd:
           var nameId = bytecode[offset++];
           var nextStateId = bytecode[offset++];
           var name = machine.constants.getString(nameId);
           _enqueue(nextStateId, context, marks.add(LabelEndVal(name, position)));
+
+        // --- Call opcodes ---
+        // The admissibility check is now a direct Int32List bitset lookup
+        // against data embedded in the BytecodeMachine, replacing the
+        // HashMap-based canRuleStartWith() call that traversed:
+        //   parser.grammar as Grammar → grammar.stateMachine →
+        //   _ruleStartAdmissibilityTables[symbol] → List<bool>[token]
+
         case BytecodeOp.call:
-          _processCall(
-            context,
-            marks,
-            bytecode[offset++],
-            bytecode[offset++],
-            bytecode[offset++],
-            stateId,
-          );
+          var ruleId = bytecode[offset++];
+          var returnStateId = bytecode[offset++];
+          var minPrec = bytecode[offset++];
+          var admissOff = bytecode[offset++];
+          if (_checkAdmissibility(
+            _getTokenForPos(context.position),
+            admissOff,
+            context.position == 0,
+          )) {
+            _processCall(context, marks, ruleId, returnStateId, minPrec, stateId);
+          }
+
         case BytecodeOp.tailCall:
-          _processTailCall(context, marks, bytecode[offset++], bytecode[offset++], stateId);
-        case BytecodeOp.ret:
+          var ruleId = bytecode[offset++];
+          var minPrec = bytecode[offset++];
+          var admissOff = bytecode[offset++];
+          if (_checkAdmissibility(
+            _getTokenForPos(context.position),
+            admissOff,
+            context.position == 0,
+          )) {
+            _processTailCall(context, marks, ruleId, minPrec, stateId);
+          }
+
+        // --- Return opcodes (split to avoid null-check overhead on the common
+        //     no-precedence path) ---
+
+        case BytecodeOp.retSimple:
+          _processReturn(context, marks, bytecode[offset++], null, stateId);
+
+        case BytecodeOp.retPrec:
           _processReturn(context, marks, bytecode[offset++], bytecode[offset++], stateId);
+
+        // --- Miscellaneous ---
+
         case BytecodeOp.accept:
           _processAccept(context, marks);
+
         case BytecodeOp.predicate:
           _processPredicate(
             context,
@@ -185,10 +299,37 @@ class BytecodeStep {
             bytecode[offset++],
             bytecode[offset++],
           );
+
         case BytecodeOp.retreat:
           _processRetreat(context, marks, bytecode[offset++]);
       }
     }
+  }
+
+  /// Checks the precompiled admissibility bitset embedded in [machine].
+  ///
+  /// Returns true if rule at [admissOff] can start with [token] at the
+  /// given [isAtStart] context. For tokens outside 0–255 the check is
+  /// conservatively optimistic (returns true).
+  @pragma("vm:prefer-inline")
+  bool _checkAdmissibility(int? token, int admissOff, bool isAtStart) {
+    var admissibility = machine.admissibility;
+    if (token == null) {
+      // flags word: bit 0 = eofNotAtStart, bit 1 = eofAtStart
+      var flags = admissibility[admissOff + 16];
+      return (flags & (isAtStart ? 2 : 1)) != 0;
+    }
+    if (token >= 0 && token <= 255) {
+      // Each half (notAtStart / atStart) is 8 × 32-bit words = 256 bits.
+      // notAtStart occupies words [admissOff .. admissOff+7],
+      // atStart    occupies words [admissOff+8 .. admissOff+15].
+      var wordIndex = token >> 5; // which 32-bit word
+      var bitIndex = token & 31; // which bit within that word
+      var word = admissibility[admissOff + (isAtStart ? 8 : 0) + wordIndex];
+      return (word >> bitIndex) & 1 != 0;
+    }
+    // Tokens > 255 are rare (non-ASCII UTF-16); be conservative.
+    return true;
   }
 
   @pragma("vm:prefer-inline")
@@ -201,14 +342,6 @@ class BytecodeStep {
     int currentStateId,
   ) {
     var realMinPrec = minPrec == -1 ? null : minPrec;
-    var frameToken = _getTokenForPos(context.position);
-
-    var grammar = parseState.parser.grammar as Grammar;
-    var stateMachine = grammar.stateMachine;
-
-    if (!stateMachine.canRuleStartWith(ruleId, frameToken, isAtStart: context.position == 0)) {
-      return;
-    }
 
     var key = (ruleId << 32) | (position << 8) | (realMinPrec ?? 0xFF);
     var caller = parseState.callers[key];
@@ -228,7 +361,7 @@ class BytecodeStep {
       ParseNodeKey(currentStateId, position, context.caller),
     );
     if (caller.waiters.length == 1 && isNewWaiter) {
-      var firstState = stateMachine.ruleFirst[ruleId];
+      var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
       if (firstState != null) {
         _enqueue(
           firstState.id,
@@ -265,14 +398,7 @@ class BytecodeStep {
     int minPrec,
     int currentStateId,
   ) {
-    var grammar = parseState.parser.grammar as Grammar;
-    var stateMachine = grammar.stateMachine;
-    var frameToken = _getTokenForPos(context.position);
-    if (!stateMachine.canRuleStartWith(ruleId, frameToken, isAtStart: context.position == 0)) {
-      return;
-    }
-
-    var firstState = stateMachine.ruleFirst[ruleId];
+    var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
     if (firstState != null) {
       _enqueue(
         firstState.id,
@@ -290,10 +416,9 @@ class BytecodeStep {
     Context context,
     LazyGlushList<Mark> marks,
     int ruleId,
-    int prec,
+    int? realPrec, // already typed as int? — no -1 sentinel needed
     int currentStateId,
   ) {
-    var realPrec = prec == -1 ? null : prec;
     if (context.minPrecedenceLevel != null &&
         realPrec != null &&
         realPrec < context.minPrecedenceLevel!) {
@@ -372,9 +497,7 @@ class BytecodeStep {
       return;
     }
 
-    var grammar = parseState.parser.grammar as Grammar;
-    var stateMachine = grammar.stateMachine;
-    var firstState = stateMachine.ruleFirst[ruleId];
+    var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
     if (firstState == null) {
       return;
     }
@@ -473,12 +596,17 @@ class BytecodeStep {
       nextContext = nextContext.copyWith(callStart: nextContext.caller.startPosition);
     }
 
-    // Optimization: Check if this is a simple return immediately.
-    var offset = machine.stateOffsets[stateId];
-    if (machine.bytecode[offset] == 1 &&
-        BytecodeOp.values[machine.bytecode[offset + 1]] == BytecodeOp.ret) {
-      _process(nextContext, marks, stateId);
-      return;
+    // Optimisation: if the target state is a single retSimple/retPrec, execute
+    // it inline rather than allocating a BytecodeFrame and deferring to the
+    // next round. This avoids a frame allocation + tracker increment for the
+    // very common terminal-then-return pattern.
+    var bcOffset = machine.stateOffsets[stateId];
+    if (machine.bytecode[bcOffset] == 1) {
+      var op = machine.bytecode[bcOffset + 1];
+      if (op == BytecodeOp.retSimple || op == BytecodeOp.retPrec) {
+        _process(nextContext, marks, stateId);
+        return;
+      }
     }
 
     var frame = BytecodeFrame(nextContext, marks, [stateId]);

@@ -1,28 +1,16 @@
-import "package:glush/src/core/patterns.dart";
-
-/// A table for storing complex operands used in the bytecode state machine.
+/// Table for storing non-integer operands used in the bytecode state machine.
 ///
 /// Since the bytecode is a flat array of integers, complex objects like
-/// [TokenChoice] patterns and [String] label names must be stored in a separate
-/// table and referenced by their index.
+/// [String] label names must be stored in a separate table and referenced
+/// by their index.
+///
+/// Note: [TokenChoice] patterns were previously stored here but have been
+/// removed — token matching is now fully inlined into specialised opcodes
+/// ([BytecodeOps.tokenExact], [BytecodeOps.tokenRange], etc.), so no
+/// runtime lookup into a constants table is needed for token dispatch.
 class ConstantsTable {
-  final List<TokenChoice> _choices = [];
   final List<String> _strings = [];
-
-  final Map<TokenChoice, int> _choiceToId = {};
   final Map<String, int> _stringToId = {};
-
-  /// Adds a [choice] to the table and returns its unique index.
-  int addChoice(TokenChoice choice) {
-    return _choiceToId.putIfAbsent(choice, () {
-      var id = _choices.length;
-      _choices.add(choice);
-      return id;
-    });
-  }
-
-  /// Retrieves the [TokenChoice] associated with the given [id].
-  TokenChoice getChoice(int id) => _choices[id];
 
   /// Adds a [string] to the table and returns its unique index.
   int addString(String string) {
@@ -36,14 +24,8 @@ class ConstantsTable {
   /// Retrieves the [String] associated with the given [id].
   String getString(int id) => _strings[id];
 
-  /// Returns the total number of token choices in the table.
-  int get choiceCount => _choices.length;
-
   /// Returns the total number of strings in the table.
   int get stringCount => _strings.length;
-
-  /// Returns all stored token choices.
-  List<TokenChoice> get choices => List.unmodifiable(_choices);
 
   /// Returns all stored strings.
   List<String> get strings => List.unmodifiable(_strings);

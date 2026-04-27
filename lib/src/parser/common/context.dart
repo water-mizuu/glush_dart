@@ -82,24 +82,44 @@ class Context {
   /// The precedence level of the rule currently being matched.
   final int? precedenceLevel;
 
-  /// Creates a copy of this context with the specified fields updated.
-  Context copyWith({
-    CallerKey? caller,
-    GlushList<PredicateCallerKey>? predicateStack,
-    int? callStart,
-    int? position,
-    int? minPrecedenceLevel,
-    int? precedenceLevel,
+  static const _undefined = #undefined;
+
+  Context _copyWith({
+    Object caller = _undefined,
+    Object predicateStack = _undefined,
+    Object callStart = _undefined,
+    Object position = _undefined,
+    Object? minPrecedenceLevel = _undefined,
+    Object? precedenceLevel = _undefined,
   }) {
     return Context(
-      caller ?? this.caller,
-      predicateStack: predicateStack ?? this.predicateStack,
-      callStart: callStart ?? this.callStart,
-      position: position ?? this.position,
-      minPrecedenceLevel: minPrecedenceLevel ?? this.minPrecedenceLevel,
-      precedenceLevel: precedenceLevel ?? this.precedenceLevel,
+      (caller == _undefined) //
+          ? this.caller
+          : caller as CallerKey,
+      predicateStack: predicateStack == _undefined
+          ? this.predicateStack
+          : predicateStack as GlushList<PredicateCallerKey>,
+      callStart: callStart == _undefined ? this.callStart : callStart as int,
+      position: position == _undefined ? this.position : position as int,
+      minPrecedenceLevel: minPrecedenceLevel == _undefined
+          ? this.minPrecedenceLevel
+          : minPrecedenceLevel as int?,
+      precedenceLevel: precedenceLevel == _undefined
+          ? this.precedenceLevel
+          : precedenceLevel as int?,
     );
   }
+
+  /// Creates a copy of this context with the specified fields updated.
+  Context Function({
+    CallerKey caller,
+    GlushList<PredicateCallerKey> predicateStack,
+    int callStart,
+    int position,
+    int? minPrecedenceLevel,
+    int? precedenceLevel,
+  })
+  get copyWith => _copyWith;
 
   /// Returns a new context advanced to [newPosition].
   ///
