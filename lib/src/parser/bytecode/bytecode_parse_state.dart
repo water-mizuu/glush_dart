@@ -41,11 +41,7 @@ class BytecodeParseState {
   void incrementTrackers(Context context, String reason) {
     var callerKey = context.predicateStack.lastOrNull;
     if (callerKey != null) {
-      var predicateKey = PredicateKey(
-        callerKey.pattern,
-        callerKey.startPosition,
-        isAnd: callerKey.isAnd,
-      );
+      var predicateKey = callerKey.key;
       var tracker = trackers[predicateKey];
       if (tracker != null) {
         _trackerFrameCounts[predicateKey] = (_trackerFrameCounts[predicateKey] ?? 0) + 1;
@@ -58,11 +54,7 @@ class BytecodeParseState {
     if (callerKey == null) {
       return null;
     }
-    var predicateKey = PredicateKey(
-      callerKey.pattern,
-      callerKey.startPosition,
-      isAnd: callerKey.isAnd,
-    );
+    var predicateKey = callerKey.key;
     var tracker = trackers[predicateKey];
     if (tracker != null) {
       var current = _trackerFrameCounts[predicateKey] ?? 0;

@@ -67,7 +67,6 @@ class BCParser implements RecognizerAndMarksParser {
 
     for (var i = 0; i <= bytes.length; i++) {
       var byte = i < bytes.length ? bytes[i] : null;
-      var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
 
       nextFramesBuffer.clear();
       currentAccepted.clear();
@@ -85,7 +84,6 @@ class BCParser implements RecognizerAndMarksParser {
           parseState.position,
           parseState.frames,
           parseState,
-          lookahead: lookahead,
           exhaustedPredicatesSink: exhaustedPredicates,
           stepsBuffer: stepsAtPosition,
         );
@@ -154,11 +152,7 @@ class BCParser implements RecognizerAndMarksParser {
     PredicateCallerKey callerKey,
     List<PredicateKey>? exhaustedPredicatesSink,
   ) {
-    var predicateKey = PredicateKey(
-      callerKey.pattern,
-      callerKey.startPosition,
-      isAnd: callerKey.isAnd,
-    );
+    var predicateKey = callerKey.key;
     var tracker = parseState.trackers[predicateKey] as PredicateTracker<int>?;
     if (tracker == null || tracker.matched) {
       return;
@@ -230,7 +224,6 @@ class BCParser implements RecognizerAndMarksParser {
     int currentPosition,
     List<BytecodeFrame> frames,
     BytecodeParseState parseState, {
-    int? lookahead,
     List<PredicateKey>? exhaustedPredicatesSink,
     Map<int, BytecodeStep>? stepsBuffer,
   }) {
@@ -250,11 +243,10 @@ class BCParser implements RecognizerAndMarksParser {
       var step = stepsAtPosition[pos] ??= BytecodeStep(
         machine,
         parseState,
-        _getTokenAt(pos, token, currentPosition, lookahead, parseState),
+        _getTokenAt(pos, token, currentPosition, parseState),
         pos,
         isSupportingAmbiguity: parseState.isSupportingAmbiguity,
         captureTokensAsMarks: parseState.captureTokensAsMarks,
-        lookahead: _getTokenAt(pos + 1, token, currentPosition, lookahead, parseState),
       )..exhaustedPredicatesSink = exhaustedPredicatesSink;
 
       for (var item in items) {
@@ -298,14 +290,10 @@ class BCParser implements RecognizerAndMarksParser {
     int pos,
     int? currentToken,
     int currentPosition,
-    int? lookahead,
     BytecodeParseState state,
   ) {
     if (pos == currentPosition) {
       return currentToken;
-    }
-    if (pos == currentPosition + 1) {
-      return lookahead;
     }
     var history = state.historyByPosition;
     if (pos < 0 || pos >= history.length) {

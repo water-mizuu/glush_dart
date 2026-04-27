@@ -35,7 +35,6 @@ class Step {
     this.position, {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
-    this.lookahead,
   });
 
   /// The global state of the current parsing session.
@@ -45,9 +44,6 @@ class Step {
   ///
   /// This is null if the parser has reached the end of the input.
   final int? token;
-
-  /// Optional one-token lookahead at this position.
-  final int? lookahead;
 
   /// The zero-based index of this step in the input stream.
   final int position;
@@ -141,12 +137,7 @@ class Step {
   /// Predicates are lookahead-only, so their entry states are spawned in a
   /// separate sub-parse that can resolve later and wake parked continuations.
   /// Spawns a new sub-parse to evaluate a lookahead predicate.
-  void _spawnPredicateSubparse(
-    PatternSymbol symbol,
-    Frame frame, {
-    required bool isAnd,
-    String? name,
-  }) {
+  void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame, {required bool isAnd}) {
     var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
     if (entryState == null) {
       throw StateError("Predicate symbol must resolve to a rule: $symbol");
@@ -157,7 +148,7 @@ class Step {
     } else {
       GlushProfiler.increment("parser.predicates.not");
     }
-    var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd, name: name);
+    var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
     parseState.tracer?.onMessage("Spawning sub-parse for predicate: $symbol");
@@ -181,13 +172,11 @@ class Step {
   /// If the frame is at the current position, it returns the current token.
   /// If the frame is "lagging" (e.g., from a sub-parse), it pulls the historical
   /// token from the parse state.
+  @pragma("vm:prefer-inline")
   int? _getTokenFor(Frame frame) {
     var framePos = frame.context.position;
     if (framePos == position) {
       return token;
-    }
-    if (framePos == position + 1) {
-      return lookahead;
     }
     if (framePos < 0 || framePos >= parseState.historyByPosition.length) {
       return null;
@@ -663,7 +652,6 @@ class Step {
     required bool isAnd,
     required ParseNodeKey source,
     required State nextState,
-    String? name,
     StateAction? action,
   }) {
     var frameContext = frame.context;
@@ -763,7 +751,7 @@ class Step {
     parseState.incrementTrackers(frameContext, "childPending");
 
     if (isFirst) {
-      _spawnPredicateSubparse(symbol, frame, isAnd: isAnd, name: name);
+      _spawnPredicateSubparse(symbol, frame, isAnd: isAnd);
     }
   }
 

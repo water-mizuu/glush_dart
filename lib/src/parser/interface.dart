@@ -29,7 +29,6 @@ abstract interface class GlushParser {
     int currentPosition,
     List<Frame> frames, {
     required ParseState parseState,
-    int? lookahead,
     bool isSupportingAmbiguity,
     bool captureTokensAsMarks,
   });

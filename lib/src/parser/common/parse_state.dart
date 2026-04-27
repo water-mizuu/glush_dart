@@ -90,7 +90,7 @@ final class ParseState {
   ///
   /// This method updates the [frames] for the next position and logs
   /// diagnostic information if a [tracer] is present.
-  Step processToken(int unit, {int? lookahead}) {
+  Step processToken(int unit) {
     if (historyByPosition.length == position) {
       historyByPosition.add(unit);
     } else if (historyByPosition.length > position) {
@@ -112,7 +112,6 @@ final class ParseState {
         position,
         frames,
         parseState: this,
-        lookahead: lookahead,
         isSupportingAmbiguity: isSupportingAmbiguity,
         captureTokensAsMarks: captureTokensAsMarks,
       );

@@ -315,7 +315,7 @@ void main() {
         expect(result, isA<ParseAmbiguousSuccess>());
         if (result is ParseAmbiguousSuccess) {
           var counts = result.forest.countDerivations();
-          expect(counts, 1);
+          expect(counts, BigInt.one);
         }
       },
     );
@@ -406,7 +406,7 @@ void main() {
         if (parser is SMParser) {
           const n = 5;
           var input = "a" * n;
-          expect(parser.countAllParses(input), equals(14));
+          expect(parser.countAllParses(input), BigInt.from(14));
         } else {
           expect(parser.recognize("aaaaa"), isTrue);
         }
@@ -751,9 +751,9 @@ void main() {
       }),
       (parser) {
         if (parser is SMParser) {
-          expect(parser.countAllParses("aaaa"), equals(5));
-          expect(parser.countAllParses("aaa"), equals(2));
-          expect(parser.countAllParses("aa"), equals(1));
+          expect(parser.countAllParses("aaaa"), BigInt.from(5));
+          expect(parser.countAllParses("aaa"), BigInt.from(2));
+          expect(parser.countAllParses("aa"), BigInt.one);
         } else {
           expect(parser.recognize("aaaa"), isTrue);
         }
@@ -773,7 +773,7 @@ void main() {
           var input = "a" * n;
 
           // C_20 = 6,564,120,420
-          expect(parser.countAllParses(input), equals(6564120420));
+          expect(parser.countAllParses(input), BigInt.from(6564120420));
         } else {
           expect(parser.recognize("a" * 21), isTrue);
         }
@@ -789,7 +789,7 @@ void main() {
       }),
       (parser) {
         if (parser is SMParser) {
-          expect(parser.countAllParses("a+a+a"), equals(2));
+          expect(parser.countAllParses("a+a+a"), BigInt.from(2));
         } else {
           expect(parser.recognize("a+a+a"), isTrue);
         }

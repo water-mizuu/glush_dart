@@ -21,7 +21,7 @@ void main() {
     expect(result, isA<ParseAmbiguousSuccess>());
     var derivations = result.ambiguousSuccess()!.forest.allMarkPaths().toList();
 
-    expect(derivations.length, equals(derivationCount));
+    expect(derivations.length, equals(derivationCount.toInt()));
     // ssss should have 11 parse trees
     expect(derivations.length, equals(11));
   });

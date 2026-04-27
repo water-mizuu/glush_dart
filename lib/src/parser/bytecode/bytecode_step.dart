@@ -23,13 +23,12 @@ class BytecodeStep {
     this.position, {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
-    this.lookahead,
   });
 
   final BytecodeMachine machine;
   final BytecodeParseState parseState;
   final int? token;
-  final int? lookahead;
+
   final int position;
   final bool isSupportingAmbiguity;
   final bool captureTokensAsMarks;
@@ -410,11 +409,12 @@ class BytecodeStep {
     parseState.incrementTrackers(context, "childPending");
 
     if (isFirst) {
+      var nextStack = context.predicateStack.add(predicateCallerKey);
       _enqueue(
         firstState.id,
         Context(
           predicateCallerKey,
-          predicateStack: context.predicateStack.add(predicateCallerKey),
+          predicateStack: nextStack,
           callStart: position,
           position: position,
         ),
@@ -496,9 +496,6 @@ class BytecodeStep {
   int? _getTokenForPos(int framePos) {
     if (framePos == position) {
       return token;
-    }
-    if (framePos == position + 1) {
-      return lookahead;
     }
     var history = parseState.historyByPosition;
     if (framePos < 0 || framePos >= history.length) {

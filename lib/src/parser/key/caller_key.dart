@@ -3,6 +3,7 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
+import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -39,45 +40,45 @@ final class RootCallerKey extends CallerKey {
 
 /// Caller key for a lookahead predicate sub-parse.
 final class PredicateCallerKey extends CallerKey {
-  PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd, this.name})
-    : uid =
-          -((pattern.hashCode.abs() << 24) |
-              (startPosition & 0x7FFFFF) |
-              (isAnd ? 0x800000 : 0) ^ (name?.hashCode ?? 0));
+  PredicateCallerKey(this.pattern, this.startPosition, {required this.isAnd})
+    : key = PredicateKey(pattern, startPosition, isAnd: isAnd),
+      uid = -((pattern.hashCode.abs() << 24) | (startPosition & 0x7FFFFF) | (isAnd ? 0x800000 : 0)),
+      hashCode = Object.hash(PredicateCallerKey, pattern, startPosition, isAnd);
+
+  /// Pre-allocated tracking key for sub-parse status.
+  final PredicateKey key;
 
   @override
   final int startPosition;
 
   final PatternSymbol pattern;
   final bool isAnd;
-  final String? name;
 
   @override
   final int uid;
+
+  @override
+  final int hashCode;
 
   @override
   bool operator ==(Object other) =>
       other is PredicateCallerKey &&
       pattern == other.pattern &&
       startPosition == other.startPosition &&
-      isAnd == other.isAnd &&
-      name == other.name;
-
-  @override
-  int get hashCode => Object.hash(pattern, startPosition, isAnd, name);
+      isAnd == other.isAnd;
 
   @override
   String toString() {
-    var desc = name != null ? "($name:$pattern)" : "($pattern)";
     var prefix = isAnd ? "&" : "!";
-    return "pred($prefix$desc @ $startPosition)";
+    return "pred($prefix @ $startPosition)";
   }
 }
 
 /// Graph-Shared Stack (GSS) node for memoizing rule call results.
 // ignore: must_be_immutable
 class Caller extends CallerKey {
-  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid);
+  Caller(this.rule, this.startPosition, this.minPrecedenceLevel, this.predicateStack, this.uid)
+    : hashCode = Object.hash(rule, startPosition, minPrecedenceLevel, predicateStack);
 
   final PatternSymbol rule;
   final int? minPrecedenceLevel;
@@ -92,8 +93,7 @@ class Caller extends CallerKey {
   final Map<ReturnKey, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Map<ReturnKey, LazyReturn<Mark>> _lazyReturns = {};
 
-  _WaiterData? _waiterHead;
-  _WaiterData? _waiterTail;
+  _WaiterData? _waiterData;
 
   @override
   bool operator ==(Object other) =>
@@ -106,7 +106,7 @@ class Caller extends CallerKey {
           predicateStack == other.predicateStack;
 
   @override
-  int get hashCode => Object.hash(rule, startPosition, minPrecedenceLevel, predicateStack);
+  final int hashCode;
 
   @override
   String toString() {
@@ -123,29 +123,28 @@ class Caller extends CallerKey {
     ParseNodeKey node,
   ) {
     var waiter = _WaiterData(next, minPrecedence, callerContext, callerMarks, node);
-    var tail = _waiterTail;
+    var data = _waiterData;
 
-    if (tail == null) {
-      _waiterHead = waiter;
-      _waiterTail = waiter;
+    if (data == null) {
+      _waiterData = waiter;
       return true;
     }
 
-    _WaiterData? current = tail;
-    while (current != null) {
-      if (current.nextState == next &&
-          current.minPrecedence == minPrecedence &&
-          current.parentContext == callerContext &&
-          current.parentMarks == callerMarks) {
+    _WaiterData? prev;
+    _WaiterData? head = data;
+    while (head != null) {
+      if (head.nextState == next &&
+          head.minPrecedence == minPrecedence &&
+          head.parentContext == callerContext &&
+          head.parentMarks == callerMarks) {
         return false;
       }
 
-      current = current.prev;
+      prev = head;
+      head = head.next;
     }
 
-    waiter.prev = tail;
-    tail.next = waiter;
-    _waiterTail = waiter;
+    prev!.next = waiter;
     return true;
   }
 
@@ -175,17 +174,19 @@ class Caller extends CallerKey {
 
   Iterable<(Context, LazyGlushList<Mark>)> get returns => _returnsInt.values;
 
-  Iterable<WaiterInfo> get waiters sync* {
-    var data = _waiterHead;
+  Iterable<WaiterInfo> get waiters {
+    var data = _waiterData;
     if (data == null) {
-      return;
+      return const [];
     }
 
+    List<WaiterInfo> infos = [];
     _WaiterData? head = data;
     while (head != null) {
-      yield WaiterInfo(head);
+      infos.add(WaiterInfo(head));
       head = head.next;
     }
+    return infos;
   }
 
   /// Get or create the LazyReturn proxy for a given packedId.
@@ -211,7 +212,6 @@ class _WaiterData {
   final LazyGlushList<Mark> parentMarks;
   final ParseNodeKey callSite;
 
-  _WaiterData? prev;
   _WaiterData? next;
 }
 

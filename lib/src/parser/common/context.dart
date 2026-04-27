@@ -28,33 +28,27 @@ class Context {
     int? precedenceLevel,
   }) : this._(
          caller,
-         Object.hash(
-           caller,
-           callStart,
-           position,
-           minPrecedenceLevel,
-           precedenceLevel,
-           predicateStack,
-         ),
+         Object.hash(caller, callStart, minPrecedenceLevel, precedenceLevel, predicateStack),
+         position,
          isSimple: predicateStack.isEmpty,
          predicateStack: predicateStack,
          callStart: callStart,
-         position: position,
          minPrecedenceLevel: minPrecedenceLevel,
          precedenceLevel: precedenceLevel,
        );
 
   const Context._(
     this.caller,
-    this._hash, {
+    this._baseHash,
+    this.position, {
     required this.isSimple,
     this.predicateStack = const GlushList<PredicateCallerKey>.empty(),
     this.callStart = 0,
-    this.position = 0,
     this.minPrecedenceLevel,
     this.precedenceLevel,
-  });
+  }) : _hash = (_baseHash * 31 + position) & 0x7FFFFFFF;
 
+  final int _baseHash;
   final int _hash;
 
   /// Whether this context has no lookahead predicates or captures.
@@ -115,11 +109,13 @@ class Context {
     if (newPosition == position) {
       return this;
     }
-    return Context(
+    return Context._(
       caller,
+      _baseHash,
+      newPosition,
+      isSimple: isSimple,
       predicateStack: predicateStack,
       callStart: callStart,
-      position: newPosition,
       minPrecedenceLevel: minPrecedenceLevel,
       precedenceLevel: precedenceLevel,
     );
@@ -144,7 +140,6 @@ class Context {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is Context &&
-          hashCode == other.hashCode &&
           caller == other.caller &&
           callStart == other.callStart &&
           position == other.position &&
@@ -181,7 +176,7 @@ final class ContextGroup {
   /// This generates a branched lazy list if multiple paths contributed marks.
   LazyGlushList<Mark> get mergedMarks {
     if (_batch case var batch?) {
-      return _buildBalanced(batch, 0, batch.length);
+      return batch.reduce(LazyGlushList.branched);
     }
     return _single ?? const LazyGlushList<Mark>.empty();
   }
@@ -198,23 +193,5 @@ final class ContextGroup {
     } else {
       _batch!.add(marks);
     }
-  }
-
-  static LazyGlushList<Mark> _buildBalanced(List<LazyGlushList<Mark>> items, int start, int end) {
-    var len = end - start;
-    if (len == 0) {
-      return const LazyGlushList<Mark>.empty();
-    }
-    if (len == 1) {
-      return items[start];
-    }
-    if (len == 2) {
-      return LazyGlushList.branched(items[start], items[start + 1]);
-    }
-    var mid = start + (len >> 1);
-    return LazyGlushList.branched(
-      _buildBalanced(items, start, mid),
-      _buildBalanced(items, mid, end),
-    );
   }
 }

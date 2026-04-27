@@ -126,8 +126,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var i = 0; i < bytes.length; i++) {
         var byte = bytes[i];
-        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
-        parseState.processToken(byte, lookahead: lookahead);
+        parseState.processToken(byte);
         if (!parseState.hasPendingWork) {
           return false;
         }
@@ -152,8 +151,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var i = 0; i < bytes.length; i++) {
         var byte = bytes[i];
-        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
-        parseState.processToken(byte, lookahead: lookahead);
+        parseState.processToken(byte);
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
@@ -191,8 +189,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
 
       for (var i = 0; i < bytes.length; i++) {
         var byte = bytes[i];
-        var lookahead = i + 1 < bytes.length ? bytes[i + 1] : null;
-        parseState.processToken(byte, lookahead: lookahead);
+        parseState.processToken(byte);
         if (!parseState.hasPendingWork) {
           return ParseError(parseState.position - 1);
         }
@@ -217,7 +214,7 @@ final class SMParser extends GlushParserBase implements RecognizerAndMarksParser
   ///
   /// This provides a quick way to gauge the level of ambiguity in a parse
   /// result without fully evaluating all paths.
-  int countAllParses(String input) {
+  BigInt countAllParses(String input) {
     return parseAmbiguous(input).ambiguousSuccess()!.forest.countDerivations();
   }
 }

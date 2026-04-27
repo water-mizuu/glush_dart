@@ -123,28 +123,28 @@ sealed class GlushList<T> {
   ///
   /// This property provides a high-level metric of the ambiguity present in
   /// the parse result. It is computed lazily and memoized for efficiency.
-  int get derivationCount {
+  BigInt get derivationCount {
     return _count(this, {});
   }
 
   /// Alias for [derivationCount] implemented as a method.
-  int countDerivations() => _count(this, {});
+  BigInt countDerivations() => _count(this, {});
 
   /// Internal recursive counter with memoization to compute the number of derivations.
   ///
   /// The algorithm branches for [BranchedList] (addition) and multiplies for
   /// [Concat] to account for all possible combinations of
   /// sub-parse results.
-  int _count(GlushList<Object?> node, Map<GlushList<Object?>, int> memo) {
+  BigInt _count(GlushList<Object?> node, Map<GlushList<Object?>, BigInt> memo) {
     if (memo[node] case var cached?) {
       return cached;
     }
 
-    memo[node] = 0;
-    int res;
+    memo[node] = BigInt.zero;
+    BigInt res;
     switch (node) {
       case EmptyList():
-        res = 1;
+        res = BigInt.one;
       case BranchedList(:var left, :var right):
         res = _count(left, memo);
         if (right != null) {
@@ -311,22 +311,22 @@ sealed class LazyGlushList<T> {
   }
 
   /// Computes the number of derivations represented by this lazy forest.
-  int countDerivations() => _count(this, {});
+  BigInt countDerivations() => _count(this, {});
 
   /// Internal recursive counter for lazy derivations.
   ///
   /// This traverses the lazy structure and accounts for branching and
   /// multiplication in a manner similar to the concrete [GlushList] counter.
-  int _count(LazyGlushList<Object?> node, Map<LazyGlushList<Object?>, int> memo) {
+  BigInt _count(LazyGlushList<Object?> node, Map<LazyGlushList<Object?>, BigInt> memo) {
     if (memo[node] case var cached?) {
       return cached;
     }
 
-    memo[node] = 0;
-    int res;
+    memo[node] = BigInt.zero;
+    BigInt res;
     switch (node) {
       case LazyEmpty():
-        res = 1;
+        res = BigInt.one;
       case LazyBranched(:var left, :var right):
         res = _count(left, memo) + _count(right, memo);
       case LazyPush(:var parent):

@@ -83,7 +83,6 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     int position,
     int? token,
-    int? lookahead,
     List<Frame> items,
   ) {
     var exhaustedPredicates = <PredicateKey>[];
@@ -91,18 +90,11 @@ abstract base class GlushParserBase implements GlushParser {
     var stepToken = position < parseState.historyByPosition.length
         ? parseState.historyByPosition[position]
         : null;
-    int? stepLookahead;
-    if (position + 1 < parseState.historyByPosition.length) {
-      stepLookahead = parseState.historyByPosition[position + 1];
-    } else if (position == currentPosition) {
-      stepLookahead = lookahead;
-    }
 
     var step = stepsAtPosition[position] ??= Step(
       parseState,
       stepToken,
       position,
-      lookahead: stepLookahead,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
     );
@@ -203,7 +195,6 @@ abstract base class GlushParserBase implements GlushParser {
     int currentPosition,
     List<Frame> frames, {
     required ParseState parseState,
-    int? lookahead,
     bool isSupportingAmbiguity = false,
     bool captureTokensAsMarks = false,
   }) {
@@ -232,7 +223,6 @@ abstract base class GlushParserBase implements GlushParser {
         currentPosition,
         position,
         token,
-        lookahead,
         items,
       );
     }
@@ -257,7 +247,6 @@ abstract base class GlushParserBase implements GlushParser {
       parseState,
       token,
       currentPosition,
-      lookahead: lookahead,
       isSupportingAmbiguity: isSupportingAmbiguity,
       captureTokensAsMarks: captureTokensAsMarks,
     );

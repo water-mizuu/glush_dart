@@ -16,7 +16,7 @@ void main() {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts, 1);
+        expect(counts, BigInt.from(1));
       }
     });
 
@@ -33,7 +33,7 @@ void main() {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts, 2);
+        expect(counts, BigInt.from(2));
       }
     });
 
@@ -55,7 +55,7 @@ void main() {
         var counts = forest.countDerivations();
 
         // Should have multiple derivations for "a+a"
-        expect(counts, greaterThanOrEqualTo(1));
+        expect(counts, greaterThanOrEqualTo(BigInt.from(1)));
       }
     });
 
@@ -73,7 +73,7 @@ void main() {
         var counts = forest.countDerivations();
 
         // PEG greedy semantics: only one derivation (match all three 'a's)
-        expect(counts, equals(1));
+        expect(counts, BigInt.from(1));
       }
     });
 
@@ -104,7 +104,7 @@ void main() {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts, greaterThanOrEqualTo(1));
+        expect(counts, greaterThanOrEqualTo(BigInt.from(1)));
       }
     });
 
@@ -120,7 +120,7 @@ void main() {
         var forest = result.forest;
         var counts = forest.countDerivations();
 
-        expect(counts, 1);
+        expect(counts, BigInt.from(1));
       }
     });
 
@@ -143,7 +143,7 @@ void main() {
         var counts = forest.countDerivations();
 
         // Should count the derivations correctly
-        expect(counts, greaterThan(0));
+        expect(counts, greaterThan(BigInt.zero));
       }
     });
   });

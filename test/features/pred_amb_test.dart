@@ -20,7 +20,7 @@ void main() {
       // for the 'a' token, because the predicate 'ambiguous.and()'
       // does not contribute to the derivation forest (it's non-consuming).
       var stats = forest.forest.countDerivations();
-      expect(stats, 1);
+      expect(stats, BigInt.one);
     });
 
     test("NOT with ambiguous sub-pattern fails correctly", () {

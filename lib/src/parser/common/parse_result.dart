@@ -140,12 +140,12 @@ class MarkForest with Iterable<List<Mark>> {
 
   final LazyGlushList<Mark> inner;
 
-  int get derivationCount => inner.countDerivations();
+  BigInt get derivationCount => inner.countDerivations();
 
   @override
   Iterator<List<Mark>> get iterator => inner.allMarkPaths().iterator;
 
   Iterable<List<Mark>> allMarkPaths() => inner.allMarkPaths();
-  int countDerivations() => inner.countDerivations();
+  BigInt countDerivations() => inner.countDerivations();
   GlushList<Mark> evaluate() => inner.evaluate();
 }
