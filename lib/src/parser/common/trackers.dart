@@ -2,10 +2,9 @@ import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
-import "package:glush/src/parser/key/parse_node_key.dart";
 
 /// A parked continuation representing a parse path waiting for a sub-parse to complete.
-typedef Waiter<S> = (ParseNodeKey?, Context, S, LazyGlushList<Mark>);
+typedef Waiter<S> = (Context, S, LazyGlushList<Mark>);
 
 /// Base class for coordinating asynchronous or non-linear sub-parses.
 sealed class SubparseTracker<S> {

@@ -1,4 +1,3 @@
-import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/bytecode/bytecode_frame.dart";
 import "package:glush/src/parser/bytecode/bytecode_machine.dart";
 import "package:glush/src/parser/bytecode/bytecode_parser.dart";
@@ -17,8 +16,7 @@ class BytecodeParseState {
     required this.isSupportingAmbiguity,
     required this.captureTokensAsMarks,
     this.tracer,
-  }) : frames = initialFrames,
-       rulesById = {for (var rule in parser.grammar.rules) rule.symbolId!: rule};
+  }) : frames = initialFrames;
 
   final BCParser parser;
   final bool isSupportingAmbiguity;
@@ -31,7 +29,6 @@ class BytecodeParseState {
   final Map<SubparseKey, int> _trackerFrameCounts = {};
   final Map<PredicateKey, bool> predicateOutcomes = {};
   final Map<int, Caller> callers = {};
-  final Map<int, Rule> rulesById;
 
   int position = 0;
   int callerCounter = 1;

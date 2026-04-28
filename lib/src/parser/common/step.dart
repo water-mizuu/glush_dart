@@ -12,7 +12,6 @@ import "package:glush/src/parser/key/branch_key.dart";
 import "package:glush/src/parser/key/caller_cache_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
-import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:glush/src/parser/state_machine/state_actions.dart";
 import "package:glush/src/parser/state_machine/state_machine.dart";
@@ -117,7 +116,6 @@ class Step {
   /// epsilon transition reopening a delayed path.
   /// Resumes a parse path that was waiting for a lookahead predicate.
   void _resumeLaggedPredicateContinuation({
-    required ParseNodeKey? source,
     required Context parentContext,
     required LazyGlushList<Mark> parentMarks,
     required State nextState,
@@ -195,7 +193,6 @@ class Step {
     required State returnState,
     required int? minPrecedenceLevel,
     required Frame frame,
-    required ParseNodeKey source,
     required State currentState,
   }) {
     GlushProfiler.increment("parser.rule_calls.considered");
@@ -233,7 +230,6 @@ class Step {
       minPrecedenceLevel,
       frame.context,
       frame.marks,
-      ParseNodeKey(currentState.id, position, frame.context.caller),
     );
     if (isNewWaiter) {
       GlushProfiler.increment("parser.callers.new_waiter");
@@ -253,9 +249,6 @@ class Step {
             minPrecedenceLevel: minPrecedenceLevel,
           ),
           const LazyGlushList<Mark>.empty(),
-          source: source,
-          action: action,
-          callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     } else if (isNewWaiter) {
@@ -269,9 +262,6 @@ class Step {
           frame.context,
           frame.marks,
           returnContext,
-          source: ParseNodeKey(currentState.id, position, frame.context.caller),
-          action: action,
-          callSite: ParseNodeKey(currentState.id, position, frame.context.caller),
         );
       }
     }
@@ -294,14 +284,7 @@ class Step {
   /// This method performs path deduplication and merging. If the [context] is
   /// for a future position, it is deferred. Otherwise, it is added to the
   /// current work queue.
-  void _enqueue(
-    State state,
-    Context context,
-    LazyGlushList<Mark> marks, {
-    ParseNodeKey? source,
-    StateAction? action,
-    ParseNodeKey? callSite,
-  }) {
+  void _enqueue(State state, Context context, LazyGlushList<Mark> marks) {
     GlushProfiler.increment("parser.enqueue.calls");
     GlushProfiler.increment("parser.frames.processed");
     var nextContext = context;
@@ -348,7 +331,7 @@ class Step {
       return;
     } else {
       // Slow-path for complex contexts
-      var key = ComplexContextKey(state, nextContext);
+      var key = ComplexContextKey(state.id, nextContext);
 
       if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
         GlushProfiler.incrementHit("parser.enqueue.deduplicated");
@@ -434,11 +417,8 @@ class Step {
     int? minPrecedence,
     Context parentContext,
     LazyGlushList<Mark> parentMarks,
-    Context returnContext, {
-    ParseNodeKey? source,
-    StateAction? action,
-    ParseNodeKey? callSite,
-  }) {
+    Context returnContext,
+  ) {
     late var rule = parseState.stateMachine.grammar.allRules.values
         .where((v) => v.symbolId == caller.rule)
         .firstOrNull;
@@ -470,14 +450,7 @@ class Step {
       minPrecedenceLevel: parentContext.minPrecedenceLevel,
     );
 
-    _enqueue(
-      nextState,
-      nextContext,
-      nextMarks,
-      source: source,
-      action: action,
-      callSite: callSite, //
-    );
+    _enqueue(nextState, nextContext, nextMarks);
   }
 
   /// Finalizes the step, processing any pending next-position frames.
@@ -591,19 +564,17 @@ class Step {
     LazyVal<Mark> mark,
   ) {
     var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-    _enqueue(nextState, frameContext, frame.marks.add(mark), source: source, action: action);
+    _enqueue(nextState, frameContext, frame.marks.add(mark));
   }
 
   /// Processes a [BoundaryAction], checking for start or end of input.
   void _processBoundaryAction(Frame frame, State state, BoundaryAction action) {
     var frameContext = frame.context;
     var token = _getTokenFor(frame);
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
 
     var isMatch = action.kind == BoundaryKind.start ? position == 0 : token == null;
     if (isMatch) {
-      _enqueue(action.nextState, frameContext, frame.marks, source: source, action: action);
+      _enqueue(action.nextState, frameContext, frame.marks);
     }
   }
 
@@ -631,12 +602,10 @@ class Step {
 
   /// Processes a [PredicateAction], initiating a lookahead check.
   void _processPredicateAction(Frame frame, State state, PredicateAction action) {
-    var source = ParseNodeKey(state.id, position, frame.context.caller);
     _handlePredicate(
       symbol: action.symbol,
       frame: frame,
       isAnd: action.isAnd,
-      source: source,
       nextState: action.nextState,
       action: action,
     );
@@ -650,7 +619,6 @@ class Step {
     required PatternSymbol symbol,
     required Frame frame,
     required bool isAnd,
-    required ParseNodeKey source,
     required State nextState,
     StateAction? action,
   }) {
@@ -662,7 +630,6 @@ class Step {
       GlushProfiler.increment("parser.predicates.memoized_hit");
       if (memoizedOutcome == isAnd) {
         _resumeLaggedPredicateContinuation(
-          source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
           nextState: nextState,
@@ -683,7 +650,6 @@ class Step {
       GlushProfiler.increment("parser.predicates.admissibility_rejected");
       if (!isAnd) {
         _resumeLaggedPredicateContinuation(
-          source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
           nextState: nextState,
@@ -719,7 +685,6 @@ class Step {
       parseState.memoizePredicateOutcome(subParseKey, isMatched: true);
       if (tracker.isAnd) {
         _resumeLaggedPredicateContinuation(
-          source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
           nextState: nextState,
@@ -735,7 +700,6 @@ class Step {
       parseState.memoizePredicateOutcome(subParseKey, isMatched: false);
       if (!isAnd) {
         _resumeLaggedPredicateContinuation(
-          source: source,
           parentContext: frame.context,
           parentMarks: frame.marks,
           nextState: nextState,
@@ -747,7 +711,7 @@ class Step {
       return;
     }
 
-    tracker.waiters.add((source, frameContext, nextState, frame.marks));
+    tracker.waiters.add((frameContext, nextState, frame.marks));
     parseState.incrementTrackers(frameContext, "childPending");
 
     if (isFirst) {
@@ -757,8 +721,6 @@ class Step {
 
   /// Processes a [CallAction], calling another rule.
   void _processCallAction(Frame frame, State state, CallAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
     var targetRule = parseState.rulesById[action.ruleSymbol]!;
 
     _seedRuleCall(
@@ -767,7 +729,6 @@ class Step {
       returnState: action.returnState,
       minPrecedenceLevel: action.minPrecedenceLevel,
       frame: frame,
-      source: source,
       currentState: state,
     );
   }
@@ -775,16 +736,13 @@ class Step {
   /// This method resolves caller identity and checks guards, then jumps directly into
   /// the rule's entry state using the [_tailCallTrampoline].
   void _processTailCallAction(Frame frame, State state, TailCallAction action) {
-    var frameContext = frame.context;
-    var source = ParseNodeKey(state.id, position, frameContext.caller);
-
     var firstState = parseState.parser.stateMachine.ruleFirst[action.ruleSymbol];
     if (firstState != null) {
       var tailContext = frame.context.copyWith(
         position: position,
         minPrecedenceLevel: action.minPrecedenceLevel,
       );
-      _tailCallTrampoline(firstState, tailContext, frame.marks, source, action);
+      _tailCallTrampoline(firstState, tailContext, frame.marks);
     }
   }
 
@@ -796,8 +754,6 @@ class Step {
     State currentState,
     Context currentContext,
     LazyGlushList<Mark> currentMarks,
-    ParseNodeKey source,
-    StateAction action,
   ) {
     var state = currentState;
     var context = currentContext;
@@ -832,7 +788,7 @@ class Step {
         continue;
       }
 
-      _enqueue(state, context, marks, source: source, action: action);
+      _enqueue(state, context, marks);
       return;
     }
   }
@@ -886,7 +842,7 @@ class Step {
       tracker.matched = true;
       parseState.memoizePredicateOutcome(key, isMatched: true);
 
-      for (var (source, parentContext, nextState, parentMarks) in tracker.waiters) {
+      for (var (parentContext, nextState, parentMarks) in tracker.waiters) {
         var newTracker = parseState.decrementTracker(parentContext, "childMatched");
         if (newTracker != null) {
           exhaustedPredicatesSink?.add(newTracker);
@@ -894,7 +850,6 @@ class Step {
 
         if (tracker.isAnd) {
           _resumeLaggedPredicateContinuation(
-            source: source,
             parentContext: parentContext,
             parentMarks: parentMarks,
             nextState: nextState,
@@ -933,7 +888,7 @@ class Step {
             .firstOrNull;
         parseState.tracer?.onRuleReturn(rule!, returnPosition, caller, state);
 
-        for (var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks, :callSite)
+        for (var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks)
             in caller.waiters) {
           _triggerReturn(
             caller,
@@ -943,9 +898,6 @@ class Step {
             parentContext,
             parentMarks,
             returnContext,
-            source: ParseNodeKey(state.id, returnPosition, caller),
-            action: action,
-            callSite: callSite,
           );
         }
       }

@@ -48,7 +48,7 @@ class BCParser implements RecognizerAndMarksParser {
     var bytes = input.codeUnits;
     var initialFrames = List<BytecodeFrame>.generate(
       machine.initialStates.length,
-      (i) => BytecodeFrame(Context(const RootCallerKey()), const LazyGlushList<Mark>.empty(), [i]),
+      (i) => BytecodeFrame(Context(const RootCallerKey()), const LazyGlushList<Mark>.empty(), i),
     );
 
     var parseState = BytecodeParseState(
@@ -60,6 +60,7 @@ class BCParser implements RecognizerAndMarksParser {
 
     var nextFramesBuffer = <BytecodeFrame>[];
     var currentAccepted = <Context, LazyGlushList<Mark>>{};
+    var acceptedAtPositionBuffer = <Context, LazyGlushList<Mark>>{};
     var exhaustedPredicates = <PredicateKey>[];
 
     // Position work queue buffers
@@ -79,19 +80,21 @@ class BCParser implements RecognizerAndMarksParser {
 
       exhaustedPredicates.clear();
       while (true) {
-        var (next, accepted) = _processToken(
+        acceptedAtPositionBuffer.clear();
+        _processToken(
           byte,
           parseState.position,
           parseState.frames,
           parseState,
           exhaustedPredicatesSink: exhaustedPredicates,
           stepsBuffer: stepsAtPosition,
+          nextFramesSink: nextFramesBuffer,
+          acceptedSink: acceptedAtPositionBuffer,
         );
-        nextFramesBuffer.addAll(next);
         var continueLoop = false;
 
         // Split accepted between root and predicates
-        for (var entry in accepted.entries) {
+        for (var entry in acceptedAtPositionBuffer.entries) {
           var context = entry.key;
           if (context.caller is RootCallerKey) {
             currentAccepted[context] = entry.value;
@@ -161,13 +164,13 @@ class BCParser implements RecognizerAndMarksParser {
     tracker.matched = true;
     parseState.memoizePredicateOutcome(predicateKey, isMatched: true);
 
-    for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+    for (var (parentContext, nextState, parentMarks) in tracker.waiters) {
       var exhausted = parseState.decrementTracker(parentContext, "resolveTrue");
       if (exhausted != null) {
         exhaustedPredicatesSink?.add(exhausted);
       }
       if (tracker.isAnd) {
-        var frame = BytecodeFrame(parentContext, parentMarks, [nextState]);
+        var frame = BytecodeFrame(parentContext, parentMarks, nextState);
         parseState.incrementTrackers(parentContext, "resumedTrueFrame");
         parseState.frames.add(frame);
       }
@@ -198,13 +201,13 @@ class BCParser implements RecognizerAndMarksParser {
       tracker.exhausted = true;
       parseState.memoizePredicateOutcome(key, isMatched: false);
 
-      for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+      for (var (parentContext, nextState, parentMarks) in tracker.waiters) {
         var cascaded = parseState.decrementTracker(parentContext, "resolveFalse");
         if (cascaded != null) {
           pending.add(cascaded); // ← cascade: outer predicate may now be exhausted
         }
         if (!tracker.isAnd) {
-          var frame = BytecodeFrame(parentContext, parentMarks, [nextState]);
+          var frame = BytecodeFrame(parentContext, parentMarks, nextState);
           // Increment immediately (like SM's _enqueueFrameForPosition) so that if
           // the cascade just above decremented an outer predicate's count to 0,
           // this +1 restores it before the cascade processes that outer key.
@@ -219,18 +222,18 @@ class BCParser implements RecognizerAndMarksParser {
     return resumed;
   }
 
-  (List<BytecodeFrame> nextFrames, Map<Context, LazyGlushList<Mark>> accepted) _processToken(
+  void _processToken(
     int? token,
     int currentPosition,
     List<BytecodeFrame> frames,
     BytecodeParseState parseState, {
+    required List<BytecodeFrame> nextFramesSink,
+    required Map<Context, LazyGlushList<Mark>> acceptedSink,
     List<PredicateKey>? exhaustedPredicatesSink,
     Map<int, BytecodeStep>? stepsBuffer,
   }) {
     var workQueue = _BytecodePositionWorkQueue();
     var stepsAtPosition = stepsBuffer ?? <int, BytecodeStep>{};
-    var allNextFrames = <BytecodeFrame>[];
-    var allAccepted = <Context, LazyGlushList<Mark>>{};
 
     for (var frame in frames) {
       workQueue.addFrame(frame.context.position, frame);
@@ -257,41 +260,33 @@ class BCParser implements RecognizerAndMarksParser {
         step.processFrameEnqueue(item);
       }
       step.processFrameFinalize();
-      step.finalize();
 
       for (var f in step.nextFrames) {
         if (token != null && f.context.position > currentPosition) {
-          allNextFrames.add(f);
+          nextFramesSink.add(f);
         } else {
           workQueue.addFrame(f.context.position, f);
         }
       }
       for (var f in step.requeued) {
         if (token != null && f.context.position > currentPosition) {
-          allNextFrames.add(f);
+          nextFramesSink.add(f);
         } else {
           workQueue.addFrame(f.context.position, f);
         }
       }
 
       if (pos == currentPosition) {
-        allAccepted.addAll(step.acceptedContexts);
+        acceptedSink.addAll(step.acceptedContexts);
       }
 
       step.nextFrames.clear();
       step.requeued.clear();
     }
-
-    return (allNextFrames, allAccepted);
   }
 
   @pragma("vm:prefer-inline")
-  int? _getTokenAt(
-    int pos,
-    int? currentToken,
-    int currentPosition,
-    BytecodeParseState state,
-  ) {
+  int? _getTokenAt(int pos, int? currentToken, int currentPosition, BytecodeParseState state) {
     if (pos == currentPosition) {
       return currentToken;
     }

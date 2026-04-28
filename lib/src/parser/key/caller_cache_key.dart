@@ -1,13 +1,22 @@
 import "package:glush/src/core/patterns.dart";
+import "package:meta/meta.dart";
 
 /// Cache key for memoizing rule call sites (Callers).
-extension type const CallerCacheKey._(
-  (PatternSymbol symbol, int startPosition, int? minPrecedenceLevel) data
-) {
-  const CallerCacheKey(PatternSymbol symbol, int startPosition, int? minPrecedenceLevel)
-    : this._((symbol, startPosition, minPrecedenceLevel));
+@immutable
+final class CallerCacheKey {
+  const CallerCacheKey(this.symbol, this.startPosition, this.minPrecedenceLevel);
 
-  PatternSymbol get symbol => data.$1;
-  int get startPosition => data.$2;
-  int? get minPrecedenceLevel => data.$3;
+  final PatternSymbol symbol;
+  final int startPosition;
+  final int? minPrecedenceLevel;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CallerCacheKey &&
+      symbol == other.symbol &&
+      startPosition == other.startPosition &&
+      minPrecedenceLevel == other.minPrecedenceLevel;
+
+  @override
+  int get hashCode => Object.hash(symbol, startPosition, minPrecedenceLevel);
 }

@@ -1,18 +1,17 @@
 import "package:glush/src/parser/common/context.dart";
-import "package:glush/src/parser/state_machine/state_machine.dart";
 import "package:meta/meta.dart";
 
 /// Represents a unique parsing configuration at a specific input position.
 @immutable
 sealed class ContextKey {
-  static ContextKey create(State state, Context context) {
+  static ContextKey create(int stateId, Context context) {
     if (context.isSimple) {
       return IntContextKey(
-        (context.caller.uid << 32) | (state.id << 8) | (context.minPrecedenceLevel ?? 0xFF),
+        (context.caller.uid << 32) | (stateId << 8) | (context.minPrecedenceLevel ?? 0xFF),
       );
     }
 
-    return ComplexContextKey(state, context);
+    return ComplexContextKey(stateId, context);
   }
 }
 
@@ -30,17 +29,17 @@ final class IntContextKey implements ContextKey {
 
 /// A full context key for complex paths (predicates, captures, or BSR rules).
 final class ComplexContextKey implements ContextKey {
-  ComplexContextKey(this.state, this.context)
-    : _hash = Object.hash(ComplexContextKey, state, context);
+  ComplexContextKey(this.stateId, this.context)
+    : _hash = Object.hash(ComplexContextKey, stateId, context);
 
   final int _hash;
-  final State state;
+  final int stateId;
   final Context context;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is ComplexContextKey && state == other.state && context == other.context;
+      other is ComplexContextKey && stateId == other.stateId && context == other.context;
 
   @override
   int get hashCode => _hash;

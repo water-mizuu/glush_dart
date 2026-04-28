@@ -4,7 +4,6 @@ import "package:glush/src/core/mark.dart";
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/context.dart";
 import "package:glush/src/parser/key/action_key.dart";
-import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
 import "package:meta/meta.dart";
 
@@ -92,7 +91,7 @@ class Caller extends CallerKey {
   final Map<ReturnKey, (Context, LazyGlushList<Mark>)> _returnsInt = {};
   final Map<ReturnKey, LazyReturn<Mark>> _lazyReturns = {};
 
-  _WaiterData? _waiterData;
+  WaiterInfo? _waiterInfo;
 
   @override
   bool operator ==(Object other) =>
@@ -119,19 +118,17 @@ class Caller extends CallerKey {
     int? minPrecedence,
     Context callerContext,
     LazyGlushList<Mark> callerMarks,
-    ParseNodeKey node,
   ) {
-    var waiter = _WaiterData(nextStateId, minPrecedence, callerContext, callerMarks, node);
-    var data = _waiterData;
+    var waiter = WaiterInfo(nextStateId, minPrecedence, callerContext, callerMarks);
+    var data = _waiterInfo;
 
     if (data == null) {
-      _waiterData = waiter;
+      _waiterInfo = waiter;
       return true;
     }
 
-    _WaiterData? prev;
-    _WaiterData? head = data;
-    while (head != null) {
+    WaiterInfo? head = data;
+    while (head != null && head._next != null) {
       if (head.nextStateId == nextStateId &&
           head.minPrecedence == minPrecedence &&
           head.parentContext == callerContext &&
@@ -139,11 +136,10 @@ class Caller extends CallerKey {
         return false;
       }
 
-      prev = head;
-      head = head.next;
+      head = head._next;
     }
 
-    prev!.next = waiter;
+    head!._next = waiter;
     return true;
   }
 
@@ -174,16 +170,16 @@ class Caller extends CallerKey {
   Iterable<(Context, LazyGlushList<Mark>)> get returns => _returnsInt.values;
 
   Iterable<WaiterInfo> get waiters {
-    var data = _waiterData;
+    var data = _waiterInfo;
     if (data == null) {
       return const [];
     }
 
     List<WaiterInfo> infos = [];
-    _WaiterData? head = data;
+    WaiterInfo? head = data;
     while (head != null) {
-      infos.add(WaiterInfo(head));
-      head = head.next;
+      infos.add(head);
+      head = head._next;
     }
     return infos;
   }
@@ -196,28 +192,13 @@ class Caller extends CallerKey {
   }
 }
 
-class _WaiterData {
-  _WaiterData(
-    this.nextStateId,
-    this.minPrecedence,
-    this.parentContext,
-    this.parentMarks,
-    this.callSite,
-  );
+class WaiterInfo {
+  WaiterInfo(this.nextStateId, this.minPrecedence, this.parentContext, this.parentMarks);
 
   final int nextStateId;
   final int? minPrecedence;
   final Context parentContext;
   final LazyGlushList<Mark> parentMarks;
-  final ParseNodeKey callSite;
 
-  _WaiterData? next;
-}
-
-extension type const WaiterInfo(_WaiterData _) {
-  int get nextStateId => _.nextStateId;
-  int? get minPrecedence => _.minPrecedence;
-  Context get parentContext => _.parentContext;
-  LazyGlushList<Mark> get parentMarks => _.parentMarks;
-  ParseNodeKey get callSite => _.callSite;
+  WaiterInfo? _next;
 }

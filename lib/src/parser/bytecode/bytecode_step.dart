@@ -8,9 +8,7 @@ import "package:glush/src/parser/common/trackers.dart";
 import "package:glush/src/parser/key/action_key.dart";
 import "package:glush/src/parser/key/caller_key.dart";
 import "package:glush/src/parser/key/context_key.dart";
-import "package:glush/src/parser/key/parse_node_key.dart";
 import "package:glush/src/parser/key/return_key.dart";
-import "package:glush/src/parser/state_machine/state_machine.dart";
 
 class BytecodeStep {
   BytecodeStep(
@@ -44,22 +42,15 @@ class BytecodeStep {
   final List<Object> _workQueue = [];
   int _workQueueHead = 0;
 
-  bool get hasPendingWork =>
-      _workQueueHead < _workQueue.length || nextFrames.isNotEmpty || requeued.isNotEmpty;
-
   @pragma("vm:prefer-inline")
   void processFrameEnqueue(BytecodeFrame frame) {
-    var states = frame.nextStates;
-    for (var i = 0; i < states.length; i++) {
-      _enqueue(states[i], frame.context, frame.marks);
-    }
-    (states as List).clear();
+    _enqueue(frame.stateId, frame.context, frame.marks);
   }
 
   @pragma("vm:prefer-inline")
   void _enqueue(int stateId, Context context, LazyGlushList<Mark> marks) {
     if (context.position != position) {
-      requeue(BytecodeFrame(context, marks, [stateId]));
+      requeue(BytecodeFrame(context, marks, stateId));
       return;
     }
 
@@ -82,7 +73,7 @@ class BytecodeStep {
       _workQueue.add(packedId);
       _workQueue.add(stateId);
     } else {
-      var key = ComplexContextKey(State(stateId, []), context);
+      var key = ComplexContextKey(stateId, context);
       if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
         return;
       }
@@ -262,7 +253,7 @@ class BytecodeStep {
             admissOff,
             context.position == 0,
           )) {
-            _processCall(context, marks, ruleId, returnStateId, minPrec, stateId);
+            _processCall(context, marks, ruleId, returnStateId, minPrec);
           }
 
         case BytecodeOp.tailCall:
@@ -274,17 +265,17 @@ class BytecodeStep {
             admissOff,
             context.position == 0,
           )) {
-            _processTailCall(context, marks, ruleId, minPrec, stateId);
+            _processTailCall(context, marks, ruleId, minPrec);
           }
 
         // --- Return opcodes (split to avoid null-check overhead on the common
         //     no-precedence path) ---
 
         case BytecodeOp.retSimple:
-          _processReturn(context, marks, bytecode[offset++], null, stateId);
+          _processReturn(context, marks, bytecode[offset++], null);
 
         case BytecodeOp.retPrec:
-          _processReturn(context, marks, bytecode[offset++], bytecode[offset++], stateId);
+          _processReturn(context, marks, bytecode[offset++], bytecode[offset++]);
 
         // --- Miscellaneous ---
 
@@ -339,7 +330,6 @@ class BytecodeStep {
     int ruleId,
     int returnStateId,
     int minPrec,
-    int currentStateId,
   ) {
     var realMinPrec = minPrec == -1 ? null : minPrec;
 
@@ -353,13 +343,7 @@ class BytecodeStep {
       parseState.callerCounter++,
     );
 
-    var isNewWaiter = caller.addWaiter(
-      returnStateId,
-      realMinPrec,
-      context,
-      marks,
-      ParseNodeKey(currentStateId, position, context.caller),
-    );
+    var isNewWaiter = caller.addWaiter(returnStateId, realMinPrec, context, marks);
     if (caller.waiters.length == 1 && isNewWaiter) {
       var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
       if (firstState != null) {
@@ -385,19 +369,12 @@ class BytecodeStep {
           context,
           marks,
           returnContext,
-          currentStateId,
         );
       }
     }
   }
 
-  void _processTailCall(
-    Context context,
-    LazyGlushList<Mark> marks,
-    int ruleId,
-    int minPrec,
-    int currentStateId,
-  ) {
+  void _processTailCall(Context context, LazyGlushList<Mark> marks, int ruleId, int minPrec) {
     var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
     if (firstState != null) {
       _enqueue(
@@ -417,7 +394,6 @@ class BytecodeStep {
     LazyGlushList<Mark> marks,
     int ruleId,
     int? realPrec, // already typed as int? — no -1 sentinel needed
-    int currentStateId,
   ) {
     if (context.minPrecedenceLevel != null &&
         realPrec != null &&
@@ -439,7 +415,6 @@ class BytecodeStep {
             parentContext,
             parentMarks,
             returnContext,
-            currentStateId,
           );
         }
       }
@@ -459,13 +434,13 @@ class BytecodeStep {
       tracker.matched = true;
       parseState.memoizePredicateOutcome(key, isMatched: true);
 
-      for (var (_, parentContext, nextStateId, parentMarks) in tracker.waiters) {
+      for (var (parentContext, nextStateId, parentMarks) in tracker.waiters) {
         var exhausted = parseState.decrementTracker(parentContext, "childMatched");
         if (exhausted != null) {
           exhaustedPredicatesSink?.add(exhausted);
         }
         if (tracker.isAnd) {
-          requeue(BytecodeFrame(parentContext, parentMarks, [nextStateId]));
+          requeue(BytecodeFrame(parentContext, parentMarks, nextStateId));
         }
       }
 
@@ -527,7 +502,7 @@ class BytecodeStep {
       return;
     }
 
-    tracker.waiters.add((null, context, nextStateId, marks));
+    tracker.waiters.add((context, nextStateId, marks));
     parseState.incrementTrackers(context, "childPending");
 
     if (isFirst) {
@@ -559,7 +534,6 @@ class BytecodeStep {
     Context parentContext,
     LazyGlushList<Mark> parentMarks,
     Context returnContext,
-    int currentStateId,
   ) {
     if (minPrec != null &&
         returnContext.precedenceLevel != null &&
@@ -585,10 +559,6 @@ class BytecodeStep {
     );
   }
 
-  void finalize() {
-    // Empty, functionality moved to BytecodeParser if needed.
-  }
-
   @pragma("vm:prefer-inline")
   void _enqueueToNextPosition(int stateId, Context context, LazyGlushList<Mark> marks) {
     var nextContext = context.advancePosition(position + 1);
@@ -609,7 +579,7 @@ class BytecodeStep {
       }
     }
 
-    var frame = BytecodeFrame(nextContext, marks, [stateId]);
+    var frame = BytecodeFrame(nextContext, marks, stateId);
     parseState.incrementTrackers(nextContext, "enqueueToNextPosition");
     nextFrames.add(frame);
   }

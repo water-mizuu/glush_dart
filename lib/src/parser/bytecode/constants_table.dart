@@ -1,3 +1,6 @@
+import "package:glush/src/core/patterns.dart";
+import "package:glush/src/parser/bytecode/bytecode_machine.dart" show BytecodeOp;
+
 /// Table for storing non-integer operands used in the bytecode state machine.
 ///
 /// Since the bytecode is a flat array of integers, complex objects like
@@ -6,7 +9,7 @@
 ///
 /// Note: [TokenChoice] patterns were previously stored here but have been
 /// removed — token matching is now fully inlined into specialised opcodes
-/// ([BytecodeOps.tokenExact], [BytecodeOps.tokenRange], etc.), so no
+/// ([BytecodeOp.tokenExact], [BytecodeOp.tokenRange], etc.), so no
 /// runtime lookup into a constants table is needed for token dispatch.
 class ConstantsTable {
   final List<String> _strings = [];

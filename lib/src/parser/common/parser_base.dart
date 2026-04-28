@@ -149,7 +149,7 @@ abstract base class GlushParserBase implements GlushParser {
     tracker.exhausted = true;
     parseState.memoizePredicateOutcome(key, isMatched: false);
 
-    for (var (_, parentContext, nextState, parentMarks) in tracker.waiters) {
+    for (var (parentContext, nextState, parentMarks) in tracker.waiters) {
       var decrementedTracker = parseState.decrementTracker(parentContext, "childExhausted");
       if (decrementedTracker != null) {
         exhaustedPredicates.add(decrementedTracker);

@@ -1,3 +1,4 @@
+import "dart:collection" show HashMap;
 import "dart:typed_data";
 
 import "package:glush/src/core/patterns.dart";
@@ -103,7 +104,7 @@ abstract final class BytecodeOp {
   // --- Return opcodes (split to eliminate null checks on the hot path) ---
 
   /// Returns from a rule with no precedence constraint.
-  /// Operands: [ruleId]
+  /// Operands: [ruleId,]
   static const int retSimple = 16;
 
   /// Returns from a rule with a specific precedence level.
@@ -120,7 +121,7 @@ abstract final class BytecodeOp {
   static const int predicate = 19;
 
   /// Retreats the parser one position backward.
-  /// Operands: [nextState]
+  /// Operands: [nextState,]
   static const int retreat = 20;
 }
 
@@ -156,8 +157,8 @@ class BytecodeMachine {
   ///   - Word  [offset + 16]       : flags — bit 0 = eofNotAtStart,
   ///                                          bit 1 = eofAtStart.
   ///
-  /// The per-rule offset is encoded as the last operand of every [call] and
-  /// [tailCall] instruction, enabling a direct [Int32List] lookup with no
+  /// The per-rule offset is encoded as the last operand of every [call,] and
+  /// [tailCall,] instruction, enabling a direct [Int32List] lookup with no
   /// [HashMap] indirection.
   final Int32List admissibility;
 }
