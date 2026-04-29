@@ -149,7 +149,7 @@ class Step {
     var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
-    parseState.tracer?.onMessage("Spawning sub-parse for predicate: $symbol");
+    parseState.tracer?.onMessage("Spawning sub-parse for predicate: $symbol at $entryState");
 
     _enqueue(
       entryState,
@@ -615,6 +615,10 @@ class Step {
   ///
   /// This method coordinates between existing trackers and spawning new
   /// sub-parses to resolve a lookahead condition.
+  ///
+  /// For token-only predicates, it directly evaluates the pattern against
+  /// the current token without spawning a sub-parse, providing significant
+  /// performance improvement.
   void _handlePredicate({
     required PatternSymbol symbol,
     required Frame frame,
@@ -622,6 +626,23 @@ class Step {
     required State nextState,
     StateAction? action,
   }) {
+    // Fast path: try direct token evaluation for token-only predicates
+    var rule = parseState.rulesById[symbol];
+    if (rule != null) {
+      var bodyPattern = rule.body();
+      if (bodyPattern.isTokenOnly()) {
+        _handleTokenOnlyPredicate(
+          pattern: bodyPattern,
+          frame: frame,
+          isAnd: isAnd,
+          nextState: nextState,
+          action: action,
+        );
+        return;
+      }
+    }
+
+    // Slow path: full sub-parse for general predicates
     var frameContext = frame.context;
     var frameToken = _getTokenFor(frame);
     var subParseKey = PredicateKey(symbol, position, isAnd: isAnd);
@@ -716,6 +737,46 @@ class Step {
 
     if (isFirst) {
       _spawnPredicateSubparse(symbol, frame, isAnd: isAnd);
+    }
+  }
+
+  /// Fast-path handler for token-only predicates.
+  ///
+  /// Directly evaluates the pattern against the current input token without
+  /// spawning a sub-parse. Token-only predicates can be resolved immediately
+  /// by checking if the current token matches the pattern.
+  ///
+  /// This optimization significantly reduces overhead for simple lookahead
+  /// predicates like `&'a'` or `!('a'|'b')`.
+  void _handleTokenOnlyPredicate({
+    required Pattern pattern,
+    required Frame frame,
+    required bool isAnd,
+    required State nextState,
+    StateAction? action,
+  }) {
+    var frameToken = _getTokenFor(frame);
+    var matches = pattern.match(frameToken);
+
+    // Determine if the predicate succeeds based on AND/NOT and match result
+    var predicateSucceeds = isAnd ? matches : !matches;
+
+    GlushProfiler.increment("parser.predicates.token_only");
+    if (isAnd) {
+      GlushProfiler.increment("parser.predicates.and");
+    } else {
+      GlushProfiler.increment("parser.predicates.not");
+    }
+
+    if (predicateSucceeds) {
+      _resumeLaggedPredicateContinuation(
+        parentContext: frame.context,
+        parentMarks: frame.marks,
+        nextState: nextState,
+        isAnd: isAnd,
+        symbol: pattern.symbolId ?? 0,
+        branchKey: action != null ? ActionBranchKey(action) : null,
+      );
     }
   }
 

@@ -240,6 +240,33 @@ sealed class Pattern {
 
   /// DSL helper for negative lookahead (NOT predicate).
   Not not() => Not(this);
+
+  /// Returns true if this pattern contains only tokens or alternations of tokens.
+  ///
+  /// A token-only pattern is one that can be evaluated without spawning a
+  /// sub-parse—it only requires checking the current input token(s) against
+  /// a fixed set of token choices. This is useful for optimization of
+  /// lookahead predicates.
+  ///
+  /// Examples that are token-only:
+  /// - `Token(ExactToken(97))` - single token
+  /// - `Token(...) | Token(...)` - alternation of tokens
+  /// - `Token.char('a') | Token.char('b')` - char alternations
+  /// - `And(Token.char('a'))` - predicate of a single token
+  ///
+  /// Examples that are NOT token-only:
+  /// - `Seq(Token(...), Token(...))` - sequences require lookahead
+  /// - `RuleCall(...)` - rules must be sub-parsed
+  /// - `Star(Token(...))` - repetitions require sub-parsing
+  bool isTokenOnly() {
+    return switch (this) {
+      Token() => true,
+      Alt(:var left, :var right) => left.isTokenOnly() && right.isTokenOnly(),
+      And(:var pattern) => pattern.isTokenOnly(),
+      Not(:var pattern) => pattern.isTokenOnly(),
+      _ => false,
+    };
+  }
 }
 
 /// Sealed class hierarchy for token choice — replaces the former Object? field.
@@ -973,9 +1000,7 @@ extension type RuleName(String symbol) {}
 /// implements), and it can be called from other patterns using [RuleCall].
 class Rule extends Pattern {
   /// Creates a [Rule] with a [name] and a [_code] thunk for its body.
-  Rule(String name, this._code) : name = RuleName(name), uid = _uidCounter++;
-
-  static int _uidCounter = 1;
+  Rule(String name, this._code) : name = RuleName(name);
 
   /// The unique name of this rule within the grammar.
   final RuleName name;
@@ -985,9 +1010,6 @@ class Rule extends Pattern {
 
   /// A list of all calls made to this rule, used for tracking and expansion.
   final List<RuleCall> calls = [];
-
-  /// A unique numeric ID for fast indexing in the state machine caches.
-  final int uid;
 
   Pattern? _body;
 

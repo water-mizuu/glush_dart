@@ -34,12 +34,12 @@ import "package:glush/src/parser/bytecode/constants_table.dart";
 ///   boundaryEof     [nextState,]
 ///   labelStart      [nameId, nextState]
 ///   labelEnd        [nameId, nextState]
-///   call            [ruleId, returnState, minPrec(-1=none), admissOff]
-///   tailCall        [ruleId, minPrec(-1=none), admissOff]
-///   retSimple       [ruleId,]
-///   retPrec         [ruleId, precedenceLevel]
+///   call            [ruleId, firstStateId, returnState, minPrec(-1=none), admissOff]
+///   tailCall        [firstStateId, minPrec(-1=none), admissOff]
+///   retSimple       []
+///   retPrec         [precedenceLevel,]
 ///   accept          []
-///   predicate       [isAnd(0|1), ruleId, nextState]
+///   predicate       [isAnd(0|1), ruleId, firstStateId, nextState]
 ///   retreat         [nextState,]
 abstract final class BytecodeOp {
   // --- Token opcodes (specialised by TokenChoice variant) ---
@@ -94,21 +94,21 @@ abstract final class BytecodeOp {
   // --- Call opcodes ---
 
   /// Calls a rule with a return address.
-  /// Operands: [ruleId, returnState, minPrec(-1=none), admissOff]
+  /// Operands: [ruleId, firstStateId, returnState, minPrec(-1=none), admissOff]
   static const int call = 14;
 
   /// Tail-recursive rule call (no new GSS frame).
-  /// Operands: [ruleId, minPrec(-1=none), admissOff]
+  /// Operands: [firstStateId, minPrec(-1=none), admissOff]
   static const int tailCall = 15;
 
   // --- Return opcodes (split to eliminate null checks on the hot path) ---
 
   /// Returns from a rule with no precedence constraint.
-  /// Operands: [ruleId,]
+  /// Operands: []
   static const int retSimple = 16;
 
   /// Returns from a rule with a specific precedence level.
-  /// Operands: [ruleId, precedenceLevel]
+  /// Operands: [precedenceLevel]
   static const int retPrec = 17;
 
   // --- Miscellaneous ---
@@ -117,7 +117,7 @@ abstract final class BytecodeOp {
   static const int accept = 18;
 
   /// Initiates a lookahead predicate (&rule or !rule).
-  /// Operands: [isAnd(0|1), ruleId, nextState]
+  /// Operands: [isAnd(0|1), ruleId, firstStateId, nextState]
   static const int predicate = 19;
 
   /// Retreats the parser one position backward.

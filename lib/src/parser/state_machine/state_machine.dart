@@ -1088,24 +1088,23 @@ class StateMachine {
 
           case CallAction(:var ruleSymbol, :var returnState, :var minPrecedenceLevel):
             bytecode.add(BytecodeOp.call);
-            bytecode.add(ruleSymbol);
+            bytecode.add(ruleSymbol); // ruleId for Caller key
+            bytecode.add(ruleFirst[ruleSymbol]!.id); // Emit first state ID directly
             bytecode.add(returnState.id);
             bytecode.add(minPrecedenceLevel ?? -1);
             bytecode.add(admissOffsets[ruleSymbol]!);
 
           case TailCallAction(:var ruleSymbol, :var minPrecedenceLevel):
             bytecode.add(BytecodeOp.tailCall);
-            bytecode.add(ruleSymbol);
+            bytecode.add(ruleFirst[ruleSymbol]!.id); // Emit first state ID directly
             bytecode.add(minPrecedenceLevel ?? -1);
             bytecode.add(admissOffsets[ruleSymbol]!);
 
-          case ReturnAction(:var ruleSymbol, :var precedenceLevel):
+          case ReturnAction(:var precedenceLevel):
             if (precedenceLevel == null) {
               bytecode.add(BytecodeOp.retSimple);
-              bytecode.add(ruleSymbol);
             } else {
               bytecode.add(BytecodeOp.retPrec);
-              bytecode.add(ruleSymbol);
               bytecode.add(precedenceLevel);
             }
 
@@ -1115,7 +1114,8 @@ class StateMachine {
           case PredicateAction(:var isAnd, :var symbol, :var nextState):
             bytecode.add(BytecodeOp.predicate);
             bytecode.add(isAnd ? 1 : 0);
-            bytecode.add(symbol);
+            bytecode.add(symbol); // Keep ruleId for predicate key/pattern lookup
+            bytecode.add(ruleFirst[symbol]!.id); // Emit first state ID directly
             bytecode.add(nextState.id);
 
           case RetreatAction(:var nextState):

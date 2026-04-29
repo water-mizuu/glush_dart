@@ -1,5 +1,6 @@
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/bytecode/bytecode_frame.dart";
 import "package:glush/src/parser/bytecode/bytecode_machine.dart";
 import "package:glush/src/parser/bytecode/bytecode_parse_state.dart";
@@ -245,6 +246,7 @@ class BytecodeStep {
 
         case BytecodeOp.call:
           var ruleId = bytecode[offset++];
+          var firstStateId = bytecode[offset++];
           var returnStateId = bytecode[offset++];
           var minPrec = bytecode[offset++];
           var admissOff = bytecode[offset++];
@@ -253,11 +255,11 @@ class BytecodeStep {
             admissOff,
             context.position == 0,
           )) {
-            _processCall(context, marks, ruleId, returnStateId, minPrec);
+            _processCall(context, marks, ruleId, firstStateId, returnStateId, minPrec);
           }
 
         case BytecodeOp.tailCall:
-          var ruleId = bytecode[offset++];
+          var firstStateId = bytecode[offset++];
           var minPrec = bytecode[offset++];
           var admissOff = bytecode[offset++];
           if (_checkAdmissibility(
@@ -265,17 +267,17 @@ class BytecodeStep {
             admissOff,
             context.position == 0,
           )) {
-            _processTailCall(context, marks, ruleId, minPrec);
+            _processTailCall(context, marks, firstStateId, minPrec);
           }
 
         // --- Return opcodes (split to avoid null-check overhead on the common
         //     no-precedence path) ---
 
         case BytecodeOp.retSimple:
-          _processReturn(context, marks, bytecode[offset++], null);
+          _processReturn(context, marks, null);
 
         case BytecodeOp.retPrec:
-          _processReturn(context, marks, bytecode[offset++], bytecode[offset++]);
+          _processReturn(context, marks, bytecode[offset++]);
 
         // --- Miscellaneous ---
 
@@ -287,6 +289,7 @@ class BytecodeStep {
             context,
             marks,
             bytecode[offset++] == 1,
+            bytecode[offset++],
             bytecode[offset++],
             bytecode[offset++],
           );
@@ -328,6 +331,7 @@ class BytecodeStep {
     Context context,
     LazyGlushList<Mark> marks,
     int ruleId,
+    int firstStateId,
     int returnStateId,
     int minPrec,
   ) {
@@ -345,20 +349,17 @@ class BytecodeStep {
 
     var isNewWaiter = caller.addWaiter(returnStateId, realMinPrec, context, marks);
     if (caller.waiters.length == 1 && isNewWaiter) {
-      var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
-      if (firstState != null) {
-        _enqueue(
-          firstState.id,
-          Context(
-            caller,
-            predicateStack: context.predicateStack,
-            callStart: position,
-            position: position,
-            minPrecedenceLevel: realMinPrec,
-          ),
-          const LazyGlushList<Mark>.empty(),
-        );
-      }
+      _enqueue(
+        firstStateId,
+        Context(
+          caller,
+          predicateStack: context.predicateStack,
+          callStart: position,
+          position: position,
+          minPrecedenceLevel: realMinPrec,
+        ),
+        const LazyGlushList<Mark>.empty(),
+      );
     } else if (isNewWaiter) {
       for (var (returnContext, _) in caller.returns) {
         _triggerReturn(
@@ -374,25 +375,21 @@ class BytecodeStep {
     }
   }
 
-  void _processTailCall(Context context, LazyGlushList<Mark> marks, int ruleId, int minPrec) {
-    var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
-    if (firstState != null) {
-      _enqueue(
-        firstState.id,
-        context.copyWith(
-          position: position,
-          callStart: position,
-          minPrecedenceLevel: minPrec == -1 ? null : minPrec,
-        ),
-        marks,
-      );
-    }
+  void _processTailCall(Context context, LazyGlushList<Mark> marks, int firstStateId, int minPrec) {
+    _enqueue(
+      firstStateId,
+      context.copyWith(
+        position: position,
+        callStart: position,
+        minPrecedenceLevel: minPrec == -1 ? null : minPrec,
+      ),
+      marks,
+    );
   }
 
   void _processReturn(
     Context context,
     LazyGlushList<Mark> marks,
-    int ruleId,
     int? realPrec, // already typed as int? — no -1 sentinel needed
   ) {
     if (context.minPrecedenceLevel != null &&
@@ -461,6 +458,7 @@ class BytecodeStep {
     LazyGlushList<Mark> marks,
     bool isAnd,
     int ruleId,
+    int firstStateId,
     int nextStateId,
   ) {
     var predicateKey = PredicateKey(ruleId, position, isAnd: isAnd);
@@ -472,11 +470,24 @@ class BytecodeStep {
       return;
     }
 
-    var firstState = parseState.parser.stateMachine.ruleFirst[ruleId];
-    if (firstState == null) {
-      return;
+    // Fast path: try direct token evaluation for token-only predicates
+    var rule = parseState.parser.stateMachine.allRules[ruleId];
+    if (rule != null) {
+      var bodyPattern = rule.body();
+      if (bodyPattern.isTokenOnly()) {
+        _handleTokenOnlyPredicate(
+          pattern: bodyPattern,
+          context: context,
+          marks: marks,
+          isAnd: isAnd,
+          nextStateId: nextStateId,
+          predicateKey: predicateKey,
+        );
+        return;
+      }
     }
 
+    // Slow path: full sub-parse for general predicates
     var isFirst = !parseState.trackers.containsKey(predicateKey);
     var predicateCallerKey = PredicateCallerKey(ruleId, position, isAnd: isAnd);
     var tracker =
@@ -508,7 +519,7 @@ class BytecodeStep {
     if (isFirst) {
       var nextStack = context.predicateStack.add(predicateCallerKey);
       _enqueue(
-        firstState.id,
+        firstStateId,
         Context(
           predicateCallerKey,
           predicateStack: nextStack,
@@ -517,6 +528,36 @@ class BytecodeStep {
         ),
         const LazyGlushList<Mark>.empty(),
       );
+    }
+  }
+
+  /// Fast-path handler for token-only predicates in bytecode.
+  ///
+  /// Directly evaluates the pattern against the current input token without
+  /// spawning a sub-parse. Token-only predicates can be resolved immediately
+  /// by checking if the current token matches the pattern.
+  ///
+  /// This optimization significantly reduces overhead for simple lookahead
+  /// predicates like `&'a'` or `!('a'|'b')`.
+  void _handleTokenOnlyPredicate({
+    required Pattern pattern,
+    required Context context,
+    required LazyGlushList<Mark> marks,
+    required bool isAnd,
+    required int nextStateId,
+    required PredicateKey predicateKey,
+  }) {
+    var frameToken = _getTokenForPos(context.position);
+    var matches = pattern.match(frameToken);
+
+    // Determine if the predicate succeeds based on AND/NOT and match result
+    var predicateSucceeds = isAnd ? matches : !matches;
+
+    // Memoize the outcome for future occurrences at this position
+    parseState.memoizePredicateOutcome(predicateKey, isMatched: matches);
+
+    if (predicateSucceeds) {
+      _enqueue(nextStateId, context, marks);
     }
   }
 
