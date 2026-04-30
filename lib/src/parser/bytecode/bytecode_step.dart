@@ -387,11 +387,7 @@ class BytecodeStep {
     );
   }
 
-  void _processReturn(
-    Context context,
-    LazyGlushList<Mark> marks,
-    int? realPrec, // already typed as int? — no -1 sentinel needed
-  ) {
+  void _processReturn(Context context, LazyGlushList<Mark> marks, int? realPrec) {
     if (context.minPrecedenceLevel != null &&
         realPrec != null &&
         realPrec < context.minPrecedenceLevel!) {
