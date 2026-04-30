@@ -92,5 +92,20 @@ void main() {
 
       expect(parser.recognize("ssssssssssssssssssss"), isTrue);
     });
+
+    test("kicks in for mutual tail recursion with SCC-based base case", () {
+      var grammar = Grammar(() {
+        late Rule a, b;
+        a = Rule("A", () => Token.char("a") >> b.call());
+        b = Rule("B", () => Token.char("b") >> a.call() | Token.char("x"));
+
+        return a;
+      });
+
+      var parser = SMParser(grammar);
+      // Both A and B should have TCO even though A has no direct base case
+      // The base case lives in B's second alternative
+      expect(_tailCallActionCount(parser), greaterThan(0));
+    });
   });
 }

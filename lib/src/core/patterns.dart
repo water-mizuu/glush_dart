@@ -596,10 +596,10 @@ class Alt extends Pattern {
   Alt(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   /// The first alternative pattern.
-  Pattern left;
+  final Pattern left;
 
   /// The second alternative pattern.
-  Pattern right;
+  final Pattern right;
 
   @override
   Alt copy() => Alt(left, right);
@@ -666,10 +666,10 @@ class Seq extends Pattern {
   Seq(Pattern left, Pattern right) : left = left.consume(), right = right.consume();
 
   /// The pattern that must match first.
-  Pattern left;
+  final Pattern left;
 
   /// The pattern that must match second.
-  Pattern right;
+  final Pattern right;
 
   @override
   Seq copy() => Seq(left, right);
@@ -743,7 +743,7 @@ class Opt extends Pattern {
   Opt(Pattern child) : child = child.consume();
 
   /// The optional child pattern.
-  Pattern child;
+  final Pattern child;
 
   @override
   Opt copy() => Opt(child);
@@ -790,7 +790,7 @@ class Star extends Pattern {
   Star(Pattern child) : child = child.consume();
 
   /// The repeating child pattern.
-  Pattern child;
+  final Pattern child;
 
   @override
   Star copy() => Star(child);
@@ -845,7 +845,7 @@ class Plus extends Pattern {
   Plus(Pattern child) : child = child.consume();
 
   /// The repeating child pattern.
-  Pattern child;
+  final Pattern child;
 
   @override
   Plus copy() => Plus(child);
@@ -900,7 +900,7 @@ class And extends Pattern {
   And(Pattern p) : pattern = p.consume();
 
   /// The lookahead pattern.
-  Pattern pattern;
+  final Pattern pattern;
 
   @override
   And copy() => And(pattern);
@@ -950,7 +950,7 @@ class Not extends Pattern {
   Not(Pattern p) : pattern = p.consume();
 
   /// The lookahead pattern to be negated.
-  Pattern pattern;
+  final Pattern pattern;
 
   @override
   Not copy() => Not(pattern);
@@ -1153,7 +1153,7 @@ class Prec extends Pattern {
   final int precedenceLevel;
 
   /// The child pattern being labeled.
-  Pattern child;
+  final Pattern child;
 
   @override
   Prec copy() => Prec(precedenceLevel, child.copy());
@@ -1214,7 +1214,7 @@ class Label extends Pattern {
   final String name;
 
   /// The pattern being labeled.
-  Pattern child;
+  final Pattern child;
 
   late final LabelStart _start;
   late final LabelEnd _end;

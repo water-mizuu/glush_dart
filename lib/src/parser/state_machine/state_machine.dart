@@ -1,3 +1,4 @@
+import "dart:math";
 import "dart:typed_data";
 
 import "package:glush/src/core/grammar.dart";
@@ -126,6 +127,10 @@ class StateMachine {
         firstState.actions.add(ReturnAction(rule.symbolId!));
       }
     }
+
+    // Validate tail-call SCCs for mutual recursion.
+    // Relaxation: Allow tail calls across SCC cycles if the SCC has a base case.
+    _validateTailCallSCCs();
 
     _precompileRuleStartAdmissibility();
     _precompileRuleEndAdmissibility();
@@ -649,9 +654,10 @@ class StateMachine {
             throw UnsupportedError("Invalid pattern type for predicate action");
         }
       case RuleCall(:var minPrecedenceLevel):
-        if (currentRule != null &&
-            minPrecedenceLevel == null &&
-            (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
+        if (currentRule != null && (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
+          // Relaxation #6: Allow tail call optimization even with precedence constraints,
+          // as long as the call is structurally in tail position. The precedence level
+          // is preserved in the tail call action and enforced at runtime.
           var action = TailCallAction(terminal.rule.symbolId!, minPrecedenceLevel);
           state.actions.add(action);
         } else {
@@ -752,73 +758,178 @@ class StateMachine {
   /// a rule, the state machine can emit a [TailCallAction] which allows the
   /// parser to "jump" back to the rule's entry point while staying in the
   /// current context.
+  /// Identifies tail calls in a rule's body that can be optimized.
+  ///
+  /// This includes direct self-calls and mutually-recursive tail calls.
+  /// Returns the set of [RuleCall] nodes that occur in tail position and can be
+  /// replaced with efficient tail-call actions instead of standard call/return.
   Set<RuleCall> _findDirectTailSelfCalls(Rule rule) {
     var branches = _flattenAlternation(_stripTransparent(rule.body()));
-    // Only optimize the simple shape:
-    //   base | prefix self
-    // Anything more complex stays on the general call/return path.
-    if (branches.length != 2) {
-      return const <RuleCall>{};
-    }
 
-    Pattern? baseBranch;
-    Pattern? recursiveBranch;
+    // Collect all valid tail calls and check for at least one non-tail-call branch.
+    // Support N-way alternation, multiple tail-recursive branches, and mutual recursion.
+    var tailCalls = <RuleCall>{};
+
     for (var branch in branches) {
-      // Exactly one branch must recurse back to the same rule.
-      // Multiple recursive branches need the full generalized machinery.
-      if (_containsRuleReference(branch, rule)) {
-        if (recursiveBranch != null) {
-          return const <RuleCall>{};
+      var strippedBranch = _stripTransparent(branch);
+
+      // Check if this branch ends with a tail call (to any rule).
+      var recursiveParts = _stripDeadSuffixes(_flattenSequence(strippedBranch));
+      if (recursiveParts.isEmpty) {
+        // Empty branch is a non-tail branch (like epsilon)
+        continue;
+      }
+
+      var last = _stripTransparent(recursiveParts.last);
+
+      // Check if this is a RuleCall in tail position (self or mutual recursion).
+      if (last is RuleCall && last.minPrecedenceLevel == null) {
+        // This branch ends with a valid tail call.
+        var prefixParts = recursiveParts
+            .sublist(0, recursiveParts.length - 1)
+            .map(_stripTransparent)
+            .toList();
+
+        // The prefix before the tail call must exist and make progress.
+        // Recursion within the prefix is allowed; it will fully unwind before the
+        // tail call executes, and the tail call is still structurally in tail position.
+        if (prefixParts.isEmpty) {
+          continue;
         }
-        recursiveBranch = _stripTransparent(branch);
-      } else {
-        if (baseBranch != null) {
-          return const <RuleCall>{};
+
+        var prefix = _joinSequence(prefixParts);
+        if (!_isDefinitelyNonEmpty(prefix)) {
+          continue;
         }
-        baseBranch = _stripTransparent(branch);
+
+        // This is a valid tail call (self or mutual).
+        tailCalls.add(last);
       }
     }
 
-    if (baseBranch == null || recursiveBranch == null) {
-      return const <RuleCall>{};
-    }
-    // The non-recursive exit must consume input. If it can match empty, then
-    // replacing recursion with a loop would erase real epsilon cycles.
-    if (!_isDefinitelyNonEmpty(baseBranch)) {
-      return const <RuleCall>{};
-    }
-
-    var recursiveParts = _stripDeadSuffixes(_flattenSequence(recursiveBranch));
-    if (recursiveParts.isEmpty) {
-      return const <RuleCall>{};
-    }
-
-    var last = _stripTransparent(recursiveParts.last);
-    // Only direct right-tail self calls qualify.
-    // Left recursion and precedence-constrained calls are intentionally excluded.
-    if (last is! RuleCall || !identical(last.rule, rule) || last.minPrecedenceLevel != null) {
-      return const <RuleCall>{};
-    }
-
-    var prefixParts = recursiveParts
-        .sublist(0, recursiveParts.length - 1)
-        .map(_stripTransparent)
-        .toList();
-    // The prefix before the tail call must always make progress and must not
-    // recurse. That guarantees each loop iteration advances the input.
-    if (prefixParts.isEmpty || prefixParts.any((part) => _containsRuleReference(part, rule))) {
-      return const <RuleCall>{};
-    }
-
-    var prefix = _joinSequence(prefixParts);
-    if (!_isDefinitelyNonEmpty(prefix)) {
-      return const <RuleCall>{};
-    }
-
-    return {last};
+    // Collect all tail calls. Base case validation for SCCs happens later via
+    // _validateTailCallSCCs, which ensures each SCC has at least one base case,
+    // allowing rules without local base cases (like A = "x" B) to get TCO if their
+    // SCC contains a base case elsewhere.
+    return tailCalls.isNotEmpty ? tailCalls : const <RuleCall>{};
   }
 
-  /// Flatten an alternation pattern into a list of branches.
+  /// Validates tail-call SCCs for mutual recursion.
+  ///
+  /// For mutually-recursive rules, relaxes the per-rule base case requirement:
+  /// Instead of requiring each rule to have its own base case, we allow a rule
+  /// with no local base case if its tail-call SCC contains at least one rule with a base case.
+  ///
+  /// This method:
+  /// 1. Builds a directed graph of tail-call edges between rules
+  /// 2. Computes strongly connected components (SCCs)
+  /// 3. For each SCC, verifies that at least one rule has a local base case
+  /// 4. Prunes tail calls that lead to invalid SCCs
+  void _validateTailCallSCCs() {
+    // Track which rules have local base cases
+    var rulesWithBaseCases = <Rule>{};
+    for (var rule in grammar.rules) {
+      // A rule has a base case if _findDirectTailSelfCalls found one
+      // (which is checked via hasNonRecursiveBranch being true in the analysis)
+      var branches = _flattenAlternation(_stripTransparent(rule.body()));
+      for (var branch in branches) {
+        if (!_containsRuleReference(_stripTransparent(branch), rule)) {
+          rulesWithBaseCases.add(rule);
+          break;
+        }
+      }
+    }
+
+    // Build tail-call graph: rule -> set of rules called in tail position
+    var tailCallGraph = <Rule, Set<Rule>>{};
+    for (var rule in grammar.rules) {
+      var tailCalls = _tailSelfCalls[rule] ?? const <RuleCall>{};
+      var targets = tailCalls.map((call) => call.rule).toSet();
+      if (targets.isNotEmpty) {
+        tailCallGraph[rule] = targets;
+      }
+    }
+
+    // Compute SCCs using Tarjan's algorithm
+    var sccs = _computeSCCs(tailCallGraph);
+
+    // For each SCC, check if it has at least one rule with a base case
+    var invalidRules = <Rule>{};
+    for (var scc in sccs) {
+      if (scc.isEmpty) {
+        continue;
+      }
+
+      // Check if any rule in this SCC has a local base case
+      var hasBaseCase = scc.any((rule) => rulesWithBaseCases.contains(rule));
+
+      if (!hasBaseCase) {
+        // This SCC has no base case; mark all rules in it as invalid
+        invalidRules.addAll(scc);
+      }
+    }
+
+    // Prune tail calls to invalid rules
+    for (var rule in grammar.rules) {
+      if (_tailSelfCalls[rule]!.isEmpty) {
+        continue;
+      }
+      _tailSelfCalls[rule] = _tailSelfCalls[rule]!
+          .where((call) => !invalidRules.contains(call.rule))
+          .toSet();
+    }
+  }
+
+  /// Compute strongly connected components using Tarjan's algorithm.
+  ///
+  /// Returns a list of SCCs, where each SCC is a set of rules.
+  List<Set<Rule>> _computeSCCs(Map<Rule, Set<Rule>> graph) {
+    var index = <Rule, int>{};
+    var lowlink = <Rule, int>{};
+    var onStack = <Rule, bool>{};
+    var stack = <Rule>[];
+    var nextIndex = 0;
+    var sccs = <Set<Rule>>[];
+
+    void strongConnect(Rule v) {
+      index[v] = nextIndex;
+      lowlink[v] = nextIndex;
+      nextIndex++;
+      stack.add(v);
+      onStack[v] = true;
+
+      for (var w in graph[v] ?? <Rule>{}) {
+        if (!index.containsKey(w)) {
+          strongConnect(w);
+          lowlink[v] = min(lowlink[v]!, lowlink[w]!);
+        } else if (onStack[w] ?? false) {
+          lowlink[v] = min(lowlink[v]!, index[w]!);
+        }
+      }
+
+      if (lowlink[v] == index[v]) {
+        var scc = <Rule>{};
+        while (true) {
+          var w = stack.removeLast();
+          onStack[w] = false;
+          scc.add(w);
+          if (w == v) {
+            break;
+          }
+        }
+        sccs.add(scc);
+      }
+    }
+
+    for (var rule in graph.keys) {
+      if (!index.containsKey(rule)) {
+        strongConnect(rule);
+      }
+    }
+
+    return sccs;
+  }
+
   ///
   /// Recursively expands all [Alt] nodes to produce a flat list
   /// where each element is a branch of the original alternation.

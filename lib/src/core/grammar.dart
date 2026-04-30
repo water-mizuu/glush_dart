@@ -173,9 +173,10 @@ class Grammar implements GrammarInterface {
   /// The loop intentionally uses an index against [rules] so synthetic
   /// rules appended during normalization are processed in the same pass.
   void _normalizePatterns() {
+    var cache = <Pattern, Pattern>{};
     for (int i = 0; i < rules.length; i++) {
       var rule = rules[i];
-      rule.setBody(_normalizePattern(rule.body(), <Pattern>{}));
+      rule.setBody(_normalizePattern(rule.body(), cache));
     }
   }
 
@@ -195,58 +196,72 @@ class Grammar implements GrammarInterface {
   /// This is the core logic for hoisting anonymous patterns into synthetic rules.
   /// It specifically targets patterns that require rule-level anchoring for
   /// correct forest construction, such as patterns used in predicates.
-  Pattern _normalizePattern(Pattern pattern, Set<Pattern> seen) {
-    if (!seen.add(pattern)) {
-      return pattern;
+  Pattern _normalizePattern(Pattern pattern, Map<Pattern, Pattern> cache) {
+    if (cache.containsKey(pattern)) {
+      return cache[pattern]!;
     }
 
     if (pattern is Rule) {
-      return _normalizePattern(pattern.call(), seen);
+      return _normalizePattern(pattern.call(), cache);
     }
 
     if (pattern is RuleCall) {
-      pattern = RuleCall(
+      var result = RuleCall(
         pattern.name,
         pattern.rule,
         minPrecedenceLevel: pattern.minPrecedenceLevel,
       );
-      return pattern;
+      cache[pattern] = result;
+      return result;
     }
 
     if (pattern is And) {
-      pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      pattern.pattern = _ensureRuleCallPattern(pattern.pattern, "pred");
-      return pattern;
+      var inner = _normalizePattern(pattern.pattern, cache);
+      inner = _ensureRuleCallPattern(inner, "pred");
+      var result = (inner == pattern.pattern) ? pattern : And(inner);
+      cache[pattern] = result;
+      return result;
     }
 
     if (pattern is Not) {
-      pattern.pattern = _normalizePattern(pattern.pattern, seen);
-      pattern.pattern = _ensureRuleCallPattern(pattern.pattern, "pred");
-      return pattern;
+      var inner = _normalizePattern(pattern.pattern, cache);
+      inner = _ensureRuleCallPattern(inner, "pred");
+      var result = (inner == pattern.pattern) ? pattern : Not(inner);
+      cache[pattern] = result;
+      return result;
     }
 
     // Traditional discovery of children to continue walk
-    switch (pattern) {
-      case Seq seq:
-        seq.left = _normalizePattern(seq.left, seen);
-        seq.right = _normalizePattern(seq.right, seen);
-      case Alt alt:
-        alt.left = _normalizePattern(alt.left, seen);
-        alt.right = _normalizePattern(alt.right, seen);
-      case Prec plp:
-        plp.child = _normalizePattern(plp.child, seen);
-      case Opt opt:
-        opt.child = _normalizePattern(opt.child, seen);
-      case Plus plus:
-        plus.child = _normalizePattern(plus.child, seen);
-      case Star star:
-        star.child = _normalizePattern(star.child, seen);
-      case Label label:
-        label.child = _normalizePattern(label.child, seen);
-      default:
-        break;
+    Pattern result;
+    if (pattern is Seq) {
+      var left = _normalizePattern(pattern.left, cache);
+      var right = _normalizePattern(pattern.right, cache);
+      result = (left == pattern.left && right == pattern.right) ? pattern : Seq(left, right);
+    } else if (pattern is Alt) {
+      var left = _normalizePattern(pattern.left, cache);
+      var right = _normalizePattern(pattern.right, cache);
+      result = (left == pattern.left && right == pattern.right) ? pattern : Alt(left, right);
+    } else if (pattern is Prec) {
+      var child = _normalizePattern(pattern.child, cache);
+      result = (child == pattern.child) ? pattern : Prec(pattern.precedenceLevel, child);
+    } else if (pattern is Opt) {
+      var child = _normalizePattern(pattern.child, cache);
+      result = (child == pattern.child) ? pattern : Opt(child);
+    } else if (pattern is Plus) {
+      var child = _normalizePattern(pattern.child, cache);
+      result = (child == pattern.child) ? pattern : Plus(child);
+    } else if (pattern is Star) {
+      var child = _normalizePattern(pattern.child, cache);
+      result = (child == pattern.child) ? pattern : Star(child);
+    } else if (pattern is Label) {
+      var child = _normalizePattern(pattern.child, cache);
+      result = (child == pattern.child) ? pattern : Label(pattern.name, child);
+    } else {
+      result = pattern;
     }
-    return pattern;
+
+    cache[pattern] = result;
+    return result;
   }
 
   /// Recursively discovers all patterns within a given pattern structure.
