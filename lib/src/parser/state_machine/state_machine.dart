@@ -67,7 +67,7 @@ class StateMachine {
   /// 4. Analyzes the grammar for tail-call optimization opportunities.
   /// 5. Builds precedence maps to resolve operator priority.
   StateMachine(this.grammar) {
-    _initializeFollowSetEntries();
+    resize(grammar.registry.length);
 
     var initState = _getOrCreateState(const InitStateKey());
     _connect(initState, grammar.startCall);
@@ -85,12 +85,14 @@ class StateMachine {
         "Invariant violation in StateMachine: "
         /* */ "rule.symbolId must be assigned before compilation.",
       );
-      rules.add(rule.symbolId!);
-      allRules[rule.symbolId!] = rule;
+      var symbolId = rule.symbolId!;
+      rules.add(symbolId);
+      allRules[symbolId] = rule;
 
       var firstState = _getOrCreateState(PatternStateKey(rule));
-      ruleFirst[rule.symbolId!] = firstState;
-      _tailSelfCalls[rule] = _findDirectTailSelfCalls(rule);
+      ruleFirst[symbolId] = firstState;
+
+      _tailSelfCalls[symbolId] = _findDirectTailSelfCalls(rule);
 
       var ruleBody = rule.body();
       // Pre-calculate precedence mapping for this rule's body
@@ -147,21 +149,42 @@ class StateMachine {
   StateMachine.empty(this.grammar);
   final GrammarInterface grammar;
   final List<PatternSymbol> rules = [];
-  final Map<PatternSymbol, State> ruleFirst = {};
-  final Map<Pattern, Set<Pattern>> _followSets = {};
+
+  /// Resizes all rule-indexed lookup lists to [size].
+  void resize(int size) {
+    allRules.length = size;
+    ruleFirst.length = size;
+    _ruleStartAdmissibilityTables.length = size;
+    _ruleEndAdmissibilityTables.length = size;
+
+    while (_ruleFollowPatterns.length < size) {
+      _ruleFollowPatterns.add({});
+      _ruleStartAdmissibilityCache.add({});
+      _ruleEndAdmissibilityCache.add({});
+      _followSets.add({});
+      _tailSelfCalls.add({});
+    }
+
+    if (_idToKey != null) {
+      _idToKey!.length = size;
+    }
+  }
+
+  final List<State?> ruleFirst = [];
+  final List<Set<Pattern>> _followSets = [];
 
   /// All rules (including synthetic ones) indexed by their symbol.
-  final Map<PatternSymbol, Rule> allRules = {};
+  final List<Rule?> allRules = [];
   List<State>? _cachedStates;
   List<State> _initialStates = [];
 
   final Map<StateKey, State> _stateMapping = {};
-  final Map<Rule, Set<RuleCall>> _tailSelfCalls = {};
-  final Map<(PatternSymbol, int?, bool), bool> _ruleStartAdmissibilityCache = {};
-  final Map<PatternSymbol, _RuleStartAdmissibilityTable> _ruleStartAdmissibilityTables = {};
-  final Map<PatternSymbol, Set<Pattern>> _ruleFollowPatterns = {};
-  final Map<(PatternSymbol, int?, bool), bool> _ruleEndAdmissibilityCache = {};
-  final Map<PatternSymbol, _RuleEndAdmissibilityTable> _ruleEndAdmissibilityTables = {};
+  final List<Set<RuleCall>> _tailSelfCalls = [];
+  final List<Map<int?, (bool, bool)>> _ruleStartAdmissibilityCache = [];
+  final List<_RuleStartAdmissibilityTable?> _ruleStartAdmissibilityTables = [];
+  final List<Set<Pattern>> _ruleFollowPatterns = [];
+  final List<Map<int?, (bool, bool)>> _ruleEndAdmissibilityCache = [];
+  final List<_RuleEndAdmissibilityTable?> _ruleEndAdmissibilityTables = [];
 
   static const int _precompiledTokenMin = 0;
   static const int _precompiledTokenMax = 255;
@@ -170,19 +193,25 @@ class StateMachine {
   ///
   /// This set is computed during state machine compilation from the same
   /// first/last/pair analysis used to build transitions.
-  Set<Pattern> followSetOf(Pattern pattern) => _followSets[pattern] ?? const <Pattern>{};
-
-  /// Whether [pattern] has an explicitly assigned follow-set entry.
-  bool hasFollowSetEntry(Pattern pattern) => _followSets.containsKey(pattern);
-
-  void _recordFollow(Pattern from, Pattern to) {
-    (_followSets[from] ??= <Pattern>{}).add(to);
+  Set<Pattern> followSetOf(Pattern pattern) {
+    if (pattern.symbolId == null || pattern.symbolId! >= _followSets.length) {
+      return const <Pattern>{};
+    }
+    return _followSets[pattern.symbolId!];
   }
 
-  void _initializeFollowSetEntries() {
-    for (var pattern in grammar.registry.values) {
-      _followSets.putIfAbsent(pattern, () => <Pattern>{});
+  /// Whether [pattern] has an explicitly assigned follow-set entry.
+  bool hasFollowSetEntry(Pattern pattern) =>
+      pattern.symbolId != null &&
+      pattern.symbolId! < _followSets.length &&
+      _followSets[pattern.symbolId!].isNotEmpty;
+
+  void _recordFollow(Pattern from, Pattern to) {
+    var fromId = from.symbolId!;
+    if (fromId >= _followSets.length) {
+      resize(fromId + 1);
     }
+    _followSets[fromId].add(to);
   }
 
   /// Returns true if [symbol] can potentially finish such that the next token
@@ -191,29 +220,25 @@ class StateMachine {
   /// This is conservative: it returns false only when followers are known and
   /// all of them are definitely incompatible with [token].
   bool canRuleEndWith(PatternSymbol symbol, int? token, {required bool isAtStart}) {
+    var cached = _ruleEndAdmissibilityCache[symbol][token];
+    if (cached != null) {
+      return isAtStart ? cached.$1 : cached.$2;
+    }
+
+    /// These should already have been precompiled.
     var table = _ruleEndAdmissibilityTables[symbol];
-    if (table != null) {
-      if (token == null) {
-        return isAtStart ? table.eofAtStart : table.eofNotAtStart;
-      }
-      if (token >= _precompiledTokenMin && token <= _precompiledTokenMax) {
-        return isAtStart ? table.atStart[token] : table.notAtStart[token];
-      }
+    if (table == null) {
+      return true;
     }
 
-    var key = (symbol, token, isAtStart);
-    if (_ruleEndAdmissibilityCache[key] case var cached?) {
-      return cached;
+    if (token == null) {
+      return isAtStart ? table.eofAtStart : table.eofNotAtStart;
+    }
+    if (_precompiledTokenMin <= token && token <= _precompiledTokenMax) {
+      return isAtStart ? table.atStart[token] : table.notAtStart[token];
     }
 
-    var result = _canRuleEndWith(
-      symbol,
-      token,
-      isAtStart: isAtStart,
-      visitingRules: <PatternSymbol>{},
-    );
-    _ruleEndAdmissibilityCache[key] = result;
-    return result;
+    return true;
   }
 
   bool _canRuleEndWith(
@@ -228,7 +253,7 @@ class StateMachine {
     }
 
     var followers = _ruleFollowPatterns[symbol];
-    if (followers == null || followers.isEmpty) {
+    if (followers.isEmpty) {
       visitingRules.remove(symbol);
       if (symbol == grammar.startSymbol) {
         return token == null;
@@ -303,46 +328,29 @@ class StateMachine {
   }
 
   void _recordRuleFollower(PatternSymbol callee, Pattern follower) {
-    (_ruleFollowPatterns[callee] ??= <Pattern>{}).add(follower);
+    _ruleFollowPatterns[callee].add(follower);
   }
 
   void _precompileRuleEndAdmissibility() {
-    for (var symbol in ruleFirst.keys) {
+    for (var symbol = 0; symbol < ruleFirst.length; symbol++) {
+      if (ruleFirst[symbol] == null) {
+        continue;
+      }
+
       var atStart = List<bool>.filled(_precompiledTokenMax + 1, false);
       var notAtStart = List<bool>.filled(_precompiledTokenMax + 1, false);
 
       for (var token = _precompiledTokenMin; token <= _precompiledTokenMax; token++) {
-        var startValue = _canRuleEndWith(
-          symbol,
-          token,
-          isAtStart: true,
-          visitingRules: <PatternSymbol>{},
-        );
-        var nonStartValue = _canRuleEndWith(
-          symbol,
-          token,
-          isAtStart: false,
-          visitingRules: <PatternSymbol>{},
-        );
+        var startValue = _canRuleEndWith(symbol, token, isAtStart: true, visitingRules: {});
+        var nonStartValue = _canRuleEndWith(symbol, token, isAtStart: false, visitingRules: {});
         atStart[token] = startValue;
         notAtStart[token] = nonStartValue;
 
-        _ruleEndAdmissibilityCache[(symbol, token, true)] = startValue;
-        _ruleEndAdmissibilityCache[(symbol, token, false)] = nonStartValue;
+        _ruleEndAdmissibilityCache[symbol][token] = (startValue, nonStartValue);
       }
 
-      var eofAtStart = _canRuleEndWith(
-        symbol,
-        null,
-        isAtStart: true,
-        visitingRules: <PatternSymbol>{},
-      );
-      var eofNotAtStart = _canRuleEndWith(
-        symbol,
-        null,
-        isAtStart: false,
-        visitingRules: <PatternSymbol>{},
-      );
+      var eofAtStart = _canRuleEndWith(symbol, null, isAtStart: true, visitingRules: {});
+      var eofNotAtStart = _canRuleEndWith(symbol, null, isAtStart: false, visitingRules: {});
 
       _ruleEndAdmissibilityTables[symbol] = _RuleEndAdmissibilityTable(
         atStart: atStart,
@@ -350,8 +358,7 @@ class StateMachine {
         eofAtStart: eofAtStart,
         eofNotAtStart: eofNotAtStart,
       );
-      _ruleEndAdmissibilityCache[(symbol, null, true)] = eofAtStart;
-      _ruleEndAdmissibilityCache[(symbol, null, false)] = eofNotAtStart;
+      _ruleEndAdmissibilityCache[symbol][null] = (eofAtStart, eofNotAtStart);
     }
   }
 
@@ -361,7 +368,19 @@ class StateMachine {
   /// definitely impossible to start at this token. Unknown constructs default to
   /// true to avoid pruning valid parses.
   bool canRuleStartWith(PatternSymbol symbol, int? token, {required bool isAtStart}) {
-    var table = _ruleStartAdmissibilityTables[symbol]!;
+    var cached = _ruleStartAdmissibilityCache[symbol][token];
+    if (cached != null) {
+      return isAtStart ? cached.$1 : cached.$2;
+    }
+
+    if (symbol >= _ruleStartAdmissibilityTables.length) {
+      return true;
+    }
+    var table = _ruleStartAdmissibilityTables[symbol];
+    if (table == null) {
+      return true;
+    }
+
     if (token == null) {
       return isAtStart ? table.eofAtStart : table.eofNotAtStart;
     }
@@ -369,23 +388,15 @@ class StateMachine {
       return isAtStart ? table.atStart[token] : table.notAtStart[token];
     }
 
-    var key = (symbol, token, isAtStart);
-    if (_ruleStartAdmissibilityCache[key] case var cached?) {
-      return cached;
-    }
-
-    var result = _canRuleStartWith(
-      symbol,
-      token,
-      isAtStart: isAtStart,
-      visitingRules: <PatternSymbol>{},
-    );
-    _ruleStartAdmissibilityCache[key] = result;
-    return result;
+    return true;
   }
 
   void _precompileRuleStartAdmissibility() {
-    for (var symbol in ruleFirst.keys) {
+    for (var symbol = 0; symbol < ruleFirst.length; symbol++) {
+      if (ruleFirst[symbol] == null) {
+        continue;
+      }
+
       var atStart = List<bool>.filled(_precompiledTokenMax + 1, false);
       var notAtStart = List<bool>.filled(_precompiledTokenMax + 1, false);
 
@@ -405,8 +416,7 @@ class StateMachine {
         atStart[token] = startValue;
         notAtStart[token] = nonStartValue;
 
-        _ruleStartAdmissibilityCache[(symbol, token, true)] = startValue;
-        _ruleStartAdmissibilityCache[(symbol, token, false)] = nonStartValue;
+        _ruleStartAdmissibilityCache[symbol][token] = (startValue, nonStartValue);
       }
 
       var eofAtStart = _canRuleStartWith(
@@ -427,8 +437,7 @@ class StateMachine {
         eofAtStart: eofAtStart,
         eofNotAtStart: eofNotAtStart,
       );
-      _ruleStartAdmissibilityCache[(symbol, null, true)] = eofAtStart;
-      _ruleStartAdmissibilityCache[(symbol, null, false)] = eofNotAtStart;
+      _ruleStartAdmissibilityCache[symbol][null] = (eofAtStart, eofNotAtStart);
     }
   }
 
@@ -556,21 +565,31 @@ class StateMachine {
   ///   [initialStates] - The list of states to start parsing from
   ///   [stateMapping] - The complete mapping of state keys to compiled states
   void initializeImported(List<State> initialStates, Map<StateKey, State> stateMapping) {
-    _initializeFollowSetEntries();
     _initialStates = initialStates;
     _stateMapping.addAll(stateMapping);
     _cachedStates = stateMapping.values.toList();
     _ensureRuleStartAdmissibilityPrecompiled();
   }
 
-  Map<int, StateKey>? _idToKey;
+  List<StateKey?>? _idToKey;
 
   /// Returns the [StateKey] that produced the given [stateId].
   ///
   /// This is used for debugging and diagnostics to understand which grammar
   /// pattern or rule a particular state belongs to.
   StateKey? keyOf(int stateId) {
-    _idToKey ??= {for (var entry in _stateMapping.entries) entry.value.id: entry.key};
+    if (_idToKey == null) {
+      int maxId = 0;
+      for (var state in _stateMapping.values) {
+        if (state.id > maxId) {
+          maxId = state.id;
+        }
+      }
+      _idToKey = List<StateKey?>.filled(maxId + 1, null);
+      for (var entry in _stateMapping.entries) {
+        _idToKey![entry.value.id] = entry.key;
+      }
+    }
     return _idToKey![stateId];
   }
 
@@ -583,7 +602,6 @@ class StateMachine {
   ///   [initialStates] - The initial states for parsing
   ///   [allStates] - All states in the compiled machine
   void initializeFromJson(List<State> initialStates, List<State> allStates) {
-    _initializeFollowSetEntries();
     _initialStates = initialStates;
     _cachedStates = allStates;
     // Populate state mapping using InitStateKey for first state
@@ -654,7 +672,7 @@ class StateMachine {
             throw UnsupportedError("Invalid pattern type for predicate action");
         }
       case RuleCall(:var minPrecedenceLevel):
-        if (currentRule != null && (_tailSelfCalls[currentRule]?.contains(terminal) ?? false)) {
+        if (currentRule != null && _tailSelfCalls[currentRule.symbolId!].contains(terminal)) {
           // Relaxation #6: Allow tail call optimization even with precedence constraints,
           // as long as the call is structurally in tail position. The precedence level
           // is preserved in the tail call action and enforced at runtime.
@@ -843,7 +861,8 @@ class StateMachine {
     // Build tail-call graph: rule -> set of rules called in tail position
     var tailCallGraph = <Rule, Set<Rule>>{};
     for (var rule in grammar.rules) {
-      var tailCalls = _tailSelfCalls[rule] ?? const <RuleCall>{};
+      var symbolId = rule.symbolId!;
+      var tailCalls = _tailSelfCalls[symbolId];
       var targets = tailCalls.map((call) => call.rule).toSet();
       if (targets.isNotEmpty) {
         tailCallGraph[rule] = targets;
@@ -871,10 +890,11 @@ class StateMachine {
 
     // Prune tail calls to invalid rules
     for (var rule in grammar.rules) {
-      if (_tailSelfCalls[rule]!.isEmpty) {
+      var symbolId = rule.symbolId!;
+      if (_tailSelfCalls[symbolId].isEmpty) {
         continue;
       }
-      _tailSelfCalls[rule] = _tailSelfCalls[rule]!
+      _tailSelfCalls[symbolId] = _tailSelfCalls[symbolId]
           .where((call) => !invalidRules.contains(call.rule))
           .toSet();
     }
@@ -1101,9 +1121,20 @@ class StateMachine {
     // call / tailCall instruction so the runtime can do a direct Int32List
     // lookup with no HashMap indirection.
     var admissWords = <int>[];
-    var admissOffsets = <int, int>{}; // ruleId -> base offset in admissWords
+    var admissOffsets = List<int?>.filled(
+      ruleFirst.length,
+      null,
+    ); // ruleId -> base offset in admissWords
 
-    var sortedRuleIds = List<int>.from(ruleFirst.keys)..sort();
+    var ruleCount = ruleFirst.length;
+    var sortedRuleIds = <int>[];
+    for (int i = 0; i < ruleCount; i++) {
+      if (ruleFirst[i] != null) {
+        sortedRuleIds.add(i);
+      }
+    }
+    sortedRuleIds.sort();
+
     for (var sym in sortedRuleIds) {
       var baseOffset = admissWords.length;
       admissOffsets[sym] = baseOffset;

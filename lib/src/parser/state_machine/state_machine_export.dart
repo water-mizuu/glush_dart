@@ -115,14 +115,20 @@ extension StateMachineExport on StateMachine {
     }).toList();
 
     var initialStateIds = initialStates.map((s) => s.id).toList();
-    var rulesJson = allRules.values
-        .map((rule) => {"symbolId": rule.symbolId, "name": rule.name.symbol})
-        .toList();
+    var rulesJson = <Map<String, Object?>>[];
+    for (var rule in allRules) {
+      if (rule != null) {
+        rulesJson.add({"symbolId": rule.symbolId, "name": rule.name.symbol});
+      }
+    }
 
     var ruleFirstJson = <String, int>{};
-    ruleFirst.forEach((symbol, state) {
-      ruleFirstJson[symbol.toString()] = state.id;
-    });
+    for (int i = 0; i < ruleFirst.length; i++) {
+      var state = ruleFirst[i];
+      if (state != null) {
+        ruleFirstJson[i.toString()] = state.id;
+      }
+    }
 
     var export = {
       "version": "1.0",
@@ -209,8 +215,30 @@ StateMachine importFromJson(String jsonString, [GrammarInterface? grammar]) {
 
   // Create and initialize machine
   var machine = StateMachine.empty(grammar);
-  machine.ruleFirst.addAll(ruleFirstMapping);
-  machine.allRules.addAll(ruleMap.map((name, rule) => MapEntry(rule.symbolId!, rule)));
+
+  // Size the lists appropriately
+  int maxSym = 0;
+  for (var rule in ruleMap.values) {
+    if (rule.symbolId! > maxSym) {
+      maxSym = rule.symbolId!;
+    }
+  }
+  for (var symbolIdStr in ruleFirstData.keys) {
+    var symId = int.parse(symbolIdStr);
+    if (symId > maxSym) {
+      maxSym = symId;
+    }
+  }
+
+  machine.resize(maxSym + 1);
+
+  ruleFirstMapping.forEach((symbol, state) {
+    machine.ruleFirst[symbol] = state;
+  });
+
+  for (var rule in ruleMap.values) {
+    machine.allRules[rule.symbolId!] = rule;
+  }
 
   var rulesData = data["rules"]! as List<Object?>;
   for (var ruleData in rulesData.cast<Map<String, Object?>>()) {

@@ -392,37 +392,6 @@ class StructuredEvaluator {
   /// Creates a structured evaluator.
   const StructuredEvaluator();
 
-  void expandMarks(List<Mark> marks, int start, int end) {
-    for (int i = end - 1; i >= start; --i) {
-      if (marks[i] case ExpandingMark(name: var target)) {
-        int? foundStart;
-        int? foundEnd;
-        for (int j = i - 1; j >= start; --j) {
-          if (marks[j] case LabelEndMark(:var name) when name == target) {
-            foundEnd = j;
-            continue;
-          }
-
-          if (marks[j] case LabelStartMark(:var name) when name == target) {
-            if (foundEnd == null) {
-              throw StateError("Malformed mark list.");
-            }
-            foundStart = j;
-            break;
-          }
-        }
-
-        if (foundStart == null || foundEnd == null) {
-          throw StateError("Malformed mark list.");
-        }
-
-        var sublist = marks.sublist(foundStart + 1, foundEnd);
-        marks.insertAll(i, sublist);
-        expandMarks(marks, i, i + sublist.length);
-      }
-    }
-  }
-
   ParseResult evaluate(Object marks, {required String input}) {
     LazyGlushList<Mark> lazyMarks;
     if (marks is List<Mark>) {
@@ -450,9 +419,6 @@ class StructuredEvaluator {
         case LabelEndMark(:var name, :var position):
           stack.last.recordRange(position, position);
           _closeStrictLabel(stack, name, position);
-        case ExpandingMark():
-          throw UnsupportedError("Marks has not been expanded.");
-
       }
     }
 

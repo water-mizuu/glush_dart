@@ -98,6 +98,10 @@ sealed class Pattern {
       "las" => LabelStart(json["name"]! as String),
       "lae" => LabelEnd(json["name"]! as String),
       "ret" => Retreat(),
+      "rul" => Rule(
+        json["ruleName"]! as String,
+        () => throw StateError("Imported rule body thunk called"),
+      )..setBody(Pattern.fromJson(json["body"]! as Map<String, Object?>, ruleMap)),
       _ => throw UnsupportedError("Unknown pattern type: $type"),
     };
     if (json["symbolId"] != null) {
@@ -423,7 +427,7 @@ class Token extends Pattern {
   bool get capturesAsMark => choice.capturesAsMark;
 
   @override
-  Map<String, Object?> toJson() => {"type": "tok", "choice": choice.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "choice": choice.toJson()};
 
   @override
   Pattern invert() {
@@ -491,9 +495,6 @@ class Eps extends Pattern {
   Eps copy() => Eps();
 
   @override
-  Map<String, Object?> toJson() => {"type": "eps"};
-
-  @override
   String toString() => "eps";
 }
 
@@ -518,9 +519,6 @@ final class StartAnchor extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
-
-  @override
-  Map<String, Object?> toJson() => {"type": "bos"};
 
   @override
   String toString() => "^";
@@ -549,9 +547,6 @@ final class EofAnchor extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  Map<String, Object?> toJson() => {"type": "eof"};
-
-  @override
   String toString() => r"$";
 }
 
@@ -578,9 +573,6 @@ final class Retreat extends Pattern {
 
   @override
   Set<Pattern> lastSet() => {this};
-
-  @override
-  Map<String, Object?> toJson() => {"type": "ret"};
 
   @override
   String toString() => "<";
@@ -650,7 +642,11 @@ class Alt extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "alt", "left": left.toJson(), "right": right.toJson()};
+  Map<String, Object?> toJson() => {
+    ...super.toJson(),
+    "left": left.toJson(),
+    "right": right.toJson(),
+  };
 
   @override
   String toString() => "alt($left, $right)";
@@ -727,7 +723,11 @@ class Seq extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "seq", "left": left.toJson(), "right": right.toJson()};
+  Map<String, Object?> toJson() => {
+    ...super.toJson(),
+    "left": left.toJson(),
+    "right": right.toJson(),
+  };
 
   @override
   String toString() => "seq($left, $right)";
@@ -775,7 +775,7 @@ class Opt extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "opt", "child": child.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "child": child.toJson()};
 
   @override
   String toString() => "opt($child)";
@@ -830,7 +830,7 @@ class Star extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "star", "child": child.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "child": child.toJson()};
 
   @override
   String toString() => "star($child)";
@@ -884,7 +884,7 @@ class Plus extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "plu", "child": child.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "child": child.toJson()};
 
   @override
   String toString() => "plus($child)";
@@ -935,7 +935,7 @@ class And extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "and", "child": pattern.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "child": pattern.toJson()};
 
   @override
   String toString() => "and($pattern)";
@@ -985,7 +985,7 @@ class Not extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "not", "child": pattern.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "child": pattern.toJson()};
 
   @override
   String toString() => "not($pattern)";
@@ -1074,7 +1074,12 @@ class Rule extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "rul", "ruleName": name.symbol, "symbolId": symbolId};
+  Map<String, Object?> toJson() => {
+    "type": "rul",
+    "ruleName": name.symbol,
+    "symbolId": symbolId,
+    "body": body().toJson(),
+  };
 
   @override
   String toString() => "<$name>";
@@ -1191,7 +1196,7 @@ class Prec extends Pattern {
 
   @override
   Map<String, Object?> toJson() => {
-    "type": "pre",
+    ...super.toJson(),
     "precedenceLevel": precedenceLevel,
     "child": child.toJson(),
   };
@@ -1258,7 +1263,7 @@ class Label extends Pattern {
   }
 
   @override
-  Map<String, Object?> toJson() => {"type": "lab", "name": name, "child": child.toJson()};
+  Map<String, Object?> toJson() => {...super.toJson(), "name": name, "child": child.toJson()};
 
   @override
   String toString() => "$name:($child)";
@@ -1291,7 +1296,7 @@ class LabelStart extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  Map<String, Object?> toJson() => {"type": "las", "name": name};
+  Map<String, Object?> toJson() => {...super.toJson(), "name": name};
 
   @override
   String toString() => "label_start($name)";
@@ -1324,7 +1329,7 @@ class LabelEnd extends Pattern {
   Set<Pattern> lastSet() => {this};
 
   @override
-  Map<String, Object?> toJson() => {"type": "lae", "name": name};
+  Map<String, Object?> toJson() => {...super.toJson(), "name": name};
 
   @override
   String toString() => "label_end($name)";

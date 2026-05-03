@@ -136,16 +136,16 @@ class Step {
   /// separate sub-parse that can resolve later and wake parked continuations.
   /// Spawns a new sub-parse to evaluate a lookahead predicate.
   void _spawnPredicateSubparse(PatternSymbol symbol, Frame frame, {required bool isAnd}) {
-    var entryState = parseState.parser.stateMachine.ruleFirst[symbol];
-    if (entryState == null) {
-      throw StateError("Predicate symbol must resolve to a rule: $symbol");
-    }
-    GlushProfiler.increment("parser.predicates.spawned");
-    if (isAnd) {
-      GlushProfiler.increment("parser.predicates.and");
-    } else {
-      GlushProfiler.increment("parser.predicates.not");
-    }
+    var entryState = parseState.parser.stateMachine.ruleFirst[symbol]!;
+    assert(() {
+      GlushProfiler.increment("parser.predicates.spawned");
+      if (isAnd) {
+        GlushProfiler.increment("parser.predicates.and");
+      } else {
+        GlushProfiler.increment("parser.predicates.not");
+      }
+      return true;
+    }());
     var predicateKey = PredicateCallerKey(symbol, position, isAnd: isAnd);
     var nextStack = frame.context.predicateStack.add(predicateKey);
 
@@ -236,7 +236,7 @@ class Step {
     }
     if (isNewCaller) {
       GlushProfiler.increment("parser.callers.spawned");
-      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId];
+      var firstState = parseState.parser.stateMachine.ruleFirst[targetRule.symbolId!];
       if (firstState != null) {
         parseState.tracer?.onRuleCall(targetRule, position, caller, currentState, firstState);
         _enqueue(
@@ -419,9 +419,7 @@ class Step {
     LazyGlushList<Mark> parentMarks,
     Context returnContext,
   ) {
-    late var rule = parseState.stateMachine.grammar.allRules.values
-        .where((v) => v.symbolId == caller.rule)
-        .firstOrNull;
+    late var rule = parseState.stateMachine.grammar.allRules[caller.rule];
     // Call-site can reject returns below its minimum precedence threshold.
     if (minPrecedence != null &&
         returnContext.precedenceLevel != null &&
@@ -884,12 +882,7 @@ class Step {
         frame.context.predicateStack.lastOrNull == caller,
         "Invariant violation in ReturnAction: predicate caller should be the top of predicateStack.",
       );
-      var key = PredicateKey(
-        caller.pattern,
-        caller.startPosition,
-        isAnd: caller.isAnd,
-        // name: caller.name,
-      );
+      var key = PredicateKey(caller.pattern, caller.startPosition, isAnd: caller.isAnd);
       var tracker = parseState.trackers[key] as PredicateTracker<State>?;
       if (tracker == null) {
         return;
@@ -922,14 +915,12 @@ class Step {
 
       tracker.waiters.clear();
       parseState.removeTracker(key);
-      return;
-    }
+    } else if (caller is Caller) {
+      var isNewReturn = _returnedCallersPositionAware.add((caller, returnPosition));
+      if (!isSupportingAmbiguity && !isNewReturn) {
+        return;
+      }
 
-    if (!isSupportingAmbiguity && !_returnedCallersPositionAware.add((caller, returnPosition))) {
-      return;
-    }
-
-    if (caller is Caller) {
       // End-admissibility is only safe when the exact token at returnPosition is known.
       var returnToken = _getTokenFor(frame);
       var endAdmissible = parseState.parser.stateMachine.canRuleEndWith(
@@ -944,17 +935,19 @@ class Step {
 
       var returnContext = frame.context.copyWith(precedenceLevel: action.precedenceLevel);
       if (caller.addReturn(returnContext, frame.marks)) {
-        late var rule = parseState.stateMachine.grammar.allRules.values
-            .where((v) => v.symbolId == caller.rule)
-            .firstOrNull;
-        parseState.tracer?.onRuleReturn(rule!, returnPosition, caller, state);
+        if (parseState.tracer != null) {
+          var rule = parseState.stateMachine.grammar.allRules[caller.rule]!;
 
-        for (var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks)
-            in caller.waiters) {
+          parseState.tracer!.onRuleReturn(rule, returnPosition, caller, state);
+        }
+
+        for (var waiter in caller.waiters) {
+          var WaiterInfo(:nextStateId, :minPrecedence, :parentContext, :parentMarks) = waiter;
+
           _triggerReturn(
             caller,
             parentContext.caller,
-            parseState.parser.stateMachine.states.firstWhere((s) => s.id == nextStateId),
+            parseState.parser.stateMachine.states[nextStateId],
             minPrecedence,
             parentContext,
             parentMarks,

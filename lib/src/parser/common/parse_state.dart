@@ -33,12 +33,31 @@ final class ParseState {
   }) : frames = initialFrames,
        rulesByName = {
          for (var rule in parser.grammar.rules) rule.name!: rule,
-         for (var rule in parser.stateMachine.allRules.values) rule.name!: rule,
+         for (var rule in parser.stateMachine.allRules)
+           if (rule case var rule?) rule.name!: rule,
        },
-       rulesById = {
-         for (var rule in parser.grammar.rules) rule.symbolId!: rule,
-         for (var rule in parser.stateMachine.allRules.values) rule.symbolId!: rule,
-       } {
+       rulesById = [] {
+    int maxSym = 0;
+    for (var rule in parser.grammar.rules) {
+      if (rule.symbolId! > maxSym) {
+        maxSym = rule.symbolId!;
+      }
+    }
+    for (var rule in parser.stateMachine.allRules) {
+      if (rule != null && rule.symbolId! > maxSym) {
+        maxSym = rule.symbolId!;
+      }
+    }
+    rulesById.length = maxSym + 1;
+
+    for (var rule in parser.grammar.rules) {
+      rulesById[rule.symbolId!] = rule;
+    }
+    for (var rule in parser.stateMachine.allRules) {
+      if (rule != null) {
+        rulesById[rule.symbolId!] = rule;
+      }
+    }
     tracer?.onStart(parser.stateMachine);
   }
 
@@ -75,8 +94,8 @@ final class ParseState {
   /// A fast lookup map for rules by their unique names.
   final Map<RuleName, Rule> rulesByName;
 
-  /// A fast lookup map for rules by their numeric symbol IDs.
-  final Map<int, Rule> rulesById;
+  /// A fast lookup list for rules by their numeric symbol IDs.
+  final List<Rule?> rulesById;
 
   /// The current index in the input stream (zero-based).
   int position = 0;

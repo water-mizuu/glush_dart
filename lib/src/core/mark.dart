@@ -105,39 +105,6 @@ class LabelEndMark implements Mark {
   String toString() => "LabelEnd($name, $position)";
 }
 
-/// A mark used during the expansion of recursive or complex patterns.
-///
-/// Expanding marks are temporary indicators used by the parser to track
-/// progress through potentially nested or repeating structures that haven't
-/// yet finalized their internal mark stream.
-class ExpandingMark implements Mark {
-  /// Creates an [ExpandingMark] with the given [name] and [position].
-  const ExpandingMark(this.name, this.position);
-
-  /// The name of the pattern currently being expanded.
-  final String name;
-
-  /// The position in the input where the expansion started.
-  final int position;
-
-  /// Compares this expanding mark to another for equality.
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ExpandingMark &&
-          runtimeType == other.runtimeType &&
-          name == other.name &&
-          position == other.position;
-
-  /// Generates a hash code for use in collections.
-  @override
-  int get hashCode => name.hashCode ^ position.hashCode;
-
-  /// Returns a list representation, identifying it specifically as an "expanding" mark.
-  @override
-  List<Object> toList() => ["expanding", name, position];
-}
-
 /// Extensions for converting a list of marks into a more readable format.
 extension MarkListExtension on List<Mark> {
   /// Condenses a mark stream into a list of names and matched text.
@@ -199,24 +166,4 @@ class LabelEndVal extends LazyVal<Mark> {
   /// Returns a string representation of this lazy value.
   @override
   String toString() => "LabelEnd($name, $position)";
-}
-
-/// A lazy value that produces an [ExpandingMark].
-class ExpandingMarkVal extends LazyVal<Mark> {
-  /// Creates an [ExpandingMarkVal] with the given [name] and [position].
-  const ExpandingMarkVal(this.name, this.position);
-
-  /// The name of the pattern being expanded.
-  final String name;
-
-  /// The position where the expansion started.
-  final int position;
-
-  /// Produces the concrete [ExpandingMark] instance.
-  @override
-  Mark evaluate() => ExpandingMark(name, position);
-
-  /// Returns a string representation of this lazy value.
-  @override
-  String toString() => "ExpandingMark($name, $position)";
 }

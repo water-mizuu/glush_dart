@@ -1,6 +1,7 @@
 import "package:glush/src/core/grammar.dart";
 import "package:glush/src/core/list.dart";
 import "package:glush/src/core/mark.dart";
+import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/bytecode/bytecode_frame.dart";
 import "package:glush/src/parser/bytecode/bytecode_machine.dart";
 import "package:glush/src/parser/bytecode/bytecode_parse_state.dart";
@@ -19,6 +20,52 @@ class BCParser implements RecognizerAndMarksParser {
   BCParser(this.grammar) {
     stateMachine = StateMachine(grammar);
     machine = stateMachine.toBytecodeMachine();
+  }
+
+  /// Reconstructs a [BCParser] from a JSON-compatible map.
+  factory BCParser.import(Map<String, dynamic> json) {
+    var machineJson = json["machine"] as Map<String, dynamic>;
+    var machine = BytecodeMachine.fromJson(machineJson);
+
+    var grammarJson = json["grammar"] as Map<String, dynamic>;
+    var rulesJson = grammarJson["rules"] as List;
+
+    // First pass: create all rules
+    var ruleMap = <String, Rule>{};
+    for (var rj in rulesJson) {
+      var map = rj as Map<String, dynamic>;
+      var name = map["ruleName"] as String;
+      var rule = Rule(name, () => throw StateError("Imported rule body thunk called"));
+      rule.symbolId = map["symbolId"] as int?;
+      ruleMap[name] = rule;
+    }
+
+    // Second pass: populate bodies
+    for (var rj in rulesJson) {
+      var map = rj as Map<String, dynamic>;
+      var name = map["ruleName"] as String;
+      var rule = ruleMap[name]!;
+      rule.setBody(Pattern.fromJson(map["body"] as Map<String, dynamic>, ruleMap));
+    }
+
+    var startSymbol = grammarJson["startSymbol"] as int;
+    var startCall =
+        Pattern.fromJson(grammarJson["startCall"] as Map<String, dynamic>, ruleMap) as RuleCall;
+
+    var shellGrammar = ShellGrammar(
+      startSymbol: startSymbol,
+      rules: ruleMap.values.toList(),
+      startCall: startCall,
+    );
+
+    return BCParser.fromMachine(shellGrammar, machine);
+  }
+
+  BCParser.fromMachine(this.grammar, this.machine, [StateMachine? stateMachine]) {
+    this.stateMachine = stateMachine ?? StateMachine.empty(grammar);
+    if (stateMachine == null) {
+      this.stateMachine.allRules.addAll(grammar.allRules);
+    }
   }
 
   late final StateMachine stateMachine;
@@ -295,6 +342,18 @@ class BCParser implements RecognizerAndMarksParser {
       return null;
     }
     return history[pos];
+  }
+
+  /// Exports the parser to a JSON-compatible map.
+  Map<String, dynamic> export() {
+    return {
+      "machine": machine.toJson(),
+      "grammar": {
+        "startSymbol": grammar.startSymbol,
+        "startCall": grammar.startCall.toJson(),
+        "rules": grammar.rules.map((r) => r.toJson()).toList(),
+      },
+    };
   }
 }
 

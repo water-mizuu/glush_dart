@@ -12,6 +12,8 @@ import "package:glush/src/parser/bytecode/bytecode_machine.dart" show BytecodeOp
 /// ([BytecodeOp.tokenExact], [BytecodeOp.tokenRange], etc.), so no
 /// runtime lookup into a constants table is needed for token dispatch.
 class ConstantsTable {
+  ConstantsTable();
+
   final List<String> _strings = [];
   final Map<String, int> _stringToId = {};
 
@@ -32,4 +34,16 @@ class ConstantsTable {
 
   /// Returns all stored strings.
   List<String> get strings => List.unmodifiable(_strings);
+
+  /// Serializes the table to a JSON-compatible list of strings.
+  List<String> toJson() => _strings.toList();
+
+  /// Reconstructs a [ConstantsTable] from a JSON-compatible list of strings.
+  factory ConstantsTable.fromJson(List<dynamic> json) {
+    var table = ConstantsTable();
+    for (var s in json) {
+      table.addString(s as String);
+    }
+    return table;
+  }
 }

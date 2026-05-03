@@ -391,9 +391,6 @@ String generateColoredDot(
       } else if (action is ReturnAction) {
         var returnNodeId = "__return_${action.ruleSymbol}__";
         var labelStr = (machine.grammar.registry[action.ruleSymbol]! as Rule).name as String;
-        if (action.precedenceLevel != null) {
-          labelStr = "$labelStr (prec: ${action.precedenceLevel})";
-        }
         var isActive = isActionActive("Return");
         if (isActive) {
           edgeColor = "#1971c2"; // Blue for active returns

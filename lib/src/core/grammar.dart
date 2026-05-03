@@ -4,7 +4,6 @@ library glush.grammar;
 import "dart:collection";
 
 import "package:glush/src/core/patterns.dart";
-import "package:glush/src/parser/state_machine/state_machine.dart";
 
 /// A function signature for building a grammar.
 ///
@@ -24,7 +23,7 @@ sealed class GrammarInterface {
   ///
   /// This mapping is used by the parser and evaluator to resolve numeric IDs
   /// into concrete logic during execution.
-  Map<PatternSymbol, Pattern> get registry;
+  List<Pattern?> get registry;
 
   /// The entry point call for the grammar.
   ///
@@ -37,8 +36,8 @@ sealed class GrammarInterface {
   /// The list of all rules defined within this grammar.
   List<Rule> get rules;
 
-  /// A map for fast lookup of [Rule] instances by their symbol ID.
-  Map<PatternSymbol, Rule> get allRules;
+  /// A list for fast lookup of [Rule] instances by their symbol ID.
+  List<Rule?> get allRules;
 
   /// Indicates whether the grammar is fundamentally empty (i.e., matches the empty string).
   bool isEmpty();
@@ -74,16 +73,13 @@ class Grammar implements GrammarInterface {
   /// A mapping of transitions between patterns, used during state machine generation.
   Map<Pattern, List<Pattern>>? transitions;
 
-  /// The compiled state machine for this grammar.
-  StateMachine? _stateMachine;
-
   /// The registry for mapping symbol IDs to patterns.
   @override
-  final Map<PatternSymbol, Pattern> registry = {};
+  final List<Pattern?> registry = [];
 
-  /// Fast lookup map for rules by their symbol ID.
+  /// Fast lookup list for rules by their symbol ID.
   @override
-  final Map<PatternSymbol, Rule> allRules = {};
+  final List<Rule?> allRules = [];
 
   /// Returns the symbol ID of the start rule.
   @override
@@ -100,7 +96,7 @@ class Grammar implements GrammarInterface {
     startCall = start.consume() as RuleCall;
 
     // Discover all rules referenced from the start call
-    var discoveredRules = <Rule>{startCall.rule};
+    var discoveredRules = {startCall.rule};
     var toProcess = Queue.of([startCall.rule]);
 
     // Recursively discover rules by examining their bodies
@@ -146,9 +142,27 @@ class Grammar implements GrammarInterface {
     }
 
     int symbolCounter = 0;
-    // Assign symbol IDs to each pattern in discovery order
+    int maxSym = 0;
+    for (var pattern in allPatterns) {
+      if (pattern.symbolId != null && pattern.symbolId! > maxSym) {
+        maxSym = pattern.symbolId!;
+      }
+    }
+
+    // We don't know the final symbolCounter yet, but we can estimate it
+    // Or just assign IDs first, then size.
+    // Actually, assigning first is easier if we use a Set.
     for (var pattern in allPatterns) {
       pattern.symbolId ??= symbolCounter++;
+      if (pattern.symbolId! > maxSym) {
+        maxSym = pattern.symbolId!;
+      }
+    }
+
+    registry.length = maxSym + 1;
+    allRules.length = maxSym + 1;
+
+    for (var pattern in allPatterns) {
       var actualSymbolId = pattern.symbolId!;
       registry[actualSymbolId] = pattern;
       if (pattern is Rule) {
@@ -295,6 +309,12 @@ class Grammar implements GrammarInterface {
         _collectPatternsFromPattern(star.child, patterns);
       case Label label:
         _collectPatternsFromPattern(label.child, patterns);
+        for (var p in label.firstSet()) {
+          _collectPatternsFromPattern(p, patterns);
+        }
+        for (var p in label.lastSet()) {
+          _collectPatternsFromPattern(p, patterns);
+        }
       case Token() ||
           StartAnchor() ||
           EofAnchor() ||
@@ -311,19 +331,10 @@ class Grammar implements GrammarInterface {
   /// An iterable yielding every pattern instance used in the grammar.
   Iterable<Pattern> get allPatterns sync* {
     for (Rule rule in rules) {
-      Set<Pattern> patterns = {rule};
+      Set<Pattern> patterns = {};
       _collectPatternsFromRule(rule, patterns);
       yield* patterns;
     }
-  }
-
-  /// Gets the [StateMachine] compiled for this grammar.
-  ///
-  /// The state machine is lazily instantiated and cached, as its construction
-  /// can be computationally intensive for large grammars.
-  StateMachine get stateMachine {
-    _stateMachine ??= StateMachine(this);
-    return _stateMachine!;
   }
 
   /// Checks if the grammar's start rule can match an empty string.
@@ -345,6 +356,8 @@ class Grammar implements GrammarInterface {
       // Only process rules that are in the explicit rules list
       for (var rule in rules) {
         try {
+          /// Calling calculateEmpty for each rule fully computes its empty status.
+          ///   This is a self-mutating operation.
           if (rule.calculateEmpty(emptyRules)) {
             emptyRules.add(rule);
           }
@@ -367,20 +380,17 @@ class Grammar implements GrammarInterface {
 
     for (var rule in rules) {
       for (var (a, b) in rule.body().eachPair()) {
-        transitions![a] ??= [];
-        transitions![a]!.add(b);
+        transitions!
+          ..[a] ??= []
+          ..[a]!.add(b);
       }
 
       for (var lastState in rule.body().lastSet()) {
-        transitions![lastState] ??= [];
-        transitions![lastState]!.add(rule);
+        transitions!
+          ..[lastState] ??= []
+          ..[lastState]!.add(rule);
       }
     }
-
-    // // Use a marker Pattern for the success node
-    // var successMarker = Marker("__start__");
-    // transitions![startCall] ??= [];
-    // transitions![startCall]!.add(successMarker);
   }
 }
 
@@ -392,6 +402,13 @@ class Grammar implements GrammarInterface {
 class ShellGrammar implements GrammarInterface {
   /// Constructs a [ShellGrammar] with the required structural components.
   ShellGrammar({required this.startSymbol, required this.rules, required this.startCall}) {
+    int maxSym = startSymbol;
+    for (var rule in rules) {
+      if (rule.symbolId! > maxSym) {
+        maxSym = rule.symbolId!;
+      }
+    }
+    allRules.length = maxSym + 1;
     for (var rule in rules) {
       allRules[rule.symbolId!] = rule;
     }
@@ -399,11 +416,11 @@ class ShellGrammar implements GrammarInterface {
 
   /// The pattern registry (often empty in a shell grammar).
   @override
-  final Map<PatternSymbol, Pattern> registry = {};
+  final List<Pattern?> registry = [];
 
-  /// Fast lookup map for rules.
+  /// Fast lookup list for rules.
   @override
-  final Map<PatternSymbol, Rule> allRules = {};
+  final List<Rule?> allRules = [];
 
   /// The entry point symbol.
   @override

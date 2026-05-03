@@ -108,7 +108,7 @@ abstract final class BytecodeOp {
   static const int retSimple = 16;
 
   /// Returns from a rule with a specific precedence level.
-  /// Operands: [precedenceLevel]
+  /// Operands: [precedenceLevel,]
   static const int retPrec = 17;
 
   // --- Miscellaneous ---
@@ -161,4 +161,24 @@ class BytecodeMachine {
   /// [tailCall,] instruction, enabling a direct [Int32List] lookup with no
   /// [HashMap] indirection.
   final Int32List admissibility;
+
+  /// Serializes the machine to a JSON-compatible map.
+  Map<String, dynamic> toJson() => {
+    "bytecode": bytecode.toList(),
+    "stateOffsets": stateOffsets.toList(),
+    "constants": constants.toJson(),
+    "initialStates": initialStates.toList(),
+    "admissibility": admissibility.toList(),
+  };
+
+  /// Reconstructs a [BytecodeMachine] from a JSON-compatible map.
+  factory BytecodeMachine.fromJson(Map<String, dynamic> json) {
+    return BytecodeMachine(
+      bytecode: Int32List.fromList((json["bytecode"] as List).cast<int>()),
+      stateOffsets: Int32List.fromList((json["stateOffsets"] as List).cast<int>()),
+      constants: ConstantsTable.fromJson(json["constants"] as List),
+      initialStates: Int32List.fromList((json["initialStates"] as List).cast<int>()),
+      admissibility: Int32List.fromList((json["admissibility"] as List).cast<int>()),
+    );
+  }
 }
