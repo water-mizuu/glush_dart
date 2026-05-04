@@ -135,6 +135,17 @@ class BytecodeMachine {
     required this.admissibility,
   });
 
+  /// Reconstructs a [BytecodeMachine] from a JSON-compatible map.
+  factory BytecodeMachine.fromJson(Map<String, dynamic> json) {
+    return BytecodeMachine(
+      bytecode: Int32List.fromList((json["bytecode"] as List).cast<int>()),
+      stateOffsets: Int32List.fromList((json["stateOffsets"] as List).cast<int>()),
+      constants: ConstantsTable.fromJson(json["constants"] as List),
+      initialStates: Int32List.fromList((json["initialStates"] as List).cast<int>()),
+      admissibility: Int32List.fromList((json["admissibility"] as List).cast<int>()),
+    );
+  }
+
   /// The flat array of instructions and operands.
   final Int32List bytecode;
 
@@ -170,15 +181,4 @@ class BytecodeMachine {
     "initialStates": initialStates.toList(),
     "admissibility": admissibility.toList(),
   };
-
-  /// Reconstructs a [BytecodeMachine] from a JSON-compatible map.
-  factory BytecodeMachine.fromJson(Map<String, dynamic> json) {
-    return BytecodeMachine(
-      bytecode: Int32List.fromList((json["bytecode"] as List).cast<int>()),
-      stateOffsets: Int32List.fromList((json["stateOffsets"] as List).cast<int>()),
-      constants: ConstantsTable.fromJson(json["constants"] as List),
-      initialStates: Int32List.fromList((json["initialStates"] as List).cast<int>()),
-      admissibility: Int32List.fromList((json["admissibility"] as List).cast<int>()),
-    );
-  }
 }
