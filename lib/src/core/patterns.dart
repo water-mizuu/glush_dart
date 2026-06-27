@@ -5,7 +5,6 @@ library glush.patterns;
 
 import "dart:convert";
 
-import "package:glush/src/compiler/errors.dart";
 import "package:glush/src/core/profiling.dart";
 
 typedef PatternSymbol = int;
@@ -158,11 +157,6 @@ sealed class Pattern {
   /// Whether this pattern matches the provided [token].
   bool match(int? token) {
     throw UnimplementedError("match not implemented for $runtimeType");
-  }
-
-  /// Returns a pattern that matches the inverse of this one.
-  Pattern invert() {
-    throw UnimplementedError("invert not implemented for $runtimeType");
   }
 
   /// Calculates the nullability of this pattern based on rule references.
@@ -430,22 +424,6 @@ class Token extends Pattern {
   Map<String, Object?> toJson() => {...super.toJson(), "choice": choice.toJson()};
 
   @override
-  Pattern invert() {
-    switch (choice) {
-      case ExactToken(:var value):
-        return Token(LessToken(value - 1)) | Token(GreaterToken(value + 1));
-      case RangeToken(:var start, :var end):
-        return Token(LessToken(start - 1)) | Token(GreaterToken(end + 1));
-      case LessToken(:var bound):
-        return Token(GreaterToken(bound + 1));
-      case GreaterToken(:var bound):
-        return Token(LessToken(bound - 1));
-      default:
-        throw Exception("Cannot invert $choice");
-    }
-  }
-
-  @override
   Token copy() => Token(choice);
 
   @override
@@ -603,15 +581,6 @@ class Alt extends Pattern {
   bool match(int? token) => left.match(token) || right.match(token);
 
   @override
-  Pattern invert() {
-    try {
-      return left.invert() >> right.invert();
-    } on GrammarError {
-      return not();
-    }
-  }
-
-  @override
   bool calculateEmpty(Set<Rule> emptyRules) {
     var leftEmpty = left.calculateEmpty(emptyRules);
     var rightEmpty = right.calculateEmpty(emptyRules);
@@ -669,9 +638,6 @@ class Seq extends Pattern {
 
   @override
   Seq copy() => Seq(left, right);
-
-  @override
-  Pattern invert() => not();
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {
@@ -906,9 +872,6 @@ class And extends Pattern {
   And copy() => And(pattern);
 
   @override
-  Pattern invert() => Not(pattern);
-
-  @override
   bool calculateEmpty(Set<Rule> emptyRules) {
     pattern.calculateEmpty(emptyRules);
     setEmpty(false);
@@ -954,9 +917,6 @@ class Not extends Pattern {
 
   @override
   Not copy() => Not(pattern);
-
-  @override
-  Pattern invert() => And(pattern);
 
   @override
   bool calculateEmpty(Set<Rule> emptyRules) {

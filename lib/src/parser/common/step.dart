@@ -302,11 +302,10 @@ class Step {
     }
 
     // Optimized fast-path: check if context is simple and use bit-packed ID
+    // Note: We can't use bit shifting for caller.uid because JavaScript has 32-bit
+    // bit operations. Use a simple hash-combining approach instead.
     if (nextContext.isSimple) {
-      var packedId =
-          (nextContext.caller.uid << 32) |
-          (state.id << 8) |
-          (nextContext.minPrecedenceLevel ?? 0xFF);
+      var packedId = Object.hash(nextContext.caller.uid, state.id, nextContext.minPrecedenceLevel);
 
       if (!isSupportingAmbiguity && !_activeContextKeysInt.add(packedId)) {
         GlushProfiler.incrementHit("parser.enqueue.deduplicated");
@@ -331,7 +330,7 @@ class Step {
       return;
     } else {
       // Slow-path for complex contexts
-      var key = ComplexContextKey(state.id, nextContext);
+      var key = ContextKey.create(state.id, nextContext) as ComplexContextKey;
 
       if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
         GlushProfiler.incrementHit("parser.enqueue.deduplicated");

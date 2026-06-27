@@ -35,10 +35,10 @@ class BytecodeStep {
   List<PredicateKey>? exhaustedPredicatesSink;
 
   final Map<int, BytecodeContextGroup> _currentFrameGroupsInt = {};
-  final Map<ComplexContextKey, BytecodeContextGroup> _currentFrameGroupsComplex = {};
+  final Map<ContextKey, BytecodeContextGroup> _currentFrameGroupsComplex = {};
 
   final Set<int> _activeContextKeysInt = {};
-  final Set<ComplexContextKey> _activeContextKeysComplex = {};
+  final Set<ContextKey> _activeContextKeysComplex = {};
 
   final List<Object> _workQueue = [];
   int _workQueueHead = 0;
@@ -74,7 +74,7 @@ class BytecodeStep {
       _workQueue.add(packedId);
       _workQueue.add(stateId);
     } else {
-      var key = ComplexContextKey(stateId, context);
+      var key = ContextKey.create(stateId, context);
       if (!isSupportingAmbiguity && !_activeContextKeysComplex.add(key)) {
         return;
       }
@@ -100,7 +100,7 @@ class BytecodeStep {
       if (key is int) {
         group = _currentFrameGroupsInt.remove(key);
       } else {
-        group = _currentFrameGroupsComplex.remove(key as ComplexContextKey);
+        group = _currentFrameGroupsComplex.remove(key);
       }
       if (group == null) {
         continue;

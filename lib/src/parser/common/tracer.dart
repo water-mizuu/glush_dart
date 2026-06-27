@@ -1,6 +1,3 @@
-import "dart:async";
-import "dart:io";
-
 import "package:glush/src/core/patterns.dart";
 import "package:glush/src/parser/common/frame.dart";
 import "package:glush/src/parser/key/caller_key.dart";
@@ -50,15 +47,15 @@ abstract class ParseTracer {
 
 /// A [ParseTracer] implementation that writes human-readable execution logs to a file.
 class SinkTracer implements ParseTracer {
-  SinkTracer(this._sink);
-  final StringSink _sink;
+  SinkTracer(this.sink);
+  final StringSink sink;
 
   @override
   void onStart(StateMachine sm) {
-    _sink.writeln("STATE MACHINE VISUALIZATION");
-    _sink.writeln("=" * 80);
+    sink.writeln("STATE MACHINE VISUALIZATION");
+    sink.writeln("=" * 80);
     for (var state in sm.states) {
-      _sink.writeln("State ${state.id}");
+      sink.writeln("State ${state.id}");
       for (var action in state.actions) {
         var actionText = action.toString();
         var nextId = "";
@@ -84,98 +81,98 @@ class SinkTracer implements ParseTracer {
         } else if (action is ReturnAction || action is TailCallAction) {
           nextId = " -> [GSS Return]";
         }
-        _sink.writeln("  [Action] $actionText$nextId");
+        sink.writeln("  [Action] $actionText$nextId");
       }
-      _sink.writeln("-" * 40);
+      sink.writeln("-" * 40);
     }
-    _sink.writeln("=" * 80 + "\n");
+    sink.writeln("=" * 80 + "\n");
   }
 
   @override
   void onStepStart(int position, int? token, List<Frame> frames) {
-    _sink.writeln("\n${"=" * 80}");
-    _sink.writeln(
+    sink.writeln("\n${"=" * 80}");
+    sink.writeln(
       "POSITION: $position, TOKEN: ${token != null ? "'${String.fromCharCode(token)}'" : 'EOF'}",
     );
-    _sink.writeln("-" * 80);
-    _sink.writeln("Active set of states (${frames.length} frames):");
+    sink.writeln("-" * 80);
+    sink.writeln("Active set of states (${frames.length} frames):");
     for (var i = 0; i < frames.length; i++) {
       var frame = frames[i];
       var states = frame.nextStates.map((s) => s.toString()).join(", ");
-      _sink.writeln("  Frame $i:");
-      _sink.writeln("    States:  {$states}");
-      _sink.writeln(
+      sink.writeln("  Frame $i:");
+      sink.writeln("    States:  {$states}");
+      sink.writeln(
         "    Context: caller=${frame.context.caller}, marks=${frame.marks.evaluate().iterate().toList().length}",
       );
     }
-    _sink.writeln("=" * 80 + "\n");
+    sink.writeln("=" * 80 + "\n");
   }
 
   @override
   void onProcessState(Frame frame, State state) {
-    _sink.writeln("  [* Process] $state");
-    _sink.writeln(
+    sink.writeln("  [* Process] $state");
+    sink.writeln(
       "      Context: caller=${frame.context.caller}, marks=${frame.marks.evaluate().iterate().toList().length}",
     );
   }
 
   @override
   void onAction(StateAction action, String result) {
-    _sink.writeln("    [> Action]  $action -> $result");
+    sink.writeln("    [> Action]  $action -> $result");
   }
 
   @override
   void onEnqueue(State state, int targetPosition, String reason) {
-    _sink.writeln("  [+ Queue]   $state at pos $targetPosition ($reason)");
+    sink.writeln("  [+ Queue]   $state at pos $targetPosition ($reason)");
   }
 
   @override
   void onRuleCall(Rule rule, int position, CallerKey caller, State fromState, State toState) {
-    _sink.writeln("  [> Call]    State(${fromState.id}) -> State(${toState.id}) at pos $position");
+    sink.writeln("  [> Call]    State(${fromState.id}) -> State(${toState.id}) at pos $position");
   }
 
   @override
   void onRuleReturn(Rule rule, int position, CallerKey caller, State? fromState) {
     if (fromState != null) {
-      _sink.writeln("  [< Return]  State(${fromState.id}) at pos $position");
+      sink.writeln("  [< Return]  State(${fromState.id}) at pos $position");
     }
   }
 
   @override
   void onPredicateResumed(PatternSymbol symbol, int position, {required bool isAnd}) {
-    _sink.writeln("    ! Predicate matched: $symbol (AND: $isAnd) at pos $position");
+    sink.writeln("    ! Predicate matched: $symbol (AND: $isAnd) at pos $position");
   }
 
   @override
   void onTrackerUpdate(String type, String key, int pendingFrames, String action) {
-    _sink.writeln("  [T Tracker] $type($key) -> $action (pendingFrames: $pendingFrames)");
+    sink.writeln("  [T Tracker] $type($key) -> $action (pendingFrames: $pendingFrames)");
   }
 
   @override
   void onMessage(String message) {
-    _sink.writeln("    ! $message");
+    sink.writeln("    ! $message");
   }
 
   @override
   void finalize() {}
 }
 
-/// A [ParseTracer] implementation that writes human-readable execution logs to a file.
-class FileTracer extends SinkTracer {
-  /// Creates a [FileTracer] that writes to the file at [path].
-  FileTracer(String path) : super(File(path).openWrite());
+// /// A [ParseTracer] implementation that writes human-readable execution logs to a file.
+// class FileTracer extends SinkTracer {
+//   /// Creates a [FileTracer] that writes to the file at [path].
+//   FileTracer(String path) : super(File(path).openWrite());
 
-  @override
-  void finalize() {
-    unawaited((super._sink as IOSink).close());
-  }
-}
+//   @override
+//   void finalize() {
+//     unawaited((super._sink as IOSink).close());
+//   }
+// }
 
-class PrintTracer extends SinkTracer {
-  PrintTracer() : super(stdout);
+// class PrintTracer extends SinkTracer {
+//   PrintTracer() : super(stdout);
 
-  @override
-  void finalize() {
-    unawaited(stdout.flush());
-  }
-}
+//   @override
+//   void finalize() {
+//     unawaited(stdout.flush());
+//   }
+// }

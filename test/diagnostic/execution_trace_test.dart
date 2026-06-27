@@ -1,8 +1,8 @@
+import "dart:async";
 import "dart:io";
 
 import "package:glush/glush.dart";
 import "package:glush/src/parser/common/parse_state.dart";
-import "package:glush/src/parser/common/tracer.dart";
 import "package:test/test.dart";
 
 void main() {
@@ -57,4 +57,15 @@ void main() {
       expect(content, contains("! Predicate matched"));
     });
   });
+}
+
+/// A [ParseTracer] implementation that writes human-readable execution logs to a file.
+class FileTracer extends SinkTracer {
+  /// Creates a [FileTracer] that writes to the file at [path].
+  FileTracer(String path) : super(File(path).openWrite());
+
+  @override
+  void finalize() {
+    unawaited((super.sink as IOSink).close());
+  }
 }

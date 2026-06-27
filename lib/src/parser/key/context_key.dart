@@ -6,18 +6,16 @@ import "package:meta/meta.dart";
 sealed class ContextKey {
   static ContextKey create(int stateId, Context context) {
     if (context.isSimple) {
-      return IntContextKey(
-        (context.caller.uid << 32) | (stateId << 8) | (context.minPrecedenceLevel ?? 0xFF),
-      );
+      return IntContextKey._(Object.hash(context.caller.uid, stateId, context.minPrecedenceLevel));
     }
 
-    return ComplexContextKey(stateId, context);
+    return ComplexContextKey._(stateId, context);
   }
 }
 
 /// A bit-packed context key for simple, non-predicate paths.
 final class IntContextKey implements ContextKey {
-  const IntContextKey(this.id);
+  const IntContextKey._(this.id);
   final int id;
 
   @override
@@ -29,7 +27,7 @@ final class IntContextKey implements ContextKey {
 
 /// A full context key for complex paths (predicates, captures, or BSR rules).
 final class ComplexContextKey implements ContextKey {
-  ComplexContextKey(this.stateId, this.context)
+  ComplexContextKey._(this.stateId, this.context)
     : _hash = Object.hash(ComplexContextKey, stateId, context);
 
   final int _hash;
